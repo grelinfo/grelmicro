@@ -15,7 +15,7 @@ from grelmicro.sync.errors import (
     LockNotOwnedError,
     LockReleaseError,
 )
-from grelmicro.sync.lock import LeasedLock
+from grelmicro.sync.lock import Lock
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
 
@@ -34,10 +34,10 @@ async def backend() -> AsyncGenerator[LockBackend]:
 
 
 @pytest.fixture
-def locks(backend: LockBackend) -> list[LeasedLock]:
-    """Leased Locks of multiple workers."""
+def locks(backend: LockBackend) -> list[Lock]:
+    """Locks of multiple workers."""
     return [
-        LeasedLock(
+        Lock(
             backend=backend,
             name=LOCK_NAME,
             worker=f"worker_{i}",
@@ -49,13 +49,13 @@ def locks(backend: LockBackend) -> list[LeasedLock]:
 
 
 @pytest.fixture
-def lock(locks: list[LeasedLock]) -> LeasedLock:
-    """Leased Lock."""
+def lock(locks: list[Lock]) -> Lock:
+    """Lock."""
     return locks[WORKER_1]
 
 
-async def test_lock_owned(locks: list[LeasedLock]) -> None:
-    """Test Leased Lock owned."""
+async def test_lock_owned(locks: list[Lock]) -> None:
+    """Test Lock owned."""
     # Act
     worker_1_owned_before = await locks[WORKER_1].owned()
     worker_2_owned_before = await locks[WORKER_2].owned()
@@ -70,8 +70,8 @@ async def test_lock_owned(locks: list[LeasedLock]) -> None:
     assert worker_2_owned_after is False
 
 
-async def test_lock_from_thread_owned(locks: list[LeasedLock]) -> None:
-    """Test Leased Lock from thread owned."""
+async def test_lock_from_thread_owned(locks: list[Lock]) -> None:
+    """Test Lock from thread owned."""
     # Arrange
     worker_1_owned_before = None
     worker_2_owned_before = None
@@ -100,8 +100,8 @@ async def test_lock_from_thread_owned(locks: list[LeasedLock]) -> None:
     assert worker_2_owned_after is False
 
 
-async def test_lock_context_manager(lock: LeasedLock) -> None:
-    """Test Leased Lock context manager."""
+async def test_lock_context_manager(lock: Lock) -> None:
+    """Test Lock context manager."""
     # Act
     locked_before = await lock.locked()
     async with lock:
@@ -114,8 +114,8 @@ async def test_lock_context_manager(lock: LeasedLock) -> None:
     assert locked_after is False
 
 
-async def test_lock_from_thread_context_manager_acquire(lock: LeasedLock) -> None:
-    """Test Leased Lock from thread context manager."""
+async def test_lock_from_thread_context_manager_acquire(lock: Lock) -> None:
+    """Test Lock from thread context manager."""
     # Arrange
     locked_before = None
     locked_inside = None
@@ -140,10 +140,8 @@ async def test_lock_from_thread_context_manager_acquire(lock: LeasedLock) -> Non
     assert locked_after is False
 
 
-async def test_lock_context_manager_wait(
-    lock: LeasedLock, locks: list[LeasedLock]
-) -> None:
-    """Test Leased Lock context manager wait."""
+async def test_lock_context_manager_wait(lock: Lock, locks: list[Lock]) -> None:
+    """Test Lock context manager wait."""
     # Arrange
     await locks[WORKER_1].acquire()
 
@@ -160,9 +158,9 @@ async def test_lock_context_manager_wait(
 
 
 async def test_lock_from_thread_context_manager_wait(
-    lock: LeasedLock, locks: list[LeasedLock]
+    lock: Lock, locks: list[Lock]
 ) -> None:
-    """Test Leased Lock from thread context manager wait."""
+    """Test Lock from thread context manager wait."""
     # Arrange
     locked_before = None
     locked_inside = None
@@ -188,8 +186,8 @@ async def test_lock_from_thread_context_manager_wait(
     assert locked_after is False
 
 
-async def test_lock_acquire(lock: LeasedLock) -> None:
-    """Test Leased Lock acquire."""
+async def test_lock_acquire(lock: Lock) -> None:
+    """Test Lock acquire."""
     # Act
     locked_before = await lock.locked()
     await lock.acquire()
@@ -200,8 +198,8 @@ async def test_lock_acquire(lock: LeasedLock) -> None:
     assert locked_after is True
 
 
-async def test_lock_from_thread_acquire(lock: LeasedLock) -> None:
-    """Test Leased Lock from thread acquire."""
+async def test_lock_from_thread_acquire(lock: Lock) -> None:
+    """Test Lock from thread acquire."""
     # Arrange
     locked_before = None
     locked_after = None
@@ -222,8 +220,8 @@ async def test_lock_from_thread_acquire(lock: LeasedLock) -> None:
     assert locked_after is True
 
 
-async def test_lock_acquire_wait(lock: LeasedLock, locks: list[LeasedLock]) -> None:
-    """Test Leased Lock acquire wait."""
+async def test_lock_acquire_wait(lock: Lock, locks: list[Lock]) -> None:
+    """Test Lock acquire wait."""
     # Arrange
     await locks[WORKER_1].acquire()
 
@@ -237,8 +235,8 @@ async def test_lock_acquire_wait(lock: LeasedLock, locks: list[LeasedLock]) -> N
     assert locked_after is True
 
 
-async def test_lock_from_thread_acquire_wait(lock: LeasedLock) -> None:
-    """Test Leased Lock from thread acquire wait."""
+async def test_lock_from_thread_acquire_wait(lock: Lock) -> None:
+    """Test Lock from thread acquire wait."""
     # Arrange
     locked_before = None
     locked_after = None
@@ -259,8 +257,8 @@ async def test_lock_from_thread_acquire_wait(lock: LeasedLock) -> None:
     assert locked_after is True
 
 
-async def test_lock_acquire_nowait(lock: LeasedLock) -> None:
-    """Test Leased Lock wait acquire."""
+async def test_lock_acquire_nowait(lock: Lock) -> None:
+    """Test Lock wait acquire."""
     # Act
     locked_before = await lock.locked()
     await lock.acquire_nowait()
@@ -271,8 +269,8 @@ async def test_lock_acquire_nowait(lock: LeasedLock) -> None:
     assert locked_after is True
 
 
-async def test_lock_from_thread_acquire_nowait(lock: LeasedLock) -> None:
-    """Test Leased Lock from thread wait acquire."""
+async def test_lock_from_thread_acquire_nowait(lock: Lock) -> None:
+    """Test Lock from thread wait acquire."""
     # Arrange
     locked_before = None
     locked_after = None
@@ -293,8 +291,8 @@ async def test_lock_from_thread_acquire_nowait(lock: LeasedLock) -> None:
     assert locked_after is True
 
 
-async def test_lock_acquire_nowait_would_block(locks: list[LeasedLock]) -> None:
-    """Test Leased Lock wait acquire would block."""
+async def test_lock_acquire_nowait_would_block(locks: list[Lock]) -> None:
+    """Test Lock wait acquire would block."""
     # Arrange
     await locks[WORKER_1].acquire()
 
@@ -304,9 +302,9 @@ async def test_lock_acquire_nowait_would_block(locks: list[LeasedLock]) -> None:
 
 
 async def test_lock_from_thread_acquire_nowait_would_block(
-    locks: list[LeasedLock],
+    locks: list[Lock],
 ) -> None:
-    """Test Leased Lock from thread wait acquire would block."""
+    """Test Lock from thread wait acquire would block."""
     # Arrange
     await locks[WORKER_1].acquire()
 
@@ -318,15 +316,15 @@ async def test_lock_from_thread_acquire_nowait_would_block(
     await to_thread.run_sync(sync)
 
 
-async def test_lock_release(lock: LeasedLock) -> None:
-    """Test Leased Lock release."""
+async def test_lock_release(lock: Lock) -> None:
+    """Test Lock release."""
     # Act / Assert
     with pytest.raises(LockNotOwnedError):
         await lock.release()
 
 
-async def test_lock_from_thread_release(lock: LeasedLock) -> None:
-    """Test Leased Lock from thread release."""
+async def test_lock_from_thread_release(lock: Lock) -> None:
+    """Test Lock from thread release."""
 
     # Act / Assert
     def sync() -> None:
@@ -336,8 +334,8 @@ async def test_lock_from_thread_release(lock: LeasedLock) -> None:
     await to_thread.run_sync(sync)
 
 
-async def test_lock_release_acquired(lock: LeasedLock) -> None:
-    """Test Leased Lock release acquired."""
+async def test_lock_release_acquired(lock: Lock) -> None:
+    """Test Lock release acquired."""
     # Arrange
     await lock.acquire()
 
@@ -351,8 +349,8 @@ async def test_lock_release_acquired(lock: LeasedLock) -> None:
     assert locked_after is False
 
 
-async def test_lock_from_thread_release_acquired(lock: LeasedLock) -> None:
-    """Test Leased Lock from thread release acquired."""
+async def test_lock_from_thread_release_acquired(lock: Lock) -> None:
+    """Test Lock from thread release acquired."""
     # Arrange
     locked_before = None
     locked_after = None
@@ -375,8 +373,8 @@ async def test_lock_from_thread_release_acquired(lock: LeasedLock) -> None:
     assert locked_after is False
 
 
-async def test_lock_release_expired(locks: list[LeasedLock]) -> None:
-    """Test Leased Lock release expired."""
+async def test_lock_release_expired(locks: list[Lock]) -> None:
+    """Test Lock release expired."""
     # Arrange
     await locks[WORKER_1].acquire()
     await sleep(locks[WORKER_1].config.lease_duration)
@@ -390,8 +388,8 @@ async def test_lock_release_expired(locks: list[LeasedLock]) -> None:
     assert worker_1_locked_before is False
 
 
-async def test_lock_from_thread_release_expired(locks: list[LeasedLock]) -> None:
-    """Test Leased Lock from thread release expired."""
+async def test_lock_from_thread_release_expired(locks: list[Lock]) -> None:
+    """Test Lock from thread release expired."""
     # Arrange
     worker_1_locked_before = None
 
@@ -413,9 +411,9 @@ async def test_lock_from_thread_release_expired(locks: list[LeasedLock]) -> None
 
 
 async def test_lock_acquire_backend_error(
-    backend: LockBackend, lock: LeasedLock, mocker: MockerFixture
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
-    """Test Leased Lock acquire backend error."""
+    """Test Lock acquire backend error."""
     # Arrange
     mocker.patch.object(backend, "acquire", side_effect=Exception("Backend Error"))
 
@@ -426,10 +424,10 @@ async def test_lock_acquire_backend_error(
 
 async def test_lock_from_thread_acquire_backend_error(
     backend: LockBackend,
-    lock: LeasedLock,
+    lock: Lock,
     mocker: MockerFixture,
 ) -> None:
-    """Test Leased Lock from thread acquire backend error."""
+    """Test Lock from thread acquire backend error."""
     # Arrange
     mocker.patch.object(backend, "acquire", side_effect=Exception("Backend Error"))
 
@@ -442,9 +440,9 @@ async def test_lock_from_thread_acquire_backend_error(
 
 
 async def test_lock_release_backend_error(
-    backend: LockBackend, lock: LeasedLock, mocker: MockerFixture
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
-    """Test Leased Lock release backend error."""
+    """Test Lock release backend error."""
     # Arrange
     mocker.patch.object(backend, "release", side_effect=Exception("Backend Error"))
 
@@ -456,10 +454,10 @@ async def test_lock_release_backend_error(
 
 async def test_lock_from_thread_release_backend_error(
     backend: LockBackend,
-    lock: LeasedLock,
+    lock: Lock,
     mocker: MockerFixture,
 ) -> None:
-    """Test Leased Lock from thread release backend error."""
+    """Test Lock from thread release backend error."""
     # Arrange
     mocker.patch.object(backend, "release", side_effect=Exception("Backend Error"))
 
@@ -473,9 +471,9 @@ async def test_lock_from_thread_release_backend_error(
 
 
 async def test_lock_owned_backend_error(
-    backend: LockBackend, lock: LeasedLock, mocker: MockerFixture
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
-    """Test Leased Lock owned backend error."""
+    """Test Lock owned backend error."""
     # Arrange
     mocker.patch.object(backend, "owned", side_effect=Exception("Backend Error"))
 
@@ -485,9 +483,9 @@ async def test_lock_owned_backend_error(
 
 
 async def test_lock_locked_backend_error(
-    backend: LockBackend, lock: LeasedLock, mocker: MockerFixture
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
-    """Test Leased Lock locked backend error."""
+    """Test Lock locked backend error."""
     # Arrange
     mocker.patch.object(backend, "locked", side_effect=Exception("Backend Error"))
 

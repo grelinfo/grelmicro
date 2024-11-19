@@ -1,4 +1,4 @@
-"""GrelMicro Synchronization Primitives Module."""
+"""Grelmicro Synchronization Primitives Module."""
 
 from grelmicro.abc.lock import BaseLock
 from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig

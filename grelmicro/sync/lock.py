@@ -1,4 +1,4 @@
-"""GrelMicro Lock."""
+"""Grelmicro Lock."""
 
 from time import sleep as thread_sleep
 from types import TracebackType
@@ -10,6 +10,7 @@ from typing_extensions import Doc
 
 from grelmicro.abc.lock import BaseLock, BaseLockConfig
 from grelmicro.abc.lockbackend import LockBackend
+from grelmicro.backends.registry import get_lock_backend
 from grelmicro.sync._utils import generate_task_token, generate_thread_token
 from grelmicro.sync.errors import (
     LockAcquireError,
@@ -21,7 +22,7 @@ from grelmicro.types import Seconds
 
 
 class LeasedLockConfig(BaseLockConfig, frozen=True, extra="forbid"):
-    """Leased Lock Config."""
+    """Lock Config."""
 
     lease_duration: Annotated[
         Seconds,
@@ -41,8 +42,8 @@ class LeasedLockConfig(BaseLockConfig, frozen=True, extra="forbid"):
     ]
 
 
-class LeasedLock(BaseLock):
-    """Leased Lock.
+class Lock(BaseLock):
+    """Lock.
 
     This lock is a distributed lock that is used to acquire a resource across multiple workers. The
     lock is acquired asynchronously and can be extended multiple times manually. The lock is
@@ -51,8 +52,6 @@ class LeasedLock(BaseLock):
 
     def __init__(
         self,
-        *,
-        backend: LockBackend,
         name: Annotated[
             str,
             Doc(
@@ -63,6 +62,15 @@ class LeasedLock(BaseLock):
                 """,
             ),
         ],
+        *,
+        backend: Annotated[
+            LockBackend | None,
+            Doc("""
+                The distributed lock backend used to acquire and release the lock.
+
+                By default, it will use the lock backend registry to get the default lock backend.
+                """),
+        ] = None,
         worker: Annotated[
             str | UUID | None,
             Doc(
@@ -99,7 +107,7 @@ class LeasedLock(BaseLock):
             lease_duration=lease_duration,
             retry_interval=retry_interval,
         )
-        self.backend = backend
+        self.backend = backend or get_lock_backend()
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with the async context manager."""
@@ -245,7 +253,7 @@ class LeasedLock(BaseLock):
 class ThreadLockAdapter:
     """Lock Adapter for Worker Thread."""
 
-    def __init__(self, lock: LeasedLock) -> None:
+    def __init__(self, lock: Lock) -> None:
         """Initialize the lock adapter."""
         self._lock = lock
 

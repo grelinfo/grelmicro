@@ -1,1 +1,1 @@
-"""Test GrelMicro Lock Component."""
+"""Test Grelmicro Lock Component."""

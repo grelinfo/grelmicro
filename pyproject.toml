@@ -118,7 +118,10 @@ module = ["asyncpg", "testcontainers.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["single_file_app"]
+module = [
+    "simple_fastapi_app",
+    "single_file_app"
+]
 disallow_untyped_defs = false
 
 

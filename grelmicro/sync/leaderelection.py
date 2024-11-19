@@ -22,6 +22,7 @@ from typing_extensions import Doc
 from grelmicro.abc.lockbackend import LockBackend
 from grelmicro.abc.synchronization import Synchronization
 from grelmicro.abc.task import Task
+from grelmicro.backends.registry import get_lock_backend
 from grelmicro.types import Seconds
 
 if TYPE_CHECKING:
@@ -118,15 +119,6 @@ class LeaderElection(Synchronization, Task):
 
     def __init__(
         self,
-        *,
-        backend: Annotated[
-            LockBackend,
-            Doc(
-                """
-                The distributed lock backend used to acquire and release the lock.
-                """,
-            ),
-        ],
         name: Annotated[
             str,
             Doc(
@@ -138,6 +130,17 @@ class LeaderElection(Synchronization, Task):
                 """,
             ),
         ],
+        *,
+        backend: Annotated[
+            LockBackend | None,
+            Doc(
+                """
+                The distributed lock backend used to acquire and release the lock.
+
+                By default, it will use the lock backend registry to get the default lock backend.
+                """,
+            ),
+        ] = None,
         worker: Annotated[
             str | UUID | None,
             Doc(
@@ -217,7 +220,7 @@ class LeaderElection(Synchronization, Task):
             backend_timeout=backend_timeout,
             error_interval=error_interval,
         )
-        self.backend = backend
+        self.backend = backend or get_lock_backend()
 
         self._service_running = False
         self._state_change_condition: Condition = Condition()

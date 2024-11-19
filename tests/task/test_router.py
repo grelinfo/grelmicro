@@ -5,7 +5,7 @@ from functools import partial
 import pytest
 
 from grelmicro.backends.memory.lock import MemoryLockBackend
-from grelmicro.sync.lock import LeasedLock
+from grelmicro.sync.lock import Lock
 from grelmicro.task import TaskRouter
 from grelmicro.task._interval import IntervalTask
 from grelmicro.task.errors import FunctionNotSupportedError, TaskAlreadyStartedError
@@ -64,7 +64,7 @@ def test_router_interval() -> None:
     task_count = 4
     custom_task = EventTask()
     router = TaskRouter(tasks=[custom_task])
-    sync = LeasedLock(backend=MemoryLockBackend(), name="testlock")
+    sync = Lock(backend=MemoryLockBackend(), name="testlock")
 
     # Act
     router.interval(name="test1", interval=10, sync=sync)(test1)

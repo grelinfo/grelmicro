@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from grelmicro.backends.memory import MemoryLockBackend
 from grelmicro.sync.leaderelection import LeaderElection
-from grelmicro.sync.lock import LeasedLock
+from grelmicro.sync.lock import Lock
 from grelmicro.task import TaskManager
 
 backend = MemoryLockBackend()
@@ -28,12 +28,12 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
-leased_lock_10sec = LeasedLock(
+leased_lock_10sec = Lock(
     name="leased_lock_10sec",
     lease_duration=10,
     backend=backend,
 )
-leased_lock_5sec = LeasedLock(
+leased_lock_5sec = Lock(
     name="leased_lock_5sec",
     lease_duration=5,
     backend=backend,

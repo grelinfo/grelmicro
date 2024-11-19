@@ -1,4 +1,4 @@
-"""GrelMicro Synchronization Primitive Errors."""
+"""Grelmicro Synchronization Primitive Errors."""
 
 
 class SyncError(Exception):
