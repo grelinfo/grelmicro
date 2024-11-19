@@ -1,0 +1,147 @@
+[project]
+name = "grelmicro"
+version = "0.1.0"
+description = "Grelmicro is a comprehensive microservice toolkit designed to enhance FastAPI, FastStream, or Flask applications."
+license = "MIT"
+authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
+readme = "README.md"
+
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Environment :: Web Environment",
+    "Framework :: AnyIO",
+    "Framework :: AsyncIO",
+    "Framework :: FastAPI",
+    "Framework :: Flask",
+    "Framework :: Pydantic",
+    "Framework :: Pydantic :: 2",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed"
+]
+
+
+requires-python = ">=3.11"
+dependencies = [
+    "anyio>=4.0.0",
+    "pydantic>=2.0.0",
+    "fast-depends>=2.0.0"
+]
+
+[project.optional-dependencies]
+postgres = [
+    "asyncpg>=0.30.0",
+]
+redis = [
+    "redis>=5.0.0",
+]
+cli = [
+    "typer>=0.12.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=6.0.0",
+    "pytest>=8.0.0",
+    "mypy>=1.12.0",
+    "ruff>=0.7.0",
+    "testcontainers[postgres,redis]>=4.8.0",
+    "pytest-timeout>=2.3.1",
+    "pytest-mock>=3.14.0",
+    "pytest-randomly>=3.16.0",
+    "pre-commit>=4.0.1",
+    "grelmicro>=0.115.5",
+    "grelmicro-cli>=0.0.5",
+]
+
+
+[project.scripts]
+grelmicro-cloud = "grelmicro_cloud.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "ANN101", # missing-type-self
+  "ANN102", # missing-type-cls
+  "COM812", # missing-trailing-comma
+  "D100", # missing-docstring
+  "D104", # undocumented-public-package
+  "D107", # undocumented-public-init
+  "ISC001", # single-line-implicit-string-concatenation
+  "EM101", # raw-string-in-exception
+  "TRY003" # raise-vanilla-args
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/*" = [
+    "S101",   # assert
+    "SLF001"  # private-member-access
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.mypy]
+strict = true
+plugins = [
+  "pydantic.mypy"
+]
+
+follow_imports = "silent"
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_reexport = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["asyncpg", "testcontainers.*"]
+ignore_missing_imports = true
+
+
+[tool.pytest.ini_options]
+addopts = """
+  --cov=grelmicro_cloud
+  --cov-fail-under=0
+  --cov-report term:skip-covered
+  --cov-report xml:coverage.xml
+  --strict-config
+  --strict-markers
+  --basetemp=.pytest_tmp/
+"""
+
+testpaths = "tests"
+
+[tool.coverage.report]
+sort = "Cover"
+exclude_also = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "assert_never.*",
+    "class .*\\bProtocol\\):",
+    ]

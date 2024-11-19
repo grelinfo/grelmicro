@@ -1,0 +1,52 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+default_language_version:
+  python: python3.11
+repos:
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.6.0
+  hooks:
+  - id: end-of-file-fixer
+  - id: check-toml
+  - id: check-yaml
+  - id: check-added-large-files
+  - id: trailing-whitespace
+
+- repo: https://github.com/astral-sh/uv-pre-commit
+  rev: 0.5.2
+  hooks:
+    - id: uv-lock
+
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.7.3
+  hooks:
+    - id: ruff
+      args: [ --fix ]
+    - id: ruff-format
+
+- repo: https://github.com/codespell-project/codespell
+  rev: v2.3.0
+  hooks:
+  - id: codespell
+
+- repo: local
+  hooks:
+  - id: mypy
+    name: mypy
+    description: "Run 'mypy' for static type checking"
+    entry: uv run mypy
+    language: system
+    types_or: [python, pyi]
+    args: ["--ignore-missing-imports", "--scripts-are-modules"]
+    require_serial: true
+  - id: pytest
+    name: pytest
+    description: "Run 'pytest' for testing and code coverage"
+    entry: uv run pytest
+    language: system
+    pass_filenames: false
+
+ci:
+  autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
+  autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
