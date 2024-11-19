@@ -12,7 +12,7 @@ It is the perfect companion to FastAPI and FastStream, providing essential tools
 
 ---
 
-**Source Code**: [https://github.com/grelinfo/fastapi-apscheduler4](https://github.com/grelinfo/fastapi-apscheduler4)
+**Source Code**: [https://github.com/grelinfo/grelmicro](https://github.com/grelinfo/grelmicro)
 
 ---
 
