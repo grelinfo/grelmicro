@@ -1,6 +1,6 @@
 [project]
 name = "grelmicro"
-version = "0.1.1"
+version = "0.1.2"
 description = "Grelmicro is a tool-kit designed to streamline the development cloud-native applications with FastAPI."
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
