@@ -12,6 +12,10 @@ It is the perfect companion to FastAPI and FastStream, providing essential tools
 
 ---
 
+**Source Code**: [https://github.com/grelinfo/fastapi-apscheduler4](https://github.com/grelinfo/fastapi-apscheduler4)
+
+---
+
 ## Toolkit Modules
 
 Each Grelmicro module addresses common problems in building microservices and distributed systems.

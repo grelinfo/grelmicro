@@ -1,6 +1,6 @@
 [project]
 name = "grelmicro"
-version = "0.1.0"
+version = "0.1.1"
 description = "Grelmicro is a tool-kit designed to streamline the development cloud-native applications with FastAPI."
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
@@ -40,6 +40,11 @@ dependencies = [
     "pydantic>=2.0.0",
     "fast-depends>=2.0.0"
 ]
+
+[project.urls]
+
+Repository = "https://github.com/grelinfo/grelmicro.git"
+Issues = "https://github.com/grelinfo/grelmicro/issues"
 
 [project.optional-dependencies]
 postgres = [
