@@ -147,6 +147,10 @@ addopts = """
     --cov-report xml:coverage.xml
     --strict-config
     --strict-markers
+    -m "not testcontainers"
+"""
+markers = """
+    testcontainers: mark a test that requires testcontainers
 """
 
 testpaths = "tests"

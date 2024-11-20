@@ -22,7 +22,14 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture(scope="module", params=["redis", "postgres", "anyio"])
+@pytest.fixture(
+    scope="module",
+    params=[
+        "memory",
+        pytest.param("redis", marks=pytest.mark.testcontainers),
+        pytest.param("postgres", marks=pytest.mark.testcontainers),
+    ],
+)
 async def backend(request: pytest.FixtureRequest) -> AsyncGenerator[LockBackend]:
     """Test Container for each Backend."""
     try:
@@ -38,7 +45,7 @@ async def backend(request: pytest.FixtureRequest) -> AsyncGenerator[LockBackend]
                     f"postgresql://{container.username}:{container.password}@{container.get_container_host_ip()}:{container.port}/{container.dbname}",
                 ) as backend:
                     yield backend
-        elif request.param == "anyio":
+        elif request.param == "memory":
             async with MemoryLockBackend() as backend:
                 yield backend
     except Exception as exc:  # noqa: BLE001
