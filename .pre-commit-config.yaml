@@ -39,12 +39,6 @@ repos:
     language: system
     types: [python]
     require_serial: true
-  - id: pytest
-    name: pytest
-    description: "Run 'pytest' for testing and code coverage"
-    entry: uv run pytest
-    language: system
-    pass_filenames: false
 
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
