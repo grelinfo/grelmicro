@@ -38,6 +38,7 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+          overwrite: true
 
   coverage-report:
     name: Coverage report
