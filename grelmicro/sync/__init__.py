@@ -1,7 +1,6 @@
 """Grelmicro Synchronization Primitives Module."""
 
-from grelmicro.abc.lock import BaseLock
-from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
-from grelmicro.sync.lock import LeasedLockConfig
+from grelmicro.sync.leaderelection import LeaderElection
+from grelmicro.sync.lock import Lock
 
-__all__ = ["BaseLock", "LeasedLockConfig", "LeaderElection", "LeaderElectionConfig"]
+__all__ = ["Lock", "LeaderElection"]
