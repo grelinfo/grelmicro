@@ -26,4 +26,15 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Test with pytest
-        run: uv run --all-extras --python ${{ matrix.python }} pytest
+        run: uv run --all-extras --python ${{ matrix.python }} pytest --cov-append
+
+  coverage:
+    name: Coverage report
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.xml
