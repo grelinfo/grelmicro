@@ -17,11 +17,17 @@ class BaseLockConfig(BaseModel):
 
     name: Annotated[
         str,
-        Doc("The name of the resource to lock."),
+        Doc("""
+            The name of the resource to lock.
+            """),
     ]
     worker: Annotated[
         str | UUID,
-        Doc("The worker identity.\n\nBy default, use a UUIDv1."),
+        Doc("""
+            The worker identity.
+
+            By default, use a UUIDv1.
+            """),
     ]
 
 
