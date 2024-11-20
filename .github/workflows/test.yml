@@ -25,14 +25,30 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
+      - name: Get coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
       - name: Test with pytest
         run: uv run --all-extras --python ${{ matrix.python }} pytest --cov-append
 
-  coverage:
+      - name: Save coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  coverage-report:
     name: Coverage report
     runs-on: ubuntu-latest
     needs: test
     steps:
+      - name: Get coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4.0.1
         with:
