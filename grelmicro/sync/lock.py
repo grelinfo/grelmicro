@@ -21,7 +21,7 @@ from grelmicro.sync.errors import (
 from grelmicro.types import Seconds
 
 
-class LeasedLockConfig(BaseLockConfig, frozen=True, extra="forbid"):
+class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):
     """Lock Config."""
 
     lease_duration: Annotated[
@@ -101,13 +101,14 @@ class Lock(BaseLock):
         ] = 0.1,
     ) -> None:
         """Initialize the lock."""
-        self._config: LeasedLockConfig = LeasedLockConfig(
+        self._config: LockConfig = LockConfig(
             name=name,
             worker=worker or uuid1(),
             lease_duration=lease_duration,
             retry_interval=retry_interval,
         )
         self.backend = backend or get_lock_backend()
+        self._from_thread: ThreadLockAdapter | None = None
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with the async context manager."""
@@ -130,14 +131,16 @@ class Lock(BaseLock):
         await self.release()
 
     @property
-    def config(self) -> LeasedLockConfig:
+    def config(self) -> LockConfig:
         """Return the lock config."""
         return self._config
 
     @property
     def from_thread(self) -> "ThreadLockAdapter":
         """Return the lock adapter for worker thread."""
-        return ThreadLockAdapter(lock=self)
+        if self._from_thread is None:
+            self._from_thread = ThreadLockAdapter(lock=self)
+        return self._from_thread
 
     async def acquire(self) -> None:
         """Acquire the lock.
