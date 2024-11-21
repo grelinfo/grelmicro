@@ -32,24 +32,21 @@ def anyio_backend() -> str:
 )
 async def backend(request: pytest.FixtureRequest) -> AsyncGenerator[LockBackend]:
     """Test Container for each Backend."""
-    try:
-        if request.param == "redis":
-            with AsyncRedisContainer() as container:
-                async with RedisLockBackend(
-                    f"redis://@{container.get_container_host_ip()}:{container.port}/0",
-                ) as backend:
-                    yield backend
-        elif request.param == "postgres":
-            with PostgresContainer() as container:
-                async with PostgresLockBackend(
-                    f"postgresql://{container.username}:{container.password}@{container.get_container_host_ip()}:{container.port}/{container.dbname}",
-                ) as backend:
-                    yield backend
-        elif request.param == "memory":
-            async with MemoryLockBackend() as backend:
+    if request.param == "redis":
+        with AsyncRedisContainer() as container:
+            async with RedisLockBackend(
+                f"redis://@{container.get_container_host_ip()}:{container.port}/0",
+            ) as backend:
                 yield backend
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"Failed to start container: {exc}")
+    elif request.param == "postgres":
+        with PostgresContainer() as container:
+            async with PostgresLockBackend(
+                f"postgresql://{container.username}:{container.password}@{container.get_container_host_ip()}:{container.port}/{container.dbname}",
+            ) as backend:
+                yield backend
+    elif request.param == "memory":
+        async with MemoryLockBackend() as backend:
+            yield backend
 
 
 async def test_acquire(backend: LockBackend) -> None:
