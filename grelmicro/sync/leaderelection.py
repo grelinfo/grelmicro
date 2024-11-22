@@ -99,13 +99,13 @@ class LeaderElectionConfig(BaseModel):
     @model_validator(mode="after")
     def _validate(self) -> Self:
         if self.renew_deadline >= self.lease_duration:
-            msg = "Renew deadline must be shorter than lease duration."
+            msg = "Renew deadline must be shorter than lease duration"
             raise ValueError(msg)
         if self.retry_interval >= self.renew_deadline:
-            msg = "Retry interval must be shorter than renew deadline."
+            msg = "Retry interval must be shorter than renew deadline"
             raise ValueError(msg)
         if self.backend_timeout >= self.renew_deadline:
-            msg = "Backend timeout must be shorter than renew deadline."
+            msg = "Backend timeout must be shorter than renew deadline"
             raise ValueError(msg)
         return self
 

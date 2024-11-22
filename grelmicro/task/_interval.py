@@ -40,7 +40,7 @@ class IntervalTask(Task):
             ValueError: If internal is less than or equal to 0.
         """
         if interval <= 0:
-            msg = "Interval must be greater than 0."
+            msg = "Interval must be greater than 0"
             raise ValueError(msg)
 
         alt_name = validate_and_generate_reference(function)

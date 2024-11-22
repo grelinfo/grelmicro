@@ -9,7 +9,7 @@ Note:
 from typing import Literal, NotRequired, TypedDict
 
 from grelmicro.abc.lockbackend import LockBackend
-from grelmicro.errors import BackendNotLoadedError
+from grelmicro.backends.errors import BackendNotLoadedError
 
 
 class LoadedBackendsDict(TypedDict):

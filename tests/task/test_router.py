@@ -8,7 +8,7 @@ from grelmicro.backends.memory.lock import MemoryLockBackend
 from grelmicro.sync.lock import Lock
 from grelmicro.task import TaskRouter
 from grelmicro.task._interval import IntervalTask
-from grelmicro.task.errors import FunctionNotSupportedError, TaskAlreadyStartedError
+from grelmicro.task.errors import FunctionTypeError, TaskAddOperationError
 from tests.task.samples import EventTask, SimpleClass, test1, test2, test3
 
 
@@ -105,23 +105,23 @@ def test_router_interval_name_generation_error() -> None:
     test_instance = SimpleClass()
 
     # Act
-    with pytest.raises(FunctionNotSupportedError, match="nested function"):
+    with pytest.raises(FunctionTypeError, match="nested function"):
 
         @router.interval(interval=10)
         def nested_function() -> None:
             pass
 
-    with pytest.raises(FunctionNotSupportedError, match="lambda"):
+    with pytest.raises(FunctionTypeError, match="lambda"):
         router.interval(interval=10)(lambda _: None)
 
-    with pytest.raises(FunctionNotSupportedError, match="method"):
+    with pytest.raises(FunctionTypeError, match="method"):
         router.interval(interval=10)(test_instance.method)
 
-    with pytest.raises(FunctionNotSupportedError, match="partial()"):
+    with pytest.raises(FunctionTypeError, match="partial()"):
         router.interval(interval=10)(partial(test1))
 
     with pytest.raises(
-        FunctionNotSupportedError,
+        FunctionTypeError,
         match="callable without __module__ or __qualname__ attribute",
     ):
         router.interval(interval=10)(object())  # type: ignore[arg-type]
@@ -135,7 +135,7 @@ def test_router_add_task_when_started() -> None:
     router.do_mark_as_started()
 
     # Act
-    with pytest.raises(TaskAlreadyStartedError):
+    with pytest.raises(TaskAddOperationError):
         router.add_task(custom_task)
 
 
@@ -147,7 +147,7 @@ def test_router_include_router_when_started() -> None:
     router_child = TaskRouter()
 
     # Act
-    with pytest.raises(TaskAlreadyStartedError):
+    with pytest.raises(TaskAddOperationError):
         router.include_router(router_child)
 
 

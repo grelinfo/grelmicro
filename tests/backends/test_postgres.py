@@ -23,7 +23,7 @@ URL = "postgres://user:password@localhost:5432/db"
 def test_lock_backend_table_name_invalid(table_name: str) -> None:
     """Test Lock Backend Table Name Invalid."""
     # Act / Assert
-    with pytest.raises(ValueError, match="Table name '.*' is not a valid identifier."):
+    with pytest.raises(ValueError, match="Table name '.*' is not a valid identifier"):
         PostgresLockBackend(url=URL, table_name=table_name)
 
 

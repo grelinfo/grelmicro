@@ -7,7 +7,7 @@ from typing_extensions import Doc
 
 from grelmicro.abc.synchronization import Synchronization
 from grelmicro.abc.task import Task
-from grelmicro.task.errors import TaskAlreadyStartedError
+from grelmicro.task.errors import TaskAddOperationError
 from grelmicro.types import Seconds
 
 
@@ -44,7 +44,7 @@ class TaskRouter:
     def add_task(self, task: Task) -> None:
         """Add a task to the scheduler."""
         if self._started:
-            raise TaskAlreadyStartedError
+            raise TaskAddOperationError
 
         self._tasks.append(task)
 
@@ -112,7 +112,7 @@ class TaskRouter:
     def include_router(self, router: Self) -> None:
         """Include another router in this router."""
         if self._started:
-            raise TaskAlreadyStartedError
+            raise TaskAddOperationError
 
         self._routers.append(router)
 

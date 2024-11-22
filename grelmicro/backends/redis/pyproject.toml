@@ -1,7 +1,7 @@
 [project]
 name = "grelmicro"
 version = "0.1.0"
-description = "Grelmicro is a comprehensive microservice toolkit designed to enhance FastAPI, FastStream, or Flask applications."
+description = "Grelmicro is a comprehensive microservice toolkit designed to enhance FastAPI, FastStream, or Flask applications"
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
 readme = "README.md"

@@ -1,11 +1,11 @@
 """Grelmicro Errors."""
 
 
-class FastAPICloudError(Exception):
+class GrelmicroError(Exception):
     """Base Grelmicro error."""
 
 
-class OutOfContextError(FastAPICloudError, RuntimeError):
+class OutOfContextError(GrelmicroError, RuntimeError):
     """Outside Context Error.
 
     Raised when a method is called outside of the context manager.
@@ -14,13 +14,23 @@ class OutOfContextError(FastAPICloudError, RuntimeError):
     def __init__(self, cls: object, method_name: str) -> None:
         """Initialize the error."""
         super().__init__(
-            f"{cls.__class__.__name__}.{method_name} must be called inside the context manager.",
+            f"Could not call {cls.__class__.__name__}.{method_name} outside of the context manager"
         )
 
 
-class BackendNotLoadedError(FastAPICloudError):
-    """Backend Not Loaded Error."""
+class DependencyNotFoundError(GrelmicroError):
+    """Dependency Not Found Error."""
 
-    def __init__(self, backend_name: str) -> None:
+    def __init__(self, module: str) -> None:
         """Initialize the error."""
-        super().__init__(f"No backend loaded for '{backend_name}'.")
+        super().__init__(
+            f"Could not import module {module}, try running 'pip install {module}'"
+        )
+
+
+class EnvValidationError(GrelmicroError):
+    """Environment Variable Validation Error."""
+
+    def __init__(self, env: str, reason: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Validation error for env {env}: {reason}")

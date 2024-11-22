@@ -5,11 +5,11 @@ from collections.abc import Callable, Generator
 import pytest
 
 from grelmicro.abc.lockbackend import LockBackend
+from grelmicro.backends.errors import BackendNotLoadedError
 from grelmicro.backends.memory.lock import MemoryLockBackend
 from grelmicro.backends.postgres.lock import PostgresLockBackend
 from grelmicro.backends.redis.lock import RedisLockBackend
 from grelmicro.backends.registry import get_lock_backend, loaded_backends
-from grelmicro.errors import BackendNotLoadedError
 
 
 @pytest.fixture

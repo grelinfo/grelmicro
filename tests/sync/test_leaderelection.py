@@ -123,7 +123,7 @@ def test_leader_election_config_validation_errors() -> None:
     """Test leader election Config Errors."""
     # Arrange
     with pytest.raises(
-        ValidationError, match="Renew deadline must be shorter than lease duration."
+        ValidationError, match="Renew deadline must be shorter than lease duration"
     ):
         LeaderElectionConfig(
             name="test_leader_election",
@@ -132,7 +132,7 @@ def test_leader_election_config_validation_errors() -> None:
             renew_deadline=20,
         )
     with pytest.raises(
-        ValidationError, match="Retry interval must be shorter than renew deadline."
+        ValidationError, match="Retry interval must be shorter than renew deadline"
     ):
         LeaderElectionConfig(
             name="test_leader_election",
@@ -141,7 +141,7 @@ def test_leader_election_config_validation_errors() -> None:
             retry_interval=15,
         )
     with pytest.raises(
-        ValidationError, match="Backend timeout must be shorter than renew deadline."
+        ValidationError, match="Backend timeout must be shorter than renew deadline"
     ):
         LeaderElectionConfig(
             name="test_leader_election",

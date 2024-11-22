@@ -10,7 +10,7 @@ from typing_extensions import Doc
 
 from grelmicro.abc.task import Task
 from grelmicro.errors import OutOfContextError
-from grelmicro.task.errors import TaskAlreadyStartedError
+from grelmicro.task.errors import TaskAddOperationError
 from grelmicro.task.router import TaskRouter
 
 if TYPE_CHECKING:
@@ -80,7 +80,7 @@ class TaskManager(TaskRouter):
             raise OutOfContextError(self, "start")
 
         if self._started:
-            raise TaskAlreadyStartedError
+            raise TaskAddOperationError
 
         self.do_mark_as_started()
 

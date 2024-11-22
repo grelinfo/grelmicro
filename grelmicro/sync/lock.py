@@ -188,7 +188,7 @@ class Lock(BaseLock):
         try:
             return await self.backend.locked(name=self._config.name)
         except Exception as exc:
-            msg = "Failed to check if the lock is acquired."
+            msg = "Failed to check if the lock is acquired"
             raise LockBackendError(msg) from exc
 
     async def owned(self) -> bool:
@@ -249,7 +249,7 @@ class Lock(BaseLock):
         try:
             return await self.backend.owned(name=self._config.name, token=token)
         except Exception as exc:
-            msg = "Failed to check if the lock is owned."
+            msg = "Failed to check if the lock is owned"
             raise LockBackendError(msg) from exc
 
 

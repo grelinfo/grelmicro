@@ -34,7 +34,7 @@ async def notify() -> None:
 
 async def always_fail() -> None:
     """Test Function that always fails."""
-    msg = "Test Error."
+    msg = "Test Error"
     raise ValueError(msg)
 
 

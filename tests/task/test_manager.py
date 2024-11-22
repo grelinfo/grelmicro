@@ -5,7 +5,7 @@ from anyio import Event
 
 from grelmicro.errors import OutOfContextError
 from grelmicro.task import TaskManager
-from grelmicro.task.errors import TaskAlreadyStartedError
+from grelmicro.task.errors import TaskAddOperationError
 from tests.task.samples import EventTask
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
@@ -64,7 +64,7 @@ async def test_task_manager_already_started_error() -> None:
 
     # Act / Assert
     async with app:
-        with pytest.raises(TaskAlreadyStartedError):
+        with pytest.raises(TaskAddOperationError):
             await app.start()
 
 

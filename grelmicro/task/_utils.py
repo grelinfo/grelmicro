@@ -5,7 +5,7 @@ from functools import partial
 from inspect import ismethod
 from typing import Any
 
-from grelmicro.task.errors import FunctionNotSupportedError
+from grelmicro.task.errors import FunctionTypeError
 
 
 def validate_and_generate_reference(function: Callable[..., Any]) -> str:
@@ -20,22 +20,22 @@ def validate_and_generate_reference(function: Callable[..., Any]) -> str:
     """
     if isinstance(function, partial):
         ref = "partial()"
-        raise FunctionNotSupportedError(ref)
+        raise FunctionTypeError(ref)
 
     if ismethod(function):
         ref = "method"
-        raise FunctionNotSupportedError(ref)
+        raise FunctionTypeError(ref)
 
     if not hasattr(function, "__module__") or not hasattr(function, "__qualname__"):
         ref = "callable without __module__ or __qualname__ attribute"
-        raise FunctionNotSupportedError(ref)
+        raise FunctionTypeError(ref)
 
     if "<lambda>" in function.__qualname__:
         ref = "lambda"
-        raise FunctionNotSupportedError(ref)
+        raise FunctionTypeError(ref)
 
     if "<locals>" in function.__qualname__:
         ref = "nested function"
-        raise FunctionNotSupportedError(ref)
+        raise FunctionTypeError(ref)
 
     return f"{function.__module__}:{function.__qualname__}"

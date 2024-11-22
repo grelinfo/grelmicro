@@ -38,7 +38,7 @@ def test_interval_task_init_with_name() -> None:
 def test_interval_task_init_with_invalid_interval() -> None:
     """Test Interval Task Initialization with Invalid Interval."""
     # Act / Assert
-    with pytest.raises(ValueError, match="Interval must be greater than 0."):
+    with pytest.raises(ValueError, match="Interval must be greater than 0"):
         IntervalTask(interval=0, function=test1)
 
 

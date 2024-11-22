@@ -1,6 +1,6 @@
 [project]
 name = "grelmicro"
-description = "Grelmicro is a lightweight framework/toolkit for building async microservices in Python."
+description = "Grelmicro is a lightweight framework/toolkit for building async microservices in Python"
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
 readme = "README.md"
@@ -34,7 +34,6 @@ dynamic = ["version"]
 
 requires-python = ">=3.11"
 
-
 dependencies = [
     "anyio>=4.0.0",
     "pydantic>=2.0.0",
@@ -47,14 +46,15 @@ Repository = "https://github.com/grelinfo/grelmicro.git"
 Issues = "https://github.com/grelinfo/grelmicro/issues"
 
 [project.optional-dependencies]
+standard = [
+    "loguru>=0.7.2",
+    "orjson>=3.10.11",
+]
 postgres = [
     "asyncpg>=0.30.0",
 ]
 redis = [
     "redis>=5.0.0",
-]
-cli = [
-    "typer>=0.12.3",
 ]
 
 [dependency-groups]
@@ -71,6 +71,7 @@ dev = [
     "fastapi>=0.115.5",
     "fastapi-cli>=0.0.5",
 ]
+
 doc = [
     "mkdocs-material>=9.5.44",
 ]

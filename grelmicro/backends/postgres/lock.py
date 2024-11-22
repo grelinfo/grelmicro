@@ -65,7 +65,7 @@ class PostgresLockBackend(LockBackend):
     ) -> None:
         """Initialize the lock backend."""
         if not table_name.isidentifier():
-            msg = f"Table name '{table_name}' is not a valid identifier."
+            msg = f"Table name '{table_name}' is not a valid identifier"
             raise ValueError(msg)
 
         self._url = url
