@@ -38,6 +38,13 @@ repos:
     types: [python]
     require_serial: true
 
+  - id: readme-to-docs
+    name: readme-to-docs
+    description: "Copy README.md to docs/index.md"
+    entry: cp README.md docs/index.md
+    language: system
+    pass_filenames: false
+
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
   autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate

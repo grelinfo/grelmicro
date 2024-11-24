@@ -1,16 +1,19 @@
 # Grelmicro
 
-Grelmicro is a lightweight framework/toolkit for building async microservices in Python.
+Grelmicro is a lightweight framework/toolkit which is ideal for building async microservices in Python.
 
 It is the perfect companion to build cloud-native app with FastAPI and FastStream, providing essential tools like leader election, distributed lock, and task scheduling for creating robust distributed systems.
 
 [![PyPI - Version](https://img.shields.io/pypi/v/grelmicro)](https://pypi.org/project/grelmicro/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/grelmicro)](https://pypi.org/project/grelmicro/)
+[![codecov](https://codecov.io/gh/grelinfo/grelmicro/graph/badge.svg?token=GDFY0AEFWR)](https://codecov.io/gh/grelinfo/grelmicro)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
 
 ---
+
+**Documentation**: [https://grelmicro.grel.info](https://grelmicro.grel.info)
 
 **Source Code**: [https://github.com/grelinfo/grelmicro](https://github.com/grelinfo/grelmicro)
 
@@ -22,7 +25,7 @@ Each Grelmicro module addresses common problems in building microservices and di
 
 The modules are fast, lightweight and fully typed, offering non-blocking operations by default using AnyIO for concurrency and async/await. Adapters are provided to run synchronous code in AnyIO Worker Threads, ensuring compatibility with both synchronous and asynchronous functions.
 
-### `sync` Module
+### Synchronization Primitives
 
 The `sync` module provides synchronization primitives for distributed systems.
 
@@ -33,7 +36,7 @@ The available primitives are:
 - **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **Lock**: A distributed lock that can be used to synchronize access to shared resources.
 
-### `task` Module
+### Task Scheduler
 
 The `task` module provides a simple task scheduler that can be used to run tasks periodically.
 
@@ -47,7 +50,7 @@ The key features are:
 - **Dependency Injection**: Use [FastDepends](https://lancetnik.github.io/FastDepends/) library to inject dependencies into tasks.
 - **Error Handling**: Catches and logs errors, ensuring that task execution failures do not stop the scheduling.
 
-### `backends` Module
+### Backends
 
 The `backends` module is the key of technology agnostic design of Grelmicro.
 

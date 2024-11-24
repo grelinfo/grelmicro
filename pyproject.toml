@@ -71,9 +71,11 @@ dev = [
     "fastapi>=0.115.5",
     "fastapi-cli>=0.0.5",
 ]
-
 doc = [
+    "mike>=2.1.3",
     "mkdocs-material>=9.5.44",
+    "pygments>=2.18.0",
+    "pymdown-extensions>=10.12",
 ]
 
 

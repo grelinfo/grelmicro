@@ -1,41 +1,65 @@
 # Grelmicro
 
-Grelmicro is a lightweight framework/toolkit for building async microservices in Python.
+Grelmicro is a lightweight framework/toolkit which is ideal for building async microservices in Python.
 
-It is the perfect companion to build cloud-native app with FastAPI and FastStream, providing essential tools like leader election, distributed lock, and task scheduling for creating robust distributed systems.
+It is the perfect companion for building cloud-native applications with FastAPI and FastStream, providing essential tools for running in distributed and containerized environments.
 
 [![PyPI - Version](https://img.shields.io/pypi/v/grelmicro)](https://pypi.org/project/grelmicro/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/grelmicro)](https://pypi.org/project/grelmicro/)
+[![codecov](https://codecov.io/gh/grelinfo/grelmicro/graph/badge.svg?token=GDFY0AEFWR)](https://codecov.io/gh/grelinfo/grelmicro)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
 
 ---
 
+**Documentation**: [https://grelmicro.grel.info](https://grelmicro.grel.info)
+
 **Source Code**: [https://github.com/grelinfo/grelmicro](https://github.com/grelinfo/grelmicro)
 
 ---
 
-## Toolkit Modules
+## Overview
 
-Each Grelmicro module addresses common problems in building microservices and distributed systems.
+Grelmicro provides essential features for building robust distributed systems, including:
 
-The modules are fast, lightweight and fully typed, offering non-blocking operations by default using AnyIO for concurrency and async/await. Adapters are provided to run synchronous code in AnyIO Worker Threads, ensuring compatibility with both synchronous and asynchronous functions.
+- **Backends**: Technology-agnostic design supporting Redis, PostgreSQL, and in-memory backends for testing.
+- **Logging**: Easy-to-configure logging with support of both text or JSON structured format.
+- **Task Scheduler**: A simple and efficient task scheduler for running periodic tasks.
+- **Synchronization Primitives**: Includes leader election and distributed lock mechanisms.
 
-### `sync` Module
+These features address common challenges in microservices and distributed, containerized systems while maintaining ease of use.
 
-The `sync` module provides synchronization primitives for distributed systems.
+### Backends
 
-The primitives are technology agnostic, supporting multiple backends (see `backends` module).
+The `backends` package is the key of technology agnostic design of Grelmicro.
+
+For now, it provides only a lock backend with Redis, PostgreSQL, and Memory for testing purposes.
+
+> **Important**: Although Grelmicro use AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
+
+> **Note**: Feel free to create your own backend and contribute it. In the `abc` package, you can find the protocol for creating new backends.
+
+### Logging
+
+The `logging` package provides a simple and easy-to-configure logging system.
+
+The logging feature adheres to the 12-factor app methodology, directing logs to `stdout`. It supports JSON formatting and allows log level configuration via environment variables.
+
+### Synchronization Primitives
+
+The `sync` package provides synchronization primitives for distributed systems.
+
+The primitives are technology agnostic, supporting multiple backends (see more in the Backends section).`
 
 The available primitives are:
 
 - **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **Lock**: A distributed lock that can be used to synchronize access to shared resources.
 
-### `task` Module
+### Task Scheduler
 
-The `task` module provides a simple task scheduler that can be used to run tasks periodically.
+The `task` package provides a simple task scheduler that can be used to run tasks periodically.
 
 > **Note**: This is not a replacement for bigger tools like Celery, taskiq, or APScheduler. It is just lightweight, easy to use, and safe for running tasks in a distributed system with synchronization.
 
@@ -43,19 +67,10 @@ The key features are:
 
 - **Fast & Easy**: Offers simple decorators to define and schedule tasks effortlessly.
 - **Interval Task**: Allows tasks to run at specified intervals.
-- **Synchronization**: Controls concurrency using synchronization primitives to manage simultaneous task execution (see the `sync` module).
+- **Synchronization**: Controls concurrency using synchronization primitives to manage simultaneous task execution (see the `sync` package).
 - **Dependency Injection**: Use [FastDepends](https://lancetnik.github.io/FastDepends/) library to inject dependencies into tasks.
 - **Error Handling**: Catches and logs errors, ensuring that task execution failures do not stop the scheduling.
 
-### `backends` Module
-
-The `backends` module is the key of technology agnostic design of Grelmicro.
-
-For now, it provides only a lock backend with Redis, PostgreSQL, and Memory for testing purposes.
-
-> **Important**: Although Grelmicro use AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
-
-> **Note**: Feel free to create your own backend and contribute it. In the `abc` module, you can find the protocol for creating new backends.
 
 ## Installation
 
