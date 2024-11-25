@@ -1,23 +1,24 @@
 """Loguru Logging."""
 
 import json
-import os
 import sys
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, NotRequired
 
+from pydantic import ValidationError
 from typing_extensions import TypedDict
 
-from grelmicro.errors import DependencyNotFoundError, EnvValidationError
+from grelmicro.errors import DependencyNotFoundError
+from grelmicro.logging.config import LoggingFormatType, LoggingSettings
+from grelmicro.logging.errors import LoggingSettingsError
 
 if TYPE_CHECKING:
     from loguru import FormatFunction, Record
 
 try:
-    from loguru import logger
+    import loguru
 except ImportError:  # pragma: no cover
-    logger = None  # type: ignore[assignment]
-
+    loguru = None  # type: ignore[assignment]
 
 try:
     import orjson
@@ -48,7 +49,7 @@ class JSONRecordDict(TypedDict):
     msg: str
     logger: str | None
     thread: str
-    context: NotRequired[dict[Any, Any]]
+    ctx: NotRequired[dict[Any, Any]]
 
 
 def json_patcher(record: "Record") -> None:
@@ -60,9 +61,15 @@ def json_patcher(record: "Record") -> None:
         logger=f'{record["name"]}:{record["function"]}:{record["line"]}',
         msg=record["message"],
     )
-    context = {k: v for k, v in record["extra"].items() if k != "serialized"}
-    if context:
-        json_record["context"] = context
+
+    ctx = {k: v for k, v in record["extra"].items() if k != "serialized"}
+    exception = record["exception"]
+
+    if exception and exception.type:
+        ctx["exception"] = f"{exception.type.__name__}: {exception.value!s}"
+
+    if ctx:
+        json_record["ctx"] = ctx
 
     record["extra"]["serialized"] = _json_dumps(json_record)
 
@@ -84,32 +91,31 @@ def configure_logging() -> None:
 
     The following environment variables are used:
     - LOG_LEVEL: The log level to use (default: INFO).
-    - LOG_FORMAT: json | text or any loguru template to format logged message (default: json).
+    - LOG_FORMAT: JSON | TEXT or any loguru template to format logged message (default: JSON).
 
     Raises:
         MissingDependencyError: If the loguru module is not installed.
-        ValueError: If the LOG_FORMAT or LOG_LEVEL environment variable is invalid
+        LoggingSettingsError: If the LOG_FORMAT or LOG_LEVEL environment variable is invalid
     """
-    if not logger:
-        msg = "loguru"
-        raise DependencyNotFoundError(msg)
+    if not loguru:
+        raise DependencyNotFoundError(module="loguru")
 
-    log_format: str | FormatFunction = os.getenv("LOG_FORMAT", "json")
+    try:
+        settings = LoggingSettings()
+    except ValidationError as error:
+        raise LoggingSettingsError(error) from None
 
-    if isinstance(log_format, str):
-        log_format = log_format.lower()
-        if log_format == "json":
-            log_format = json_formatter
-        elif log_format == "text":
-            log_format = TEXT_FORMAT
+    logger = loguru.logger
+    log_format: str | FormatFunction = settings.LOG_FORMAT
+
+    if log_format is LoggingFormatType.JSON:
+        log_format = json_formatter
+    elif log_format is LoggingFormatType.TEXT:
+        log_format = TEXT_FORMAT
 
     logger.remove()
-    try:
-        logger.add(
-            sys.stdout, level=os.getenv("LOG_LEVEL", "INFO").upper(), format=log_format
-        )
-    except ValueError as error:
-        if "Level" in str(error):
-            env = "LOG_LEVEL"
-            raise EnvValidationError(env, str(error)) from error
-        raise  # pragma: no cover
+    logger.add(
+        sys.stdout,
+        level=settings.LOG_LEVEL,
+        format=log_format,
+    )

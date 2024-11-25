@@ -19,11 +19,9 @@ from anyio.abc import TaskStatus
 from pydantic import BaseModel, model_validator
 from typing_extensions import Doc
 
-from grelmicro.abc.lockbackend import LockBackend
-from grelmicro.abc.synchronization import Synchronization
-from grelmicro.abc.task import Task
-from grelmicro.backends.registry import get_lock_backend
-from grelmicro.types import Seconds
+from grelmicro.sync._backends import get_lock_backend
+from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
+from grelmicro.task.abc import Task
 
 if TYPE_CHECKING:
     from contextlib import AsyncExitStack
@@ -132,7 +130,7 @@ class LeaderElection(Synchronization, Task):
         ],
         *,
         backend: Annotated[
-            LockBackend | None,
+            SyncBackend | None,
             Doc(
                 """
                 The distributed lock backend used to acquire and release the lock.
@@ -342,27 +340,34 @@ class LeaderElection(Synchronization, Task):
                 )
             if self._is_renew_deadline_reached():
                 await self._update_state(
-                    is_leader=False, raison_if_no_more_leader="renew deadline reached"
+                    is_leader=False,
+                    raison_if_no_more_leader="renew deadline reached",
                 )
         else:
             await self._update_state(
-                is_leader=is_leader, raison_if_no_more_leader="lock not acquired"
+                is_leader=is_leader,
+                raison_if_no_more_leader="lock not acquired",
             )
 
     def _seconds_before_expiration_deadline(self) -> float:
-        return max(self._state_updated_at + self.config.lease_duration - monotonic(), 0)
+        return max(
+            self._state_updated_at + self.config.lease_duration - monotonic(), 0
+        )
 
     def _check_error_interval(self) -> bool:
         """Check if the cooldown interval allows to log the error."""
         is_logging_allowed = (
             not self._error_logged_at
-            or (monotonic() - self._error_logged_at) > self.config.error_interval
+            or (monotonic() - self._error_logged_at)
+            > self.config.error_interval
         )
         self._error_logged_at = monotonic()
         return is_logging_allowed
 
     def _is_renew_deadline_reached(self) -> bool:
-        return (monotonic() - self._state_updated_at) >= self.config.renew_deadline
+        return (
+            monotonic() - self._state_updated_at
+        ) >= self.config.renew_deadline
 
     async def _release(self) -> None:
         try:
@@ -372,6 +377,10 @@ class LeaderElection(Synchronization, Task):
                         name=self.config.name, token=str(self.config.worker)
                     )
                 ):
-                    logger.info("Leader Election lock already released: %s", self.name)
+                    logger.info(
+                        "Leader Election lock already released: %s", self.name
+                    )
         except Exception:
-            logger.exception("Leader Election failed to release lock: %s", self.name)
+            logger.exception(
+                "Leader Election failed to release lock: %s", self.name
+            )

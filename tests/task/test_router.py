@@ -4,8 +4,8 @@ from functools import partial
 
 import pytest
 
-from grelmicro.backends.memory.lock import MemoryLockBackend
 from grelmicro.sync.lock import Lock
+from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.task import TaskRouter
 from grelmicro.task._interval import IntervalTask
 from grelmicro.task.errors import FunctionTypeError, TaskAddOperationError
@@ -64,17 +64,18 @@ def test_router_interval() -> None:
     task_count = 4
     custom_task = EventTask()
     router = TaskRouter(tasks=[custom_task])
-    sync = Lock(backend=MemoryLockBackend(), name="testlock")
+    sync = Lock(backend=MemorySyncBackend(), name="testlock")
 
     # Act
-    router.interval(name="test1", interval=10, sync=sync)(test1)
-    router.interval(name="test2", interval=20)(test2)
-    router.interval(10)(test3)
+    router.interval(name="test1", seconds=10, sync=sync)(test1)
+    router.interval(name="test2", seconds=20)(test2)
+    router.interval(seconds=10)(test3)
 
     # Assert
     assert len(router.tasks) == task_count
     assert (
-        sum(isinstance(task, IntervalTask) for task in router.tasks) == task_count - 1
+        sum(isinstance(task, IntervalTask) for task in router.tasks)
+        == task_count - 1
     )
     assert router.tasks[0].name == "event_task"
     assert router.tasks[1].name == "test1"
@@ -88,13 +89,15 @@ def test_router_interval_name_generation() -> None:
     router = TaskRouter()
 
     # Act
-    router.interval(10)(test1)
-    router.interval(10)(SimpleClass.static_method)
-    router.interval(10)(SimpleClass.method)
+    router.interval(seconds=10)(test1)
+    router.interval(seconds=10)(SimpleClass.static_method)
+    router.interval(seconds=10)(SimpleClass.method)
 
     # Assert
     assert router.tasks[0].name == "tests.task.samples:test1"
-    assert router.tasks[1].name == "tests.task.samples:SimpleClass.static_method"
+    assert (
+        router.tasks[1].name == "tests.task.samples:SimpleClass.static_method"
+    )
     assert router.tasks[2].name == "tests.task.samples:SimpleClass.method"
 
 
@@ -107,24 +110,24 @@ def test_router_interval_name_generation_error() -> None:
     # Act
     with pytest.raises(FunctionTypeError, match="nested function"):
 
-        @router.interval(interval=10)
+        @router.interval(seconds=10)
         def nested_function() -> None:
             pass
 
     with pytest.raises(FunctionTypeError, match="lambda"):
-        router.interval(interval=10)(lambda _: None)
+        router.interval(seconds=10)(lambda _: None)
 
     with pytest.raises(FunctionTypeError, match="method"):
-        router.interval(interval=10)(test_instance.method)
+        router.interval(seconds=10)(test_instance.method)
 
     with pytest.raises(FunctionTypeError, match="partial()"):
-        router.interval(interval=10)(partial(test1))
+        router.interval(seconds=10)(partial(test1))
 
     with pytest.raises(
         FunctionTypeError,
         match="callable without __module__ or __qualname__ attribute",
     ):
-        router.interval(interval=10)(object())  # type: ignore[arg-type]
+        router.interval(seconds=10)(object())  # type: ignore[arg-type]
 
 
 def test_router_add_task_when_started() -> None:

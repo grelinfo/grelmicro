@@ -8,7 +8,8 @@ import pytest
 from loguru import logger
 from pydantic import TypeAdapter
 
-from grelmicro.errors import DependencyNotFoundError, EnvValidationError
+from grelmicro.errors import DependencyNotFoundError
+from grelmicro.logging.errors import LoggingSettingsError
 from grelmicro.logging.loguru import (
     JSON_FORMAT,
     JSONRecordDict,
@@ -28,31 +29,82 @@ def cleanup_handlers() -> Generator[None, None, None]:
     logger.remove()
 
 
+def generate_logs() -> int:
+    """Generate logs."""
+    logger.debug("Hello, World!")
+    logger.info("Hello, World!")
+    logger.warning("Hello, World!")
+    logger.error("Hello, Alice!", user="Alice")
+    try:
+        1 / 0  # noqa: B018
+    except ZeroDivisionError:
+        logger.exception("Hello, Bob!")
+
+    return 5
+
+
 def assert_logs(logs: str) -> None:
     """Assert logs."""
-    info_json, error_json = logs.splitlines()
+    (
+        info,
+        warning,
+        error,
+        exception,
+    ) = (
+        json_record_type_adapter.validate_json(line)
+        for line in logs.splitlines()[0:4]
+    )
 
     expected_separator = 3
 
-    info = json_record_type_adapter.validate_json(info_json)
     assert info["logger"]
-    assert info["logger"].startswith("tests.logging.test_loguru:test_")
+    assert info["logger"].startswith("tests.logging.test_loguru:generate_logs:")
     assert len(info["logger"].split(":")) == expected_separator
     assert info["time"] == datetime.fromisoformat(info["time"]).isoformat()
     assert info["level"] == "INFO"
     assert info["msg"] == "Hello, World!"
     assert info["thread"] == "MainThread"
-    assert "context" not in info
+    assert "ctx" not in info
 
-    error = json_record_type_adapter.validate_json(error_json)
+    assert warning["logger"]
+    assert warning["logger"].startswith(
+        "tests.logging.test_loguru:generate_logs:"
+    )
+    assert len(warning["logger"].split(":")) == expected_separator
+    assert (
+        warning["time"] == datetime.fromisoformat(warning["time"]).isoformat()
+    )
+    assert warning["level"] == "WARNING"
+    assert warning["msg"] == "Hello, World!"
+    assert warning["thread"] == "MainThread"
+    assert "ctx" not in warning
+
     assert error["logger"]
-    assert error["logger"].startswith("tests.logging.test_loguru:test_")
+    assert error["logger"].startswith(
+        "tests.logging.test_loguru:generate_logs:"
+    )
     assert len(error["logger"].split(":")) == expected_separator
     assert error["time"] == datetime.fromisoformat(error["time"]).isoformat()
     assert error["level"] == "ERROR"
     assert error["msg"] == "Hello, Alice!"
     assert error["thread"] == "MainThread"
-    assert error["context"] == {"user": "Alice"}
+    assert error["ctx"] == {"user": "Alice"}
+
+    assert exception["logger"]
+    assert exception["logger"].startswith(
+        "tests.logging.test_loguru:generate_logs:"
+    )
+    assert len(exception["logger"].split(":")) == expected_separator
+    assert (
+        exception["time"]
+        == datetime.fromisoformat(exception["time"]).isoformat()
+    )
+    assert exception["level"] == "ERROR"
+    assert exception["msg"] == "Hello, Bob!"
+    assert exception["thread"] == "MainThread"
+    assert exception["ctx"] == {
+        "exception": "ZeroDivisionError: division by zero",
+    }
 
 
 def test_json_formatter() -> None:
@@ -61,10 +113,8 @@ def test_json_formatter() -> None:
     sink = StringIO()
 
     # Act
-    logger.add(sink, format=json_formatter)
-
-    logger.info("Hello, World!")
-    logger.error("Hello, Alice!", user="Alice")
+    logger.add(sink, format=json_formatter, level="INFO")
+    generate_logs()
 
     # Assert
     assert_logs(sink.getvalue())
@@ -78,9 +128,8 @@ def test_json_patching() -> None:
     # Act
     # logger.patch(json_patcher) -> Patch is not working using logger.configure instead
     logger.configure(patcher=json_patcher)
-    logger.add(sink, format=JSON_FORMAT)
-    logger.info("Hello, World!")
-    logger.error("Hello, Alice!", user="Alice")
+    logger.add(sink, format=JSON_FORMAT, level="INFO")
+    generate_logs()
 
     # Assert
     assert_logs(sink.getvalue())
@@ -96,9 +145,7 @@ def test_configure_logging_default(
 
     # Act
     configure_logging()
-    logger.debug("Hello, World!")
-    logger.info("Hello, World!")
-    logger.error("Hello, Alice!", user="Alice")
+    generate_logs()
 
     # Assert
     assert_logs(capsys.readouterr().out)
@@ -114,19 +161,28 @@ def test_configure_logging_text(
 
     # Act
     configure_logging()
-    logger.info("Hello, World!")
-    logger.error("Hello, Alice!", user="Alice")
+    generate_logs()
 
     # Assert
-    info, error = capsys.readouterr().out.splitlines()
+    lines = capsys.readouterr().out.splitlines()
 
-    assert "tests.logging.test_loguru:test_configure_logging_text" in info
-    assert " | INFO     | " in info
-    assert " - Hello, World!" in info
+    assert "tests.logging.test_loguru:generate_logs:" in lines[0]
+    assert " | INFO     | " in lines[0]
+    assert " - Hello, World!" in lines[0]
 
-    assert "tests.logging.test_loguru:test_configure_logging_text" in error
-    assert " | ERROR    | " in error
-    assert " - Hello, Alice!" in error
+    assert "tests.logging.test_loguru:generate_logs:" in lines[1]
+    assert " | WARNING  | " in lines[1]
+    assert " - Hello, World!" in lines[1]
+
+    assert "tests.logging.test_loguru:generate_logs:" in lines[2]
+    assert " | ERROR    | " in lines[2]
+    assert " - Hello, Alice!" in lines[2]
+
+    assert "tests.logging.test_loguru:generate_logs:" in lines[3]
+    assert " | ERROR    | " in lines[3]
+    assert " - Hello, Bob!" in lines[3]
+    assert "Traceback" in lines[4]
+    assert "ZeroDivisionError: division by zero" in lines[-1]
 
 
 def test_configure_logging_json(
@@ -139,8 +195,7 @@ def test_configure_logging_json(
 
     # Act
     configure_logging()
-    logger.info("Hello, World!")
-    logger.error("Hello, Alice!", user="Alice")
+    generate_logs()
 
     # Assert
     assert_logs(capsys.readouterr().out)
@@ -153,16 +208,13 @@ def test_configure_logging_level(
     # Arrange
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
     monkeypatch.delenv("LOG_FORMAT", raising=False)
-    expected_logs = 3
 
     # Act
     configure_logging()
-    logger.debug("Hello, World!")
-    logger.info("Hello, World!")
-    logger.error("Hello, Alice!", user="Alice")
+    logs_count = generate_logs()
 
     # Assert
-    assert len(capsys.readouterr().out.splitlines()) == expected_logs
+    assert len(capsys.readouterr().out.splitlines()) == logs_count
 
 
 def test_configure_logging_invalid_level(
@@ -175,8 +227,12 @@ def test_configure_logging_invalid_level(
 
     # Act
     with pytest.raises(
-        EnvValidationError,
-        match="Validation error for env LOG_LEVEL: Level 'INVALID' does not exist",
+        LoggingSettingsError,
+        match=(
+            r"Could not parse environment variables for logging settings:\n"
+            r"- LOG_LEVEL: Input should be 'DEBUG', 'INFO', 'WARNING', 'ERROR' or 'CRITICAL'"
+            r" \[input=INVALID\]"
+        ),
     ):
         configure_logging()
 
@@ -194,13 +250,16 @@ def test_configure_logging_format_template(
 
     # Act
     configure_logging()
-    logger.info("Hello, World!")
-    logger.error("Hello, Alice!", user="Alice")
+    generate_logs()
 
     # Assert
-    info, error = capsys.readouterr().out.splitlines()
-    assert "INFO: Hello, World!" in info
-    assert "ERROR: Hello, Alice!" in error
+    lines = capsys.readouterr().out.splitlines()
+    assert "INFO: Hello, World!" in lines[0]
+    assert "WARNING: Hello, World!" in lines[1]
+    assert "ERROR: Hello, Alice!" in lines[2]
+    assert "ERROR: Hello, Bob!" in lines[3]
+    assert "Traceback" in lines[4]
+    assert "ZeroDivisionError: division by zero" in lines[-1]
 
 
 def test_configure_logging_dependency_not_found(
@@ -208,7 +267,7 @@ def test_configure_logging_dependency_not_found(
 ) -> None:
     """Test Configure Logging Dependency Not Found."""
     # Arrange
-    monkeypatch.setattr("grelmicro.logging.loguru.logger", None)
+    monkeypatch.setattr("grelmicro.logging.loguru.loguru", None)
 
     # Act / Assert
     with pytest.raises(DependencyNotFoundError, match="loguru"):

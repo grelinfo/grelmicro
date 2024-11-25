@@ -18,8 +18,6 @@ theme:
     - navigation.instant
     - navigation.instant.prefetch
     - navigation.instant.progress
-    - navigation.tabs
-    - navigation.tabs.sticky
     - navigation.top
     - navigation.tracking
 
@@ -31,17 +29,19 @@ validation:
   absolute_links: warn
   unrecognized_links: warn
 
-
 nav:
 - Grelmicro: index.md
-- Features:
-    Synchonization Primitives:
-    - sync/index.md
-    - sync/leaderelection.md
-    - sync/lock.md
-    Task: task.md
+- User Guide:
+    - logging.md
+    - sync.md
+    - task.md
 
 markdown_extensions:
+  - admonition
+  - mdx_include:
+      base_path: docs
   - pymdownx.highlight
   - pymdownx.superfences
   - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true

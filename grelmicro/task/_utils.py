@@ -26,7 +26,9 @@ def validate_and_generate_reference(function: Callable[..., Any]) -> str:
         ref = "method"
         raise FunctionTypeError(ref)
 
-    if not hasattr(function, "__module__") or not hasattr(function, "__qualname__"):
+    if not hasattr(function, "__module__") or not hasattr(
+        function, "__qualname__"
+    ):
         ref = "callable without __module__ or __qualname__ attribute"
         raise FunctionTypeError(ref)
 

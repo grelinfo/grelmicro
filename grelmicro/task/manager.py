@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Annotated, Self
 from anyio import create_task_group
 from typing_extensions import Doc
 
-from grelmicro.abc.task import Task
 from grelmicro.errors import OutOfContextError
+from grelmicro.task.abc import Task
 from grelmicro.task.errors import TaskAddOperationError
 from grelmicro.task.router import TaskRouter
 
@@ -22,7 +22,7 @@ logger = getLogger("grelmicro.task")
 class TaskManager(TaskRouter):
     """Task Manager.
 
-    `TaskManager` app class, the main entrypoint to manage scheduled tasks.
+    `TaskManager` class, the main entrypoint to manage scheduled tasks.
     """
 
     def __init__(

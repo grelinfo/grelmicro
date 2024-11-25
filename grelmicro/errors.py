@@ -26,11 +26,3 @@ class DependencyNotFoundError(GrelmicroError):
         super().__init__(
             f"Could not import module {module}, try running 'pip install {module}'"
         )
-
-
-class EnvValidationError(GrelmicroError):
-    """Environment Variable Validation Error."""
-
-    def __init__(self, env: str, reason: str) -> None:
-        """Initialize the error."""
-        super().__init__(f"Validation error for env {env}: {reason}")

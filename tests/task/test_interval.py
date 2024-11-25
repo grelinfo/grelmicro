@@ -54,7 +54,9 @@ async def test_interval_task_start() -> None:
         tg.cancel_scope.cancel()
 
 
-async def test_interval_task_execution_error(caplog: pytest.LogCaptureFixture) -> None:
+async def test_interval_task_execution_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Test Interval Task Execution Error."""
     # Arrange
     task = IntervalTask(interval=1, function=always_fail)
@@ -103,7 +105,9 @@ async def test_interval_stop(
     class CustomBaseException(BaseException):
         pass
 
-    mocker.patch("grelmicro.task._interval.sleep", side_effect=CustomBaseException)
+    mocker.patch(
+        "grelmicro.task._interval.sleep", side_effect=CustomBaseException
+    )
     task = IntervalTask(interval=1, function=test1)
 
     async def leader_election_during_runtime_error() -> None:

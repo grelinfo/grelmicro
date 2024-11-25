@@ -7,9 +7,9 @@ from anyio import Event, create_task_group, sleep
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
-from grelmicro.abc.lockbackend import LockBackend
-from grelmicro.backends.memory import MemoryLockBackend
+from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
+from grelmicro.sync.memory import MemorySyncBackend
 
 WORKERS = 4
 WORKER_1 = 0
@@ -20,9 +20,9 @@ pytestmark = [pytest.mark.anyio, pytest.mark.timeout(TEST_TIMEOUT)]
 
 
 @pytest.fixture
-def backend() -> LockBackend:
-    """Lock Backend."""
-    return MemoryLockBackend()
+def backend() -> SyncBackend:
+    """Return Memory Synchronization Backend."""
+    return MemorySyncBackend()
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def configs() -> list[LeaderElectionConfig]:
 
 @pytest.fixture
 def leader_elections(
-    backend: LockBackend, configs: list[LeaderElectionConfig]
+    backend: SyncBackend, configs: list[LeaderElectionConfig]
 ) -> list[LeaderElection]:
     """Leader elections."""
     return [
@@ -55,7 +55,7 @@ def leader_elections(
 
 @pytest.fixture
 def leader_election(
-    backend: LockBackend, configs: list[LeaderElectionConfig]
+    backend: SyncBackend, configs: list[LeaderElectionConfig]
 ) -> LeaderElection:
     """Leader election."""
     return LeaderElection(backend=backend, **configs[WORKER_1].model_dump())
@@ -105,7 +105,9 @@ def test_leader_election_config() -> None:
 def test_leader_election_config_defaults() -> None:
     """Test leader election Config Defaults."""
     # Arrange
-    config = LeaderElectionConfig(name="test_leader_election", worker="worker_1")
+    config = LeaderElectionConfig(
+        name="test_leader_election", worker="worker_1"
+    )
 
     # Assert
     assert config.model_dump() == {
@@ -123,7 +125,8 @@ def test_leader_election_config_validation_errors() -> None:
     """Test leader election Config Errors."""
     # Arrange
     with pytest.raises(
-        ValidationError, match="Renew deadline must be shorter than lease duration"
+        ValidationError,
+        match="Renew deadline must be shorter than lease duration",
     ):
         LeaderElectionConfig(
             name="test_leader_election",
@@ -132,7 +135,8 @@ def test_leader_election_config_validation_errors() -> None:
             renew_deadline=20,
         )
     with pytest.raises(
-        ValidationError, match="Retry interval must be shorter than renew deadline"
+        ValidationError,
+        match="Retry interval must be shorter than renew deadline",
     ):
         LeaderElectionConfig(
             name="test_leader_election",
@@ -141,7 +145,8 @@ def test_leader_election_config_validation_errors() -> None:
             retry_interval=15,
         )
     with pytest.raises(
-        ValidationError, match="Backend timeout must be shorter than renew deadline"
+        ValidationError,
+        match="Backend timeout must be shorter than renew deadline",
     ):
         LeaderElectionConfig(
             name="test_leader_election",
@@ -176,7 +181,9 @@ async def test_lifecycle(leader_election: LeaderElection) -> None:
     assert is_running_after_cancel is False
 
 
-async def test_leader_election_context_manager(leader_election: LeaderElection) -> None:
+async def test_leader_election_context_manager(
+    leader_election: LeaderElection,
+) -> None:
     """Test leader election on worker using context manager."""
     # Act
     is_leader_before_start = leader_election.is_leader()
@@ -196,7 +203,9 @@ async def test_leader_election_context_manager(leader_election: LeaderElection) 
     assert is_leader_after_cancel is False
 
 
-async def test_leader_election_single_worker(leader_election: LeaderElection) -> None:
+async def test_leader_election_single_worker(
+    leader_election: LeaderElection,
+) -> None:
     """Test leader election on single worker."""
     # Act
     async with create_task_group() as tg:
@@ -293,7 +302,7 @@ async def test_unepexpected_stop(
 
 
 async def test_release_on_cancel(
-    backend: LockBackend, leader_election: LeaderElection, mocker: MockerFixture
+    backend: SyncBackend, leader_election: LeaderElection, mocker: MockerFixture
 ) -> None:
     """Test leader election on worker that releases the lock on cancel."""
     # Arrange
@@ -311,7 +320,7 @@ async def test_release_on_cancel(
 
 
 async def test_release_failure_ignored(
-    backend: LockBackend,
+    backend: SyncBackend,
     leader_election: LeaderElection,
     mocker: MockerFixture,
 ) -> None:
@@ -373,13 +382,15 @@ async def test_leader_transition(
             await worker1_tg.start(leader_elections[WORKER_1])
             await leader_elections[WORKER_1].wait_for_leader()
             leaders_after_leader_election1_start = [
-                leader_election.is_leader() for leader_election in leader_elections
+                leader_election.is_leader()
+                for leader_election in leader_elections
             ]
 
             for leader_election in leader_elections:
                 await workers_tg.start(leader_election)
             leaders_after_all_start = [
-                leader_election.is_leader() for leader_election in leader_elections
+                leader_election.is_leader()
+                for leader_election in leader_elections
             ]
             worker1_tg.cancel_scope.cancel()
 
@@ -409,7 +420,7 @@ async def test_leader_transition(
 
 
 async def test_error_interval(
-    backend: LockBackend,
+    backend: SyncBackend,
     leader_elections: list[LeaderElection],
     caplog: pytest.LogCaptureFixture,
     mocker: MockerFixture,

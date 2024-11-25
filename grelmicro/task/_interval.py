@@ -11,9 +11,9 @@ from anyio import TASK_STATUS_IGNORED, sleep, to_thread
 from anyio.abc import TaskStatus
 from fast_depends import inject
 
-from grelmicro.abc.synchronization import Synchronization
-from grelmicro.abc.task import Task
+from grelmicro.sync.abc import Synchronization
 from grelmicro.task._utils import validate_and_generate_reference
+from grelmicro.task.abc import Task
 
 logger = getLogger("grelmicro.task")
 
@@ -58,7 +58,9 @@ class IntervalTask(Task):
         self, *, task_status: TaskStatus[None] = TASK_STATUS_IGNORED
     ) -> None:
         """Run the repeated task loop."""
-        logger.info("Task started (interval: %ss): %s", self._interval, self.name)
+        logger.info(
+            "Task started (interval: %ss): %s", self._interval, self.name
+        )
         task_status.started()
         try:
             while True:
@@ -67,9 +69,13 @@ class IntervalTask(Task):
                         try:
                             await self._async_function()
                         except Exception:
-                            logger.exception("Task execution error: %s", self.name)
+                            logger.exception(
+                                "Task execution error: %s", self.name
+                            )
                 except Exception:
-                    logger.exception("Task synchronization error: %s", self.name)
+                    logger.exception(
+                        "Task synchronization error: %s", self.name
+                    )
                 await sleep(self._interval)
         finally:
             logger.info("Task stopped: %s", self.name)

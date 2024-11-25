@@ -7,15 +7,15 @@ import pytest
 from anyio import WouldBlock, sleep, to_thread
 from pytest_mock import MockerFixture
 
-from grelmicro.abc.lockbackend import LockBackend
-from grelmicro.backends.memory import MemoryLockBackend
+from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
-    LockBackendError,
     LockNotOwnedError,
     LockReleaseError,
+    SyncBackendError,
 )
 from grelmicro.sync.lock import Lock
+from grelmicro.sync.memory import MemorySyncBackend
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
 
@@ -27,14 +27,14 @@ LOCK_NAME = "test_leased_lock"
 
 
 @pytest.fixture
-async def backend() -> AsyncGenerator[LockBackend]:
-    """Lock Backend."""
-    async with MemoryLockBackend() as backend:
+async def backend() -> AsyncGenerator[SyncBackend]:
+    """Return Memory Synchronization Backend."""
+    async with MemorySyncBackend() as backend:
         yield backend
 
 
 @pytest.fixture
-def locks(backend: LockBackend) -> list[Lock]:
+def locks(backend: SyncBackend) -> list[Lock]:
     """Locks of multiple workers."""
     return [
         Lock(
@@ -411,11 +411,13 @@ async def test_lock_from_thread_release_expired(locks: list[Lock]) -> None:
 
 
 async def test_lock_acquire_backend_error(
-    backend: LockBackend, lock: Lock, mocker: MockerFixture
+    backend: SyncBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
     """Test Lock acquire backend error."""
     # Arrange
-    mocker.patch.object(backend, "acquire", side_effect=Exception("Backend Error"))
+    mocker.patch.object(
+        backend, "acquire", side_effect=Exception("Backend Error")
+    )
 
     # Act
     with pytest.raises(LockAcquireError):
@@ -423,13 +425,15 @@ async def test_lock_acquire_backend_error(
 
 
 async def test_lock_from_thread_acquire_backend_error(
-    backend: LockBackend,
+    backend: SyncBackend,
     lock: Lock,
     mocker: MockerFixture,
 ) -> None:
     """Test Lock from thread acquire backend error."""
     # Arrange
-    mocker.patch.object(backend, "acquire", side_effect=Exception("Backend Error"))
+    mocker.patch.object(
+        backend, "acquire", side_effect=Exception("Backend Error")
+    )
 
     # Act
     def sync() -> None:
@@ -440,11 +444,13 @@ async def test_lock_from_thread_acquire_backend_error(
 
 
 async def test_lock_release_backend_error(
-    backend: LockBackend, lock: Lock, mocker: MockerFixture
+    backend: SyncBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
     """Test Lock release backend error."""
     # Arrange
-    mocker.patch.object(backend, "release", side_effect=Exception("Backend Error"))
+    mocker.patch.object(
+        backend, "release", side_effect=Exception("Backend Error")
+    )
 
     # Act
     await lock.acquire()
@@ -453,13 +459,15 @@ async def test_lock_release_backend_error(
 
 
 async def test_lock_from_thread_release_backend_error(
-    backend: LockBackend,
+    backend: SyncBackend,
     lock: Lock,
     mocker: MockerFixture,
 ) -> None:
     """Test Lock from thread release backend error."""
     # Arrange
-    mocker.patch.object(backend, "release", side_effect=Exception("Backend Error"))
+    mocker.patch.object(
+        backend, "release", side_effect=Exception("Backend Error")
+    )
 
     # Act
     def sync() -> None:
@@ -471,24 +479,28 @@ async def test_lock_from_thread_release_backend_error(
 
 
 async def test_lock_owned_backend_error(
-    backend: LockBackend, lock: Lock, mocker: MockerFixture
+    backend: SyncBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
     """Test Lock owned backend error."""
     # Arrange
-    mocker.patch.object(backend, "owned", side_effect=Exception("Backend Error"))
+    mocker.patch.object(
+        backend, "owned", side_effect=Exception("Backend Error")
+    )
 
     # Act / Assert
-    with pytest.raises(LockBackendError):
+    with pytest.raises(SyncBackendError):
         await lock.owned()
 
 
 async def test_lock_locked_backend_error(
-    backend: LockBackend, lock: Lock, mocker: MockerFixture
+    backend: SyncBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
     """Test Lock locked backend error."""
     # Arrange
-    mocker.patch.object(backend, "locked", side_effect=Exception("Backend Error"))
+    mocker.patch.object(
+        backend, "locked", side_effect=Exception("Backend Error")
+    )
 
     # Act / Assert
-    with pytest.raises(LockBackendError):
+    with pytest.raises(SyncBackendError):
         await lock.locked()

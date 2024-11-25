@@ -7,8 +7,8 @@ from anyio import TASK_STATUS_IGNORED, Condition, Event
 from anyio.abc import TaskStatus
 from typer import echo
 
-from grelmicro.abc.synchronization import Synchronization
-from grelmicro.abc.task import Task
+from grelmicro.sync.abc import Synchronization
+from grelmicro.task.abc import Task
 
 condition = Condition()
 

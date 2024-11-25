@@ -1,14 +1,13 @@
 """Grelmicro Task Router."""
 
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Any, Self
+from typing import Annotated, Any
 
 from typing_extensions import Doc
 
-from grelmicro.abc.synchronization import Synchronization
-from grelmicro.abc.task import Task
+from grelmicro.sync.abc import Synchronization
+from grelmicro.task.abc import Task
 from grelmicro.task.errors import TaskAddOperationError
-from grelmicro.types import Seconds
 
 
 class TaskRouter:
@@ -34,12 +33,14 @@ class TaskRouter:
         """Initialize the task router."""
         self._started = False
         self._tasks: list[Task] = tasks or []
-        self._routers: list[Self] = []
+        self._routers: list[TaskRouter] = []
 
     @property
     def tasks(self) -> list[Task]:
         """List of scheduled tasks."""
-        return self._tasks + [task for router in self._routers for task in router.tasks]
+        return self._tasks + [
+            task for router in self._routers for task in router.tasks
+        ]
 
     def add_task(self, task: Task) -> None:
         """Add a task to the scheduler."""
@@ -50,8 +51,9 @@ class TaskRouter:
 
     def interval(
         self,
-        interval: Annotated[
-            Seconds,
+        *,
+        seconds: Annotated[
+            float,
             Doc(
                 """
                 The duration in seconds between each task run.
@@ -61,7 +63,6 @@ class TaskRouter:
                 """,
             ),
         ],
-        *,
         name: Annotated[
             str | None,
             Doc(
@@ -101,7 +102,7 @@ class TaskRouter:
                 IntervalTask(
                     name=name,
                     function=function,
-                    interval=interval,
+                    interval=seconds,
                     sync=sync,
                 ),
             )
@@ -109,7 +110,7 @@ class TaskRouter:
 
         return decorator
 
-    def include_router(self, router: Self) -> None:
+    def include_router(self, router: "TaskRouter") -> None:
         """Include another router in this router."""
         if self._started:
             raise TaskAddOperationError

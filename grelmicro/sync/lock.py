@@ -8,17 +8,16 @@ from uuid import UUID, uuid1
 from anyio import WouldBlock, from_thread, sleep
 from typing_extensions import Doc
 
-from grelmicro.abc.lock import BaseLock, BaseLockConfig
-from grelmicro.abc.lockbackend import LockBackend
-from grelmicro.backends.registry import get_lock_backend
+from grelmicro.sync._backends import get_lock_backend
+from grelmicro.sync._base import BaseLock, BaseLockConfig
 from grelmicro.sync._utils import generate_task_token, generate_thread_token
+from grelmicro.sync.abc import Seconds, SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
-    LockBackendError,
     LockNotOwnedError,
     LockReleaseError,
+    SyncBackendError,
 )
-from grelmicro.types import Seconds
 
 
 class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):
@@ -64,7 +63,7 @@ class Lock(BaseLock):
         ],
         *,
         backend: Annotated[
-            LockBackend | None,
+            SyncBackend | None,
             Doc("""
                 The distributed lock backend used to acquire and release the lock.
 
@@ -183,19 +182,19 @@ class Lock(BaseLock):
         """Check if the lock is acquired.
 
         Raise:
-            LockBackendError: If the lock cannot be checked due to an error on the backend.
+            SyncBackendError: If the lock cannot be checked due to an error on the backend.
         """
         try:
             return await self.backend.locked(name=self._config.name)
         except Exception as exc:
             msg = "Failed to check if the lock is acquired"
-            raise LockBackendError(msg) from exc
+            raise SyncBackendError(msg) from exc
 
     async def owned(self) -> bool:
         """Check if the lock is owned by the current token.
 
         Raise:
-            LockBackendError: If the lock cannot be checked due to an error on the backend.
+            SyncBackendError: If the lock cannot be checked due to an error on the backend.
         """
         return await self.do_owned(generate_task_token(self._config.worker))
 
@@ -231,7 +230,9 @@ class Lock(BaseLock):
             LockReleaseError: Cannot release the lock due to backend error.
         """
         try:
-            return await self.backend.release(name=self._config.name, token=token)
+            return await self.backend.release(
+                name=self._config.name, token=token
+            )
         except Exception as exc:
             raise LockReleaseError(name=self._config.name, token=token) from exc
 
@@ -244,13 +245,13 @@ class Lock(BaseLock):
             bool: True if the lock is owned by the current token, False otherwise.
 
         Raises:
-            LockBackendError: Cannot check if the lock is owned due to backend error.
+            SyncBackendError: Cannot check if the lock is owned due to backend error.
         """
         try:
             return await self.backend.owned(name=self._config.name, token=token)
         except Exception as exc:
             msg = "Failed to check if the lock is owned"
-            raise LockBackendError(msg) from exc
+            raise SyncBackendError(msg) from exc
 
 
 class ThreadLockAdapter:
@@ -304,7 +305,7 @@ class ThreadLockAdapter:
         """Release the lock.
 
         Raises:
-            ReleaseLockBackendError: Cannot release the lock due to backend error.
+            ReleaseSyncBackendError: Cannot release the lock due to backend error.
             LockNotOwnedError: If the lock is not currently held.
 
         """

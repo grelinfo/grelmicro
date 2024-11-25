@@ -10,6 +10,5 @@ wheels/
 .venv
 
 # Coverage
+cov.xml
 .coverage
-coverage.xml
-junittest.xml

@@ -8,11 +8,21 @@ class SyncError(Exception):
     """
 
 
-class LockBackendError(SyncError):
-    """Lock Backend Error."""
+class SyncBackendError(SyncError):
+    """Synchronization Backend Error."""
 
 
-class LockAcquireError(LockBackendError):
+class BackendNotLoadedError(SyncBackendError):
+    """Backend Not Loaded Error."""
+
+    def __init__(self, backend_name: str) -> None:
+        """Initialize the error."""
+        super().__init__(
+            f"Could not load backend {backend_name}, try initializing one first"
+        )
+
+
+class LockAcquireError(SyncBackendError):
     """Acquire Lock Error.
 
     This error is raised when an error on backend side occurs during lock acquisition.
@@ -23,13 +33,15 @@ class LockAcquireError(LockBackendError):
         super().__init__(f"Failed to acquire lock: name={name}, token={token}")
 
 
-class LockReleaseError(LockBackendError):
+class LockReleaseError(SyncBackendError):
     """Lock Release Error.
 
     This error is raised when an error on backend side occurs during lock release.
     """
 
-    def __init__(self, *, name: str, token: str, reason: str | None = None) -> None:
+    def __init__(
+        self, *, name: str, token: str, reason: str | None = None
+    ) -> None:
         """Initialize the error."""
         super().__init__(
             f"Failed to release lock: name={name}, token={token}"

@@ -2,7 +2,7 @@
 
 from anyio import Event, create_task_group, fail_after
 
-from grelmicro.abc.lock import BaseLock
+from grelmicro.sync._base import BaseLock
 
 
 async def wait_first_acquired(locks: list[BaseLock]) -> None:

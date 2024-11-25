@@ -18,7 +18,9 @@ def generate_task_token(worker: UUID | str) -> str:
     The worker namespace is generated using `generate_worker_uuid` if the worker is a string.
     Generate a task UUID using UUIDv3 with the worker namespace and the async task ID.
     """
-    worker = generate_worker_namespace(worker) if isinstance(worker, str) else worker
+    worker = (
+        generate_worker_namespace(worker) if isinstance(worker, str) else worker
+    )
     task = str(get_current_task().id)
     return str(uuid3(namespace=worker, name=task))
 
@@ -29,6 +31,8 @@ def generate_thread_token(worker: UUID | str) -> str:
     The worker namespace is generated using `generate_worker_uuid` if the worker is a string.
     Generate a thread UUID using UUIDv3 with the worker namespace and the current thread ID.
     """
-    worker = generate_worker_namespace(worker) if isinstance(worker, str) else worker
+    worker = (
+        generate_worker_namespace(worker) if isinstance(worker, str) else worker
+    )
     thread = str(get_ident())
     return str(uuid3(namespace=worker, name=thread))
