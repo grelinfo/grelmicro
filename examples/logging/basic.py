@@ -1,5 +1,6 @@
-from grelmicro.logging import configure_logging
 from loguru import logger
+
+from grelmicro.logging import configure_logging
 
 configure_logging()
 

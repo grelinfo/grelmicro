@@ -79,4 +79,3 @@ The lock supports the following features:
 
 !!! warning
     The lock is designed for use within an async event loop and is not thread-safe or process-safe.
-

@@ -108,7 +108,8 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
     "ANN201",
     "D103",
     "D100",
-    "INP001"
+    "INP001",
+    "T201",
 ]
 "examples/logging/basic.py" = ["EM101", "TRY"]
 "examples/task/router.py" = ["I001", "E402"]
@@ -144,8 +145,7 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
-    "simple_fastapi_app",
-    "single_file_app"
+    "examples.*"
 ]
 disallow_untyped_defs = false
 

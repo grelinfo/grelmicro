@@ -1,1 +1,1 @@
-"""Test Grelmicro Lock Component."""
+"""Grelmicro Synchronization Primitives Tests."""

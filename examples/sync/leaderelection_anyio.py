@@ -1,4 +1,5 @@
 from anyio import create_task_group, sleep_forever
+
 from grelmicro.sync.leaderelection import LeaderElection
 
 leader = LeaderElection("cluster_group")

@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from grelmicro.logging import configure_logging
 from loguru import logger
+
+from grelmicro.logging import configure_logging
 
 
 @asynccontextmanager
@@ -15,6 +16,7 @@ def lifespan_startup():
 app = FastAPI()
 
 
-@app.get("/hello")
-def hello() -> dict[str, str]:
+@app.get("/")
+def root():
     logger.info("This is an info message")
+    return {"Hello": "World"}

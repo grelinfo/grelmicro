@@ -1,1 +1,1 @@
-"""Test Logging Module."""
+"""Grelmicro Logging Tests."""
