@@ -34,7 +34,7 @@ jobs:
           git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git add .
           git commit -m "🚀 Release $RELEASE_VERSION"
-          git push origin
+          git tag -f $RELEASE_VERSION
           git push origin main
 
   publish-docs:
@@ -46,11 +46,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
       - name: Configure Git Credentials
         run: |
           git config user.name "${GITHUB_ACTOR}"
@@ -58,6 +53,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --group docs
