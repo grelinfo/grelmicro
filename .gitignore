@@ -12,3 +12,6 @@ wheels/
 # Coverage
 cov.xml
 .coverage
+
+# Mkdocs
+site/
