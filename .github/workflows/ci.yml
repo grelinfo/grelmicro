@@ -21,7 +21,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
-        run: uv install --all-extras
+        run: uv sync --all-extras
 
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
@@ -42,7 +42,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
-        run: uv install --all-extras --python ${{ matrix.python }}
+        run: uv sync --all-extras --python ${{ matrix.python }}
 
       - name: Test with pytest
         run: uv run pytest
@@ -64,6 +64,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: coverage-reports
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --all-extras
 
       - name: Combine reports
         run: coverage combine cov-*.xml --data-file cov.xml
