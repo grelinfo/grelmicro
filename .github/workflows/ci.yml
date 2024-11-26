@@ -53,6 +53,7 @@ jobs:
         with:
           name: coverage-${{ matrix.python }}
           path: .coverage.py${{ matrix.python }}
+          include-hidden-files: true
 
   coverage-report:
     name: Coverage report
