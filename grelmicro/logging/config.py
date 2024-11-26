@@ -1,13 +1,13 @@
 """Logging Configuration."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Self
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
-class _CaseInsensitiveEnum(str, Enum):
+class _CaseInsensitiveEnum(StrEnum):
     @classmethod
     def _missing_(cls, value: object) -> Self | None:
         value = str(value).lower()
