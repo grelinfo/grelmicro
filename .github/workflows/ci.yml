@@ -27,13 +27,12 @@ jobs:
         uses: pre-commit/action@v3.0.1
 
   test:
-    name: Test with ${{ matrix.python }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Test Python ${{ matrix.python }}
+    runs-on: "ubuntu-latest"
     strategy:
       fail-fast: false
       matrix:
         python: ["3.11", "3.12", "3.13"]
-        os: ["ubuntu-latest"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,23 +46,25 @@ jobs:
       - name: Test with pytest
         run: uv run pytest
         env:
-          COVERAGE_FILE: cov-${{ matrix.python }}${{ matrix.os }}.xml
+          COVERAGE_FILE: .coverage.py${{ matrix.python }}
+          CONTEXT: py${{ matrix.python }}
 
       - name: Save coverage report
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-reports
-          path: cov-${{ matrix.python }}${{ matrix.os }}.xml
+          name: coverage-${{ matrix.python }}
+          path: .coverage.py${{ matrix.python }}
 
   coverage-report:
     name: Coverage report
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test]
     steps:
       - name: Get coverage reports
         uses: actions/download-artifact@v4
         with:
-          name: coverage-reports
+          name: coverage-*
+          merge-multiple: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -71,8 +72,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Combine reports
-        run: coverage combine cov-*.xml --data-file cov.xml
+      - name: Combine coverage reports
+        run: coverage combine .coverage.* --data-file cov.xml
 
       - name: Upload coverage report to Codecov
         uses: codecov/codecov-action@v4.0.1
