@@ -10,7 +10,6 @@ env:
   UV_SYSTEM_PYTHON: 1
 
 jobs:
-
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -24,7 +23,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run pre-commit
-        uses: uv run pre-commit run --all-files
+        run: uv run pre-commit run --all-files
 
   test:
     name: Test Python ${{ matrix.python }}
