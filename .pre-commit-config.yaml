@@ -31,7 +31,7 @@ repos:
   - id: mypy
     name: mypy
     description: "Run 'mypy' for static type checking"
-    entry: uv run --all-extras mypy
+    entry: uv run mypy
     language: system
     types: [python]
     require_serial: true
