@@ -24,7 +24,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run pre-commit
-        uses: pre-commit/action@v3.0.1
+        uses: uv run pre-commit run --all-files
 
   test:
     name: Test Python ${{ matrix.python }}
@@ -69,11 +69,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Install dependencies
-        run: uv sync --all-extras
-
       - name: Combine coverage reports
-        run: coverage combine .coverage.* --data-file cov.xml
+        run: uvx coverage combine .coverage.* --data-file cov.xml
 
       - name: Upload coverage report to Codecov
         uses: codecov/codecov-action@v4.0.1
