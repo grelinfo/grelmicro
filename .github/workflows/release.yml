@@ -5,9 +5,6 @@ on:
     types:
       - published
 
-permissions:
-  contents: write
-
 jobs:
   bump-version:
     runs-on: ubuntu-latest
@@ -16,6 +13,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
+          ssh-key: ${{ secrets.SSH_KEY }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -30,8 +28,8 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          git config user.name "${GITHUB_ACTOR}"
-          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          git config user.name "grelinfo[bot]"
+          git config user.email "702069+grelinfo[bot]@users.noreply.github.com"
           git add .
           git commit -m "🚀 Release $RELEASE_VERSION"
           git tag -f $RELEASE_VERSION
