@@ -90,7 +90,7 @@ from grelmicro.task import TaskManager
 async def lifespan(app):
     configure_logging()
     # Start the lock backend and task manager
-    async with lock_backend, task:
+    async with sync_backend, task:
         yield
 
 
@@ -104,7 +104,7 @@ def read_root():
 
 # === Grelmicro ===
 task = TaskManager()
-lock_backend = RedisSyncBackend("redis://localhost:6379/0")
+sync_backend = RedisSyncBackend("redis://localhost:6379/0")
 
 # --- Ensure that only one say hello world at the same time ---
 lock = Lock("say_hello_world")

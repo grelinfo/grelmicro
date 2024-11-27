@@ -26,8 +26,8 @@ def anyio_backend() -> str:
     scope="module",
     params=[
         "memory",
-        pytest.param("redis", marks=pytest.mark.testcontainers),
-        pytest.param("postgres", marks=pytest.mark.testcontainers),
+        pytest.param("redis", marks=pytest.mark.integration),
+        pytest.param("postgres", marks=pytest.mark.integration),
     ],
 )
 async def backend(
