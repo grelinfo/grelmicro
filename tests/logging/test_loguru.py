@@ -9,7 +9,7 @@ from loguru import logger
 from pydantic import TypeAdapter
 
 from grelmicro.errors import DependencyNotFoundError
-from grelmicro.logging.errors import LoggingSettingsError
+from grelmicro.logging.errors import LoggingSettingsValidationError
 from grelmicro.logging.loguru import (
     JSON_FORMAT,
     JSONRecordDict,
@@ -227,9 +227,9 @@ def test_configure_logging_invalid_level(
 
     # Act
     with pytest.raises(
-        LoggingSettingsError,
+        LoggingSettingsValidationError,
         match=(
-            r"Could not parse environment variables for logging settings:\n"
+            r"Could not validate environment variables settings:\n"
             r"- LOG_LEVEL: Input should be 'DEBUG', 'INFO', 'WARNING', 'ERROR' or 'CRITICAL'"
             r" \[input=INVALID\]"
         ),

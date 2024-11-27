@@ -409,7 +409,7 @@ wheels = [
 
 [[package]]
 name = "grelmicro"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -432,7 +432,6 @@ standard = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "docker" },
     { name = "fastapi" },
     { name = "fastapi-cli" },
     { name = "faststream" },
@@ -468,7 +467,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "docker", specifier = ">=7.1.0" },
     { name = "fastapi", specifier = ">=0.115.5" },
     { name = "fastapi-cli", specifier = ">=0.0.5" },
     { name = "faststream", specifier = ">=0.5.30" },

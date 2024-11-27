@@ -5,11 +5,51 @@ from typing import Annotated, Self
 
 from asyncpg import Pool, create_pool
 from pydantic import PostgresDsn
+from pydantic_core import MultiHostUrl, ValidationError
+from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
 from grelmicro.errors import OutOfContextError
 from grelmicro.sync._backends import loaded_backends
 from grelmicro.sync.abc import SyncBackend
+from grelmicro.sync.errors import SyncSettingsValidationError
+
+
+class _PostgresSettings(BaseSettings):
+    POSTGRES_HOST: str | None = None
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str | None = None
+    POSTGRES_USER: str | None = None
+    POSTGRES_PASSWORD: str | None = None
+    POSTGRES_URL: PostgresDsn | None = None
+
+    def url(self) -> str:
+        """Generate the Postgres URL from the parts."""
+        if self.POSTGRES_URL:
+            return self.POSTGRES_URL.unicode_string()
+
+        if all(
+            (
+                self.POSTGRES_HOST,
+                self.POSTGRES_DB,
+                self.POSTGRES_USER,
+                self.POSTGRES_PASSWORD,
+            )
+        ):
+            return MultiHostUrl.build(
+                scheme="postgresql",
+                username=self.POSTGRES_USER,
+                password=self.POSTGRES_PASSWORD,
+                host=self.POSTGRES_HOST,
+                port=self.POSTGRES_PORT,
+                path=self.POSTGRES_DB,
+            ).unicode_string()
+
+        msg = (
+            "Either POSTGRES_URL or all of POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, and "
+            "POSTGRES_PASSWORD must be set"
+        )
+        raise SyncSettingsValidationError(msg)
 
 
 class PostgresSyncBackend(SyncBackend):
@@ -55,7 +95,15 @@ class PostgresSyncBackend(SyncBackend):
 
     def __init__(
         self,
-        url: Annotated[PostgresDsn | str, Doc("The Postgres database URL.")],
+        url: Annotated[
+            PostgresDsn | str | None,
+            Doc("""
+                The Postgres database URL.
+
+                If not provided, the URL will be taken from the environment variables POSTGRES_URL
+                or POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD.
+                """),
+        ] = None,
         *,
         auto_register: Annotated[
             bool,
@@ -72,7 +120,11 @@ class PostgresSyncBackend(SyncBackend):
             msg = f"Table name '{table_name}' is not a valid identifier"
             raise ValueError(msg)
 
-        self._url = url
+        try:
+            self._url = url or _PostgresSettings().url()
+        except ValidationError as error:
+            raise SyncSettingsValidationError(error) from None
+
         self._table_name = table_name
         self._acquire_sql = self._SQL_ACQUIRE_OR_EXTEND.format(
             table_name=table_name
