@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: ["main"]
 
-env:
-  UV_SYSTEM_PYTHON: 1
-  UV_LOCKED: 1
-
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -21,6 +17,9 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+
+      - name: Check uv lockfile
+        run: uv lock --dry-run --frozen
 
       - name: Install dependencies
         run: uv sync --all-extras
