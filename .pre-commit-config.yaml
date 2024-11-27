@@ -16,6 +16,7 @@ repos:
   rev: 0.5.4
   hooks:
     - id: uv-lock
+      args: [ "--python-preference", "system"]
 
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.8.0
@@ -31,13 +32,6 @@ repos:
 
 - repo: local
   hooks:
-  - id: mypy
-    name: mypy
-    description: "Run 'mypy' for static type checking"
-    entry: uv run mypy
-    language: system
-    types: [python]
-    require_serial: true
 
   - id: readme-to-docs
     name: readme-to-docs
@@ -45,6 +39,15 @@ repos:
     entry: cp README.md docs/index.md
     language: system
     pass_filenames: false
+
+  # --- Local development hooks ---
+  - id: mypy
+    name: mypy
+    description: "Run 'mypy' for static type checking"
+    entry: uv run mypy
+    language: system
+    types: [python]
+    require_serial: true
 
   - id: pytest
     name: pytest
@@ -56,4 +59,4 @@ repos:
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
   autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
-  skip: [pytest, mypy]
+  skip: [pytest, mypy, uv-lock]

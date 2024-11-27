@@ -4,7 +4,7 @@ from collections.abc import Callable, Generator
 
 import pytest
 
-from grelmicro.sync._backends import get_lock_backend, loaded_backends
+from grelmicro.sync._backends import get_sync_backend, loaded_backends
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import BackendNotLoadedError
 from grelmicro.sync.memory import MemorySyncBackend
@@ -31,24 +31,24 @@ def clean_registry() -> Generator[None, None, None]:
     ],
 )
 @pytest.mark.usefixtures("clean_registry")
-def test_get_lock_backend(backend_factory: Callable[[], SyncBackend]) -> None:
+def test_get_sync_backend(backend_factory: Callable[[], SyncBackend]) -> None:
     """Test Get Synchronization Backend."""
     # Arrange
     expected_backend = backend_factory()
 
     # Act
-    backend = get_lock_backend()
+    backend = get_sync_backend()
 
     # Assert
     assert backend is expected_backend
 
 
 @pytest.mark.usefixtures("clean_registry")
-def test_get_lock_backend_not_loaded() -> None:
+def test_get_sync_backend_not_loaded() -> None:
     """Test Get Synchronization Backend Not Loaded."""
     # Act / Assert
     with pytest.raises(BackendNotLoadedError):
-        get_lock_backend()
+        get_sync_backend()
 
 
 @pytest.mark.parametrize(
@@ -64,7 +64,7 @@ def test_get_lock_backend_not_loaded() -> None:
     ],
 )
 @pytest.mark.usefixtures("clean_registry")
-def test_get_lock_backend_auto_register_disabled(
+def test_get_sync_backend_auto_register_disabled(
     backend_factory: Callable[[], SyncBackend],
 ) -> None:
     """Test Get Synchronization Backend."""
@@ -73,4 +73,4 @@ def test_get_lock_backend_auto_register_disabled(
 
     # Act / Assert
     with pytest.raises(BackendNotLoadedError):
-        get_lock_backend()
+        get_sync_backend()
