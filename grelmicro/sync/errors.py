@@ -1,5 +1,7 @@
 """Grelmicro Synchronization Primitive Errors."""
 
+from grelmicro.errors import SettingsValidationError
+
 
 class SyncError(Exception):
     """Synchronization Primitive Error.
@@ -59,3 +61,7 @@ class LockNotOwnedError(LockReleaseError):
     def __init__(self, *, name: str, token: str) -> None:
         """Initialize the error."""
         super().__init__(name=name, token=token, reason="lock not owned")
+
+
+class SyncSettingsValidationError(SyncError, SettingsValidationError):
+    """Synchronization Settings Validation Error."""

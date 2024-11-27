@@ -113,7 +113,8 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 "examples/logging/basic.py" = ["EM101", "TRY"]
 "examples/task/router.py" = ["I001", "E402"]
 "tests/*" = [
-    "S101",   # assert
+    "S101",
+    "SLF001"
 ]
 
 [tool.ruff.lint.pycodestyle]
@@ -169,4 +170,5 @@ sort = "-Cover"
 exclude_also = [
     "if TYPE_CHECKING:",
     "class .*\\bProtocol\\):",
+    "assert_never\\(.*\\)",
 ]

@@ -10,7 +10,7 @@ from typing_extensions import TypedDict
 
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging.config import LoggingFormatType, LoggingSettings
-from grelmicro.logging.errors import LoggingSettingsError
+from grelmicro.logging.errors import LoggingSettingsValidationError
 
 if TYPE_CHECKING:
     from loguru import FormatFunction, Record
@@ -103,7 +103,7 @@ def configure_logging() -> None:
     try:
         settings = LoggingSettings()
     except ValidationError as error:
-        raise LoggingSettingsError(error) from None
+        raise LoggingSettingsValidationError(error) from None
 
     logger = loguru.logger
     log_format: str | FormatFunction = settings.LOG_FORMAT
