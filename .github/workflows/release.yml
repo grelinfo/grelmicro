@@ -25,7 +25,11 @@ jobs:
       - name: Get release version
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
-      - name: Bump version
+      - name: Get current version
+        run: echo "CURRENT_VERSION=$(uv run hatch version)" >> $GITHUB_ENV
+
+      - name: Bump version if necessary
+        if: ${{ env.RELEASE_VERSION != env.CURRENT_VERSION }}
         run: uv run hatch version $RELEASE_VERSION
 
       - name: Commit and push changes
