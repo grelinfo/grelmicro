@@ -16,7 +16,7 @@ from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.postgres import PostgresSyncBackend
 from grelmicro.sync.redis import RedisSyncBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(100)]
+pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 
 
 @pytest.fixture(scope="module")
@@ -83,11 +83,11 @@ async def backend(
 ) -> AsyncGenerator[SyncBackend]:
     """Test Container for each Backend."""
     if backend_name == "redis" and container:
-        port = container.get_exposed_port(5432)
+        port = container.get_exposed_port(6379)
         async with RedisSyncBackend(f"redis://localhost:{port}/0") as backend:
             yield backend
     elif backend_name == "postgres" and container:
-        port = container.get_exposed_port(6379)
+        port = container.get_exposed_port(5432)
         async with PostgresSyncBackend(
             "postgresql://test:test@localhost:{port}/test"
         ) as backend:
