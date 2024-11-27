@@ -21,7 +21,7 @@ class LoadedBackendsDict(TypedDict):
 loaded_backends: LoadedBackendsDict = {}
 
 
-def get_lock_backend() -> SyncBackend:
+def get_sync_backend() -> SyncBackend:
     """Get the lock backend."""
     backend: Literal["lock"] = "lock"
     try:

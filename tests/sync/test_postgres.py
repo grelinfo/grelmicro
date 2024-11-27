@@ -20,7 +20,7 @@ URL = "postgres://user:password@localhost:5432/db"
         "locks; DROP TABLE users; --",
     ],
 )
-def test_lock_backend_table_name_invalid(table_name: str) -> None:
+def test_sync_backend_table_name_invalid(table_name: str) -> None:
     """Test Synchronization Backend Table Name Invalid."""
     # Act / Assert
     with pytest.raises(
@@ -29,7 +29,7 @@ def test_lock_backend_table_name_invalid(table_name: str) -> None:
         PostgresSyncBackend(url=URL, table_name=table_name)
 
 
-async def test_lock_backend_out_of_context_errors() -> None:
+async def test_sync_backend_out_of_context_errors() -> None:
     """Test Synchronization Backend Out Of Context Errors."""
     # Arrange
     backend = PostgresSyncBackend(url=URL)

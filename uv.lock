@@ -432,11 +432,11 @@ standard = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "docker" },
     { name = "fastapi" },
     { name = "fastapi-cli" },
     { name = "faststream" },
     { name = "hatch" },
-    { name = "mdformat-ruff" },
     { name = "mdx-include" },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -449,7 +449,6 @@ dev = [
     { name = "testcontainers", extra = ["redis"] },
 ]
 docs = [
-    { name = "mike" },
     { name = "mkdocs-material" },
     { name = "pygments" },
     { name = "pymdown-extensions" },
@@ -462,18 +461,18 @@ requires-dist = [
     { name = "fast-depends", specifier = ">=2.0.0" },
     { name = "loguru", marker = "extra == 'standard'", specifier = ">=0.7.2" },
     { name = "orjson", marker = "extra == 'standard'", specifier = ">=3.10.11" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pydantic-settings", specifier = ">=2.6.1" },
+    { name = "pydantic", specifier = ">=2.5.0" },
+    { name = "pydantic-settings", specifier = ">=2.5.0" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "docker", specifier = ">=7.1.0" },
     { name = "fastapi", specifier = ">=0.115.5" },
     { name = "fastapi-cli", specifier = ">=0.0.5" },
     { name = "faststream", specifier = ">=0.5.30" },
     { name = "hatch", specifier = ">=1.13.0" },
-    { name = "mdformat-ruff", specifier = ">=0.1.3" },
     { name = "mdx-include", specifier = ">=1.4.2" },
     { name = "mypy", specifier = ">=1.12.0" },
     { name = "pre-commit", specifier = ">=4.0.1" },
@@ -483,10 +482,9 @@ dev = [
     { name = "pytest-randomly", specifier = ">=3.16.0" },
     { name = "pytest-timeout", specifier = ">=2.3.1" },
     { name = "ruff", specifier = ">=0.7.4" },
-    { name = "testcontainers", extras = ["postgres", "redis"], specifier = ">=4.8.0" },
+    { name = "testcontainers", extras = ["postgres", "redis"], specifier = ">=4.8.2" },
 ]
 docs = [
-    { name = "mike", specifier = ">=2.1.3" },
     { name = "mkdocs-material", specifier = ">=9.5.44" },
     { name = "pygments", specifier = ">=2.18.0" },
     { name = "pymdown-extensions", specifier = ">=10.12" },
@@ -636,20 +634,11 @@ name = "importlib-metadata"
 version = "8.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp" },
+    { name = "zipp", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cd/12/33e59336dca5be0c398a7482335911a33aa0e20776128f038019f1a95f1b/importlib_metadata-8.5.0.tar.gz", hash = "sha256:71522656f0abace1d072b9e5481a48f07c138e00f079c38c8f883823f9c26bd7", size = 55304 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/d9/a1e041c5e7caa9a05c925f4bdbdfb7f006d1f74996af53467bc394c97be7/importlib_metadata-8.5.0-py3-none-any.whl", hash = "sha256:45e54197d28b7a7f1559e60b95e7c567032b602131fbd588f1497f47880aa68b", size = 26514 },
-]
-
-[[package]]
-name = "importlib-resources"
-version = "6.4.5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/98/be/f3e8c6081b684f176b761e6a2fef02a0be939740ed6f54109a2951d806f3/importlib_resources-6.4.5.tar.gz", hash = "sha256:980862a1d16c9e147a59603677fa2aa5fd82b87f223b6cb870695bcfce830065", size = 43372 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/6a/4604f9ae2fa62ef47b9de2fa5ad599589d28c9fd1d335f32759813dfa91e/importlib_resources-6.4.5-py3-none-any.whl", hash = "sha256:ac29d5f956f01d5e4bb63102a5a19957f1b9175e45649977264a1416783bb717", size = 36115 },
 ]
 
 [[package]]
@@ -819,18 +808,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mdformat-ruff"
-version = "0.1.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "ruff" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/e2/9003dc57c78aea34b21f67854d842985ceac48028d288432efa113df3887/mdformat_ruff-0.1.3.tar.gz", hash = "sha256:2ddd2758dd3f6738c1c7bfbeb89320d271454f4cd8c28a99968a50d3578b15d6", size = 3416 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/22/3f2464d478f145bbcb731cee9fe720b9e4d69efb6ffd8bc4491f14ca20a2/mdformat_ruff-0.1.3-py3-none-any.whl", hash = "sha256:9c0cf7bfe6bf99b9e0e617e960041d06e9fa84300d5645f922306dd2ed0d1296", size = 3932 },
-]
-
-[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -860,25 +837,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/3a/41/580bb4006e3ed0361b8151a01d324fb03f420815446c7def45d02f74c270/mergedeep-1.3.4.tar.gz", hash = "sha256:0096d52e9dad9939c3d975a774666af186eda617e6ca84df4c94dec30004f2a8", size = 4661 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/19/04f9b178c2d8a15b076c8b5140708fa6ffc5601fb6f1e975537072df5b2a/mergedeep-1.3.4-py3-none-any.whl", hash = "sha256:70775750742b25c0d8f36c55aed03d24c3384d17c951b3175d898bd778ef0307", size = 6354 },
-]
-
-[[package]]
-name = "mike"
-version = "2.1.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "importlib-metadata" },
-    { name = "importlib-resources" },
-    { name = "jinja2" },
-    { name = "mkdocs" },
-    { name = "pyparsing" },
-    { name = "pyyaml" },
-    { name = "pyyaml-env-tag" },
-    { name = "verspec" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/f7/2933f1a1fb0e0f077d5d6a92c6c7f8a54e6128241f116dff4df8b6050bbf/mike-2.1.3.tar.gz", hash = "sha256:abd79b8ea483fb0275b7972825d3082e5ae67a41820f8d8a0dc7a3f49944e810", size = 38119 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/1a/31b7cd6e4e7a02df4e076162e9783620777592bea9e4bb036389389af99d/mike-2.1.3-py3-none-any.whl", hash = "sha256:d90c64077e84f06272437b464735130d380703a76a5738b152932884c60c062a", size = 33754 },
 ]
 
 [[package]]
@@ -1225,15 +1183,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d8/0b/32f05854cfd432e9286bb41a870e0d1a926b72df5f5cdb6dec962b2e369e/pymdown_extensions-10.12.tar.gz", hash = "sha256:b0ee1e0b2bef1071a47891ab17003bfe5bf824a398e13f49f8ed653b699369a7", size = 840790 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/53/32/95a164ddf533bd676cbbe878e36e89b4ade3efde8dd61d0148c90cbbe57e/pymdown_extensions-10.12-py3-none-any.whl", hash = "sha256:49f81412242d3527b8b4967b990df395c89563043bc51a3d2d7d500e52123b77", size = 263448 },
-]
-
-[[package]]
-name = "pyparsing"
-version = "3.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8c/d5/e5aeee5387091148a19e1145f63606619cb5f20b83fccb63efae6474e7b2/pyparsing-3.2.0.tar.gz", hash = "sha256:cbf74e27246d595d9a74b186b810f6fbb86726dbf3b9532efb343f6d7294fe9c", size = 920984 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/ec/2eb3cd785efd67806c46c13a17339708ddc346cbb684eade7a6e6f79536a/pyparsing-3.2.0-py3-none-any.whl", hash = "sha256:93d9577b88da0bbea8cc8334ee8b918ed014968fd2ec383e868fb8afb1ccef84", size = 106921 },
 ]
 
 [[package]]
@@ -1746,15 +1695,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/19/f5b78616566ea68edd42aacaf645adbf71fbd83fc52281fba555dc27e3f1/uvloop-0.21.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f3df876acd7ec037a3d005b3ab85a7e4110422e4d9c1571d4fc89b0fc41b6816", size = 4701068 },
     { url = "https://files.pythonhosted.org/packages/47/57/66f061ee118f413cd22a656de622925097170b9380b30091b78ea0c6ea75/uvloop-0.21.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:bd53ecc9a0f3d87ab847503c2e1552b690362e005ab54e8a48ba97da3924c0dc", size = 4454428 },
     { url = "https://files.pythonhosted.org/packages/63/9a/0962b05b308494e3202d3f794a6e85abe471fe3cafdbcf95c2e8c713aabd/uvloop-0.21.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:a5c39f217ab3c663dc699c04cbd50c13813e31d917642d459fdcec07555cc553", size = 4660018 },
-]
-
-[[package]]
-name = "verspec"
-version = "0.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e7/44/8126f9f0c44319b2efc65feaad589cadef4d77ece200ae3c9133d58464d0/verspec-0.1.0.tar.gz", hash = "sha256:c4504ca697b2056cdb4bfa7121461f5a0e81809255b41c03dda4ba823637c01e", size = 27123 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/ce/3b6fee91c85626eaf769d617f1be9d2e15c1cca027bbdeb2e0d751469355/verspec-0.1.0-py3-none-any.whl", hash = "sha256:741877d5633cc9464c45a469ae2a31e801e6dbbaa85b9675d481cda100f11c31", size = 19640 },
 ]
 
 [[package]]

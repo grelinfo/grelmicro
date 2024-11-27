@@ -19,7 +19,7 @@ from anyio.abc import TaskStatus
 from pydantic import BaseModel, model_validator
 from typing_extensions import Doc
 
-from grelmicro.sync._backends import get_lock_backend
+from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
 from grelmicro.task.abc import Task
 
@@ -218,7 +218,7 @@ class LeaderElection(Synchronization, Task):
             backend_timeout=backend_timeout,
             error_interval=error_interval,
         )
-        self.backend = backend or get_lock_backend()
+        self.backend = backend or get_sync_backend()
 
         self._service_running = False
         self._state_change_condition: Condition = Condition()

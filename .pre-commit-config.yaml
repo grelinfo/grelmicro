@@ -1,3 +1,6 @@
+default_language_version:
+    python: python3.11
+
 repos:
 
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -8,11 +11,6 @@ repos:
   - id: check-yaml
   - id: check-added-large-files
   - id: trailing-whitespace
-
-- repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.5.4
-  hooks:
-    - id: uv-lock
 
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.8.0
@@ -28,13 +26,6 @@ repos:
 
 - repo: local
   hooks:
-  - id: mypy
-    name: mypy
-    description: "Run 'mypy' for static type checking"
-    entry: uv run mypy
-    language: system
-    types: [python]
-    require_serial: true
 
   - id: readme-to-docs
     name: readme-to-docs
@@ -43,6 +34,30 @@ repos:
     language: system
     pass_filenames: false
 
+  # --- Local development hooks ---
+  - id: uv-lock
+    name: uv-lock
+    description: "Lock dependencies with 'uv lock'"
+    entry: uv lock
+    language: system
+    pass_filenames: false
+
+  - id: mypy
+    name: mypy
+    description: "Run 'mypy' for static type checking"
+    entry: uv run mypy
+    language: system
+    types: [python]
+    require_serial: true
+
+  - id: pytest
+    name: pytest
+    description: "Run 'pytest' for unit testing"
+    entry: uv run pytest --cov-fail-under=90
+    language: system
+    pass_filenames: false
+
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
   autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
+  skip: [uv-lock, mypy, pytest]

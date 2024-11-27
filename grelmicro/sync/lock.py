@@ -8,7 +8,7 @@ from uuid import UUID, uuid1
 from anyio import WouldBlock, from_thread, sleep
 from typing_extensions import Doc
 
-from grelmicro.sync._backends import get_lock_backend
+from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLock, BaseLockConfig
 from grelmicro.sync._utils import generate_task_token, generate_thread_token
 from grelmicro.sync.abc import Seconds, SyncBackend
@@ -106,7 +106,7 @@ class Lock(BaseLock):
             lease_duration=lease_duration,
             retry_interval=retry_interval,
         )
-        self.backend = backend or get_lock_backend()
+        self.backend = backend or get_sync_backend()
         self._from_thread: ThreadLockAdapter | None = None
 
     async def __aenter__(self) -> Self:
