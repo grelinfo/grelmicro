@@ -159,10 +159,10 @@ addopts = """
     --cov-report xml:cov.xml
     --strict-config
     --strict-markers
-    -m "not testcontainers"
+    -m "not integration"
 """
 markers = """
-    testcontainers: mark a test that requires testcontainers
+    integration: mark a test as an integration test (disabled by default).
 """
 
 testpaths = "tests"

@@ -26,6 +26,8 @@ jobs:
 
       - name: Run pre-commit
         run: uv run pre-commit run --all-files
+        env:
+          SKIP: pytest
 
   test:
     name: Test Python ${{ matrix.python }}
@@ -46,8 +48,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --python ${{ matrix.python }}
 
-      - name: Test with pytest
+      - name: Run unit tests
         run: uv run pytest
+
+      - name: Run integration tests
+        run: uv run pytest -m integration --cov-append
 
       - name: Rename coverage report
         run: mv .coverage .coverage.py${{ matrix.python }}
