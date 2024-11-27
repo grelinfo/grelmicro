@@ -25,7 +25,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run Mypy
-        run: uv run mypy
+        run: uv run mypy .
 
   test:
     name: Test Python ${{ matrix.python }}
