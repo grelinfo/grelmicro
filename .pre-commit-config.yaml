@@ -12,12 +12,6 @@ repos:
   - id: check-added-large-files
   - id: trailing-whitespace
 
-- repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.5.4
-  hooks:
-    - id: uv-lock
-      args: [ "--python-preference", "system"]
-
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.8.0
   hooks:
@@ -41,6 +35,13 @@ repos:
     pass_filenames: false
 
   # --- Local development hooks ---
+  - id: uv-lock
+    name: uv-lock
+    description: "Lock dependencies with 'uv lock'"
+    entry: uv lock
+    language: system
+    pass_filenames: false
+
   - id: mypy
     name: mypy
     description: "Run 'mypy' for static type checking"
@@ -59,4 +60,4 @@ repos:
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
   autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
-  skip: [pytest, mypy]
+  skip: [uv-lock, mypy, pytest]
