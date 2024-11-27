@@ -1,12 +1,14 @@
 """Test Synchronization Backends."""
 
+import time
 from collections.abc import AsyncGenerator, Callable, Generator
 from uuid import uuid4
 
 import pytest
 from anyio import sleep
+from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import AsyncRedisContainer
+from testcontainers.redis import RedisContainer
 
 from grelmicro.sync._backends import get_sync_backend, loaded_backends
 from grelmicro.sync.abc import SyncBackend
@@ -15,7 +17,7 @@ from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.postgres import PostgresSyncBackend
 from grelmicro.sync.redis import RedisSyncBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
+pytestmark = [pytest.mark.anyio, pytest.mark.timeout(100)]
 
 
 @pytest.fixture(scope="module")
@@ -41,40 +43,63 @@ def clean_registry() -> Generator[None, None, None]:
 
 
 @pytest.fixture(
-    scope="module",
     params=[
         "memory",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("postgres", marks=[pytest.mark.integration]),
     ],
+    scope="module",
 )
-async def backend(
-    request: pytest.FixtureRequest,
+def backend_name(request: pytest.FixtureRequest) -> str:
+    """Backend Name."""
+    return request.param
+
+
+@pytest.fixture(
+    scope="module",
+)
+def container(
+    backend_name: str,
     monkeypatch: pytest.MonkeyPatch,
-) -> AsyncGenerator[SyncBackend]:
+) -> Generator[DockerContainer | None, None, None]:
     """Test Container for each Backend."""
-    if request.param == "redis":
+    if backend_name == "redis":
         monkeypatch.setenv("REDIS_HOST", "localhost")
         monkeypatch.setenv("REDIS_PORT", "6379")
         monkeypatch.setenv("REDIS_PASSWORD", "test")
         monkeypatch.setenv("REDIS_DB", "0")
-        with AsyncRedisContainer():
-            async with RedisSyncBackend(
-                "redis://test:test@localhost:6379/0"
-            ) as backend:
-                yield backend
-    elif request.param == "postgres":
+        with RedisContainer() as container:
+            time.sleep(5)
+            yield container
+    elif backend_name == "postgres":
         monkeypatch.setenv("POSTGRES_HOST", "localhost")
         monkeypatch.setenv("POSTGRES_PORT", "5432")
         monkeypatch.setenv("POSTGRES_DB", "test")
         monkeypatch.setenv("POSTGRES_USER", "test")
         monkeypatch.setenv("POSTGRES_PASSWORD", "test")
-        with PostgresContainer():
-            async with PostgresSyncBackend(
-                "postgresql://test:test@localhost:5432/test"
-            ) as backend:
-                yield backend
-    elif request.param == "memory":
+        with PostgresContainer() as container:
+            time.sleep(5)
+            yield container
+    elif backend_name == "memory":
+        yield None
+
+
+@pytest.fixture(scope="module")
+async def backend(
+    backend_name: str, container: DockerContainer | None
+) -> AsyncGenerator[SyncBackend]:
+    """Test Container for each Backend."""
+    if backend_name == "redis":
+        async with RedisSyncBackend(
+            "redis://test:test@localhost:6379/0"
+        ) as backend:
+            yield backend
+    elif backend_name == "postgres":
+        async with PostgresSyncBackend(
+            "postgresql://test:test@localhost:5432/test"
+        ) as backend:
+            yield backend
+    elif backend_name == "memory":
         async with MemorySyncBackend() as backend:
             yield backend
 
