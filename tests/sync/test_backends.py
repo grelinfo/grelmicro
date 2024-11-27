@@ -89,7 +89,7 @@ async def backend(
     elif backend_name == "postgres" and container:
         port = container.get_exposed_port(5432)
         async with PostgresSyncBackend(
-            "postgresql://test:test@localhost:{port}/test"
+            f"postgresql://test:test@localhost:{port}/test"
         ) as backend:
             yield backend
     elif backend_name == "memory":

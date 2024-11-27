@@ -152,7 +152,6 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 addopts = """
     --cov=grelmicro
-    --cov-fail-under=90
     --cov-report term:skip-covered
     --cov-report xml:cov.xml
     --strict-config

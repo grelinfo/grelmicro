@@ -53,7 +53,7 @@ repos:
   - id: pytest
     name: pytest
     description: "Run 'pytest' for unit testing"
-    entry: uv run pytest
+    entry: uv run pytest --cov-fail-under=90
     language: system
     pass_filenames: false
 
