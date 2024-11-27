@@ -1,6 +1,5 @@
 """Test Synchronization Backends."""
 
-import time
 from collections.abc import AsyncGenerator, Callable, Generator
 from uuid import uuid4
 
@@ -64,12 +63,7 @@ def container(
 ) -> Generator[DockerContainer | None, None, None]:
     """Test Container for each Backend."""
     if backend_name == "redis":
-        monkeypatch.setenv("REDIS_HOST", "localhost")
-        monkeypatch.setenv("REDIS_PORT", "6379")
-        monkeypatch.setenv("REDIS_PASSWORD", "test")
-        monkeypatch.setenv("REDIS_DB", "0")
         with RedisContainer() as container:
-            time.sleep(5)
             yield container
     elif backend_name == "postgres":
         monkeypatch.setenv("POSTGRES_HOST", "localhost")
@@ -78,7 +72,6 @@ def container(
         monkeypatch.setenv("POSTGRES_USER", "test")
         monkeypatch.setenv("POSTGRES_PASSWORD", "test")
         with PostgresContainer() as container:
-            time.sleep(5)
             yield container
     elif backend_name == "memory":
         yield None
@@ -89,14 +82,14 @@ async def backend(
     backend_name: str, container: DockerContainer | None
 ) -> AsyncGenerator[SyncBackend]:
     """Test Container for each Backend."""
-    if backend_name == "redis":
-        async with RedisSyncBackend(
-            "redis://test:test@localhost:6379/0"
-        ) as backend:
+    if backend_name == "redis" and container:
+        port = container.get_exposed_port(5432)
+        async with RedisSyncBackend(f"redis://localhost:{port}/0") as backend:
             yield backend
-    elif backend_name == "postgres":
+    elif backend_name == "postgres" and container:
+        port = container.get_exposed_port(6379)
         async with PostgresSyncBackend(
-            "postgresql://test:test@localhost:5432/test"
+            "postgresql://test:test@localhost:{port}/test"
         ) as backend:
             yield backend
     elif backend_name == "memory":
