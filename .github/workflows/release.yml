@@ -5,6 +5,9 @@ on:
     types:
       - published
 
+permissions:
+  contents: write
+
 jobs:
   bump-version:
     runs-on: ubuntu-latest
@@ -13,7 +16,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
-          ssh-key: ${{ secrets.SSH_KEY }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
