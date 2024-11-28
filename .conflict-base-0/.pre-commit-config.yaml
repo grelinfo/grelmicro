@@ -1,0 +1,63 @@
+default_language_version:
+    python: python3.11
+
+repos:
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+  hooks:
+  - id: end-of-file-fixer
+  - id: check-toml
+  - id: check-yaml
+  - id: check-added-large-files
+  - id: trailing-whitespace
+
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.8.0
+  hooks:
+    - id: ruff
+      args: [ --fix ]
+    - id: ruff-format
+
+- repo: https://github.com/codespell-project/codespell
+  rev: v2.3.0
+  hooks:
+  - id: codespell
+
+- repo: local
+  hooks:
+
+  - id: readme-to-docs
+    name: readme-to-docs
+    description: "Copy README.md to docs/index.md"
+    entry: cp README.md docs/index.md
+    language: system
+    pass_filenames: false
+
+  # --- Local development hooks ---
+  - id: uv-lock
+    name: uv-lock
+    description: "Lock dependencies with 'uv lock'"
+    entry: uv lock
+    language: system
+    pass_filenames: false
+
+  - id: mypy
+    name: mypy
+    description: "Run 'mypy' for static type checking"
+    entry: uv run mypy
+    language: system
+    types: [python]
+    require_serial: true
+
+  - id: pytest
+    name: pytest
+    description: "Run 'pytest' for unit testing"
+    entry: uv run pytest --cov-fail-under=90
+    language: system
+    pass_filenames: false
+
+ci:
+  autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
+  autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
+  skip: [uv-lock, mypy, pytest]

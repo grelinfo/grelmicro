@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  bump-version:
+    name: Bump version
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Generate GitHub App Token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.GRELINFO_ID }}
+          private-key: ${{ secrets.GRELINFO_KEY }}
+
+      - name: Get GitHub App User ID
+        id: user-id
+        run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure Git App Credentials
+        run: |
+          git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --global user.email '${{ steps.user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}@users.noreply.github.com>'
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Get release version
+        id: release-version
+        run: echo "release-version=${GITHUB_REF#refs/*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Get current version
+        id: current-version
+        run: echo "current-version=$(uv run hatch version)" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version if necessary
+        if: ${{ steps.release-version.outputs.release-version != steps.current-version.outputs.current-version }}
+        run: |
+          uv run hatch version $RELEASE_VERSION
+          uv lock
+
+      - name: Commit and push changes
+        if: ${{ steps.release-version.outputs.release-version != steps.current-version.outputs.current-version }}
+        run: |
+          git add .
+          git commit -m "🚀 Release $RELEASE_VERSION"
+          git tag -f $RELEASE_VERSION
+          git push origin $RELEASE_VERSION --force
+          git push origin HEAD:main
+
+  publish-docs:
+    runs-on: ubuntu-latest
+    needs: [bump-version]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Configure Git Credentials
+        run: |
+          git config user.name "${GITHUB_ACTOR}"
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group docs
+
+      - name: Deploy docs on GitHub Pages
+        run: uv run mkdocs gh-deploy --force
+
+  publish-pypi:
+    needs: [bump-version]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Build
+        run: uv build
+
+      - name: Publish
+        run: uv publish -t ${{ secrets.PYPI_TOKEN }}

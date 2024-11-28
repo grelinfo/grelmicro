@@ -1,0 +1,47 @@
+site_name: Grelmicro
+site_description: Grelmicro is a lightweight framework/toolkit which is ideal for building async microservices in Python.
+site_url: https://grelmicro.grel.info
+theme:
+  name: material
+  palette:
+    primary: green
+    accent:  light green
+  font:
+    text: 'Roboto'
+    code: 'Roboto Mono'
+  features:
+    - content.tabs.link
+    - content.code.copy
+    - content.code.select
+    - content.tooltips
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
+    - navigation.top
+    - navigation.tracking
+
+repo_name: grelinfo/grelmicro
+repo_url: https://github.com/grelinfo/grelmicro
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+
+nav:
+- Grelmicro: index.md
+- User Guide:
+    - logging.md
+    - sync.md
+    - task.md
+
+markdown_extensions:
+  - admonition
+  - mdx_include:
+      base_path: docs
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
