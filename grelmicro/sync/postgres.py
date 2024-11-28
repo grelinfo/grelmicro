@@ -23,33 +23,43 @@ class _PostgresSettings(BaseSettings):
     POSTGRES_PASSWORD: str | None = None
     POSTGRES_URL: PostgresDsn | None = None
 
-    def url(self) -> str:
-        """Generate the Postgres URL from the parts."""
-        if self.POSTGRES_URL:
-            return self.POSTGRES_URL.unicode_string()
 
-        if all(
-            (
-                self.POSTGRES_HOST,
-                self.POSTGRES_DB,
-                self.POSTGRES_USER,
-                self.POSTGRES_PASSWORD,
-            )
-        ):
-            return MultiHostUrl.build(
-                scheme="postgresql",
-                username=self.POSTGRES_USER,
-                password=self.POSTGRES_PASSWORD,
-                host=self.POSTGRES_HOST,
-                port=self.POSTGRES_PORT,
-                path=self.POSTGRES_DB,
-            ).unicode_string()
+def _get_postgres_url() -> str:
+    """Get the PostgreSQL URL from the environment variables.
 
-        msg = (
-            "Either POSTGRES_URL or all of POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, and "
-            "POSTGRES_PASSWORD must be set"
-        )
-        raise SyncSettingsValidationError(msg)
+    Raises:
+        SyncSettingsValidationError: If the URL or all of the host, database, user, and password
+    """
+    try:
+        settings = _PostgresSettings()
+    except ValidationError as error:
+        raise SyncSettingsValidationError(error) from None
+
+    parts_fields = [
+        settings.POSTGRES_HOST,
+        settings.POSTGRES_DB,
+        settings.POSTGRES_USER,
+        settings.POSTGRES_PASSWORD,
+    ]
+
+    if settings.POSTGRES_URL and not any(parts_fields):
+        return settings.POSTGRES_URL.unicode_string()
+
+    if all(parts_fields) and not settings.POSTGRES_URL:
+        return MultiHostUrl.build(
+            scheme="postgresql",
+            username=settings.POSTGRES_USER,
+            password=settings.POSTGRES_PASSWORD,
+            host=settings.POSTGRES_HOST,
+            port=settings.POSTGRES_PORT,
+            path=f"/{settings.POSTGRES_DB}",
+        ).unicode_string()
+
+    msg = (
+        "Either POSTGRES_URL or all of POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, and "
+        "POSTGRES_PASSWORD must be set"
+    )
+    raise SyncSettingsValidationError(msg)
 
 
 class PostgresSyncBackend(SyncBackend):
@@ -120,11 +130,7 @@ class PostgresSyncBackend(SyncBackend):
             msg = f"Table name '{table_name}' is not a valid identifier"
             raise ValueError(msg)
 
-        try:
-            self._url = url or _PostgresSettings().url()
-        except ValidationError as error:
-            raise SyncSettingsValidationError(error) from None
-
+        self._url = url or _get_postgres_url()
         self._table_name = table_name
         self._acquire_sql = self._SQL_ACQUIRE_OR_EXTEND.format(
             table_name=table_name
