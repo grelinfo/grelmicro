@@ -50,7 +50,9 @@ jobs:
 
       - name: Bump version if necessary
         if: ${{ steps.release-version.outputs.release-version != steps.current-version.outputs.current-version }}
-        run: uv run hatch version $RELEASE_VERSION
+        run: |
+          uv run hatch version $RELEASE_VERSION
+          uv lock
 
       - name: Commit and push changes
         if: ${{ steps.release-version.outputs.release-version != steps.current-version.outputs.current-version }}
