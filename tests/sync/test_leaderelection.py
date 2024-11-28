@@ -32,11 +32,11 @@ def configs() -> list[LeaderElectionConfig]:
         LeaderElectionConfig(
             name="test_leader_election",
             worker=f"worker_{i}",
-            lease_duration=0.01,
-            renew_deadline=0.008,
-            retry_interval=0.001,
+            lease_duration=0.02,
+            renew_deadline=0.015,
+            retry_interval=0.005,
             error_interval=0.01,
-            backend_timeout=0.007,
+            backend_timeout=0.005,
         )
         for i in range(WORKERS)
     ]
