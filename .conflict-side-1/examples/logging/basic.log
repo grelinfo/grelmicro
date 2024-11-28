@@ -1,4 +1,0 @@
-{"time":"2024-11-25T15:56:36.066922+01:00","level":"INFO","thread":"MainThread","logger":"__main__:<module>:7","msg":"This is an info message"}
-{"time":"2024-11-25T15:56:36.067063+01:00","level":"WARNING","thread":"MainThread","logger":"__main__:<module>:8","msg":"This is a warning message with context","ctx":{"user":"Alice"}}
-{"time":"2024-11-25T15:56:36.067105+01:00","level":"ERROR","thread":"MainThread","logger":"__main__:<module>:9","msg":"This is an error message with context","ctx":{"user":"Bob"}}
-{"time":"2024-11-25T15:56:36.067134+01:00","level":"ERROR","thread":"MainThread","logger":"__main__:<module>:14","msg":"This is an exception message with context","ctx":{"user":"Charlie","exception":"ValueError: This is an exception"}}

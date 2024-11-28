@@ -1,3 +1,0 @@
-ancestorEntries = ["grelmicro/sync/postgres.py"]
-ourEntries = ["grelmicro/sync/postgres.py"]
-theirEntries = ["grelmicro/sync/postgres.py"]
