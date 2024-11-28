@@ -16,6 +16,8 @@ from grelmicro.sync.errors import SyncSettingsValidationError
 
 
 class _PostgresSettings(BaseSettings):
+    """PostgreSQL settings from the environment variables."""
+
     POSTGRES_HOST: str | None = None
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str | None = None
@@ -35,24 +37,24 @@ def _get_postgres_url() -> str:
     except ValidationError as error:
         raise SyncSettingsValidationError(error) from None
 
-    parts_fields = [
+    required_parts = [
         settings.POSTGRES_HOST,
         settings.POSTGRES_DB,
         settings.POSTGRES_USER,
         settings.POSTGRES_PASSWORD,
     ]
 
-    if settings.POSTGRES_URL and not any(parts_fields):
+    if settings.POSTGRES_URL and not any(required_parts):
         return settings.POSTGRES_URL.unicode_string()
 
-    if all(parts_fields) and not settings.POSTGRES_URL:
+    if all(required_parts) and not settings.POSTGRES_URL:
         return MultiHostUrl.build(
             scheme="postgresql",
             username=settings.POSTGRES_USER,
             password=settings.POSTGRES_PASSWORD,
             host=settings.POSTGRES_HOST,
             port=settings.POSTGRES_PORT,
-            path=f"/{settings.POSTGRES_DB}",
+            path=settings.POSTGRES_DB,
         ).unicode_string()
 
     msg = (
