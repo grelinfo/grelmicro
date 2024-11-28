@@ -5,17 +5,23 @@ on:
     types:
       - published
 
-permissions:
-  contents: write
-
 jobs:
   bump-version:
     runs-on: ubuntu-latest
     steps:
+
+      - name: Generate a token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GRELINFO_ID }}
+          private-key: ${{ secrets.GRELINFO_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
+          token: ${{ steps.generate_token.outputs.token }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
