@@ -87,6 +87,14 @@ class RedisSyncBackend(SyncBackend):
                 """),
         ] = None,
         *,
+        prefix: Annotated[
+            str,
+            Doc("""
+                The prefix to add on redis keys to avoid conflicts with other keys.
+
+                By default no prefix is added.
+                """),
+        ] = "",
         auto_register: Annotated[
             bool,
             Doc(
@@ -97,6 +105,7 @@ class RedisSyncBackend(SyncBackend):
         """Initialize the lock backend."""
         self._url = url or _get_redis_url()
         self._redis: Redis = Redis.from_url(str(self._url))
+        self._prefix = prefix
         self._lua_release = self._redis.register_script(self._LUA_RELEASE)
         self._lua_acquire = self._redis.register_script(
             self._LUA_ACQUIRE_OR_EXTEND
@@ -121,7 +130,7 @@ class RedisSyncBackend(SyncBackend):
         """Acquire the lock."""
         return bool(
             await self._lua_acquire(
-                keys=[name],
+                keys=[f"{self._prefix}{name}"],
                 args=[token, int(duration * 1000)],
                 client=self._redis,
             )
@@ -131,16 +140,16 @@ class RedisSyncBackend(SyncBackend):
         """Release the lock."""
         return bool(
             await self._lua_release(
-                keys=[name], args=[token], client=self._redis
+                keys=[f"{self._prefix}{name}"], args=[token], client=self._redis
             )
         )
 
     async def locked(self, *, name: str) -> bool:
         """Check if the lock is acquired."""
-        return bool(await self._redis.get(name))
+        return bool(await self._redis.get(f"{self._prefix}{name}"))
 
     async def owned(self, *, name: str, token: str) -> bool:
         """Check if the lock is owned."""
         return bool(
-            (await self._redis.get(name)) == token.encode()
+            (await self._redis.get(f"{self._prefix}{name}")) == token.encode()
         )  # redis returns bytes
