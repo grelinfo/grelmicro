@@ -153,11 +153,9 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 addopts = """
     --cov=grelmicro
-    --cov-report term:skip-covered
     --cov-report xml:cov.xml
     --strict-config
     --strict-markers
-    -m "not integration"
 """
 markers = """
     integration: mark a test as an integration test (disabled by default).
