@@ -8,7 +8,7 @@ from grelmicro.sync.postgres import PostgresSyncBackend
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
 
-URL = "postgres://user:password@localhost:5432/db"
+URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 
 
 @pytest.mark.parametrize(
@@ -51,9 +51,7 @@ async def test_sync_backend_out_of_context_errors() -> None:
 @pytest.mark.parametrize(
     ("environs"),
     [
-        {
-            "POSTGRES_URL": "postgresql://test_user:test_password@test_host:1234/test_db"
-        },
+        {"POSTGRES_URL": URL},
         {
             "POSTGRES_USER": "test_user",
             "POSTGRES_PASSWORD": "test_password",
@@ -75,10 +73,7 @@ def test_postgres_env_var_settings(
     backend = PostgresSyncBackend()
 
     # Assert
-    assert (
-        backend._url
-        == "postgresql://test_user:test_password@test_host:1234/test_db"
-    )
+    assert backend._url == URL
 
 
 @pytest.mark.parametrize(
@@ -88,6 +83,14 @@ def test_postgres_env_var_settings(
             "POSTGRES_URL": "test://test_user:test_password@test_host:1234/test_db"
         },
         {"POSTGRES_USER": "test_user"},
+        {
+            "POSTGRES_URL": URL,
+            "POSTGRES_USER": "test_user",
+            "POSTGRES_PASSWORD": "test_password",
+            "POSTGRES_HOST": "test_host",
+            "POSTGRES_PORT": "1234",
+            "POSTGRES_DB": "test_db",
+        },
     ],
 )
 def test_postgres_env_var_settings_validation_error(
