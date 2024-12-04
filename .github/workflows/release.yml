@@ -53,6 +53,8 @@ jobs:
         run: |
           uv run hatch version $RELEASE_VERSION
           uv lock
+        env:
+          RELEASE_VERSION: ${{ steps.release-version.outputs.release-version }}
 
       - name: Commit and push changes
         if: ${{ steps.release-version.outputs.release-version != steps.current-version.outputs.current-version }}
