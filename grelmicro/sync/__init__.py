@@ -1,4 +1,4 @@
-"""Grelmicro Synchronization Primitives."""
+"""Synchronization Primitives."""
 
 from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.lock import Lock

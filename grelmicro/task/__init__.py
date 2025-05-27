@@ -1,4 +1,4 @@
-"""Grelmicro Task Scheduler."""
+"""Task Scheduler."""
 
 from grelmicro.task.manager import TaskManager
 from grelmicro.task.router import TaskRouter

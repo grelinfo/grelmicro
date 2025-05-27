@@ -74,6 +74,7 @@ dev = [
     "mdx-include>=1.4.2",
     "faststream>=0.5.30",
     "hatch>=1.13.0",
+    "freezegun>=1.5.2",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
