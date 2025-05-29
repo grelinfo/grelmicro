@@ -1,16 +1,13 @@
 """Circuit Breaker."""
 
-import threading
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from logging import Logger, getLogger
 from time import monotonic
 from typing import ClassVar
-
-import anyio
 
 _ErrorTypes = type[Exception] | tuple[type[Exception], ...]
 
@@ -67,6 +64,7 @@ class CircuitBreakerStatistics:
 
     name: str
     state: CircuitBreakerState
+    active_calls: int
     error_count: int
     success_count: int
     last_error: ErrorInfo | None = None
@@ -75,14 +73,11 @@ class CircuitBreakerStatistics:
 class CircuitBreakerError(Exception):
     """Circuit breaker error.
 
-    Raised when the circuit breaker is open or half-open and the call is not permitted.
+    Raised when the calls are not permitted by the circuit breaker.
     """
 
-    def __init__(
-        self, *, state: CircuitBreakerState, last_error: ErrorInfo | None = None
-    ) -> None:
+    def __init__(self, *, last_error: ErrorInfo | None = None) -> None:
         """Initialize the error."""
-        self.state = state
         self.last_error = last_error
 
     def __str__(self) -> str:
@@ -94,7 +89,7 @@ class CircuitBreakerError(Exception):
             type(self.last_error.error).__name__ if self.last_error else "N/A"
         )
         return (
-            f"Circuit breaker error: call not permitted in state '{self.state}'"
+            f"Circuit breaker error: calls not permitted"
             f" [last_error_type={last_error_type}, last_error_time={last_error_time}]"
         )
 
@@ -130,7 +125,7 @@ class CircuitBreakerRegistry:
         cls._instances[circuit_breaker.name] = circuit_breaker
 
     @classmethod
-    def all(cls) -> list["CircuitBreaker"]:
+    def get_all(cls) -> list["CircuitBreaker"]:
         """Get all registered circuit breakers.
 
         Returns:
@@ -190,9 +185,9 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
         name: str,
         *,
         error_threshold: int = 5,
-        half_open_delay: float = 0.1,
+        success_threshold: int = 2,
+        half_open_max_duration: float = 0.1,
         half_open_concurrent_calls: int = 1,
-        half_open_success_threshold: int = 1,
         logger: Logger | None = None,
     ) -> None:
         """Initialize the circuit breaker.
@@ -200,16 +195,17 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
         Args:
             name: Name of the circuit breaker instance.
             error_threshold: Number of errors before opening the circuit.
-            half_open_delay: Time to wait before transitioning to half-open.
+            success_threshold: Number of successes before closing the circuit.
+            half_open_max_duration: Time to wait before transitioning to half-open.
             half_open_concurrent_calls: Concurrent calls allowed in half-open state.
-            half_open_success_threshold: Successes required to close the circuit.
             logger: Logger for logging events, defaults to `grelmicro.circuitbreaker.{name}`.
         """
         # Public configuration
         self.error_threshold = error_threshold
-        self.half_open_delay = half_open_delay
+        self.success_threshold = success_threshold
+        self.half_open_max_duration = half_open_max_duration
         self.half_open_concurrent_calls = half_open_concurrent_calls
-        self.half_open_success_threshold = half_open_success_threshold
+
         self.logger = logger or getLogger(f"grelmicro.circuitbreaker.{name}")
 
         # Private state
@@ -220,8 +216,6 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
         self._last_error: ErrorInfo | None = None
         self._open_until = 0.0
         self._active_calls = 0
-        self._lock = threading.Lock()
-        self._async_lock = anyio.Lock()
 
     @property
     def name(self) -> str:
@@ -231,6 +225,7 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
     @property
     def state(self) -> CircuitBreakerState:
         """Return the current state of the circuit breaker."""
+        self._try_transition_to_half_open()
         return self._state
 
     @property
@@ -242,23 +237,24 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
         """Return current statistics for this circuit breaker."""
         return CircuitBreakerStatistics(
             name=self._name,
-            state=self._state,
+            state=self.state,
+            active_calls=self._active_calls,
             error_count=self._error_count,
             success_count=self._success_count,
             last_error=self._last_error,
         )
 
-    @contextmanager
-    def guard(
-        self, *, exclude_errors: _ErrorTypes = ()
-    ) -> Generator[None, None, None]:
+    @asynccontextmanager
+    async def guard(
+        self, *, ignore_errors: _ErrorTypes = ()
+    ) -> AsyncGenerator[None, None]:
         """Guard a block of code with circuit breaker protection.
 
         This method allows you to execute a block of code while respecting the circuit breaker
         state.
 
         Args:
-            exclude_errors: Exceptions to not count as errors for circuit breaker
+            ignore_errors: Exceptions to not count as errors for circuit breaker
 
         Returns:
             A context manager that yields None
@@ -266,61 +262,31 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
         Raises:
             CircuitBreakerError: If the circuit is open or access is denied.
         """
-        # Make sure to transition to half-open if applicable
-        self._try_transition_to_half_open()
-        # Cache the state value for consistency
-        state = self._state
-        acquired = False
+        if not self._is_call_permitted():
+            raise CircuitBreakerError(last_error=self._last_error)
         try:
-            acquired = self._acquire_call(state)
-            if not acquired:
-                raise CircuitBreakerError(
-                    state=state,
-                    last_error=self.last_error,
-                )
-            try:
-                yield
-            except exclude_errors:
-                # Not an error from the circuit breaker perspective
-                self._on_success()
-                raise
-            except Exception as error:
-                self._on_error(error)
-                raise
-            else:
-                self._on_success()
+            self._active_calls += 1
+            yield
+        except ignore_errors:
+            self._on_success()
+            raise
+        except Exception as error:
+            self._on_error(error)
+            raise
+        else:
+            self._on_success()
         finally:
-            # Use the original cached state value for consistency
-            if acquired and state is CircuitBreakerState.HALF_OPEN:
-                self._release_call(state)
+            self._active_calls -= 1
 
-    def _acquire_call(self, state: CircuitBreakerState) -> bool:
-        """Try to acquire a call permission based on circuit state.
-
-        Args:
-            state: The circuit breaker state to use for decision
-
-        Returns:
-            bool: True if call is permitted, False otherwise
-        """
-        match state:
-            case CircuitBreakerState.CLOSED:
-                return True  # Fast path for closed state
-            case CircuitBreakerState.OPEN:
-                return False  # Explicitly deny
-            case CircuitBreakerState.HALF_OPEN:
-                # try:# noqa: ERA001
-                #     self._half_open_calls.acquire_nowait()# noqa: ERA001
-                # except WouldBlock:# noqa: ERA001
-                #     return False # noqa: ERA001
-                # else:# noqa: ERA001
-                #     return True  # noqa: ERA001
-                return self._half_open_calls.acquire()
-
-    def _release_call(self, state: CircuitBreakerState) -> None:
-        """Release a call permission."""
-        if state is CircuitBreakerState.HALF_OPEN:
-            self._half_open_calls.release()
+    def _is_call_permitted(self) -> bool:
+        """Raise CircuitBreakerError if the call is not permitted."""
+        if self._state is CircuitBreakerState.CLOSED:
+            return True
+        self._try_transition_to_half_open()
+        return bool(
+            self._state is CircuitBreakerState.HALF_OPEN
+            and self._active_calls < self.half_open_concurrent_calls
+        )
 
     def _on_error(self, error: Exception) -> None:
         """On error, increment error count and possibly open circuit."""
@@ -339,7 +305,7 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
         """Transition the circuit breaker to closed state if success threshold is met."""
         if (
             self._state is CircuitBreakerState.HALF_OPEN
-            and self._success_count >= self.half_open_success_threshold
+            and self._success_count >= self.success_threshold
         ):
             self._state = CircuitBreakerState.CLOSED
             self.logger.info("Circuit breaker '%s' closed", self._name)
@@ -351,6 +317,8 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
             and monotonic() > self._open_until
         ):
             self._state = CircuitBreakerState.HALF_OPEN
+            self._success_count = 0
+            self._error_count = 0
             self.logger.info("Circuit breaker '%s' half-open", self._name)
 
     def _try_transition_to_open(self) -> None:
@@ -361,7 +329,7 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
             and self._error_count >= self.error_threshold
         ):
             self._state = CircuitBreakerState.OPEN
-            self._open_until = monotonic() + self.half_open_delay
+            self._open_until = monotonic() + self.half_open_max_duration
             self.logger.error(
                 "Circuit breaker '%s' opened after %d consecutive errors",
                 self._name,
