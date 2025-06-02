@@ -58,7 +58,7 @@ def json_patcher(record: "Record") -> None:
         time=record["time"].isoformat(),
         level=record["level"].name,
         thread=record["thread"].name,
-        logger=f'{record["name"]}:{record["function"]}:{record["line"]}',
+        logger=f"{record['name']}:{record['function']}:{record['line']}",
         msg=record["message"],
     )
 
