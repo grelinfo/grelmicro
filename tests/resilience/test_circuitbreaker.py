@@ -80,32 +80,8 @@ FrozenTimeType = Union[
 @pytest.fixture(autouse=True)
 def frozen_time() -> Iterator[FrozenTimeType]:
     """Freeze time for the duration of the test."""
-    with freeze_time("2025-05-27T07:20:55.171802+00:00") as frozen:
+    with freeze_time() as frozen:
         yield frozen
-
-
-@pytest.fixture
-async def circuit_open() -> CircuitBreaker:
-    """Fixture for a circuit breaker in the OPEN state."""
-    cb = CircuitBreaker("open_circuit")
-    cb.transition_to_open()
-    return cb
-
-
-@pytest.fixture
-async def circuit_half_open() -> CircuitBreaker:
-    """Fixture for a circuit breaker in the HALF_OPEN state."""
-    cb = CircuitBreaker("half_open_circuit")
-    cb.transition_to_half_open()
-    return cb
-
-
-@pytest.fixture
-async def circuit_closed() -> CircuitBreaker:
-    """Fixture for a circuit breaker in the CLOSED state."""
-    cb = CircuitBreaker("closed_circuit")
-    cb.transition_to_closed()
-    return cb
 
 
 def test_circuit_creation() -> None:
@@ -290,35 +266,34 @@ async def test_circuit_not_transition_to_half_open_on_get_state(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("success_count", [1, 3, 5])
-async def test_circuit_transition_to_closed(
-    circuit_half_open: CircuitBreaker, success_count: int
-) -> None:
+async def test_circuit_transition_to_closed(success_count: int) -> None:
     """Test circuit breaker closes after success threshold in half-open."""
     # Arrange
-    circuit_half_open.success_threshold = success_count
+    cb = create_circuit_breaker_in_state(CircuitBreakerState.HALF_OPEN)
+    cb.success_threshold = success_count
 
     # Act & Assert
     for _ in range(success_count):
-        assert circuit_half_open.state == CircuitBreakerState.HALF_OPEN
-        await generate_success(circuit_half_open)
-    assert circuit_half_open.state == CircuitBreakerState.CLOSED
+        assert cb.state == CircuitBreakerState.HALF_OPEN
+        await generate_success(cb)
+    assert cb.state == CircuitBreakerState.CLOSED
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("error_count", [1, 3, 5])
 async def test_circuit_transition_from_half_open_to_open(
-    circuit_half_open: CircuitBreaker,
     error_count: int,
 ) -> None:
     """Test circuit breaker transitions to open after failures in half-open."""
     # Arrange
-    circuit_half_open.error_threshold = error_count
+    cb = create_circuit_breaker_in_state(CircuitBreakerState.HALF_OPEN)
+    cb.error_threshold = error_count
 
     # Act & Assert
     for _ in range(error_count):
-        assert circuit_half_open.state == CircuitBreakerState.HALF_OPEN
-        await generate_error(circuit_half_open)
-    assert circuit_half_open.state == CircuitBreakerState.OPEN
+        assert cb.state == CircuitBreakerState.HALF_OPEN
+        await generate_error(cb)
+    assert cb.state == CircuitBreakerState.OPEN
 
 
 @pytest.mark.anyio
