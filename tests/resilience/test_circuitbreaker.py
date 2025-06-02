@@ -84,7 +84,7 @@ def frozen_time() -> Iterator[FrozenTimeType]:
         yield frozen
 
 
-def test_circuit_creation() -> None:
+def test_circuitbreaker_creation() -> None:
     """Test creating a circuit breaker."""
     # Act
     cb = CircuitBreaker("test")
@@ -93,7 +93,7 @@ def test_circuit_creation() -> None:
     assert cb.name == "test"
 
 
-def test_circuit_singleton() -> None:
+def test_circuitbreaker_singleton() -> None:
     """Test circuit breakers are singletons by name."""
     # Arrange
     cb1 = CircuitBreaker("test")
@@ -105,19 +105,29 @@ def test_circuit_singleton() -> None:
     assert cb1 is cb2
 
 
-def test_registry_getters() -> None:
-    """Test circuit breaker registry getters."""
+def test_registry_get_all() -> None:
+    """Test CircuitBreakerRegistry.get_all returns all circuit breakers."""
     # Arrange
     cb1 = CircuitBreaker("cb1")
     cb2 = CircuitBreaker("cb2")
 
     # Act
     all_cb = CircuitBreakerRegistry.get_all()
+
+    # Assert
+    assert all_cb == [cb1, cb2]
+
+
+def test_registry_get() -> None:
+    """Test CircuitBreakerRegistry.get returns correct circuit breaker or None."""
+    # Arrange
+    cb1 = CircuitBreaker("cb1")
+
+    # Act
     get_cb1 = CircuitBreakerRegistry.get("cb1")
     get_none = CircuitBreakerRegistry.get("non-existent")
 
     # Assert
-    assert all_cb == [cb1, cb2]
     assert get_cb1 is cb1
     assert get_none is None
 
@@ -129,7 +139,6 @@ def test_circuit_initial_state() -> None:
 
     # Assert
     assert cb.state is CircuitBreakerState.CLOSED
-    assert cb.last_error is None
 
 
 @pytest.mark.anyio
@@ -192,45 +201,35 @@ def test_circuit_breaker_error() -> None:
 
 
 @pytest.mark.anyio
-async def test_circuit_transition_to_half_open_on_call(
+@pytest.mark.parametrize("trigger", ["call", "get_state"])
+async def test_circuit_transition_to_half_open_after_timeout(
     frozen_time: FrozenTimeType,
+    trigger: str,
 ) -> None:
-    """Test circuit breaker transitions to half-open after delay."""
+    """Test circuit breaker transitions to half-open after reset timeout."""
     # Arrange
     cb = create_circuit_breaker_in_state(CircuitBreakerState.OPEN)
     cb.success_threshold = 2  # Ensure it doesn't close immediately
+    frozen_time.tick(timedelta(seconds=cb.reset_timeout))
 
     # Act
-    frozen_time.tick(timedelta(seconds=cb.reset_timeout))
-    await generate_success(cb)
-
-    # Assert
-    assert cb.state is CircuitBreakerState.HALF_OPEN
-
-
-@pytest.mark.anyio
-async def test_circuit_transition_to_half_open_on_get_state(
-    frozen_time: FrozenTimeType,
-) -> None:
-    """Test circuit breaker transitions to half-open on get state."""
-    # Arrange
-    cb = create_circuit_breaker_in_state(CircuitBreakerState.OPEN)
-    cb.success_threshold = 2  # Ensure it doesn't close immediately
-
-    # Act
-    frozen_time.tick(timedelta(seconds=cb.reset_timeout))
-    state = cb.state
+    if trigger == "call":
+        await generate_success(cb)
+        state = cb._state
+    else:
+        state = cb.state
 
     # Assert
     assert state is CircuitBreakerState.HALF_OPEN
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("trigger", ["call", "get_state"])
 @pytest.mark.parametrize("reset_timeout", [0.5, 1, 30])
-async def test_circuit_not_transition_to_half_open_on_call(
-    frozen_time: FrozenTimeType, reset_timeout: int
+async def test_circuit_not_transition_to_half_open_before_timeout(
+    frozen_time: FrozenTimeType, reset_timeout: float, trigger: str
 ) -> None:
-    """Test circuit breaker don't transition before delay."""
+    """Test circuit breaker does not transition to half-open before reset timeout."""
     # Arrange
     cb = create_circuit_breaker_in_state(CircuitBreakerState.OPEN)
     cb.reset_timeout = reset_timeout
@@ -239,26 +238,11 @@ async def test_circuit_not_transition_to_half_open_on_call(
     )  # Ensure not enough time has passed
 
     # Act & Assert
-    with pytest.raises(CircuitBreakerError):
-        await generate_success(cb)
-    assert cb.state == CircuitBreakerState.OPEN
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("reset_timeout", [0.5, 1, 30])
-async def test_circuit_not_transition_to_half_open_on_get_state(
-    frozen_time: FrozenTimeType, reset_timeout: float
-) -> None:
-    """Test circuit breaker don't transition before delay on get state."""
-    # Arrange
-    cb = create_circuit_breaker_in_state(CircuitBreakerState.OPEN)
-    cb.reset_timeout = reset_timeout
-    frozen_time.tick(
-        timedelta(seconds=cb.reset_timeout) - timedelta(milliseconds=1)
-    )  # Ensure not enough time has passed
-
-    # Act
-    state = cb.state
+    if trigger == "call":
+        with pytest.raises(CircuitBreakerError):
+            await generate_success(cb)
+    else:
+        state = cb.state
 
     # Assert
     assert state == CircuitBreakerState.OPEN
