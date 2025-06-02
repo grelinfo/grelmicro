@@ -101,6 +101,14 @@ class CircuitBreakerError(Exception):
         super().__init__(f"Circuit breaker '{name}': call not permitted")
 
 
+class CircuitBreakerAlreadyExistsError(Exception):
+    """Error raised when trying to register a circuit breaker with an existing name."""
+
+    def __init__(self, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Circuit breaker '{name}' already exists.")
+
+
 class CircuitBreakerRegistry:
     """Registry for circuit breakers.
 
@@ -128,13 +136,16 @@ class CircuitBreakerRegistry:
 
         Args:
             circuit_breaker: The circuit breaker instance to register.
+
+        Raises:
+            CircuitBreakerAlreadyExistsError: If a different circuit breaker with the same name
+            already exists.
         """
-        if circuit_breaker.name in cls._instances:
-            # TODO
-            # This case should ideally be handled by the metaclass logic
-            # or raise an error if re-registration with the same name is not allowed.
-            # For now, it overwrites, which might be intended by the metaclass.
-            pass
+        if (
+            circuit_breaker.name in cls._instances
+            and cls._instances[circuit_breaker.name] is not circuit_breaker
+        ):
+            raise CircuitBreakerAlreadyExistsError(circuit_breaker.name)
         cls._instances[circuit_breaker.name] = circuit_breaker
 
     @classmethod
@@ -230,6 +241,22 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
         self._last_error: ErrorDetails | None = None
         self._open_until_time = 0.0  # Monotonic time
         self._active_call_count = 0
+
+    def __eq__(self, other: object) -> bool:
+        """Check equality based on the circuit breaker name and configuration.
+
+        Two circuit breakers are considered equal if they have the same name and configuration.
+        """
+        if not isinstance(other, CircuitBreaker):
+            return False
+        return (
+            self._name == other._name
+            and self.error_threshold == other.error_threshold
+            and self.success_threshold == other.success_threshold
+            and self.reset_timeout == other.reset_timeout
+            and self.half_open_capacity == other.half_open_capacity
+            and self.logger == other.logger
+        )
 
     @property
     def name(self) -> str:
