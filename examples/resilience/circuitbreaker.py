@@ -1,27 +1,29 @@
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 
-cb = CircuitBreaker("system_name", ignore_exceptions=FileNotFoundError)
+circuit_breaker = CircuitBreaker(
+    "system_name", ignore_exceptions=FileNotFoundError
+)
 
 
 # --- As context manager ---
 async def async_context_manager():
-    async with cb.protect():
+    async with circuit_breaker:
         print("Calling external service (async)...")
 
 
 # --- As decorator ---
-@cb.protect()
+@circuit_breaker
 async def async_call():
     print("Calling external service (async)...")
 
 
 # --- As context manager within AnyIO worker thread ---
 def sync_context_manager():
-    with cb.from_thread.protect():
+    with circuit_breaker.from_thread:
         print("Calling external service (thread)...")
 
 
 # --- As decorator within AnyIO worker thread ---
-@cb.from_thread.protect()
+@circuit_breaker
 def sync_call():
     print("Calling external service (thread)...")
