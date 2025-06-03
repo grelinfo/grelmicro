@@ -1,5 +1,6 @@
 """Test CircuitBreaker implementation."""
 
+import sys
 from collections.abc import Iterator
 from contextlib import AsyncExitStack, suppress
 from datetime import UTC, datetime, timedelta
@@ -30,6 +31,20 @@ class SentinelError(Exception):
 
 
 sentinel_error = SentinelError("Sentinel error for testing")
+
+FrozenTimeType = Union[
+    "StepTickTimeFactory", "TickingDateTimeFactory", "FrozenDateTimeFactory"
+]
+
+ALL_STATES = [
+    CircuitBreakerState.CLOSED,
+    CircuitBreakerState.HALF_OPEN,
+    CircuitBreakerState.OPEN,
+    CircuitBreakerState.FORCED_CLOSED,
+    CircuitBreakerState.FORCED_OPEN,
+]
+
+pytestmark = pytest.mark.anyio
 
 
 async def transition(cb: CircuitBreaker, state: CircuitBreakerState) -> None:
@@ -70,13 +85,6 @@ async def generate_error(cb: CircuitBreaker) -> None:
             raise sentinel_error
 
 
-FrozenTimeType = Union[
-    "StepTickTimeFactory", "TickingDateTimeFactory", "FrozenDateTimeFactory"
-]
-
-pytestmark = pytest.mark.anyio
-
-
 @pytest.fixture(autouse=True)
 def frozen_time() -> Iterator[FrozenTimeType]:
     """Freeze time for the duration of the test."""
@@ -94,10 +102,26 @@ def frozen_time() -> Iterator[FrozenTimeType]:
 async def circuit_call_not_permitted(
     request: pytest.FixtureRequest,
 ) -> CircuitBreaker:
-    """Test circuit breaker raises CircuitBreakerError when open."""
-    # Arrange
+    """Fixture for circuit breakers that do not permit calls."""
     cb = await create_circuit(request.param)
     cb.half_open_capacity = 0  # Ensure no calls are permitted
+    return cb
+
+
+@pytest.fixture(
+    params=[
+        CircuitBreakerState.CLOSED,
+        CircuitBreakerState.HALF_OPEN,
+        CircuitBreakerState.FORCED_CLOSED,
+    ]
+)
+async def circuit_call_permitted(
+    request: pytest.FixtureRequest,
+) -> CircuitBreaker:
+    """Fixture for circuit breakers that permit calls."""
+    cb = await create_circuit(request.param)
+    cb.error_threshold = sys.maxsize
+    cb.success_threshold = sys.maxsize
     return cb
 
 
@@ -149,16 +173,17 @@ async def test_circuit_from_thread_protect_success() -> None:
     await to_thread.run_sync(sync)
 
 
-async def test_circuit_decorator_success() -> None:
+async def test_circuit_decorator_with_call_permitted(
+    circuit_call_permitted: CircuitBreaker,
+) -> None:
     """Test circuit breaker decorator with success."""
-    # Arrange
-    cb = CircuitBreaker("test")
 
-    @cb
+    # Arrange
+    @circuit_call_permitted
     async def protected_function() -> None:
         pass
 
-    @cb()
+    @circuit_call_permitted()
     async def another_protected_function(
         pos: str, kwarg: str = "default"
     ) -> bool:
@@ -169,15 +194,17 @@ async def test_circuit_decorator_success() -> None:
     assert await another_protected_function("positional", kwarg="keyword")
 
 
-async def test_circuit_from_thread_decorator_success() -> None:
+async def test_circuit_from_thread_decorator_with_call_permitted(
+    circuit_call_permitted: CircuitBreaker,
+) -> None:
     """Test from_thread decorator with success."""
-    cb = CircuitBreaker("test")
 
-    @cb
+    # Arrange
+    @circuit_call_permitted
     def protected_function() -> None:
         pass
 
-    @cb()
+    @circuit_call_permitted()
     def another_protected_function(pos: str) -> bool:
         return bool(pos == "positional")
 
@@ -186,23 +213,24 @@ async def test_circuit_from_thread_decorator_success() -> None:
     await to_thread.run_sync(another_protected_function, "positional")
 
 
-async def test_circuit_protect_error() -> None:
+async def test_circuit_error_raises(
+    circuit_call_permitted: CircuitBreaker,
+) -> None:
     """Test from_thread protect."""
-    # Arrange
-    cb = CircuitBreaker("test")
-
     # Act & Assert
     with pytest.raises(SentinelError):
-        async with cb:
+        async with circuit_call_permitted:
             raise sentinel_error
 
 
-async def test_circuitbreaker_from_thread_protect_error() -> None:
+async def test_circuitbreaker_from_thread_error_raises(
+    circuit_call_permitted: CircuitBreaker,
+) -> None:
     """from_thread.protect raises on error."""
-    cb = CircuitBreaker("test")
 
+    # Arrange
     def sync() -> None:
-        with cb.from_thread:
+        with circuit_call_permitted.from_thread:
             raise sentinel_error
 
     # Act & Assert
@@ -210,16 +238,17 @@ async def test_circuitbreaker_from_thread_protect_error() -> None:
         await to_thread.run_sync(sync)
 
 
-async def test_circuit_decorator_error() -> None:
+async def test_circuit_decorator_error_raises(
+    circuit_call_permitted: CircuitBreaker,
+) -> None:
     """Test circuit breaker decorator with error."""
-    # Arrange
-    cb = CircuitBreaker("test")
 
-    @cb
+    # Arrange
+    @circuit_call_permitted
     async def protected_function() -> None:
         raise sentinel_error
 
-    @cb()
+    @circuit_call_permitted()
     async def another_protected_function() -> None:
         raise sentinel_error
 
@@ -230,15 +259,16 @@ async def test_circuit_decorator_error() -> None:
         await another_protected_function()
 
 
-async def test_circuit_from_thread_decorator_error() -> None:
+async def test_circuit_from_thread_decorator_error_raises(
+    circuit_call_permitted: CircuitBreaker,
+) -> None:
     """Test from_thread decorator with error."""
-    cb = CircuitBreaker("test")
 
-    @cb
+    @circuit_call_permitted
     def protected_function() -> None:
         raise sentinel_error
 
-    @cb()
+    @circuit_call_permitted()
     def another_protected_function() -> None:
         raise sentinel_error
 
@@ -493,65 +523,49 @@ def test_circuit_metrics_initial() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        CircuitBreakerState.CLOSED,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_CLOSED,
-    ],
-)
 @pytest.mark.parametrize("success_count", [0, 1, 3, 5])
 async def test_circuit_metrics_counters_with_successes(
-    state: CircuitBreakerState, success_count: int
+    circuit_call_permitted: CircuitBreaker, success_count: int
 ) -> None:
     """Test metrics in half-open state."""
     # Arrange
-    cb = await create_circuit(state)
-    cb.success_threshold = (
-        success_count + 1
-    )  # Ensure it doesn't close immediately
     for _ in range(success_count):
-        async with cb:
+        async with circuit_call_permitted:
             pass
 
     # Act
-    stats = cb.metrics()
+    stats = circuit_call_permitted.metrics()
 
     # Assert
-    assert stats.total_error_count == 0
-    assert stats.total_success_count == success_count
-    assert stats.consecutive_error_count == 0
-    assert stats.consecutive_success_count == success_count
+    assert stats == CircuitBreakerMetrics(
+        name=circuit_call_permitted.name,
+        state=circuit_call_permitted.state,
+        active_calls=0,
+        total_error_count=0,
+        total_success_count=success_count,
+        consecutive_error_count=0,
+        consecutive_success_count=success_count,
+        last_error=None,
+    )
 
 
-@pytest.mark.parametrize(
-    ("state"),
-    [
-        CircuitBreakerState.CLOSED,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_CLOSED,
-    ],
-)
 @pytest.mark.parametrize("error_count", [1, 3, 5])
 async def test_circuit_metrics_with_errors(
-    state: CircuitBreakerState,
+    circuit_call_permitted: CircuitBreaker,
     error_count: int,
 ) -> None:
     """Test metrics with errors in various states."""
     # Arrange
-    cb = await create_circuit(state)
-    cb.error_threshold = error_count + 1  # Ensure it doesn't open immediately
     for _ in range(error_count):
-        await generate_error(cb)
+        await generate_error(circuit_call_permitted)
 
     # Act
-    stats = cb.metrics()
+    stats = circuit_call_permitted.metrics()
 
     # Assert
     assert stats == CircuitBreakerMetrics(
-        name=cb.name,
-        state=state,
+        name=circuit_call_permitted.name,
+        state=circuit_call_permitted.state,
         active_calls=0,
         total_error_count=error_count,
         total_success_count=0,
@@ -603,33 +617,21 @@ async def test_circuit_metrics_counters_with_ignore_exceptions(
 
 
 @pytest.mark.parametrize(
-    "state",
-    [
-        CircuitBreakerState.CLOSED,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_CLOSED,
-    ],
-)
-@pytest.mark.parametrize(
     "call_count",
     [0, 1, 3, 5],
 )
 async def test_circuit_metrics_active_calls(
-    state: CircuitBreakerState,
-    call_count: int,
+    circuit_call_permitted: CircuitBreaker, call_count: int
 ) -> None:
     """Active call count is correct for each state."""
     # Arrange
-    cb = await create_circuit(state)
-    cb.success_threshold = call_count + 1
-    cb.half_open_capacity = call_count + 1
-    assert cb.state == state
+    circuit_call_permitted.half_open_capacity = call_count + 1
 
     # Act
     async with AsyncExitStack() as stack:
         for _ in range(call_count):
-            await stack.enter_async_context(cb)
-        metrics = cb.metrics()
+            await stack.enter_async_context(circuit_call_permitted)
+        metrics = circuit_call_permitted.metrics()
 
     # Assert
     assert metrics.active_calls == call_count
@@ -708,26 +710,8 @@ async def test_circuit_from_thread_restart() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "from_state",
-    [
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_OPEN,
-        CircuitBreakerState.CLOSED,
-        CircuitBreakerState.FORCED_CLOSED,
-    ],
-)
-@pytest.mark.parametrize(
-    ("to_state"),
-    [
-        (CircuitBreakerState.CLOSED),
-        (CircuitBreakerState.OPEN),
-        (CircuitBreakerState.HALF_OPEN),
-        (CircuitBreakerState.FORCED_OPEN),
-        (CircuitBreakerState.FORCED_CLOSED),
-    ],
-)
+@pytest.mark.parametrize("from_state", ALL_STATES)
+@pytest.mark.parametrize("to_state", ALL_STATES)
 async def test_circuit_state_transition(
     from_state: CircuitBreakerState,
     to_state: CircuitBreakerState,
@@ -743,26 +727,8 @@ async def test_circuit_state_transition(
     assert cb.state == to_state
 
 
-@pytest.mark.parametrize(
-    "from_state",
-    [
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_OPEN,
-        CircuitBreakerState.CLOSED,
-        CircuitBreakerState.FORCED_CLOSED,
-    ],
-)
-@pytest.mark.parametrize(
-    "to_state",
-    [
-        CircuitBreakerState.CLOSED,
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_OPEN,
-        CircuitBreakerState.FORCED_CLOSED,
-    ],
-)
+@pytest.mark.parametrize("from_state", ALL_STATES)
+@pytest.mark.parametrize("to_state", ALL_STATES)
 async def test_circuit_from_thread_state_transition(
     from_state: CircuitBreakerState,
     to_state: CircuitBreakerState,
