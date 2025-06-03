@@ -19,15 +19,15 @@ from grelmicro.resilience.errors import CircuitBreakerError
 class _TransitionCause(StrEnum):
     """Cause of a circuit breaker state transition."""
 
-    ERROR_THRESHOLD = "ERROR_THRESHOLD"
+    ERROR_THRESHOLD = "error_threshold"
     """Transition due to reaching the error threshold."""
-    SUCCESS_THRESHOLD = "SUCCESS_THRESHOLD"
+    SUCCESS_THRESHOLD = "success_threshold"
     """Transition due to reaching the success threshold."""
-    RESET_TIMEOUT = "RESET_TIMEOUT"
+    RESET_TIMEOUT = "reset_timeout"
     """Transition due to timeout after the circuit was open."""
-    MANUAL = "MANUAL"
+    MANUAL = "manual"
     """Transition due to manual intervention."""
-    RESTART = "RESTART"
+    RESTART = "restart"
     """Transition due to circuit breaker restart."""
 
 
@@ -74,7 +74,7 @@ class CircuitBreakerMetrics(BaseModel, frozen=True, extra="forbid"):
     state: CircuitBreakerState
     active_calls: int
     total_error_count: int
-    total_sucess_count: int
+    total_success_count: int
     consecutive_error_count: int
     consecutive_success_count: int
     last_error: ErrorDetails | None
@@ -159,8 +159,9 @@ class CircuitBreaker:
         self._consecutive_error_count = 0
         self._consecutive_success_count = 0
         self._total_error_count = 0
-        self._total_sucess_count = 0
-        self._last_error: tuple[datetime, Exception] | None = None
+        self._total_success_count = 0
+        self._last_error: Exception | None = None
+        self._last_error_time: datetime | None = None
         self._open_until_time = 0.0
         self._active_call_count = 0
         self._logger = getLogger(f"grelmicro.circuitbreaker.{name}")
@@ -185,17 +186,14 @@ class CircuitBreaker:
         return self._state
 
     @property
-    def last_error(self) -> ErrorDetails | None:
-        """Return information about the last recorded error, if any."""
-        if self._last_error is None:
-            return None
+    def last_error(self) -> Exception | None:
+        """Return the last error recorded by the circuit breaker."""
+        return self._last_error
 
-        time, error = self._last_error
-        return ErrorDetails(
-            time=time,
-            type=type(error).__name__,
-            msg=str(error),
-        )
+    @property
+    def last_error_time(self) -> datetime | None:
+        """Return the time of the last error recorded by the circuit breaker."""
+        return self._last_error_time
 
     @property
     def log_level(self) -> str:
@@ -211,15 +209,17 @@ class CircuitBreaker:
 
     def metrics(self) -> CircuitBreakerMetrics:
         """Return current metrics for this circuit breaker."""
+        last_error = self._map_last_error()
+
         return CircuitBreakerMetrics(
             name=self._name,
             state=self._state,
             active_calls=self._active_call_count,
             total_error_count=self._total_error_count,
-            total_sucess_count=self._total_sucess_count,
+            total_success_count=self._total_success_count,
             consecutive_error_count=self._consecutive_error_count,
             consecutive_success_count=self._consecutive_success_count,
-            last_error=self.last_error,
+            last_error=last_error,
         )
 
     @asynccontextmanager
@@ -253,7 +253,7 @@ class CircuitBreaker:
     async def restart(self) -> None:
         """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""
         self._total_error_count = 0
-        self._total_sucess_count = 0
+        self._total_success_count = 0
         self._last_error = None
         self._do_transition_to_state(
             CircuitBreakerState.CLOSED, _TransitionCause.RESTART
@@ -352,8 +352,8 @@ class CircuitBreaker:
         self._total_error_count += 1
         self._consecutive_error_count += 1
         self._consecutive_success_count = 0
-
-        self._last_error = (datetime.now(UTC), error)
+        self._last_error = error
+        self._last_error_time = datetime.now(UTC)
 
         if (
             self._state != CircuitBreakerState.OPEN
@@ -365,7 +365,7 @@ class CircuitBreaker:
 
     async def _on_success(self) -> None:
         """Record a success, update counts, and potentially transition state."""
-        self._total_sucess_count += 1
+        self._total_success_count += 1
         self._consecutive_error_count = 0
         self._consecutive_success_count += 1
 
@@ -377,6 +377,17 @@ class CircuitBreaker:
                 CircuitBreakerState.CLOSED, _TransitionCause.SUCCESS_THRESHOLD
             )
 
+    def _map_last_error(self) -> ErrorDetails | None:
+        """Map the last error to ErrorDetails."""
+        if not self._last_error or not self._last_error_time:
+            return None
+
+        return ErrorDetails(
+            time=self._last_error_time,
+            type=type(self._last_error).__name__,
+            msg=str(self._last_error),
+        )
+
 
 class _ThreadAdapter:
     """Adapter for using CircuitBreaker in a thread context."""
@@ -385,37 +396,6 @@ class _ThreadAdapter:
         """Initialize the adapter with a CircuitBreaker instance."""
         self._cb = circuit_breaker
 
-    @property
-    def name(self) -> str:
-        """Return the name of the circuit breaker."""
-        return self._cb.name
-
-    @property
-    def state(self) -> CircuitBreakerState:
-        """Return the current state of the circuit breaker."""
-        return self._cb.state
-
-    @property
-    def last_error(self) -> ErrorDetails | None:
-        """Return information about the last recorded error, if any."""
-        return self._cb.last_error
-
-    @property
-    def log_level(self) -> str:
-        """Return the logging level of the circuit breaker."""
-        return self._cb.log_level
-
-    @log_level.setter
-    def log_level(
-        self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    ) -> None:
-        """Set the logging level of the circuit breaker."""
-        self._cb.log_level = level
-
-    def metrics(self) -> CircuitBreakerMetrics:
-        """Return current metrics for this circuit breaker."""
-        return self._cb.metrics()
-
     @contextmanager
     def protect(self) -> Generator[None, None, None]:
         """Protect a block of code with circuit breaker protection.
@@ -423,9 +403,10 @@ class _ThreadAdapter:
         This is a synchronous version of the `protect` method.
         """
         if not from_thread.run(self._cb._try_acquire_call):  # noqa: SLF001
-            time, exc = self._cb._last_error or (None, None)  # noqa: SLF001
             raise CircuitBreakerError(
-                name=self.name, last_error_time=time, last_error=exc
+                name=self._cb.name,
+                last_error_time=self._cb.last_error_time,
+                last_error=self._cb.last_error,
             )
 
         try:
@@ -441,27 +422,27 @@ class _ThreadAdapter:
         finally:
             from_thread.run(self._cb._release_call)  # noqa: SLF001
 
-    async def restart(self) -> None:
+    def restart(self) -> None:
         """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""
         from_thread.run(self._cb.restart)
 
-    async def transition_to_closed(self) -> None:
+    def transition_to_closed(self) -> None:
         """Transition the circuit breaker to CLOSED state."""
         from_thread.run(self._cb.transition_to_closed)
 
-    async def transition_to_open(self, until: float | None = None) -> None:
+    def transition_to_open(self, until: float | None = None) -> None:
         """Transition the circuit breaker to OPEN state."""
         from_thread.run(self._cb.transition_to_open, until)
 
-    async def transition_to_half_open(self) -> None:
+    def transition_to_half_open(self) -> None:
         """Transition the circuit breaker to HALF_OPEN state."""
         from_thread.run(self._cb.transition_to_half_open)
 
-    async def transition_to_forced_open(self) -> None:
+    def transition_to_forced_open(self) -> None:
         """Transition the circuit breaker to FORCED_OPEN state."""
         from_thread.run(self._cb.transition_to_forced_open)
 
-    async def transition_to_forced_closed(self) -> None:
+    def transition_to_forced_closed(self) -> None:
         """Transition the circuit breaker to FORCED_CLOSED state."""
         from_thread.run(self._cb.transition_to_forced_closed)
 
