@@ -1,13 +1,20 @@
 """Circuit Breaker."""
 
+import functools
 import logging
-from collections.abc import AsyncGenerator, Generator
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from logging import getLogger
 from time import monotonic
-from typing import Annotated, Literal
+from types import TracebackType
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    Self,
+)
 
 from anyio import from_thread
 from pydantic import BaseModel
@@ -168,6 +175,47 @@ class CircuitBreaker:
         self._logger.setLevel(log_level)
         self._from_thread: _ThreadAdapter | None = None
 
+    def __call__(
+        self, func: Callable[..., Any] | None = None
+    ) -> Callable[..., Any]:
+        """Return a decorator that protects a function with the circuit breaker."""
+        if func is None:
+            return self.__call__
+
+        @functools.wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            async with self:
+                return await func(*args, **kwargs)
+
+        return wrapper
+
+    async def __aenter__(self) -> Self:
+        """Circuit breaker context manager."""
+        if not await self._try_acquire_call():
+            raise CircuitBreakerError(
+                name=self.name,
+                last_error_time=self._last_error_time,
+                last_error=self._last_error,
+            )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        """Exit the context manager."""
+        await self._release_call()
+
+        if not exc_type or issubclass(exc_type, self.ignore_exceptions):
+            await self._on_success()
+
+        elif isinstance(exc_val, Exception):
+            await self._on_error(exc_val)
+
+        return None
+
     @property
     def from_thread(self) -> "_ThreadAdapter":
         """Return the lock adapter for worker thread."""
@@ -221,35 +269,6 @@ class CircuitBreaker:
             consecutive_success_count=self._consecutive_success_count,
             last_error=last_error,
         )
-
-    @asynccontextmanager
-    async def protect(
-        self,
-    ) -> AsyncGenerator[None, None]:
-        """Protect function or block of code with circuit breaker protection.
-
-        Raises:
-            CircuitBreakerError: If the call is not permitted due to the circuit's state.
-        """
-        if not await self._try_acquire_call():
-            raise CircuitBreakerError(
-                name=self.name,
-                last_error_time=self._last_error_time,
-                last_error=self._last_error,
-            )
-
-        try:
-            yield
-        except self.ignore_exceptions:
-            await self._on_success()
-            raise
-        except Exception as error:
-            await self._on_error(error)
-            raise
-        else:
-            await self._on_success()
-        finally:
-            await self._release_call()
 
     async def restart(self) -> None:
         """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""

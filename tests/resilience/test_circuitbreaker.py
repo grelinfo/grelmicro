@@ -59,14 +59,14 @@ async def create_circuit(
 
 async def generate_success(cb: CircuitBreaker) -> None:
     """Generate a successful call in the circuit breaker."""
-    async with cb.protect():
+    async with cb:
         pass
 
 
 async def generate_error(cb: CircuitBreaker) -> None:
     """Generate an error call in the circuit breaker."""
     with suppress(SentinelError):
-        async with cb.protect():
+        async with cb:
             raise sentinel_error
 
 
@@ -137,19 +137,19 @@ async def test_circuit_decorator_success() -> None:
     # Arrange
     cb = CircuitBreaker("test")
 
-    @cb.protect()
-    async def protected_function() -> None:
-        pass
+    @cb()
+    async def protected_function(pos: str, kwarg: str = "default") -> bool:
+        return bool(pos == "positional" and kwarg == "keyword")
 
     # Act & Assert
-    await protected_function()
+    assert await protected_function("positional", kwarg="keyword")
 
 
 async def test_circuit_from_thread_decorator_success() -> None:
     """Test from_thread decorator with success."""
     cb = CircuitBreaker("test")
 
-    @cb.from_thread.protect()
+    @cb()
     def protected_function() -> None:
         pass
 
@@ -164,7 +164,7 @@ async def test_circuit_protect_error() -> None:
 
     # Act & Assert
     with pytest.raises(SentinelError):
-        async with cb.protect():
+        async with cb:
             raise sentinel_error
 
 
@@ -186,7 +186,7 @@ async def test_circuit_decorator_error() -> None:
     # Arrange
     cb = CircuitBreaker("test")
 
-    @cb.protect()
+    @cb()
     async def protected_function() -> None:
         raise sentinel_error
 
@@ -226,7 +226,7 @@ async def test_circuit_with_call_not_permitted(
 
     # Act & Assert
     with pytest.raises(CircuitBreakerError):
-        async with cb.protect():
+        async with cb:
             pytest.fail("Expected not reached")
 
 
@@ -271,7 +271,7 @@ async def test_circuit_decorator_with_call_not_permitted(
     cb = await create_circuit(state)
     cb.half_open_capacity = 0  # Ensure no calls are permitted
 
-    @cb.protect()
+    @cb
     async def protected_function() -> None:
         pytest.fail("Expected not reached")
 
@@ -409,7 +409,7 @@ async def test_circuit_with_ignore_exceptions(
 
     # Act & Assert
     with pytest.raises(error):
-        async with cb.protect():
+        async with cb:
             raise error()
 
 
@@ -453,7 +453,7 @@ async def test_circuit_breaker_last_error() -> None:
 
     # Act
     with suppress(SentinelError):
-        async with cb.protect():
+        async with cb:
             raise sentinel_error
 
     # Assert
@@ -501,7 +501,7 @@ async def test_circuit_metrics_counters_with_successes(
         success_count + 1
     )  # Ensure it doesn't close immediately
     for _ in range(success_count):
-        async with cb.protect():
+        async with cb:
             pass
 
     # Act
@@ -572,7 +572,7 @@ async def test_circuit_metrics_counters_with_ignore_exceptions(
     cb.success_threshold = success_count + 1  # Avoid immediate closure
     for _ in range(success_count):
         with suppress(SentinelError):
-            async with cb.protect():
+            async with cb:
                 raise sentinel_error
 
     # Act
@@ -617,7 +617,7 @@ async def test_circuit_metrics_active_calls(
     # Act
     async with AsyncExitStack() as stack:
         for _ in range(call_count):
-            await stack.enter_async_context(cb.protect())
+            await stack.enter_async_context(cb)
         metrics = cb.metrics()
 
     # Assert
