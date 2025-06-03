@@ -170,4 +170,5 @@ exclude_also = [
     "if TYPE_CHECKING:",
     "class .*\\bProtocol\\):",
     "assert_never\\(.*\\)",
+    "pytest.fail\\(.*\\)",
 ]

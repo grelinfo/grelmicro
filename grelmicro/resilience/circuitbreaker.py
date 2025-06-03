@@ -232,9 +232,10 @@ class CircuitBreaker:
             CircuitBreakerError: If the call is not permitted due to the circuit's state.
         """
         if not await self._try_acquire_call():
-            time, exc = self._last_error or (None, None)
             raise CircuitBreakerError(
-                name=self.name, last_error_time=time, last_error=exc
+                name=self.name,
+                last_error_time=self._last_error_time,
+                last_error=self._last_error,
             )
 
         try:
