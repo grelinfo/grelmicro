@@ -15,3 +15,6 @@ cov.xml
 
 # Mkdocs
 site/
+
+# MacOS
+.DS_Store

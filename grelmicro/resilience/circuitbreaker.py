@@ -1,18 +1,34 @@
 """Circuit Breaker."""
 
 import logging
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
-from logging import Logger, getLogger
+from logging import getLogger
 from time import monotonic
-from typing import Annotated, ClassVar
+from typing import Annotated, Literal
 
+from anyio import from_thread
+from pydantic import BaseModel
 from typing_extensions import Doc
 
-_ErrorTypes = type[Exception] | tuple[type[Exception], ...]
+from grelmicro.resilience.errors import CircuitBreakerError
+
+
+class _TransitionCause(StrEnum):
+    """Cause of a circuit breaker state transition."""
+
+    ERROR_THRESHOLD = "ERROR_THRESHOLD"
+    """Transition due to reaching the error threshold."""
+    SUCCESS_THRESHOLD = "SUCCESS_THRESHOLD"
+    """Transition due to reaching the success threshold."""
+    RESET_TIMEOUT = "RESET_TIMEOUT"
+    """Transition due to timeout after the circuit was open."""
+    MANUAL = "MANUAL"
+    """Transition due to manual intervention."""
+    RESTART = "RESTART"
+    """Transition due to circuit breaker restart."""
 
 
 class CircuitBreakerState(StrEnum):
@@ -20,14 +36,13 @@ class CircuitBreakerState(StrEnum):
 
     State machine diagram:
     ```
-    ┌────────┐ errors >= threshold  ┌─────────┐
-    │ CLOSED │────────────────────> │  OPEN   │ <─┐
-    └────────┘                      └─────────┘   │
-        ▲                               │         │
-        │                       timeout │         │ errors >= threshold
-        │                               ▼         │
-        │                         ┌───────────┐   │
-        └─────────────────────────│ HALF_OPEN │───┘
+    ┌────────┐ errors >= threshold  ┌────────┐
+    │ CLOSED │────────────────────> │  OPEN  │ <─┐
+    └────────┘                      └────────┘   │
+        ▲                       timeout │        │ errors >= threshold
+        │                               ▼        │
+        │                         ┌───────────┐  │
+        └─────────────────────────│ HALF_OPEN │──┘
           success >= threshold    └───────────┘
     ```
     """
@@ -44,219 +59,120 @@ class CircuitBreakerState(StrEnum):
     """Circuit is forced closed for an indefinite time, calls are allowed."""
 
 
-class TransitionCause(StrEnum):
-    """Cause of a circuit breaker state transition."""
-
-    ERROR_THRESHOLD = "ERROR_THRESHOLD"
-    """Transition due to reaching the error threshold."""
-    SUCCESS_THRESHOLD = "SUCCESS_THRESHOLD"
-    """Transition due to reaching the success threshold."""
-    RESET_TIMEOUT = "RESET_TIMEOUT"
-    """Transition due to timeout after the circuit was open."""
-    MANUAL = "MANUAL"
-    """Transition due to manual intervention."""
-    RESTART = "RESTART"
-    """Transition due to circuit breaker restart."""
-
-
-@dataclass(frozen=True)
-class ErrorDetails:
-    """Details about an error recorded by the circuit breaker.
-
-    Attributes:
-        time: When the error occurred.
-        type: Type of the error.
-        msg: Error message.
-    """
+class ErrorDetails(BaseModel, frozen=True, extra="forbid"):
+    """Details about an error recorded by the circuit breaker."""
 
     time: datetime
     type: str
     msg: str
 
 
-@dataclass(frozen=True)
-class CircuitBreakerMetrics:
+class CircuitBreakerMetrics(BaseModel, frozen=True, extra="forbid"):
     """Circuit breaker metrics."""
 
     name: str
     state: CircuitBreakerState
-    active_call_count: int
+    active_calls: int
     total_error_count: int
-    total_success_count: int
+    total_sucess_count: int
     consecutive_error_count: int
     consecutive_success_count: int
     last_error: ErrorDetails | None
 
 
-class CircuitBreakerError(Exception):
-    """Circuit breaker error.
-
-    Raised when calls are not permitted by the circuit breaker.
-    """
-
-    def __init__(self, name: str, last_error: ErrorDetails | None) -> None:
-        """Initialize the error."""
-        self.name = name
-        self.last_error = last_error
-        super().__init__(f"Circuit breaker '{name}': call not permitted")
-
-
-class CircuitBreakerAlreadyExistsError(Exception):
-    """Error raised when trying to register a circuit breaker with an existing name."""
-
-    def __init__(self, name: str) -> None:
-        """Initialize the error."""
-        super().__init__(f"Circuit breaker '{name}' already exists.")
-
-
-class CircuitBreakerRegistry:
-    """Registry for circuit breakers.
-
-    This registry is used to store and retrieve circuit breaker instances by name.
-    Circuit breakers are automatically registered when created.
-    """
-
-    _instances: ClassVar[dict[str, "CircuitBreaker"]] = {}
-
-    @classmethod
-    def get(cls, name: str) -> "CircuitBreaker | None":
-        """Get a circuit breaker by name.
-
-        Args:
-            name: Name of the circuit breaker.
-
-        Returns:
-            The circuit breaker instance or None if not found.
-        """
-        return cls._instances.get(name)
-
-    @classmethod
-    def register(cls, circuit_breaker: "CircuitBreaker") -> None:
-        """Register a circuit breaker.
-
-        Args:
-            circuit_breaker: The circuit breaker instance to register.
-
-        Raises:
-            CircuitBreakerAlreadyExistsError: If a different circuit breaker with the same name
-            already exists.
-        """
-        if (
-            circuit_breaker.name in cls._instances
-            and cls._instances[circuit_breaker.name] is not circuit_breaker
-        ):
-            raise CircuitBreakerAlreadyExistsError(circuit_breaker.name)
-        cls._instances[circuit_breaker.name] = circuit_breaker
-
-    @classmethod
-    def get_all(cls) -> list["CircuitBreaker"]:
-        """Get all registered circuit breakers.
-
-        Returns:
-            List of all registered circuit breaker instances.
-        """
-        return list(cls._instances.values())
-
-    @classmethod
-    def clear(cls) -> None:
-        """Clear all registered circuit breakers (primarily for testing)."""
-        cls._instances.clear()
-
-
-class _CircuitBreakerMeta(type):
-    """Metaclass for CircuitBreaker to handle instance registry."""
-
-    def __call__(cls, name: str, **kwargs: object) -> "CircuitBreaker":
-        """Get existing circuit breaker or create and register a new one."""
-        existing = CircuitBreakerRegistry.get(name)
-        if existing is not None:
-            # TODO: Consider if re-configuration of an existing instance should be allowed
-            # or if an error should be raised if kwargs are different.
-            # For now, it returns the existing one without re-configuring.
-            return existing
-
-        instance = super().__call__(name, **kwargs)
-        CircuitBreakerRegistry.register(instance)
-        return instance
-
-
-class CircuitBreaker(metaclass=_CircuitBreakerMeta):
+class CircuitBreaker:
     """Circuit Breaker.
 
-    Implements the circuit breaker pattern to prevent cascading failures
+    Implements the circuit breaker pattern to prevent cascading errors
     by monitoring and controlling calls to a protected service.
-
-    Usage:
-        cb = CircuitBreaker("my-service-cb")
-        try:
-            async with cb.guard():
-                # Call protected service
-                result = await protected_service_call()
-        except CircuitBreakerError:
-            # Handle circuit open, e.g., return a fallback
-        except OtherExpectedError:
-            # Handle specific errors from the protected service
     """
 
     def __init__(
         self,
-        name: Annotated[str, Doc("Name of the circuit breaker instance.")],
+        name: Annotated[
+            str,
+            Doc(
+                """
+                Name of the circuit breaker instance.
+                """
+            ),
+        ],
         *,
+        ignore_exceptions: Annotated[
+            type[Exception] | tuple[type[Exception], ...],
+            Doc(
+                """
+                Exceptions that are ignored and do not count as errors.
+                """
+            ),
+        ] = (),
         error_threshold: Annotated[
-            int, Doc("Number of consecutive errors before opening the circuit.")
+            int,
+            Doc(
+                """
+                Number of consecutive errors before opening the circuit.
+                """
+            ),
         ] = 5,
         success_threshold: Annotated[
             int,
             Doc(
-                "Number of consecutive successes in HALF_OPEN state before closing the circuit."
+                """
+                Number of consecutive successes in HALF_OPEN state before closing the circuit.
+                """
             ),
         ] = 2,
         reset_timeout: Annotated[
             float,
             Doc(
-                "Duration (in seconds) the circuit stays in the OPEN state before transitioning to HALF_OPEN."
+                """
+                Seconds the circuit stays OPEN before transitioning to HALF_OPEN.
+                """
             ),
         ] = 30,
         half_open_capacity: Annotated[
             int,
             Doc(
-                "Maximum number of concurrent calls allowed in the HALF_OPEN state."
+                """
+                Maximum number of concurrent calls allowed in the HALF_OPEN state.
+                """
             ),
         ] = 1,
-        logger: Logger | None = None,
+        log_level: Annotated[
+            Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            Doc(
+                """
+                Logging level for the circuit breaker. Defaults to INFO.
+                """
+            ),
+        ] = "WARNING",
     ) -> None:
         """Initialize the circuit breaker."""
         self.error_threshold = error_threshold
         self.success_threshold = success_threshold
         self.reset_timeout = reset_timeout
         self.half_open_capacity = half_open_capacity
-        self.logger = logger or getLogger(f"grelmicro.circuitbreaker.{name}")
+        self.ignore_exceptions = ignore_exceptions
 
         self._name = name
         self._state = CircuitBreakerState.CLOSED
         self._consecutive_error_count = 0
         self._consecutive_success_count = 0
         self._total_error_count = 0
-        self._total_success_count = 0
-        self._last_error: ErrorDetails | None = None
-        self._open_until_time = 0.0  # Monotonic time
+        self._total_sucess_count = 0
+        self._last_error: tuple[datetime, Exception] | None = None
+        self._open_until_time = 0.0
         self._active_call_count = 0
+        self._logger = getLogger(f"grelmicro.circuitbreaker.{name}")
+        self._logger.setLevel(log_level)
+        self._from_thread: _ThreadAdapter | None = None
 
-    def __eq__(self, other: object) -> bool:
-        """Check equality based on the circuit breaker name and configuration.
-
-        Two circuit breakers are considered equal if they have the same name and configuration.
-        """
-        if not isinstance(other, CircuitBreaker):
-            return False
-        return (
-            self._name == other._name
-            and self.error_threshold == other.error_threshold
-            and self.success_threshold == other.success_threshold
-            and self.reset_timeout == other.reset_timeout
-            and self.half_open_capacity == other.half_open_capacity
-            and self.logger == other.logger
-        )
+    @property
+    def from_thread(self) -> "_ThreadAdapter":
+        """Return the lock adapter for worker thread."""
+        if self._from_thread is None:
+            self._from_thread = _ThreadAdapter(self)
+        return self._from_thread
 
     @property
     def name(self) -> str:
@@ -265,159 +181,118 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
 
     @property
     def state(self) -> CircuitBreakerState:
-        """Return the current state of the circuit breaker, refreshing if necessary."""
-        self._refresh_state()
+        """Return the current state of the circuit breaker."""
         return self._state
 
     @property
     def last_error(self) -> ErrorDetails | None:
         """Return information about the last recorded error, if any."""
-        return self._last_error
+        if self._last_error is None:
+            return None
+
+        time, error = self._last_error
+        return ErrorDetails(
+            time=time,
+            type=type(error).__name__,
+            msg=str(error),
+        )
+
+    @property
+    def log_level(self) -> str:
+        """Return the logging level of the circuit breaker."""
+        return logging.getLevelName(self._logger.level)
+
+    @log_level.setter
+    def log_level(
+        self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    ) -> None:
+        """Set the logging level of the circuit breaker."""
+        self._logger.setLevel(level)
 
     def metrics(self) -> CircuitBreakerMetrics:
         """Return current metrics for this circuit breaker."""
         return CircuitBreakerMetrics(
             name=self._name,
-            state=self.state,  # refreshed state
-            active_call_count=self._active_call_count,
+            state=self._state,
+            active_calls=self._active_call_count,
             total_error_count=self._total_error_count,
-            total_success_count=self._total_success_count,
+            total_sucess_count=self._total_sucess_count,
             consecutive_error_count=self._consecutive_error_count,
             consecutive_success_count=self._consecutive_success_count,
-            last_error=self._last_error,
+            last_error=self.last_error,
         )
 
     @asynccontextmanager
-    async def guard(
-        self, *, ignore_errors: _ErrorTypes = ()
+    async def protect(
+        self,
     ) -> AsyncGenerator[None, None]:
-        """Guard a block of code with circuit breaker protection.
-
-        Args:
-            ignore_errors: A single exception type or a tuple of exception types
-                that should not be counted as errors by the circuit breaker.
-
-        Yields:
-            None.
+        """Protect function or block of code with circuit breaker protection.
 
         Raises:
             CircuitBreakerError: If the call is not permitted due to the circuit's state.
-            Any exception raised by the guarded code block (unless in `ignore_errors`).
         """
-        if not self._is_call_permitted():
-            raise CircuitBreakerError(self.name, self._last_error)
+        if not await self._try_acquire_call():
+            time, exc = self._last_error or (None, None)
+            raise CircuitBreakerError(
+                name=self.name, last_error_time=time, last_error=exc
+            )
 
-        self._active_call_count += 1
         try:
             yield
-        except ignore_errors:
-            self._on_success()
+        except self.ignore_exceptions:
+            await self._on_success()
             raise
         except Exception as error:
-            self._on_error(error)
+            await self._on_error(error)
             raise
         else:
-            self._on_success()
+            await self._on_success()
         finally:
-            self._active_call_count -= 1
+            await self._release_call()
 
-    def _is_call_permitted(self) -> bool:
-        """Check if a call is permitted based on the current state."""
-        self._refresh_state()
-        if self._state in (
-            CircuitBreakerState.CLOSED,
-            CircuitBreakerState.FORCED_CLOSED,
-        ):
-            return True
-        if self._state == CircuitBreakerState.HALF_OPEN:
-            return self._active_call_count < self.half_open_capacity
-        return False
-
-    def _on_error(self, error: Exception) -> None:
-        """Record an error, update counts, and potentially transition state."""
-        self._total_error_count += 1
-        self._consecutive_error_count += 1
-        self._consecutive_success_count = 0
-
-        self._last_error = ErrorDetails(
-            time=datetime.now(UTC), type=type(error).__name__, msg=str(error)
-        )
-
-        if (
-            self._state != CircuitBreakerState.OPEN
-            and self._consecutive_error_count >= self.error_threshold
-        ):
-            self._do_transition_to_state(
-                CircuitBreakerState.OPEN, TransitionCause.ERROR_THRESHOLD
-            )
-
-    def _on_success(self) -> None:
-        """Record a success, update counts, and potentially transition state."""
-        self._total_success_count += 1
-        self._consecutive_error_count = 0
-        self._consecutive_success_count += 1
-
-        if (
-            self._state == CircuitBreakerState.HALF_OPEN
-            and self._consecutive_success_count >= self.success_threshold
-        ):
-            self._do_transition_to_state(
-                CircuitBreakerState.CLOSED, TransitionCause.SUCCESS_THRESHOLD
-            )
-
-    def _refresh_state(self) -> None:
-        """Refresh the circuit breaker's state based on time or conditions."""
-        if (
-            self._state == CircuitBreakerState.OPEN
-            and monotonic() >= self._open_until_time
-        ):
-            self._do_transition_to_state(
-                CircuitBreakerState.HALF_OPEN, TransitionCause.RESET_TIMEOUT
-            )
-
-    def restart(self) -> None:
+    async def restart(self) -> None:
         """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""
         self._total_error_count = 0
-        self._total_success_count = 0
+        self._total_sucess_count = 0
         self._last_error = None
         self._do_transition_to_state(
-            CircuitBreakerState.CLOSED, TransitionCause.RESTART
+            CircuitBreakerState.CLOSED, _TransitionCause.RESTART
         )
 
-    def transition_to_closed(self) -> None:
+    async def transition_to_closed(self) -> None:
         """Transition the circuit breaker to CLOSED state."""
         self._do_transition_to_state(
-            CircuitBreakerState.CLOSED, TransitionCause.MANUAL
+            CircuitBreakerState.CLOSED, _TransitionCause.MANUAL
         )
 
-    def transition_to_open(self, until: float | None = None) -> None:
+    async def transition_to_open(self, until: float | None = None) -> None:
         """Transition the circuit breaker to OPEN state."""
         self._do_transition_to_state(
-            CircuitBreakerState.OPEN, TransitionCause.MANUAL, open_until=until
+            CircuitBreakerState.OPEN, _TransitionCause.MANUAL, open_until=until
         )
 
-    def transition_to_half_open(self) -> None:
+    async def transition_to_half_open(self) -> None:
         """Transition the circuit breaker to HALF_OPEN state."""
         self._do_transition_to_state(
-            CircuitBreakerState.HALF_OPEN, TransitionCause.MANUAL
+            CircuitBreakerState.HALF_OPEN, _TransitionCause.MANUAL
         )
 
-    def transition_to_forced_open(self) -> None:
+    async def transition_to_forced_open(self) -> None:
         """Transition the circuit breaker to FORCED_OPEN state."""
         self._do_transition_to_state(
-            CircuitBreakerState.FORCED_OPEN, TransitionCause.MANUAL
+            CircuitBreakerState.FORCED_OPEN, _TransitionCause.MANUAL
         )
 
-    def transition_to_forced_closed(self) -> None:
+    async def transition_to_forced_closed(self) -> None:
         """Transition the circuit breaker to FORCED_CLOSED state."""
         self._do_transition_to_state(
-            CircuitBreakerState.FORCED_CLOSED, TransitionCause.MANUAL
+            CircuitBreakerState.FORCED_CLOSED, _TransitionCause.MANUAL
         )
 
     def _do_transition_to_state(
         self,
         state: CircuitBreakerState,
-        cause: TransitionCause,
+        cause: _TransitionCause,
         open_until: float | None = None,
     ) -> None:
         """Transition to a new state and reset consecutive counts."""
@@ -432,12 +307,169 @@ class CircuitBreaker(metaclass=_CircuitBreakerMeta):
             else 0
         )
 
-        self.logger.log(
+        self._logger.log(
             logging.ERROR
             if state == CircuitBreakerState.OPEN
             else logging.INFO,
-            "Circuit breaker '%s': state changed to %s [cause: %s]",
+            "Circuit breaker '%s' state changed to %s [cause: %s]",
             self.name,
             state,
             cause,
         )
+
+    async def _try_acquire_call(self) -> bool:
+        """Attempt to acquire a call in the circuit breaker."""
+        if self._state in (
+            CircuitBreakerState.CLOSED,
+            CircuitBreakerState.FORCED_CLOSED,
+        ):
+            self._active_call_count += 1
+            return True
+
+        if (
+            self._state == CircuitBreakerState.OPEN
+            and monotonic() >= self._open_until_time
+        ):
+            self._do_transition_to_state(
+                CircuitBreakerState.HALF_OPEN, _TransitionCause.RESET_TIMEOUT
+            )
+
+        if (
+            self._state == CircuitBreakerState.HALF_OPEN
+            and self._active_call_count < self.half_open_capacity
+        ):
+            self._active_call_count += 1
+            return True
+        return False
+
+    async def _release_call(self) -> None:
+        """Release a call in the circuit breaker."""
+        if self._active_call_count > 0:
+            self._active_call_count -= 1
+
+    async def _on_error(self, error: Exception) -> None:
+        """Record an error, update counts, and potentially transition state."""
+        self._total_error_count += 1
+        self._consecutive_error_count += 1
+        self._consecutive_success_count = 0
+
+        self._last_error = (datetime.now(UTC), error)
+
+        if (
+            self._state != CircuitBreakerState.OPEN
+            and self._consecutive_error_count >= self.error_threshold
+        ):
+            self._do_transition_to_state(
+                CircuitBreakerState.OPEN, _TransitionCause.ERROR_THRESHOLD
+            )
+
+    async def _on_success(self) -> None:
+        """Record a success, update counts, and potentially transition state."""
+        self._total_sucess_count += 1
+        self._consecutive_error_count = 0
+        self._consecutive_success_count += 1
+
+        if (
+            self._state == CircuitBreakerState.HALF_OPEN
+            and self._consecutive_success_count >= self.success_threshold
+        ):
+            self._do_transition_to_state(
+                CircuitBreakerState.CLOSED, _TransitionCause.SUCCESS_THRESHOLD
+            )
+
+
+class _ThreadAdapter:
+    """Adapter for using CircuitBreaker in a thread context."""
+
+    def __init__(self, circuit_breaker: CircuitBreaker) -> None:
+        """Initialize the adapter with a CircuitBreaker instance."""
+        self._cb = circuit_breaker
+
+    @property
+    def name(self) -> str:
+        """Return the name of the circuit breaker."""
+        return self._cb.name
+
+    @property
+    def state(self) -> CircuitBreakerState:
+        """Return the current state of the circuit breaker."""
+        return self._cb.state
+
+    @property
+    def last_error(self) -> ErrorDetails | None:
+        """Return information about the last recorded error, if any."""
+        return self._cb.last_error
+
+    @property
+    def log_level(self) -> str:
+        """Return the logging level of the circuit breaker."""
+        return self._cb.log_level
+
+    @log_level.setter
+    def log_level(
+        self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    ) -> None:
+        """Set the logging level of the circuit breaker."""
+        self._cb.log_level = level
+
+    def metrics(self) -> CircuitBreakerMetrics:
+        """Return current metrics for this circuit breaker."""
+        return self._cb.metrics()
+
+    @contextmanager
+    def protect(self) -> Generator[None, None, None]:
+        """Protect a block of code with circuit breaker protection.
+
+        This is a synchronous version of the `protect` method.
+        """
+        if not from_thread.run(self._cb._try_acquire_call):  # noqa: SLF001
+            time, exc = self._cb._last_error or (None, None)  # noqa: SLF001
+            raise CircuitBreakerError(
+                name=self.name, last_error_time=time, last_error=exc
+            )
+
+        try:
+            yield
+        except self._cb.ignore_exceptions:
+            from_thread.run(self._cb._on_success)  # noqa: SLF001
+            raise
+        except Exception as error:
+            from_thread.run(self._cb._on_error, error)  # noqa: SLF001
+            raise
+        else:
+            from_thread.run(self._cb._on_success)  # noqa: SLF001
+        finally:
+            from_thread.run(self._cb._release_call)  # noqa: SLF001
+
+    async def restart(self) -> None:
+        """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""
+        from_thread.run(self._cb.restart)
+
+    async def transition_to_closed(self) -> None:
+        """Transition the circuit breaker to CLOSED state."""
+        from_thread.run(self._cb.transition_to_closed)
+
+    async def transition_to_open(self, until: float | None = None) -> None:
+        """Transition the circuit breaker to OPEN state."""
+        from_thread.run(self._cb.transition_to_open, until)
+
+    async def transition_to_half_open(self) -> None:
+        """Transition the circuit breaker to HALF_OPEN state."""
+        from_thread.run(self._cb.transition_to_half_open)
+
+    async def transition_to_forced_open(self) -> None:
+        """Transition the circuit breaker to FORCED_OPEN state."""
+        from_thread.run(self._cb.transition_to_forced_open)
+
+    async def transition_to_forced_closed(self) -> None:
+        """Transition the circuit breaker to FORCED_CLOSED state."""
+        from_thread.run(self._cb.transition_to_forced_closed)
+
+
+__all__ = (
+    "CircuitBreaker",
+    "CircuitBreakerError",
+    "CircuitBreakerMetrics",
+    "CircuitBreakerState",
+    "ErrorDetails",
+)

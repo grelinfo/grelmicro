@@ -167,7 +167,7 @@ class LeaderElection(Synchronization, Task):
                 The duration in seconds that the leader worker will try to acquire the lock before
                 giving up.
 
-                Must be shorter than the lease duration. In case of multiple failures, the leader
+                Must be shorter than the lease duration. In case of multiple errors, the leader
                 worker will loose the lead to prevent split-brain scenarios and ensure that only one
                 worker is the leader at any time.
                 """,
