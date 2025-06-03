@@ -2,10 +2,10 @@
 
 import functools
 import logging
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
+from inspect import iscoroutinefunction
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
@@ -182,12 +182,21 @@ class CircuitBreaker:
         if func is None:
             return self.__call__
 
-        @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            async with self:
-                return await func(*args, **kwargs)
+        if iscoroutinefunction(func):
 
-        return wrapper
+            @functools.wraps(func)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+                async with self:
+                    return await func(*args, **kwargs)
+
+            return async_wrapper
+
+        @functools.wraps(func)
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            with self.from_thread:
+                return func(*args, **kwargs)
+
+        return sync_wrapper
 
     async def __aenter__(self) -> Self:
         """Circuit breaker context manager."""
@@ -416,31 +425,32 @@ class _ThreadAdapter:
         """Initialize the adapter with a CircuitBreaker instance."""
         self._cb = circuit_breaker
 
-    @contextmanager
-    def protect(self) -> Generator[None, None, None]:
-        """Protect a block of code with circuit breaker protection.
-
-        This is a synchronous version of the `protect` method.
-        """
+    def __enter__(self) -> Self:
+        """Enter the context manager, acquiring the circuit breaker lock."""
         if not from_thread.run(self._cb._try_acquire_call):  # noqa: SLF001
             raise CircuitBreakerError(
                 name=self._cb.name,
                 last_error_time=self._cb.last_error_time,
                 last_error=self._cb.last_error,
             )
+        return self
 
-        try:
-            yield
-        except self._cb.ignore_exceptions:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        """Exit the context manager, releasing the circuit breaker lock."""
+        from_thread.run(self._cb._release_call)  # noqa: SLF001
+
+        if not exc_type or issubclass(exc_type, self._cb.ignore_exceptions):
             from_thread.run(self._cb._on_success)  # noqa: SLF001
-            raise
-        except Exception as error:
-            from_thread.run(self._cb._on_error, error)  # noqa: SLF001
-            raise
-        else:
-            from_thread.run(self._cb._on_success)  # noqa: SLF001
-        finally:
-            from_thread.run(self._cb._release_call)  # noqa: SLF001
+
+        elif isinstance(exc_val, Exception):
+            from_thread.run(self._cb._on_error, exc_val)  # noqa: SLF001
+
+        return None
 
     def restart(self) -> None:
         """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""

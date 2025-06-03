@@ -125,7 +125,7 @@ async def test_circuit_from_thread_protect_success() -> None:
     cb = CircuitBreaker("test")
 
     def sync() -> None:
-        with cb.from_thread.protect():
+        with cb.from_thread:
             pass
 
     # Act
@@ -137,24 +137,36 @@ async def test_circuit_decorator_success() -> None:
     # Arrange
     cb = CircuitBreaker("test")
 
+    @cb
+    async def protected_function() -> None:
+        pass
+
     @cb()
-    async def protected_function(pos: str, kwarg: str = "default") -> bool:
+    async def another_protected_function(
+        pos: str, kwarg: str = "default"
+    ) -> bool:
         return bool(pos == "positional" and kwarg == "keyword")
 
     # Act & Assert
-    assert await protected_function("positional", kwarg="keyword")
+    await protected_function()
+    assert await another_protected_function("positional", kwarg="keyword")
 
 
 async def test_circuit_from_thread_decorator_success() -> None:
     """Test from_thread decorator with success."""
     cb = CircuitBreaker("test")
 
-    @cb()
+    @cb
     def protected_function() -> None:
         pass
 
+    @cb()
+    def another_protected_function(pos: str) -> bool:
+        return bool(pos == "positional")
+
     # Act & Assert
     await to_thread.run_sync(protected_function)
+    await to_thread.run_sync(another_protected_function, "positional")
 
 
 async def test_circuit_protect_error() -> None:
@@ -173,7 +185,7 @@ async def test_circuitbreaker_from_thread_protect_error() -> None:
     cb = CircuitBreaker("test")
 
     def sync() -> None:
-        with cb.from_thread.protect():
+        with cb.from_thread:
             raise sentinel_error
 
     # Act & Assert
@@ -186,26 +198,38 @@ async def test_circuit_decorator_error() -> None:
     # Arrange
     cb = CircuitBreaker("test")
 
-    @cb()
+    @cb
     async def protected_function() -> None:
+        raise sentinel_error
+
+    @cb()
+    async def another_protected_function() -> None:
         raise sentinel_error
 
     # Act & Assert
     with pytest.raises(SentinelError):
         await protected_function()
+    with pytest.raises(SentinelError):
+        await another_protected_function()
 
 
 async def test_circuit_from_thread_decorator_error() -> None:
     """Test from_thread decorator with error."""
     cb = CircuitBreaker("test")
 
-    @cb.from_thread.protect()
+    @cb
     def protected_function() -> None:
+        raise sentinel_error
+
+    @cb()
+    def another_protected_function() -> None:
         raise sentinel_error
 
     # Act & Assert
     with pytest.raises(SentinelError):
         await to_thread.run_sync(protected_function)
+    with pytest.raises(SentinelError):
+        await to_thread.run_sync(another_protected_function)
 
 
 @pytest.mark.parametrize(
@@ -247,7 +271,7 @@ async def test_circuit_from_thread_with_call_not_permitted(
     cb.half_open_capacity = 0  # Ensure no calls are permitted
 
     def sync() -> None:
-        with cb.from_thread.protect():
+        with cb.from_thread:
             pytest.fail("Expected not reached")
 
     # Act & Assert
@@ -275,9 +299,15 @@ async def test_circuit_decorator_with_call_not_permitted(
     async def protected_function() -> None:
         pytest.fail("Expected not reached")
 
+    @cb()
+    async def another_protected_function() -> None:
+        pytest.fail("Expected not reached")
+
     # Act & Assert
     with pytest.raises(CircuitBreakerError):
         await protected_function()
+    with pytest.raises(CircuitBreakerError):
+        await another_protected_function()
 
 
 @pytest.mark.parametrize(
@@ -296,13 +326,19 @@ async def test_circuit_from_thread_decorator_with_call_not_permitted(
     cb = await create_circuit(state)
     cb.half_open_capacity = 0
 
-    @cb.from_thread.protect()
+    @cb
     def protected_function() -> None:
+        pytest.fail("Expected not reached")
+
+    @cb()
+    def another_protected_function() -> None:
         pytest.fail("Expected not reached")
 
     # Act & Assert
     with pytest.raises(CircuitBreakerError):
         await to_thread.run_sync(protected_function)
+    with pytest.raises(CircuitBreakerError):
+        await to_thread.run_sync(another_protected_function)
 
 
 @pytest.mark.parametrize("error_count", [1, 3, 5])
@@ -438,7 +474,7 @@ async def test_circuit_from_thread_with_ignore_exceptions(
     cb.success_threshold = 1  # Avoid immediate closure
 
     def sync() -> None:
-        with cb.from_thread.protect():
+        with cb.from_thread:
             raise error()
 
     # Act & Assert

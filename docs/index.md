@@ -61,14 +61,6 @@ The key features are:
 - **Dependency Injection**: Use [FastDepends](https://lancetnik.github.io/FastDepends/) library to inject dependencies into tasks.
 - **Error Handling**: Catches and logs errors, ensuring that task execution errors do not stop the scheduling.
 
-### Resilience
-
-The `resilience` package provides higher-order functions (decorators) for building robust, fault-tolerant microservices.
-
-The available patterns are:
-
-**Circuit Breaker**: Monitors external service calls and blocks them after consecutive errors to prevent cascading errors.
-
 ## Installation
 
 ```bash
