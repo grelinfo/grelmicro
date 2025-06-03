@@ -84,6 +84,23 @@ def frozen_time() -> Iterator[FrozenTimeType]:
         yield frozen
 
 
+@pytest.fixture(
+    params=[
+        CircuitBreakerState.OPEN,
+        CircuitBreakerState.HALF_OPEN,
+        CircuitBreakerState.FORCED_OPEN,
+    ]
+)
+async def circuit_call_not_permitted(
+    request: pytest.FixtureRequest,
+) -> CircuitBreaker:
+    """Test circuit breaker raises CircuitBreakerError when open."""
+    # Arrange
+    cb = await create_circuit(request.param)
+    cb.half_open_capacity = 0  # Ensure no calls are permitted
+    return cb
+
+
 def test_circuit_init() -> None:
     """Test circuit breaker initialization."""
     # Act
@@ -232,46 +249,24 @@ async def test_circuit_from_thread_decorator_error() -> None:
         await to_thread.run_sync(another_protected_function)
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_OPEN,
-    ],
-)
 async def test_circuit_with_call_not_permitted(
-    state: CircuitBreakerState,
+    circuit_call_not_permitted: CircuitBreaker,
 ) -> None:
     """Test circuit breaker raises CircuitBreakerError when open."""
-    # Arrange
-    cb = await create_circuit(state)
-    cb.half_open_capacity = 0  # Ensure no calls are permitted
-
     # Act & Assert
     with pytest.raises(CircuitBreakerError):
-        async with cb:
+        async with circuit_call_not_permitted:
             pytest.fail("Expected not reached")
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_OPEN,
-    ],
-)
 async def test_circuit_from_thread_with_call_not_permitted(
-    state: CircuitBreakerState,
+    circuit_call_not_permitted: CircuitBreaker,
 ) -> None:
     """Test from_thread protect raises CircuitBreakerError when not permitted."""
-    # Arrange
-    cb = await create_circuit(state)
-    cb.half_open_capacity = 0  # Ensure no calls are permitted
 
+    # Arrange
     def sync() -> None:
-        with cb.from_thread:
+        with circuit_call_not_permitted.from_thread:
             pytest.fail("Expected not reached")
 
     # Act & Assert
@@ -279,27 +274,17 @@ async def test_circuit_from_thread_with_call_not_permitted(
         await to_thread.run_sync(sync)
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_OPEN,
-    ],
-)
 async def test_circuit_decorator_with_call_not_permitted(
-    state: CircuitBreakerState,
+    circuit_call_not_permitted: CircuitBreaker,
 ) -> None:
     """Test circuit breaker decorator raises CircuitBreakerError when open."""
-    # Arrange
-    cb = await create_circuit(state)
-    cb.half_open_capacity = 0  # Ensure no calls are permitted
 
-    @cb
+    # Arrange
+    @circuit_call_not_permitted
     async def protected_function() -> None:
         pytest.fail("Expected not reached")
 
-    @cb()
+    @circuit_call_not_permitted()
     async def another_protected_function() -> None:
         pytest.fail("Expected not reached")
 
@@ -310,27 +295,17 @@ async def test_circuit_decorator_with_call_not_permitted(
         await another_protected_function()
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.HALF_OPEN,
-        CircuitBreakerState.FORCED_OPEN,
-    ],
-)
 async def test_circuit_from_thread_decorator_with_call_not_permitted(
-    state: CircuitBreakerState,
+    circuit_call_not_permitted: CircuitBreaker,
 ) -> None:
     """Test from_thread decorator raises CircuitBreakerError when not permitted."""
-    # Arrange
-    cb = await create_circuit(state)
-    cb.half_open_capacity = 0
 
-    @cb
+    # Arrange
+    @circuit_call_not_permitted
     def protected_function() -> None:
         pytest.fail("Expected not reached")
 
-    @cb()
+    @circuit_call_not_permitted()
     def another_protected_function() -> None:
         pytest.fail("Expected not reached")
 
@@ -660,31 +635,21 @@ async def test_circuit_metrics_active_calls(
     assert metrics.active_calls == call_count
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        CircuitBreakerState.OPEN,
-        CircuitBreakerState.FORCED_OPEN,
-        CircuitBreakerState.HALF_OPEN,
-    ],
-)
 async def test_circuit_metrics_with_call_not_permitted(
-    state: CircuitBreakerState,
+    circuit_call_not_permitted: CircuitBreaker,
 ) -> None:
     """Test metrics in OPEN and FORCED_OPEN states."""
     # Arrange
-    cb = await create_circuit(state)
-    cb.half_open_capacity = 0  #  Ensure no calls are permitted
     with suppress(CircuitBreakerError):
-        await generate_success(cb)
+        await generate_success(circuit_call_not_permitted)
 
     # Act
-    metrics = cb.metrics()
+    metrics = circuit_call_not_permitted.metrics()
 
     # Assert
     assert metrics == CircuitBreakerMetrics(
-        name=cb.name,
-        state=state,
+        name=circuit_call_not_permitted.name,
+        state=circuit_call_not_permitted.state,
         active_calls=0,
         total_error_count=0,
         total_success_count=0,
