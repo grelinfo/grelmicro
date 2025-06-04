@@ -5,10 +5,16 @@ on:
     types:
       - published
 
+permissions:
+  contents: read
+
 jobs:
   bump-version:
     name: Bump version
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
 
       - name: Generate GitHub App Token
@@ -69,6 +75,8 @@ jobs:
   publish-docs:
     runs-on: ubuntu-latest
     needs: [bump-version]
+    permissions:
+      pages: write
     env:
       UV_FROZEN: 1
     steps:
@@ -96,6 +104,8 @@ jobs:
   publish-pypi:
     needs: [bump-version]
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
     env:
       UV_FROZEN: 1
     steps:
