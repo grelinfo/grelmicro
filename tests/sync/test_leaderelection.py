@@ -243,7 +243,7 @@ async def test_leadership_abandon_on_renew_deadline_reached(
     assert is_leader_after_not_renewed is False
 
 
-async def test_leadership_abandon_on_backend_failure(
+async def test_leadership_abandon_on_backend_error(
     leader_election: LeaderElection,
     caplog: pytest.LogCaptureFixture,
     mocker: MockerFixture,
@@ -319,12 +319,12 @@ async def test_release_on_cancel(
     spy_release.assert_called_once()
 
 
-async def test_release_failure_ignored(
+async def test_release_error_ignored(
     backend: SyncBackend,
     leader_election: LeaderElection,
     mocker: MockerFixture,
 ) -> None:
-    """Test leader election on worker that ignores release failure."""
+    """Test leader election on worker that ignores release error."""
     # Arrange
     mocker.patch.object(
         backend, "release", side_effect=Exception("Backend Unreachable")

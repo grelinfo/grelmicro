@@ -1,1 +1,1 @@
-"""Grelmicro Synchronization Primitives Tests."""
+"""Synchronization Primitives Tests."""
