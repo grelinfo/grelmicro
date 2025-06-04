@@ -33,7 +33,7 @@ The Circuit Breaker has three normal states and two manual (forced) states:
 ### Usage
 
 ```python
-{!> ../examples/resilience/circuitbreaker.py!}
+--8<-- "resilience/circuitbreaker.py"
 ```
 
 !!! warning

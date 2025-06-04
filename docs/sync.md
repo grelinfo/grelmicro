@@ -22,17 +22,17 @@ You can initialize a backend like this:
 
 === "Redis"
     ```python
-    {!> ../examples/sync/redis.py!}
+    --8<-- "sync/redis.py"
     ```
 
 === "Postgres"
     ```python
-    {!> ../examples/sync/postgres.py!}
+    --8<-- "sync/postgres.py"
     ```
 
 === "Memory (For Testing Only)"
     ```python
-    {!> ../examples/sync/memory.py!}
+    --8<-- "sync/memory.py"
     ```
 
 !!! warning
@@ -51,12 +51,12 @@ The leader election service is responsible for acquiring and renewing the distri
 
 === "Task Manager (Recommended)"
     ```python
-    {!> ../examples/sync/leaderelection_task.py!}
+    --8<-- "sync/leaderelection_task.py"
     ```
 
 === "AnyIO Task Group (Advanced)"
     ```python
-    {!> ../examples/sync/leaderelection_anyio.py!}
+    --8<-- "sync/leaderelection_anyio.py"
     ```
 
 ## Lock
@@ -74,7 +74,7 @@ The lock supports the following features:
 
 
 ```python
-{!> ../examples/sync/lock.py!}
+--8<-- "sync/lock.py"
 ```
 
 !!! warning

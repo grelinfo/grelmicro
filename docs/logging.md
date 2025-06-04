@@ -34,7 +34,7 @@ For using `logging` package, please install the required dependencies:
 Just call the `configure_logging` function to set up the logging system.
 
 ```python
-{!> ../examples/logging/configure_logging.py!}
+--8<-- "logging/configure_logging.py"
 ```
 
 ### Settings
@@ -52,13 +52,13 @@ You can change the default settings using the following environment variables:
 Here is a quick example of how to use the logging system:
 
 ```python
-{!> ../examples/logging/basic.py!}
+--8<-- "logging/basic.py"
 ```
 
 The console output, `stdout` will be:
 
 ```json
-{!> ../examples/logging/basic.log!}
+--8<-- "logging/basic.log"
 ```
 
 ### FastAPI Integration
@@ -66,7 +66,7 @@ The console output, `stdout` will be:
 You can use the logging system with FastAPI as well:
 
 ```python
-{!> ../examples/logging/fastapi.py!}
+--8<-- "logging/fastapi.py"
 ```
 
 !!! warning

@@ -39,10 +39,10 @@ nav:
 
 markdown_extensions:
   - admonition
-  - mdx_include:
-      base_path: docs
   - pymdownx.highlight
   - pymdownx.superfences
   - pymdownx.inlinehilite
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.snippets:
+      base_path: docs/snippets

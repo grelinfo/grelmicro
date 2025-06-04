@@ -19,14 +19,14 @@ The `TaskManager` class is the main entry point to manage scheduled tasks. You n
 === "FastAPI"
 
     ```python
-    {!> ../examples/task/fastapi.py!}
+    --8<-- "task/fastapi.py"
     ```
 
 === "FastStream"
 
     ```python
 
-    {!> ../examples/task/faststream.py!}
+    --8<-- "task/faststream.py"
     ```
 
 ## Interval Task
@@ -38,13 +38,13 @@ To create an `IntervalTask`, use the `interval` decorator method of the `TaskMan
 === "TaskManager"
 
     ```python
-    {!> ../examples/task/interval_manager.py!}
+    --8<-- "task/interval_manager.py"
     ```
 
 === "TaskRouter"
 
     ```python
-    {!> ../examples/task/interval_router.py!}
+    --8<-- "task/interval_router.py"
     ```
 
 
@@ -55,7 +55,7 @@ The Task can be synchronized using a [Synchoronization Primitive](sync.md) to co
 === "Lock"
 
     ```python
-    {!> ../examples/task/lock.py!}
+    --8<-- "task/lock.py"
     ```
 
 
@@ -63,7 +63,7 @@ The Task can be synchronized using a [Synchoronization Primitive](sync.md) to co
 
 
     ```python
-    {!> ../examples/task/leaderelection.py!}
+    --8<-- "task/leaderelection.py"
     ```
 
 ## Task Router
@@ -72,13 +72,13 @@ For bigger applications, you can use the `TaskRouter` class to manage tasks in d
 
 
 ```python
-{!> ../examples/task/router.py [ln:1-10]!}
+--8<-- "task/router.py:1-10"
 ```
 
 Then you can include the `TaskRouter` into the `TaskManager` or other routers using the `include_router` method.
 
 ```python
-{!> ../examples/task/router.py [ln:12-]!}
+--8<-- "task/router.py:12"
 ```
 
 !!! tip
