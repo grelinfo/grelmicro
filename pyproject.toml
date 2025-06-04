@@ -88,7 +88,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build]
 skip-excluded-dirs = true
-exclude = ["/tests", "/docs", "/examples"]
+exclude = ["/tests", "/docs"]
 
 [tool.hatch.version]
 path = "grelmicro/__init__.py"
@@ -102,7 +102,7 @@ select = ["ALL"]
 ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 
 [tool.ruff.lint.extend-per-file-ignores]
-"examples/*" = [
+"docs/snippets/*" = [
     "ARG001",
     "ANN001",
     "ANN201",
@@ -111,8 +111,8 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
     "INP001",
     "T201",
 ]
-"examples/logging/basic.py" = ["EM101", "TRY"]
-"examples/task/router.py" = ["I001", "E402"]
+"docs/snippets/logging/basic.py" = ["EM101", "TRY"]
+"docs/snippets/task/router.py" = ["I001", "E402"]
 "tests/*" = [
     "S101",
     "SLF001"
@@ -146,7 +146,7 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
-    "examples.*"
+    "docs.*"
 ]
 disallow_untyped_defs = false
 
