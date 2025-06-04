@@ -1,1 +1,1 @@
-"""Resilience."""
+"""Resilience Patterns."""

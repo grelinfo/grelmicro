@@ -1,1 +1,1 @@
-"""Resilience Tests."""
+"""Resilience Patterns Tests."""
