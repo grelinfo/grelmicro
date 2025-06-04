@@ -25,27 +25,18 @@ Grelmicro provides essential features for building robust distributed systems, i
 
 - **Backends**: Technology-agnostic design supporting Redis, PostgreSQL, and in-memory backends for testing.
 - **Logging**: Easy-to-configure logging with support of both text or JSON structured format.
-- **Resilience Patterns**: Implements circuit breaker patterns to enhance fault tolerance.
-- **Synchronization Primitives**: Includes leader election and distributed lock mechanisms.
 - **Task Scheduler**: A simple and efficient task scheduler for running periodic tasks.
+- **Synchronization Primitives**: Includes leader election and distributed lock mechanisms.
 
 These features address common challenges in microservices and distributed, containerized systems while maintaining ease of use.
 
-### [Logging](logging.md)
+### Logging
 
 The `logging` package provides a simple and easy-to-configure logging system.
 
 The logging feature adheres to the 12-factor app methodology, directing logs to `stdout`. It supports JSON formatting and allows log level configuration via environment variables.
 
-### [Resilience Patterns](resilience.md)
-
-The `resilience` package provides higher-order functions (decorators) that implement resilience patterns to improve fault tolerance and reliability in distributed systems.
-
-The available patterns are:
-
-- **Circuit Breaker**: Automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.
-
-### [Synchronization Primitives](sync.md)
+### Synchronization Primitives
 
 The `sync` package provides synchronization primitives for distributed systems.
 
@@ -56,7 +47,7 @@ The available primitives are:
 - **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **Lock**: A distributed lock that can be used to synchronize access to shared resources.
 
-### [Task Scheduler](task.md)
+### Task Scheduler
 
 The `task` package provides a simple task scheduler that can be used to run tasks periodically.
 
@@ -72,22 +63,10 @@ The key features are:
 
 ## Installation
 
-=== "uv"
+```bash
+pip install grelmicro
+```
 
-    ```bash
-    uv add grelmicro
-    ```
-
-=== "pip"
-
-    ```bash
-    pip install grelmicro
-    ```
-=== "poetry"
-
-    ```bash
-    poetry add grelmicro
-    ```
 ## Examples
 
 ### FastAPI Integration
