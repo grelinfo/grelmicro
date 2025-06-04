@@ -1,4 +1,4 @@
-"""Grelmicro Logging."""
+"""Logging."""
 
 from grelmicro.logging.loguru import configure_logging
 

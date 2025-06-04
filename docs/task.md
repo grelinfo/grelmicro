@@ -10,7 +10,7 @@ The key features are:
 - **Interval Task**: Allows tasks to run at specified intervals.
 - **Synchronization**: Controls concurrency using synchronization primitives to manage simultaneous task execution (see the `sync` package).
 - **Dependency Injection**: Use [FastDepends](https://lancetnik.github.io/FastDepends/) library to inject dependencies into tasks.
-- **Error Handling**: Catches and logs errors, ensuring that task execution failures do not stop the scheduling.
+- **Error Handling**: Catches and logs errors, ensuring that task execution errors do not stop the scheduling.
 
 ## Task Manager
 

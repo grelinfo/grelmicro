@@ -1,1 +1,1 @@
-"""Grelmicro Task Scheduler Tests."""
+"""Task Scheduler Tests."""

@@ -33,6 +33,7 @@ nav:
 - Grelmicro: index.md
 - User Guide:
     - logging.md
+    - resilience.md
     - sync.md
     - task.md
 
