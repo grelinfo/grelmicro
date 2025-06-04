@@ -152,6 +152,9 @@ disallow_untyped_defs = false
 
 
 [tool.pytest.ini_options]
+
+junit_family = "legacy"
+
 addopts = """
     --cov=grelmicro
     --cov-report xml:cov.xml
