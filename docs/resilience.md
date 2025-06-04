@@ -1,4 +1,4 @@
-# Resilience
+# Resilience Patterns
 
 The `resilience` package provides higher-order functions (decorators) that implement resilience patterns to improve fault tolerance and reliability in distributed systems.
 
