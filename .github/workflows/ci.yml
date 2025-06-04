@@ -31,6 +31,8 @@ jobs:
   test:
     name: Test Python ${{ matrix.python }}
     runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
     strategy:
       fail-fast: true
       matrix:
