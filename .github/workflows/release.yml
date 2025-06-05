@@ -104,6 +104,10 @@ jobs:
       - name: Deploy docs on GitHub Pages
         run: uv run mkdocs gh-deploy --force
 
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
   publish-pypi:
     needs: [bump-version]
     runs-on: ubuntu-latest
