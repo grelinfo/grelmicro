@@ -6,8 +6,7 @@ on:
       - published
 
 permissions:
-  contents: write
-  pages: write
+  contents: read
 
 jobs:
   bump-version:
@@ -15,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      attestations: write
 
     steps:
 
@@ -78,6 +78,7 @@ jobs:
     needs: [bump-version]
     permissions:
       pages: write
+      deployments: write
     env:
       UV_FROZEN: 1
     steps:
