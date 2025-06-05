@@ -25,18 +25,26 @@ Grelmicro provides essential features for building robust distributed systems, i
 
 - **Backends**: Technology-agnostic design supporting Redis, PostgreSQL, and in-memory backends for testing.
 - **Logging**: Easy-to-configure logging with support of both text or JSON structured format.
-- **Task Scheduler**: A simple and efficient task scheduler for running periodic tasks.
+- **Resilience Patterns**: Implements common resilience patterns like retries and circuit breakers.
 - **Synchronization Primitives**: Includes leader election and distributed lock mechanisms.
+- **Task Scheduler**: A simple and efficient task scheduler for running periodic tasks.
 
 These features address common challenges in microservices and distributed, containerized systems while maintaining ease of use.
 
-### Logging
+### [Logging](logging)
 
 The `logging` package provides a simple and easy-to-configure logging system.
 
 The logging feature adheres to the 12-factor app methodology, directing logs to `stdout`. It supports JSON formatting and allows log level configuration via environment variables.
 
-### Synchronization Primitives
+### [Resilience Patterns](resilience)
+
+The `resilience` package provides higher-order functions (decorators) that implement resilience patterns to improve fault tolerance and reliability in distributed systems.
+
+
+- **[Circuit Breaker](resilience#circuit-breaker)**: Automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.
+
+### [Synchronization Primitives](sync)
 
 The `sync` package provides synchronization primitives for distributed systems.
 
@@ -44,10 +52,10 @@ The primitives are technology agnostic, supporting multiple backends like Redis,
 
 The available primitives are:
 
-- **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
-- **Lock**: A distributed lock that can be used to synchronize access to shared resources.
+- **[Leader Election](sync#leader-election)**: A single worker is elected as the leader for performing tasks only once in a cluster.
+- **[Lock](sync#lock)**: A distributed lock that can be used to synchronize access to shared resources.
 
-### Task Scheduler
+### [Task Scheduler](task)
 
 The `task` package provides a simple task scheduler that can be used to run tasks periodically.
 
