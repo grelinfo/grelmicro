@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://grelmicro.grel.info/logging/">
+        <link rel="canonical" href="https://grelmicro.grel.info/resilience/">
       
       
-        <link rel="prev" href="..">
+        <link rel="prev" href="../logging/">
       
       
-        <link rel="next" href="../resilience/">
+        <link rel="next" href="../sync/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Logging - Grelmicro</title>
+        <title>Resilience Patterns - Grelmicro</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#logging" class="md-skip">
+        <a href="#resilience-patterns" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Logging
+              Resilience Patterns
             
           </span>
         </div>
@@ -299,6 +299,29 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Logging
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -316,7 +339,7 @@
   
   
   <span class="md-ellipsis">
-    Logging
+    Resilience Patterns
     
   </span>
   
@@ -329,7 +352,7 @@
   
   
   <span class="md-ellipsis">
-    Logging
+    Resilience Patterns
     
   </span>
   
@@ -352,61 +375,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#dependencies" class="md-nav__link">
+  <a href="#circuit-breaker" class="md-nav__link">
     <span class="md-ellipsis">
-      Dependencies
+      Circuit Breaker
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configure-logging" class="md-nav__link">
-    <span class="md-ellipsis">
-      Configure Logging
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Configure Logging">
+    <nav class="md-nav" aria-label="Circuit Breaker">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#settings" class="md-nav__link">
+  <a href="#state-machine" class="md-nav__link">
     <span class="md-ellipsis">
-      Settings
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      Examples
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Examples">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#basic-usage" class="md-nav__link">
-    <span class="md-ellipsis">
-      Basic Usage
+      State Machine
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#fastapi-integration" class="md-nav__link">
+  <a href="#usage" class="md-nav__link">
     <span class="md-ellipsis">
-      FastAPI Integration
+      Usage
     </span>
   </a>
   
@@ -421,29 +411,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../resilience/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Resilience Patterns
-    
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -529,61 +496,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#dependencies" class="md-nav__link">
+  <a href="#circuit-breaker" class="md-nav__link">
     <span class="md-ellipsis">
-      Dependencies
+      Circuit Breaker
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configure-logging" class="md-nav__link">
-    <span class="md-ellipsis">
-      Configure Logging
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Configure Logging">
+    <nav class="md-nav" aria-label="Circuit Breaker">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#settings" class="md-nav__link">
+  <a href="#state-machine" class="md-nav__link">
     <span class="md-ellipsis">
-      Settings
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      Examples
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Examples">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#basic-usage" class="md-nav__link">
-    <span class="md-ellipsis">
-      Basic Usage
+      State Machine
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#fastapi-integration" class="md-nav__link">
+  <a href="#usage" class="md-nav__link">
     <span class="md-ellipsis">
-      FastAPI Integration
+      Usage
     </span>
   </a>
   
@@ -613,97 +547,85 @@
   
 
 
-<h1 id="logging">Logging</h1>
-<p>The <code>logging</code> package provides a simple and easy-to-configure logging system.</p>
-<p>The logging feature adheres to the 12-factor app methodology, directing logs to stdout. It supports JSON formatting and allows log level configuration via environment variables.</p>
-<h2 id="dependencies">Dependencies</h2>
-<p>For the moment the <code>logging</code> package is only working with the <code>loguru</code> Python logging library.
-When <code>orjson</code> is installed, it will be used as the default JSON serializer for faster performance, otherwise, the standard <code>json</code> library will be used.</p>
-<p><a href="https://loguru.readthedocs.io/en/stable/overview.html"><strong>Loguru</strong></a> is used as the logging library.</p>
-<p>For using <code>logging</code> package, please install the required dependencies:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Standard</label><label for="__tabbed_1_2">only loguru (minimum)</label><label for="__tabbed_1_3">loguru and orjson (manual)</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="o">[</span>standard<span class="o">]</span>
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>loguru
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>loguru<span class="w"> </span>orjson
-</code></pre></div>
-</div>
-</div>
-</div>
-<h2 id="configure-logging">Configure Logging</h2>
-<p>Just call the <code>configure_logging</code> function to set up the logging system.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
-
-<span class="n">configure_logging</span><span class="p">()</span>
-</code></pre></div>
-<h3 id="settings">Settings</h3>
-<p>You can change the default settings using the following environment variables:</p>
+<h1 id="resilience-patterns">Resilience Patterns</h1>
+<p>The <code>resilience</code> package provides higher-order functions (decorators) that implement resilience patterns to improve fault tolerance and reliability in distributed systems.</p>
 <ul>
-<li><code>LOG_LEVEL</code>: Set the desired log level (default: <code>INFO</code>).</li>
-<li><code>LOG_FORMAT</code>: Choose the log format. Options are <code>TEXT</code> and <code>JSON</code>, or you can provide a custom <a href="https://loguru.readthedocs.io/en/stable/overview.html">loguru</a> template (default: <code>TEXT</code>).</li>
+<li><strong><a href="#circuit-breaker">Circuit Breaker</a></strong>: Automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.</li>
 </ul>
-<h2 id="examples">Examples</h2>
-<h3 id="basic-usage">Basic Usage</h3>
-<p>Here is a quick example of how to use the logging system:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Additional resilience patterns may be added in the future. Currently, the circuit breaker is the primary mechanism provided for building robust microservices.</p>
+</div>
+<h2 id="circuit-breaker">Circuit Breaker</h2>
+<p>A <strong>Circuit Breaker</strong> prevents repeated failures when calling unreliable services. It monitors call outcomes and, after too many consecutive failures, "opens" to block further calls for a period, allowing recovery.</p>
+<p><strong>Why Circuit Breakers?</strong></p>
+<ul>
+<li>Prevent cascading failures</li>
+<li>Improve stability and user experience</li>
+<li>Provide observability into service health</li>
+</ul>
+<h3 id="state-machine">State Machine</h3>
+<p>The Circuit Breaker has three normal states and two manual (forced) states:</p>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CLOSED</strong></td>
+<td>Normal operation, calls are allowed.</td>
+</tr>
+<tr>
+<td><strong>OPEN</strong></td>
+<td>Calls are blocked to allow recovery.</td>
+</tr>
+<tr>
+<td><strong>HALF_OPEN</strong></td>
+<td>Allows limited calls to test if the service has recovered.</td>
+</tr>
+<tr>
+<td><strong>FORCED_OPEN</strong></td>
+<td>Manual state to block calls regardless of health checks.</td>
+</tr>
+<tr>
+<td><strong>FORCED_CLOSED</strong></td>
+<td>Manual state to allow calls regardless of health checks.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="usage">Usage</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
-
-<span class="n">configure_logging</span><span class="p">()</span>
-
-<span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;This is a debug message&quot;</span><span class="p">)</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;This is an info message&quot;</span><span class="p">)</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;This is a warning message with context&quot;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s2">&quot;Alice&quot;</span><span class="p">)</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;This is an error message with context&quot;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s2">&quot;Bob&quot;</span><span class="p">)</span>
-
-<span class="k">try</span><span class="p">:</span>
-    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;This is an exception message&quot;</span><span class="p">)</span>
-<span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span>
-        <span class="s2">&quot;This is an exception message with context&quot;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s2">&quot;Charlie&quot;</span>
-    <span class="p">)</span>
-</code></pre></div>
-<p>The console output, <code>stdout</code> will be:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;2024-11-25T15:56:36.066922+01:00&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;thread&quot;</span><span class="p">:</span><span class="s2">&quot;MainThread&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;__main__:&lt;module&gt;:7&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;This is an info message&quot;</span><span class="p">}</span>
-<span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;2024-11-25T15:56:36.067063+01:00&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;WARNING&quot;</span><span class="p">,</span><span class="nt">&quot;thread&quot;</span><span class="p">:</span><span class="s2">&quot;MainThread&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;__main__:&lt;module&gt;:8&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;This is a warning message with context&quot;</span><span class="p">,</span><span class="nt">&quot;ctx&quot;</span><span class="p">:{</span><span class="nt">&quot;user&quot;</span><span class="p">:</span><span class="s2">&quot;Alice&quot;</span><span class="p">}}</span>
-<span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;2024-11-25T15:56:36.067105+01:00&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;ERROR&quot;</span><span class="p">,</span><span class="nt">&quot;thread&quot;</span><span class="p">:</span><span class="s2">&quot;MainThread&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;__main__:&lt;module&gt;:9&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;This is an error message with context&quot;</span><span class="p">,</span><span class="nt">&quot;ctx&quot;</span><span class="p">:{</span><span class="nt">&quot;user&quot;</span><span class="p">:</span><span class="s2">&quot;Bob&quot;</span><span class="p">}}</span>
-<span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;2024-11-25T15:56:36.067134+01:00&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;ERROR&quot;</span><span class="p">,</span><span class="nt">&quot;thread&quot;</span><span class="p">:</span><span class="s2">&quot;MainThread&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;__main__:&lt;module&gt;:14&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;This is an exception message with context&quot;</span><span class="p">,</span><span class="nt">&quot;ctx&quot;</span><span class="p">:{</span><span class="nt">&quot;user&quot;</span><span class="p">:</span><span class="s2">&quot;Charlie&quot;</span><span class="p">,</span><span class="nt">&quot;exception&quot;</span><span class="p">:</span><span class="s2">&quot;ValueError: This is an exception&quot;</span><span class="p">}}</span>
-</code></pre></div>
-<h3 id="fastapi-integration">FastAPI Integration</h3>
-<p>You can use the logging system with FastAPI as well:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="n">circuit_breaker</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span>
+    <span class="s2">&quot;system_name&quot;</span><span class="p">,</span> <span class="n">ignore_exceptions</span><span class="o">=</span><span class="ne">FileNotFoundError</span>
+<span class="p">)</span>
 
 
-<span class="nd">@asynccontextmanager</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">lifespan_startup</span><span class="p">():</span>
-    <span class="c1"># Ensure logging is configured during startup</span>
-    <span class="n">configure_logging</span><span class="p">()</span>
-    <span class="k">yield</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">async_context_manager</span><span class="p">():</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">circuit_breaker</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service...&quot;</span><span class="p">)</span>
 
 
-<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
+<span class="nd">@circuit_breaker</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">async_call</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service...&quot;</span><span class="p">)</span>
 
 
-<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">root</span><span class="p">():</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;This is an info message&quot;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;Hello&quot;</span><span class="p">:</span> <span class="s2">&quot;World&quot;</span><span class="p">}</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sync_context_manager</span><span class="p">():</span>
+    <span class="k">with</span> <span class="n">circuit_breaker</span><span class="o">.</span><span class="n">from_thread</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service from AnyIO worker thread...&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@circuit_breaker</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sync_call</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service from AnyIO worker thread...&quot;</span><span class="p">)</span>
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>It is crucial to call <code>configure_logging</code> during the lifespan of the FastAPI application. Failing to do so may result in the FastAPI CLI resetting the logging configuration.</p>
+<p><strong>Thread Safety:</strong> The Circuit Breaker is not thread-safe. Decorated sync functions or <code>from_thread</code> methods will ensure state change logic runs safely within the async event loop. Threaded usage is supported only in AnyIO worker threads and may be slower than pure async usage.</p>
 </div>
 
 
