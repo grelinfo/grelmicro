@@ -55,7 +55,7 @@ The available primitives are:
 - **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **Lock**: A distributed lock that can be used to synchronize access to shared resources.
 
-### [Task Scheduler](task.md)
+### Task Scheduler
 
 The `task` package provides a simple task scheduler that can be used to run tasks periodically.
 

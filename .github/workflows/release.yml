@@ -6,15 +6,16 @@ on:
       - published
 
 permissions:
-  contents: read
+  contents: write
   pages: write
+
 jobs:
   bump-version:
     name: Bump version
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
+
     steps:
 
       - name: Generate GitHub App Token
