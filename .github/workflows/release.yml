@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-
+  pages: write
 jobs:
   bump-version:
     name: Bump version
