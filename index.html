@@ -297,6 +297,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#resilience-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resilience Patterns
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#synchronization-primitives" class="md-nav__link">
     <span class="md-ellipsis">
       Synchronization Primitives
@@ -604,6 +613,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#resilience-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resilience Patterns
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#synchronization-primitives" class="md-nav__link">
     <span class="md-ellipsis">
       Synchronization Primitives
@@ -747,22 +765,28 @@
 <ul>
 <li><strong>Backends</strong>: Technology-agnostic design supporting Redis, PostgreSQL, and in-memory backends for testing.</li>
 <li><strong>Logging</strong>: Easy-to-configure logging with support of both text or JSON structured format.</li>
-<li><strong>Task Scheduler</strong>: A simple and efficient task scheduler for running periodic tasks.</li>
+<li><strong>Resilience Patterns</strong>: Implements common resilience patterns like retries and circuit breakers.</li>
 <li><strong>Synchronization Primitives</strong>: Includes leader election and distributed lock mechanisms.</li>
+<li><strong>Task Scheduler</strong>: A simple and efficient task scheduler for running periodic tasks.</li>
 </ul>
 <p>These features address common challenges in microservices and distributed, containerized systems while maintaining ease of use.</p>
-<h3 id="logging">Logging</h3>
+<h3 id="logging"><a href="logging/">Logging</a></h3>
 <p>The <code>logging</code> package provides a simple and easy-to-configure logging system.</p>
 <p>The logging feature adheres to the 12-factor app methodology, directing logs to <code>stdout</code>. It supports JSON formatting and allows log level configuration via environment variables.</p>
-<h3 id="synchronization-primitives">Synchronization Primitives</h3>
+<h3 id="resilience-patterns"><a href="resilience/">Resilience Patterns</a></h3>
+<p>The <code>resilience</code> package provides higher-order functions (decorators) that implement resilience patterns to improve fault tolerance and reliability in distributed systems.</p>
+<ul>
+<li><strong><a href="resilience/#circuit-breaker">Circuit Breaker</a></strong>: Automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.</li>
+</ul>
+<h3 id="synchronization-primitives"><a href="sync/">Synchronization Primitives</a></h3>
 <p>The <code>sync</code> package provides synchronization primitives for distributed systems.</p>
 <p>The primitives are technology agnostic, supporting multiple backends like Redis, PostgreSQL, and in-memory for testing.</p>
 <p>The available primitives are:</p>
 <ul>
-<li><strong>Leader Election</strong>: A single worker is elected as the leader for performing tasks only once in a cluster.</li>
-<li><strong>Lock</strong>: A distributed lock that can be used to synchronize access to shared resources.</li>
+<li><strong><a href="sync/#leader-election">Leader Election</a></strong>: A single worker is elected as the leader for performing tasks only once in a cluster.</li>
+<li><strong><a href="sync/#lock">Lock</a></strong>: A distributed lock that can be used to synchronize access to shared resources.</li>
 </ul>
-<h3 id="task-scheduler">Task Scheduler</h3>
+<h3 id="task-scheduler"><a href="task/">Task Scheduler</a></h3>
 <p>The <code>task</code> package provides a simple task scheduler that can be used to run tasks periodically.</p>
 <blockquote>
 <p><strong>Note</strong>: This is not a replacement for bigger tools like Celery, taskiq, or APScheduler. It is just lightweight, easy to use, and safe for running tasks in a distributed system with synchronization.</p>
