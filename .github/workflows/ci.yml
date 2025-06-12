@@ -1,14 +1,15 @@
 name: CI
-
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
   pull_request:
-    branches: ["main"]
-
+    branches:
+      - main
+  workflow_dispatch: {}
+permissions: {}
 env:
     UV_FROZEN: 1
-
 jobs:
   lint:
     name: Lint
@@ -18,18 +19,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-
+          activate-environment: true
       - name: Install dependencies
-        run: uv sync --all-extras
-
+        run: uv sync
       - name: Run Mypy
-        run: uv run mypy .
-
+        run: mypy .
   test:
     name: Test Python ${{ matrix.python }}
     runs-on: "ubuntu-latest"
@@ -42,63 +40,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-
+          activate-environment: true
+          python-version: ${{ matrix.python }}
       - name: Install dependencies
-        run: uv sync --all-extras --python ${{ matrix.python }}
-
-      - name: Run unit tests
-        run: uv run pytest -x
-
-      - name: Run integration tests
-        run: uv run pytest -x -m integration --cov-append
-
-      - name: Rename coverage report
-        run: mv .coverage .coverage.py${{ matrix.python }}
-
-      - name: Save coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.python }}
-          path: .coverage.py${{ matrix.python }}
-          include-hidden-files: true
-
-  coverage-report:
-    name: Coverage report
-    runs-on: ubuntu-latest
-    needs: [test]
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get coverage reports
-        uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-*
-          merge-multiple: true
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      - name: Combine coverage reports
-        run: |
-          uv run coverage combine .coverage.*
-          uv run coverage xml -o cov.xml
-
-      - name: Upload coverage report to Codecov
+        run: uv sync
+      - name: Run Unit Tests
+        run: pytest -x -m "not integration" --cov --junitxml=junit.xml -o junit_family=legacy
+      - name: Upload Unit Test Coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
+          flags: "unit,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: ./cov.xml
+      - name: Upload Unit Test Results to Codecov
+        uses: codecov/test-results-action@v1
+        with:
+          flags: "unit,python${{ matrix.python }}"
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Run Integration Tests
+        id: integration_tests
+        run: pytest -x -m integration --cov --junitxml=junit.xml -o junit_family=legacy
+      - name: Upload Integration Test Coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          flags: "integration,python${{ matrix.python }}"
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload Integration Test Results to Codecov
+        uses: codecov/test-results-action@v1
+        with:
+          flags: "integration,python${{ matrix.python }}"
+          token: ${{ secrets.CODECOV_TOKEN }}

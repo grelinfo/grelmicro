@@ -31,20 +31,20 @@ Grelmicro provides essential features for building robust distributed systems, i
 
 These features address common challenges in microservices and distributed, containerized systems while maintaining ease of use.
 
-### [Logging](logging.md)
+### Logging
 
 The `logging` package provides a simple and easy-to-configure logging system.
 
 The logging feature adheres to the 12-factor app methodology, directing logs to `stdout`. It supports JSON formatting and allows log level configuration via environment variables.
 
-### [Resilience Patterns](resilience.md)
+### Resilience Patterns
 
 The `resilience` package provides higher-order functions (decorators) that implement resilience patterns to improve fault tolerance and reliability in distributed systems.
 
 
-- **[Circuit Breaker](resilience.md#circuit-breaker)**: Automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.
+- **Circuit Breaker**: Automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.
 
-### [Synchronization Primitives](sync.md)
+### Synchronization Primitives
 
 The `sync` package provides synchronization primitives for distributed systems.
 
@@ -52,10 +52,10 @@ The primitives are technology agnostic, supporting multiple backends like Redis,
 
 The available primitives are:
 
-- **[Leader Election](sync.md#leader-election)**: A single worker is elected as the leader for performing tasks only once in a cluster.
-- **[Lock](sync.md#lock)**: A distributed lock that can be used to synchronize access to shared resources.
+- **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
+- **Lock**: A distributed lock that can be used to synchronize access to shared resources.
 
-### [Task Scheduler](task.md)
+### Task Scheduler
 
 The `task` package provides a simple task scheduler that can be used to run tasks periodically.
 
