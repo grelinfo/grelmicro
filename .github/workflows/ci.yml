@@ -53,12 +53,12 @@ jobs:
       - name: Upload Unit Test Coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          flags: "unit,py${{ matrix.python }}"
+          flags: "unit,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload Unit Test Results to Codecov
         uses: codecov/test-results-action@v1
         with:
-          flags: "unit,py${{ matrix.python }}"
+          flags: "unit,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Run Integration Tests
         id: integration_tests
@@ -66,10 +66,10 @@ jobs:
       - name: Upload Integration Test Coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          flags: "integration,py${{ matrix.python }}"
+          flags: "integration,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload Integration Test Results to Codecov
         uses: codecov/test-results-action@v1
         with:
-          flags: "integration,py${{ matrix.python }}"
+          flags: "integration,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
