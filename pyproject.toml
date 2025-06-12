@@ -71,15 +71,19 @@ dev = [
     "pre-commit>=4.0.1",
     "fastapi>=0.115.5",
     "fastapi-cli>=0.0.5",
-    "mdx-include>=1.4.2",
     "faststream>=0.5.30",
     "hatch>=1.13.0",
     "freezegun>=1.5.2",
+    "loguru>=0.7.2",
+    "orjson>=3.10.11",
+    "asyncpg>=0.30.0",
+    "redis>=5.0.0",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
     "pygments>=2.18.0",
     "pymdown-extensions>=10.12",
+    "mdx-include>=1.4.2",
 ]
 
 [build-system]

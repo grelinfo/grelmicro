@@ -1,0 +1,9 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 100% # overall project coverage
+      unit:
+        target: 90% # unit test coverage
+        flags:
+          - unit
