@@ -65,7 +65,6 @@ jobs:
         run: pytest -x -m integration --cov --junitxml=junit.xml -o junit_family=legacy
       - name: Upload Integration Test Coverage to Codecov
         uses: codecov/codecov-action@v5
-        if: ${{ steps.integration_tests.outputs.exit_code != 0 }}
         with:
           flags: "integration,py${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
