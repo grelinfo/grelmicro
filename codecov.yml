@@ -1,9 +1,13 @@
+codecov:
+  require_ci_to_pass: true
 coverage:
   status:
     project:
       default:
         target: 100% # overall project coverage
+        if_ci_failed: error
       unit:
         target: 90% # unit test coverage
         flags:
           - unit
+        if_ci_failed: error

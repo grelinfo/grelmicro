@@ -1,13 +1,15 @@
 name: CI
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
   pull_request:
-    branches: ["main"]
+    branches:
+      - main
+  workflow_dispatch: {}
 permissions: {}
 env:
     UV_FROZEN: 1
-
 jobs:
   lint:
     name: Lint
@@ -26,7 +28,6 @@ jobs:
         run: uv sync
       - name: Run Mypy
         run: mypy .
-
   test:
     name: Test Python ${{ matrix.python }}
     runs-on: "ubuntu-latest"
