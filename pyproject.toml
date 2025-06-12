@@ -169,4 +169,5 @@ exclude_also = [
     "class .*\\bProtocol\\):",
     "assert_never\\(.*\\)",
     "pytest.fail\\(.*\\)",
+    "pass",
 ]
