@@ -1,6 +1,7 @@
 [project]
 name = "grelmicro"
-description = "Grelmicro is a lightweight framework/toolkit for building async microservices in Python"
+version = "0.0.0.dev0"
+description = "Grelmicro is a toolkit or lightweight framework for building async microservices in Python"
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
 readme = "README.md"
@@ -30,7 +31,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dynamic = ["version"]
 
 requires-python = ">=3.11"
 
@@ -42,7 +42,7 @@ dependencies = [
 ]
 
 [project.urls]
-
+Documentation = "https://grelmicro.grel.info"
 Repository = "https://github.com/grelinfo/grelmicro.git"
 Issues = "https://github.com/grelinfo/grelmicro/issues"
 
@@ -71,27 +71,23 @@ dev = [
     "pre-commit>=4.0.1",
     "fastapi>=0.115.5",
     "fastapi-cli>=0.0.5",
-    "mdx-include>=1.4.2",
     "faststream>=0.5.30",
-    "hatch>=1.13.0",
     "freezegun>=1.5.2",
+    "loguru>=0.7.2",
+    "orjson>=3.10.11",
+    "asyncpg>=0.30.0",
+    "redis>=5.0.0",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
     "pygments>=2.18.0",
     "pymdown-extensions>=10.12",
+    "mdx-include>=1.4.2",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.build]
-skip-excluded-dirs = true
-exclude = ["/tests", "/docs"]
-
-[tool.hatch.version]
-path = "grelmicro/__init__.py"
 
 [tool.ruff]
 target-version = "py311"
@@ -150,28 +146,28 @@ module = [
 ]
 disallow_untyped_defs = false
 
-
 [tool.pytest.ini_options]
 
-junit_family = "legacy"
-
 addopts = """
-    --cov=grelmicro
-    --cov-report xml:cov.xml
     --strict-config
     --strict-markers
 """
 markers = """
-    integration: mark a test as an integration test (disabled by default).
+    integration: mark a test as an integration test
 """
 
 testpaths = "tests"
 
+[tool.coverage.paths]
+source = ["src/", "tests/"]
+
 [tool.coverage.report]
 sort = "-Cover"
+skip_covered = true
 exclude_also = [
     "if TYPE_CHECKING:",
     "class .*\\bProtocol\\):",
     "assert_never\\(.*\\)",
     "pytest.fail\\(.*\\)",
+    "pass",
 ]
