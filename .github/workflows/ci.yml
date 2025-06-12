@@ -71,5 +71,5 @@ jobs:
       - name: Upload Integration Test Results to Codecov
         uses: codecov/test-results-action@v1
         with:
-          flags: "integration,py${ matrix.python }}"
+          flags: "integration,py${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
