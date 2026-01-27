@@ -42,7 +42,7 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://grelmicro.grel.info"
+Documentation = "https://grelinfo.github.io/grelmicro"
 Repository = "https://github.com/grelinfo/grelmicro.git"
 Issues = "https://github.com/grelinfo/grelmicro/issues"
 

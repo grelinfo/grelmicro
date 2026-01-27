@@ -33,6 +33,7 @@ repos:
     entry: cp README.md docs/index.md
     language: system
     pass_filenames: false
+    files: '(^README\.md$|^docs/index\.md$)'
 
   # --- Local development hooks ---
   - id: uv-lock
