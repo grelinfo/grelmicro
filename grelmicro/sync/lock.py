@@ -117,9 +117,9 @@ class Lock(BaseLock):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
         """Release the lock with the async context manager.
 
         Raises:

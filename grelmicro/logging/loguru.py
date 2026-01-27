@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 try:
     import loguru
 except ImportError:  # pragma: no cover
-    loguru = None  # type: ignore[assignment]
+    loguru: Any = None
 
 try:
     import orjson
@@ -28,7 +28,8 @@ try:
 except ImportError:  # pragma: no cover
     import json
 
-    _json_dumps = json.dumps
+    def _json_dumps(obj: Mapping[str, Any]) -> str:
+        return json.dumps(obj)
 
 
 JSON_FORMAT = "{extra[serialized]}"

@@ -441,7 +441,9 @@ async def test_circuit_transition_from_half_open_to_open(
     ],
 )
 async def test_circuit_with_ignore_exceptions(
-    ignore_exceptions: type, error: type, state: CircuitBreakerState
+    ignore_exceptions: type[Exception] | tuple[type[Exception], ...],
+    error: type[Exception],
+    state: CircuitBreakerState,
 ) -> None:
     """Test circuit breaker transitions to closed state when ignoring errors."""
     # Arrange
@@ -471,7 +473,9 @@ async def test_circuit_with_ignore_exceptions(
     ],
 )
 async def test_circuit_from_thread_with_ignore_exceptions(
-    ignore_exceptions: type, error: type, state: CircuitBreakerState
+    ignore_exceptions: type[Exception] | tuple[type[Exception], ...],
+    error: type[Exception],
+    state: CircuitBreakerState,
 ) -> None:
     """Test from_thread protect ignores specified error in various states."""
     # Arrange
