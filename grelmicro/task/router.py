@@ -93,7 +93,7 @@ class TaskRouter:
         Raises:
             TaskNameGenerationError: If the task name generation fails.
         """
-        from grelmicro.task._interval import IntervalTask
+        from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
         def decorator(
             function: Callable[[], None | Awaitable[None]],

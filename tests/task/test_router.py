@@ -1,5 +1,6 @@
 """Test Task Router."""
 
+import re
 from functools import partial
 
 import pytest
@@ -120,7 +121,7 @@ def test_router_interval_name_generation_error() -> None:
     with pytest.raises(FunctionTypeError, match="method"):
         router.interval(seconds=10)(test_instance.method)
 
-    with pytest.raises(FunctionTypeError, match="partial()"):
+    with pytest.raises(FunctionTypeError, match=re.escape("partial()")):
         router.interval(seconds=10)(partial(test1))
 
     with pytest.raises(

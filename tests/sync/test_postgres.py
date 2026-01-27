@@ -25,7 +25,7 @@ def test_sync_backend_table_name_invalid(table_name: str) -> None:
     """Test Synchronization Backend Table Name Invalid."""
     # Act / Assert
     with pytest.raises(
-        ValueError, match="Table name '.*' is not a valid identifier"
+        ValueError, match=r"Table name '.*' is not a valid identifier"
     ):
         PostgresSyncBackend(url=URL, table_name=table_name)
 
