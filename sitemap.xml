@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://grelinfo.github.io/grelmicro/</loc>
+         <lastmod>2026-01-27</lastmod>
+    </url>
+    <url>
+         <loc>https://grelinfo.github.io/grelmicro/logging/</loc>
+         <lastmod>2026-01-27</lastmod>
+    </url>
+    <url>
+         <loc>https://grelinfo.github.io/grelmicro/resilience/</loc>
+         <lastmod>2026-01-27</lastmod>
+    </url>
+    <url>
+         <loc>https://grelinfo.github.io/grelmicro/sync/</loc>
+         <lastmod>2026-01-27</lastmod>
+    </url>
+    <url>
+         <loc>https://grelinfo.github.io/grelmicro/task/</loc>
+         <lastmod>2026-01-27</lastmod>
+    </url>
+</urlset>
