@@ -25,9 +25,11 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Install dependencies
-        run: uv sync
-      - name: Run Mypy
-        run: mypy .
+        run: uv sync --all-extras
+
+      - name: Run Ty
+        run: uv run ty check
+
   test:
     name: Test Python ${{ matrix.python }}
     runs-on: "ubuntu-latest"
@@ -36,7 +38,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

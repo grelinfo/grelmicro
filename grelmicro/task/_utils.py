@@ -32,12 +32,14 @@ def validate_and_generate_reference(function: Callable[..., Any]) -> str:
         ref = "callable without __module__ or __qualname__ attribute"
         raise FunctionTypeError(ref)
 
-    if "<lambda>" in function.__qualname__:
+    qualname = str(function.__qualname__)
+
+    if "<lambda>" in qualname:
         ref = "lambda"
         raise FunctionTypeError(ref)
 
-    if "<locals>" in function.__qualname__:
+    if "<locals>" in qualname:
         ref = "nested function"
         raise FunctionTypeError(ref)
 
-    return f"{function.__module__}:{function.__qualname__}"
+    return f"{function.__module__}:{qualname}"
