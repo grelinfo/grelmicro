@@ -24,7 +24,7 @@ ______________________________________________________________________
 Grelmicro provides essential features for building robust distributed systems, including:
 
 - **Backends**: Technology-agnostic design supporting Redis, PostgreSQL, and in-memory backends for testing.
-- **Logging**: Easy-to-configure logging with support of both text or JSON structured format.
+- **Logging**: Easy-to-configure logging with support for both text or JSON structured format with configurable timezone.
 - **Resilience Patterns**: Implements common resilience patterns like retries and circuit breakers.
 - **Synchronization Primitives**: Includes leader election and distributed lock mechanisms.
 - **Task Scheduler**: A simple and efficient task scheduler for running periodic tasks.
@@ -35,7 +35,7 @@ These features address common challenges in microservices and distributed, conta
 
 The `logging` package provides a simple and easy-to-configure logging system.
 
-The logging feature adheres to the 12-factor app methodology, directing logs to `stdout`. It supports JSON formatting and allows log level configuration via environment variables.
+The logging feature adheres to the 12-factor app methodology, directing logs to `stdout`. It supports JSON and TEXT formatting with configurable timezone support and allows log level configuration via environment variables (`LOG_LEVEL`, `LOG_FORMAT`, `LOG_TIMEZONE`).
 
 ### [Resilience Patterns](https://grelinfo.github.io/grelmicro/resilience/)
 

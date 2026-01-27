@@ -3,8 +3,11 @@
 import json
 import sys
 from collections.abc import Mapping
+from datetime import tzinfo
 from typing import TYPE_CHECKING, Any, NotRequired
+from zoneinfo import ZoneInfo
 
+from dateutil.tz import UTC
 from pydantic import ValidationError
 from typing_extensions import TypedDict
 
@@ -29,14 +32,20 @@ except ImportError:  # pragma: no cover
     import json
 
     def _json_dumps(obj: Mapping[str, Any]) -> str:
-        return json.dumps(obj)
+        return json.dumps(obj, separators=(",", ":"))
 
 
 JSON_FORMAT = "{extra[serialized]}"
+"""Default JSON format for structured logging."""
+
 TEXT_FORMAT = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | "
+    "<green>{extra[localtime]}</green> | <level>{level: <8}</level> | "
     "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - {message}"
 )
+"""Default text human-readable format for logging.
+
+Time is displayed in the timezone specified by `LOG_TIMEZONE`.
+"""
 
 
 class JSONRecordDict(TypedDict):
@@ -53,17 +62,54 @@ class JSONRecordDict(TypedDict):
     ctx: NotRequired[dict[Any, Any]]
 
 
-def json_patcher(record: "Record") -> None:
+class LoguruPatcher:
+    """Loguru Patcher.
+
+    Provides 'serialized' and 'localtime' extra fields for log records when needed.
+    """
+
+    def __init__(
+        self,
+        *,
+        timezone: tzinfo | None = None,
+        localtime: bool = False,
+        json: bool = False,
+    ) -> None:
+        """Initialize the LoguruPatcher with an optional timezone.
+
+        Args:
+            timezone: The timezone to use for localtime and JSON timestamp conversion.
+                  If None, UTC will be used.
+            localtime: Whether to patch records with localized time string.
+            json: Whether to patch records with serialized JSON representation.
+        """
+        self.timezone: tzinfo = timezone or UTC
+        self.localtime: bool = localtime
+        self.json: bool = json
+
+    def __call__(self, record: "Record") -> None:
+        """Patch the loguru record according to the configuration."""
+        if self.localtime:
+            localtime_patcher(record, timezone=self.timezone)
+        if self.json:
+            json_patcher(record, timezone=self.timezone)
+
+
+def json_patcher(record: "Record", *, timezone: tzinfo | None = None) -> None:
     """Patch the serialized log record with `JSONRecordDict` representation."""
     json_record = JSONRecordDict(
-        time=record["time"].isoformat(),
+        time=record["time"].astimezone(timezone or UTC).isoformat(),
         level=record["level"].name,
         thread=record["thread"].name,
         logger=f"{record['name']}:{record['function']}:{record['line']}",
         msg=record["message"],
     )
 
-    ctx = {k: v for k, v in record["extra"].items() if k != "serialized"}
+    ctx = {
+        k: v
+        for k, v in record["extra"].items()
+        if k not in ("serialized", "localtime")
+    }
     exception = record["exception"]
 
     if exception and exception.type:
@@ -75,13 +121,32 @@ def json_patcher(record: "Record") -> None:
     record["extra"]["serialized"] = _json_dumps(json_record)
 
 
-def json_formatter(record: "Record") -> str:
+def localtime_patcher(
+    record: "Record",
+    *,
+    timezone: tzinfo | None = None,
+) -> None:
+    """Patch the log record with localized time with the format "YYYY-MM-DD HH:MM:SS.mmm"."""
+    record["extra"]["localtime"] = (
+        record["time"]
+        .astimezone(timezone or UTC)
+        .strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    )
+
+
+def json_formatter(record: "Record", timezone: ZoneInfo | None = None) -> str:
     """Format log record with `JSONRecordDict` representation.
 
     This function does not return the formatted record directly but provides the format to use when
     writing to the sink.
+
+    Note: This is a format function (not a format string) to prevent loguru from automatically
+    appending exception tracebacks. When using format strings, loguru appends tracebacks after
+    the formatted output. With format functions, tracebacks are suppressed, which is desired for
+    JSON logging where exceptions are captured in the `ctx` field.
     """
-    json_patcher(record)
+    if "serialized" not in record["extra"]:
+        json_patcher(record, timezone=timezone)
     return JSON_FORMAT + "\n"
 
 
@@ -90,13 +155,14 @@ def configure_logging() -> None:
 
     Simple twelve-factor app logging configuration that logs to stdout.
 
-    The following environment variables are used:
-    - LOG_LEVEL: The log level to use (default: INFO).
-    - LOG_FORMAT: JSON | TEXT or any loguru template to format logged message (default: JSON).
+    Environment Variables:
+        LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
+        LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
+        LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
 
     Raises:
-        MissingDependencyError: If the loguru module is not installed.
-        LoggingSettingsError: If the LOG_FORMAT or LOG_LEVEL environment variable is invalid
+        DependencyNotFoundError: If the loguru module is not installed.
+        LoggingSettingsValidationError: If environment variables are invalid.
     """
     if not loguru:
         raise DependencyNotFoundError(module="loguru")
@@ -108,13 +174,34 @@ def configure_logging() -> None:
 
     logger = loguru.logger
     log_format: str | FormatFunction = settings.LOG_FORMAT
+    timezone = ZoneInfo(str(settings.LOG_TIMEZONE))
+    needs_json = False
+    needs_localtime = False
 
-    if log_format is LoggingFormatType.JSON:
+    if (
+        log_format == LoggingFormatType.JSON
+        or log_format.strip() == JSON_FORMAT
+    ):
         log_format = json_formatter
-    elif log_format is LoggingFormatType.TEXT:
+        needs_json = True
+    elif log_format == LoggingFormatType.TEXT:
         log_format = TEXT_FORMAT
 
-    logger.remove()
+    if isinstance(log_format, str):
+        needs_json = "extra[serialized]" in log_format
+        needs_localtime = "extra[localtime]" in log_format
+
+    if needs_localtime or needs_json:
+        patcher = LoguruPatcher(
+            timezone=timezone,
+            localtime=needs_localtime,
+            json=needs_json,
+        )
+        logger.configure(patcher=patcher)
+    else:
+        # No patcher needed
+        logger.configure()
+
     logger.add(
         sys.stdout,
         level=settings.LOG_LEVEL,

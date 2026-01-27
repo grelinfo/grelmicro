@@ -3,6 +3,8 @@
 from collections.abc import Generator
 from datetime import datetime
 from io import StringIO
+from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 import pytest
 from loguru import logger
@@ -17,6 +19,9 @@ from grelmicro.logging.loguru import (
     json_formatter,
     json_patcher,
 )
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 json_record_type_adapter = TypeAdapter(JSONRecordDict)
 
@@ -120,6 +125,25 @@ def test_json_formatter() -> None:
     assert_logs(sink.getvalue())
 
 
+def test_json_formatter_with_timezone() -> None:
+    """Test JSON Formatter with explicit timezone."""
+    # Arrange
+    sink = StringIO()
+    timezone = ZoneInfo("Europe/Paris")
+
+    # Create a custom format function that passes timezone to json_formatter
+    def custom_json_formatter(record: "Record") -> str:
+        """Return custom JSON formatted log."""
+        return json_formatter(record, timezone=timezone)
+
+    # Act
+    logger.add(sink, format=custom_json_formatter, level="INFO")
+    generate_logs()
+
+    # Assert
+    assert_logs(sink.getvalue())
+
+
 def test_json_patching() -> None:
     """Test JSON Patching."""
     # Arrange
@@ -128,7 +152,8 @@ def test_json_patching() -> None:
     # Act
     # logger.patch(json_patcher) -> Patch is not working using logger.configure instead
     logger.configure(patcher=json_patcher)
-    logger.add(sink, format=JSON_FORMAT, level="INFO")
+    # Use format function to prevent loguru from appending exception tracebacks
+    logger.add(sink, format=lambda _: JSON_FORMAT + "\n", level="INFO")
     generate_logs()
 
     # Assert
