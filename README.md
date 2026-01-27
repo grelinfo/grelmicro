@@ -9,11 +9,11 @@ It is the perfect companion for building cloud-native applications with FastAPI 
 [![codecov](https://codecov.io/gh/grelinfo/grelmicro/graph/badge.svg?token=GDFY0AEFWR)](https://codecov.io/gh/grelinfo/grelmicro)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![ty](https://img.shields.io/badge/type_checker-ty-blue)](https://github.com/bswck/ty)
+[![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
 
 ______________________________________________________________________
 
-**Documentation**: [https://grelmicro.grel.info/](https://grelmicro.grel.info)
+**Documentation**: [https://grelinfo.github.io/grelmicro/](https://grelinfo.github.io/grelmicro)
 
 **Source Code**: [https://github.com/grelinfo/grelmicro](https://github.com/grelinfo/grelmicro)
 
@@ -31,20 +31,20 @@ Grelmicro provides essential features for building robust distributed systems, i
 
 These features address common challenges in microservices and distributed, containerized systems while maintaining ease of use.
 
-### Logging
+### [Logging](https://grelinfo.github.io/grelmicro/logging/)
 
 The `logging` package provides a simple and easy-to-configure logging system.
 
 The logging feature adheres to the 12-factor app methodology, directing logs to `stdout`. It supports JSON formatting and allows log level configuration via environment variables.
 
-### Resilience Patterns
+### [Resilience Patterns](https://grelinfo.github.io/grelmicro/resilience/)
 
 The `resilience` package provides higher-order functions (decorators) that implement resilience patterns to improve fault tolerance and reliability in distributed systems.
 
 
 - **Circuit Breaker**: Automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.
 
-### Synchronization Primitives
+### [Synchronization Primitives](https://grelinfo.github.io/grelmicro/sync/)
 
 The `sync` package provides synchronization primitives for distributed systems.
 
@@ -55,7 +55,7 @@ The available primitives are:
 - **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **Lock**: A distributed lock that can be used to synchronize access to shared resources.
 
-### Task Scheduler
+### [Task Scheduler](https://grelinfo.github.io/grelmicro/task/)
 
 The `task` package provides a simple task scheduler that can be used to run tasks periodically.
 
