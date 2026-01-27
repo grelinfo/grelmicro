@@ -25,9 +25,11 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Install dependencies
-        run: uv sync
-      - name: Run Mypy
-        run: mypy .
+        run: uv sync --all-extras
+
+      - name: Run Ty
+        run: uv run ty check
+
   test:
     name: Test Python ${{ matrix.python }}
     runs-on: "ubuntu-latest"

@@ -1,5 +1,5 @@
 default_language_version:
-    python: python3.11
+    python: python3.14
 
 repos:
 
@@ -42,13 +42,14 @@ repos:
     language: system
     pass_filenames: false
 
-  - id: mypy
-    name: mypy
-    description: "Run 'mypy' for static type checking"
-    entry: uv run mypy
+  - id: ty-check
+    name: ty-check
+    description: "Run 'ty check' for static type checking"
+    entry: uv run ty check
     language: system
-    types: [python]
     require_serial: true
+    pass_filenames: false
+    files: '(\.py$|uv\.lock$|pyproject\.toml$)'
 
   - id: pytest-unit
     name: pytest-unit
@@ -75,4 +76,4 @@ repos:
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
   autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
-  skip: [uv-lock, mypy, pytest-unit, pytest-integration, coverage-report]
+  skip: [uv-lock, ty-check, pytest-unit, pytest-integration, coverage-report]
