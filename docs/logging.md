@@ -85,6 +85,10 @@ Output:
 {"time":"...","level":"ERROR",...,"msg":"Operation failed","ctx":{"operation":"divide","exception":"ZeroDivisionError: division by zero"}}
 ```
 
+## Production Deployment
+
+For strict unbuffered output (12-factor compliance), set the `PYTHONUNBUFFERED=1` environment variable in your container runtime.
+
 ## Examples
 
 ### Basic Usage
