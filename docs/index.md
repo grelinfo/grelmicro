@@ -13,7 +13,7 @@ It is the perfect companion for building cloud-native applications with FastAPI 
 
 ______________________________________________________________________
 
-**Documentation**: [https://grelmicro.grel.info](https://grelmicro.grel.info)
+**Documentation**: [https://grelmicro.grel.info/](https://grelmicro.grel.info)
 
 **Source Code**: [https://github.com/grelinfo/grelmicro](https://github.com/grelinfo/grelmicro)
 
