@@ -59,6 +59,10 @@ postgres = [
 redis = [
     "redis>=5.0.0",
 ]
+opentelemetry = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+]
 
 [dependency-groups]
 dev = [
@@ -79,6 +83,8 @@ dev = [
     "orjson>=3.10.11",
     "asyncpg>=0.30.0",
     "redis>=5.0.0",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
 ]
 docs = [
     "mkdocs-material>=9.5.44",

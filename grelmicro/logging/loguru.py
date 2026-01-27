@@ -24,6 +24,11 @@ except ImportError:  # pragma: no cover
     loguru: Any = None
 
 try:
+    from opentelemetry import trace
+except ImportError:  # pragma: no cover
+    trace: Any = None
+
+try:
     import orjson
 
     def _json_dumps(obj: Mapping[str, Any]) -> str:
@@ -59,13 +64,15 @@ class JSONRecordDict(TypedDict):
     msg: str
     logger: str | None
     thread: str
+    trace_id: NotRequired[str]
+    span_id: NotRequired[str]
     ctx: NotRequired[dict[Any, Any]]
 
 
 class LoguruPatcher:
     """Loguru Patcher.
 
-    Provides 'serialized' and 'localtime' extra fields for log records when needed.
+    Provides 'serialized', 'localtime', and OpenTelemetry trace context for log records.
     """
 
     def __init__(
@@ -74,6 +81,7 @@ class LoguruPatcher:
         timezone: tzinfo | None = None,
         localtime: bool = False,
         json: bool = False,
+        otel_enabled: bool = False,
     ) -> None:
         """Initialize the LoguruPatcher with an optional timezone.
 
@@ -82,13 +90,17 @@ class LoguruPatcher:
                   If None, UTC will be used.
             localtime: Whether to patch records with localized time string.
             json: Whether to patch records with serialized JSON representation.
+            otel_enabled: Whether to extract OpenTelemetry trace context.
         """
         self.timezone: tzinfo = timezone or UTC
         self.localtime: bool = localtime
         self.json: bool = json
+        self.otel_enabled: bool = otel_enabled
 
     def __call__(self, record: "Record") -> None:
         """Patch the loguru record according to the configuration."""
+        if self.otel_enabled:
+            otel_patcher(record)
         if self.localtime:
             localtime_patcher(record, timezone=self.timezone)
         if self.json:
@@ -105,11 +117,22 @@ def json_patcher(record: "Record", *, timezone: tzinfo | None = None) -> None:
         msg=record["message"],
     )
 
-    ctx = {
-        k: v
-        for k, v in record["extra"].items()
-        if k not in ("serialized", "localtime")
+    # Reserved keys that should not go into ctx
+    reserved_keys = {
+        "serialized",
+        "localtime",
+        "trace_id",
+        "span_id",
     }
+
+    # Extract trace fields to top level
+    if "trace_id" in record["extra"]:
+        json_record["trace_id"] = record["extra"]["trace_id"]
+    if "span_id" in record["extra"]:
+        json_record["span_id"] = record["extra"]["span_id"]
+
+    # Application context goes in ctx (excluding reserved keys)
+    ctx = {k: v for k, v in record["extra"].items() if k not in reserved_keys}
     exception = record["exception"]
 
     if exception and exception.type:
@@ -132,6 +155,27 @@ def localtime_patcher(
         .astimezone(timezone or UTC)
         .strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     )
+
+
+def otel_patcher(record: "Record") -> None:
+    """Patch the log record with OpenTelemetry trace context.
+
+    Extracts trace_id and span_id from the active OpenTelemetry span.
+
+    If OpenTelemetry is not installed or no active trace exists, this function
+    does nothing (no-op).
+    """
+    if not trace:
+        return
+
+    span = trace.get_current_span()
+    span_context = span.get_span_context()
+
+    if not span_context.is_valid:
+        return
+
+    record["extra"]["trace_id"] = format(span_context.trace_id, "032x")
+    record["extra"]["span_id"] = format(span_context.span_id, "016x")
 
 
 def json_formatter(record: "Record", timezone: ZoneInfo | None = None) -> str:
@@ -159,6 +203,8 @@ def configure_logging() -> None:
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
         LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
+        LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
+            Default: True if OpenTelemetry is installed, else False.
 
     Raises:
         DependencyNotFoundError: If the loguru module is not installed.
@@ -191,11 +237,12 @@ def configure_logging() -> None:
         needs_json = "extra[serialized]" in log_format
         needs_localtime = "extra[localtime]" in log_format
 
-    if needs_localtime or needs_json:
+    if needs_localtime or needs_json or settings.LOG_OTEL_ENABLED:
         patcher = LoguruPatcher(
             timezone=timezone,
             localtime=needs_localtime,
             json=needs_json,
+            otel_enabled=settings.LOG_OTEL_ENABLED,
         )
         logger.configure(patcher=patcher)
     else:

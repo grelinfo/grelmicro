@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import pytest
+import pytest_mock
 from loguru import logger
 from pydantic import TypeAdapter
 
@@ -18,6 +19,7 @@ from grelmicro.logging.loguru import (
     configure_logging,
     json_formatter,
     json_patcher,
+    otel_patcher,
 )
 
 if TYPE_CHECKING:
@@ -288,12 +290,186 @@ def test_configure_logging_format_template(
 
 
 def test_configure_logging_dependency_not_found(
-    monkeypatch: pytest.MonkeyPatch,
+    mocker: pytest_mock.MockerFixture,
 ) -> None:
     """Test Configure Logging Dependency Not Found."""
     # Arrange
-    monkeypatch.setattr("grelmicro.logging.loguru.loguru", None)
+    mocker.patch("grelmicro.logging.loguru.loguru", None)
 
     # Act / Assert
     with pytest.raises(DependencyNotFoundError, match="loguru"):
         configure_logging()
+
+
+def test_otel_patcher_without_opentelemetry(
+    mocker: pytest_mock.MockerFixture,
+) -> None:
+    """Test otel_patcher when OpenTelemetry is not installed."""
+    # Arrange
+    mocker.patch("grelmicro.logging.loguru.trace", None)
+    sink = StringIO()
+
+    # Act
+    logger.configure(patcher=otel_patcher)
+    logger.add(sink, format=json_formatter, level="INFO")
+    logger.info("Test without OpenTelemetry", user_id=123)
+
+    # Assert
+    log_line = sink.getvalue().strip()
+    log_record = json_record_type_adapter.validate_json(log_line)
+
+    assert "trace_id" not in log_record
+    assert "span_id" not in log_record
+    assert log_record["msg"] == "Test without OpenTelemetry"
+    assert log_record["ctx"] == {"user_id": 123}
+
+
+def test_otel_patcher_with_invalid_span(
+    mocker: pytest_mock.MockerFixture,
+) -> None:
+    """Test otel_patcher when span context is invalid."""
+    # Arrange
+    mock_span_context = mocker.MagicMock()
+    mock_span_context.is_valid = False
+
+    mock_span = mocker.MagicMock()
+    mock_span.get_span_context.return_value = mock_span_context
+
+    mock_trace = mocker.MagicMock()
+    mock_trace.get_current_span.return_value = mock_span
+
+    mocker.patch("grelmicro.logging.loguru.trace", mock_trace)
+
+    sink = StringIO()
+
+    # Act
+    logger.configure(patcher=otel_patcher)
+    logger.add(sink, format=json_formatter, level="INFO")
+    logger.info("Test with invalid span", user_id=456)
+
+    # Assert
+    log_line = sink.getvalue().strip()
+    log_record = json_record_type_adapter.validate_json(log_line)
+
+    assert "trace_id" not in log_record
+    assert "span_id" not in log_record
+    assert log_record["msg"] == "Test with invalid span"
+    assert log_record["ctx"] == {"user_id": 456}
+
+
+def test_otel_patcher_with_valid_span(
+    mocker: pytest_mock.MockerFixture,
+) -> None:
+    """Test otel_patcher with valid OpenTelemetry span."""
+    # Arrange
+    mock_span_context = mocker.MagicMock()
+    mock_span_context.is_valid = True
+    mock_span_context.trace_id = 0x4BF92F3577B34DA6A3CE929D0E0E4736
+    mock_span_context.span_id = 0x00F067AA0BA902B7
+
+    mock_span = mocker.MagicMock()
+    mock_span.get_span_context.return_value = mock_span_context
+
+    mock_trace = mocker.MagicMock()
+    mock_trace.get_current_span.return_value = mock_span
+
+    mocker.patch("grelmicro.logging.loguru.trace", mock_trace)
+
+    sink = StringIO()
+
+    # Act
+    logger.configure(patcher=otel_patcher)
+    logger.add(sink, format=json_formatter, level="INFO")
+    logger.info("Test with valid span", user_id=789)
+
+    # Assert
+    log_line = sink.getvalue().strip()
+    log_record = json_record_type_adapter.validate_json(log_line)
+
+    assert log_record["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
+    assert log_record["span_id"] == "00f067aa0ba902b7"
+    assert log_record["msg"] == "Test with valid span"
+    assert log_record["ctx"] == {"user_id": 789}
+
+
+def test_configure_logging_with_otel_enabled(
+    capsys: pytest.CaptureFixture[str],
+    mocker: pytest_mock.MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test configure_logging with OpenTelemetry enabled."""
+    # Arrange
+    mock_span_context = mocker.MagicMock()
+    mock_span_context.is_valid = True
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span_context.span_id = 0x1234567890ABCDEF
+
+    mock_span = mocker.MagicMock()
+    mock_span.get_span_context.return_value = mock_span_context
+
+    mock_trace = mocker.MagicMock()
+    mock_trace.get_current_span.return_value = mock_span
+
+    mocker.patch("grelmicro.logging.loguru.trace", mock_trace)
+    monkeypatch.setenv("LOG_OTEL_ENABLED", "true")
+    monkeypatch.setenv("LOG_FORMAT", "json")
+
+    # Act
+    configure_logging()
+    logger.info("Test with OTel enabled", request_id="abc-123")
+
+    # Assert
+    log_line = capsys.readouterr().out.strip()
+    log_record = json_record_type_adapter.validate_json(log_line)
+
+    assert log_record["trace_id"] == "1234567890abcdef1234567890abcdef"
+    assert log_record["span_id"] == "1234567890abcdef"
+    assert log_record["msg"] == "Test with OTel enabled"
+    assert log_record["ctx"] == {"request_id": "abc-123"}
+
+
+def test_configure_logging_with_otel_disabled(
+    capsys: pytest.CaptureFixture[str],
+    mocker: pytest_mock.MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test configure_logging with OpenTelemetry explicitly disabled."""
+    # Arrange
+    # Even with trace available, should not be used when disabled
+    mock_trace = mocker.MagicMock()
+    mocker.patch("grelmicro.logging.loguru.trace", mock_trace)
+    monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+    monkeypatch.setenv("LOG_FORMAT", "json")
+
+    # Act
+    configure_logging()
+    logger.info("Test with OTel disabled", request_id="xyz-456")
+
+    # Assert
+    log_line = capsys.readouterr().out.strip()
+    log_record = json_record_type_adapter.validate_json(log_line)
+
+    assert "trace_id" not in log_record
+    assert "span_id" not in log_record
+    assert log_record["msg"] == "Test with OTel disabled"
+    assert log_record["ctx"] == {"request_id": "xyz-456"}
+
+    # Verify trace was never called
+    mock_trace.get_current_span.assert_not_called()
+
+
+def test_configure_logging_simple_format_no_patcher(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test configure_logging with simple format that doesn't need patcher."""
+    # Arrange
+    monkeypatch.setenv("LOG_FORMAT", "{level}: {message}")
+    monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+    # Act
+    configure_logging()
+    logger.info("Simple test")
+
+    # Assert
+    assert capsys.readouterr().out.strip() == "INFO: Simple test"

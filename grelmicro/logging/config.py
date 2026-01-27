@@ -1,7 +1,7 @@
 """Logging Configuration."""
 
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
 
 from pydantic import Field
 from pydantic_extra_types.timezone_name import (
@@ -9,6 +9,11 @@ from pydantic_extra_types.timezone_name import (
     timezone_name_settings,
 )
 from pydantic_settings import BaseSettings
+
+try:
+    import opentelemetry
+except ImportError:  # pragma: no cover
+    opentelemetry: Any = None
 
 
 class _CaseInsensitiveEnum(StrEnum):
@@ -50,6 +55,8 @@ class LoggingSettings(BaseSettings):
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
         LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
+        LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
+            Default: True if OpenTelemetry is installed, else False.
     """
 
     LOG_LEVEL: LoggingLevelType = LoggingLevelType.INFO
@@ -57,3 +64,4 @@ class LoggingSettings(BaseSettings):
         LoggingFormatType.JSON, union_mode="left_to_right"
     )
     LOG_TIMEZONE: LoggingTimeZoneType = LoggingTimeZoneType("UTC")
+    LOG_OTEL_ENABLED: bool = opentelemetry is not None
