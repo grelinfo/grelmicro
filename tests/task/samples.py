@@ -22,7 +22,7 @@ def test2() -> None:
     """Test Function."""
 
 
-def test3(test: str = "test") -> None:
+def test3(test: str = "test") -> None:  # noqa: PT028
     """Test Function."""
 
 
