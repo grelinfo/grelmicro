@@ -287,14 +287,12 @@ async def test_unepexpected_stop(
         async with create_task_group() as tg:
             await tg.start(leader_election)
             await leader_election.wait_for_leader()
-            mock = mocker.patch.object(
+            mocker.patch.object(
                 leader_election,
                 "_try_acquire_or_renew",
                 side_effect=Exception("Unexpected Exception"),
             )
             await leader_election.wait_lose_leader()
-            mock.reset_mock()
-            tg.cancel_scope.cancel()
 
     # Act / Assert
     with pytest.raises(ExceptionGroup):
