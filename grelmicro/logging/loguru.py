@@ -3,17 +3,16 @@
 import json
 import sys
 from collections.abc import Mapping
-from datetime import tzinfo
-from typing import TYPE_CHECKING, Any, NotRequired
+from datetime import UTC, tzinfo
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
-from dateutil.tz import UTC
 from pydantic import ValidationError
-from typing_extensions import TypedDict
 
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging.config import LoggingFormatType, LoggingSettings
 from grelmicro.logging.errors import LoggingSettingsValidationError
+from grelmicro.logging.types import JSONRecordDict
 
 if TYPE_CHECKING:
     from loguru import FormatFunction, Record
@@ -53,57 +52,47 @@ Time is displayed in the timezone specified by `LOG_TIMEZONE`.
 """
 
 
-class JSONRecordDict(TypedDict):
-    """JSON log record representation.
-
-    The time use a ISO 8601 string.
-    """
-
-    time: str
-    level: str
-    msg: str
-    logger: str | None
-    thread: str
-    trace_id: NotRequired[str]
-    span_id: NotRequired[str]
-    ctx: NotRequired[dict[Any, Any]]
-
-
 class LoguruPatcher:
-    """Loguru Patcher.
+    """Loguru record patcher for enriching log entries.
 
-    Provides 'serialized', 'localtime', and OpenTelemetry trace context for log records.
+    Enriches loguru records with:
+    - Localized timestamps (localtime) in the specified timezone
+    - Structured JSON serialization (serialized) for structured logging
+    - OpenTelemetry trace context (trace_id, span_id) for distributed tracing
     """
 
     def __init__(
         self,
         *,
         timezone: tzinfo | None = None,
-        localtime: bool = False,
-        json: bool = False,
-        otel_enabled: bool = False,
+        enable_localtime: bool = False,
+        enable_json: bool = False,
+        enable_otel: bool = False,
     ) -> None:
-        """Initialize the LoguruPatcher with an optional timezone.
+        """Initialize the patcher with enrichment configuration.
 
         Args:
-            timezone: The timezone to use for localtime and JSON timestamp conversion.
-                  If None, UTC will be used.
-            localtime: Whether to patch records with localized time string.
-            json: Whether to patch records with serialized JSON representation.
-            otel_enabled: Whether to extract OpenTelemetry trace context.
+            timezone: Timezone for timestamp conversion (localtime and JSON timestamps).
+                Defaults to UTC if not specified.
+            enable_localtime: Enable localized timestamp string in record extra.
+                Adds 'localtime' field formatted as "YYYY-MM-DD HH:MM:SS.mmm".
+            enable_json: Enable JSON serialization of log records.
+                Adds 'serialized' field with JSONRecordDict representation.
+            enable_otel: Enable OpenTelemetry trace context extraction.
+                Adds 'trace_id' and 'span_id' fields when active span exists.
         """
         self.timezone: tzinfo = timezone or UTC
-        self.localtime: bool = localtime
-        self.json: bool = json
-        self.otel_enabled: bool = otel_enabled
+        self.enable_localtime: bool = enable_localtime
+        self.enable_json: bool = enable_json
+        self.enable_otel: bool = enable_otel
 
     def __call__(self, record: "Record") -> None:
-        """Patch the loguru record according to the configuration."""
-        if self.otel_enabled:
+        """Patch the loguru record with enabled enrichments."""
+        if self.enable_otel:
             otel_patcher(record)
-        if self.localtime:
+        if self.enable_localtime:
             localtime_patcher(record, timezone=self.timezone)
-        if self.json:
+        if self.enable_json:
             json_patcher(record, timezone=self.timezone)
 
 
@@ -178,7 +167,7 @@ def otel_patcher(record: "Record") -> None:
     record["extra"]["span_id"] = format(span_context.span_id, "016x")
 
 
-def json_formatter(record: "Record", timezone: ZoneInfo | None = None) -> str:
+def json_formatter(record: "Record", timezone: tzinfo | None = None) -> str:
     """Format log record with `JSONRecordDict` representation.
 
     This function does not return the formatted record directly but provides the format to use when
@@ -218,6 +207,9 @@ def configure_logging() -> None:
     except ValidationError as error:
         raise LoggingSettingsValidationError(error) from None
 
+    if settings.LOG_OTEL_ENABLED and not trace:
+        raise DependencyNotFoundError(module="opentelemetry")
+
     logger = loguru.logger
     log_format: str | FormatFunction = settings.LOG_FORMAT
     timezone = ZoneInfo(str(settings.LOG_TIMEZONE))
@@ -232,23 +224,25 @@ def configure_logging() -> None:
         needs_json = True
     elif log_format == LoggingFormatType.TEXT:
         log_format = TEXT_FORMAT
+        needs_localtime = True
 
-    if isinstance(log_format, str):
+    elif isinstance(log_format, str):
         needs_json = "extra[serialized]" in log_format
         needs_localtime = "extra[localtime]" in log_format
 
     if needs_localtime or needs_json or settings.LOG_OTEL_ENABLED:
         patcher = LoguruPatcher(
             timezone=timezone,
-            localtime=needs_localtime,
-            json=needs_json,
-            otel_enabled=settings.LOG_OTEL_ENABLED,
+            enable_localtime=needs_localtime,
+            enable_json=needs_json,
+            enable_otel=settings.LOG_OTEL_ENABLED,
         )
         logger.configure(patcher=patcher)
     else:
         # No patcher needed
         logger.configure()
 
+    logger.remove()
     logger.add(
         sys.stdout,
         level=settings.LOG_LEVEL,

@@ -15,12 +15,12 @@ from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging.errors import LoggingSettingsValidationError
 from grelmicro.logging.loguru import (
     JSON_FORMAT,
-    JSONRecordDict,
     configure_logging,
     json_formatter,
     json_patcher,
     otel_patcher,
 )
+from grelmicro.logging.types import JSONRecordDict
 
 if TYPE_CHECKING:
     from loguru import Record
@@ -298,6 +298,20 @@ def test_configure_logging_dependency_not_found(
 
     # Act / Assert
     with pytest.raises(DependencyNotFoundError, match="loguru"):
+        configure_logging()
+
+
+def test_configure_logging_otel_dependency_not_found(
+    mocker: pytest_mock.MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test configure_logging when LOG_OTEL_ENABLED is true but OpenTelemetry is not installed."""
+    # Arrange
+    mocker.patch("grelmicro.logging.loguru.trace", None)
+    monkeypatch.setenv("LOG_OTEL_ENABLED", "true")
+
+    # Act / Assert
+    with pytest.raises(DependencyNotFoundError, match="opentelemetry"):
         configure_logging()
 
 

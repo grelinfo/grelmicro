@@ -9,8 +9,8 @@ from grelmicro.logging.loguru import JSON_FORMAT, LoguruPatcher
 # Create a custom patcher with specific timezone
 patcher = LoguruPatcher(
     timezone=ZoneInfo("Europe/Paris"),
-    json=True,  # Enable JSON serialization
-    localtime=False,  # Disable localtime formatting
+    enable_json=True,  # Enable JSON serialization
+    enable_localtime=False,  # Disable localtime formatting
 )
 
 # Configure logger with the patcher
