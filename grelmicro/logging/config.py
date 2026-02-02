@@ -43,6 +43,13 @@ class LoggingFormatType(_CaseInsensitiveEnum):
     TEXT = "TEXT"
 
 
+class LoggingBackendType(_CaseInsensitiveEnum):
+    """Logging Backend Enum."""
+
+    LOGURU = "loguru"
+    STRUCTLOG = "structlog"
+
+
 @timezone_name_settings(strict=False)
 class LoggingTimeZoneType(TimeZoneName):
     """Timezone name."""
@@ -52,6 +59,7 @@ class LoggingSettings(BaseSettings):
     """Logging Settings.
 
     Environment Variables:
+        LOG_BACKEND: Logging backend (loguru, structlog). Default: loguru
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
         LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
@@ -59,6 +67,7 @@ class LoggingSettings(BaseSettings):
             Default: True if OpenTelemetry is installed, else False.
     """
 
+    LOG_BACKEND: LoggingBackendType = LoggingBackendType.LOGURU
     LOG_LEVEL: LoggingLevelType = LoggingLevelType.INFO
     LOG_FORMAT: LoggingFormatType | str = Field(
         LoggingFormatType.JSON, union_mode="left_to_right"

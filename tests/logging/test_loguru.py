@@ -1,4 +1,8 @@
-"""Test Logging Loguru."""
+"""Unit Tests for Loguru Backend.
+
+These tests verify loguru-specific internal implementation details
+that are not shared with other backends.
+"""
 
 from collections.abc import Generator
 from datetime import datetime
@@ -11,14 +15,12 @@ import pytest_mock
 from loguru import logger
 from pydantic import TypeAdapter
 
-from grelmicro.errors import DependencyNotFoundError
-from grelmicro.logging.errors import LoggingSettingsValidationError
-from grelmicro.logging.loguru import (
+from grelmicro.logging._loguru import (
     JSON_FORMAT,
+    _json_formatter,
+    _json_patcher,
+    _otel_patcher,
     configure_logging,
-    json_formatter,
-    json_patcher,
-    otel_patcher,
 )
 from grelmicro.logging.types import JSONRecordDict
 
@@ -51,7 +53,7 @@ def generate_logs() -> int:
 
 
 def assert_logs(logs: str) -> None:
-    """Assert logs."""
+    """Assert logs follow JSONRecordDict structure."""
     (
         info,
         warning,
@@ -114,376 +116,238 @@ def assert_logs(logs: str) -> None:
     }
 
 
-def test_json_formatter() -> None:
-    """Test JSON Formatter."""
-    # Arrange
-    sink = StringIO()
+class TestJsonFormatter:
+    """Test loguru _json_formatter function."""
 
-    # Act
-    logger.add(sink, format=json_formatter, level="INFO")
-    generate_logs()
+    def test_json_formatter(self) -> None:
+        """Test JSON Formatter produces valid output."""
+        # Arrange
+        sink = StringIO()
 
-    # Assert
-    assert_logs(sink.getvalue())
+        # Act
+        logger.add(sink, format=_json_formatter, level="INFO")
+        generate_logs()
 
+        # Assert
+        assert_logs(sink.getvalue())
 
-def test_json_formatter_with_timezone() -> None:
-    """Test JSON Formatter with explicit timezone."""
-    # Arrange
-    sink = StringIO()
-    timezone = ZoneInfo("Europe/Paris")
+    def test_json_formatter_with_timezone(self) -> None:
+        """Test JSON Formatter with explicit timezone."""
+        # Arrange
+        sink = StringIO()
+        timezone = ZoneInfo("Europe/Paris")
 
-    # Create a custom format function that passes timezone to json_formatter
-    def custom_json_formatter(record: "Record") -> str:
-        """Return custom JSON formatted log."""
-        return json_formatter(record, timezone=timezone)
+        def custom_json_formatter(record: "Record") -> str:
+            """Return custom JSON formatted log."""
+            return _json_formatter(record, timezone=timezone)
 
-    # Act
-    logger.add(sink, format=custom_json_formatter, level="INFO")
-    generate_logs()
+        # Act
+        logger.add(sink, format=custom_json_formatter, level="INFO")
+        generate_logs()
 
-    # Assert
-    assert_logs(sink.getvalue())
-
-
-def test_json_patching() -> None:
-    """Test JSON Patching."""
-    # Arrange
-    sink = StringIO()
-
-    # Act
-    # logger.patch(json_patcher) -> Patch is not working using logger.configure instead
-    logger.configure(patcher=json_patcher)
-    # Use format function to prevent loguru from appending exception tracebacks
-    logger.add(sink, format=lambda _: JSON_FORMAT + "\n", level="INFO")
-    generate_logs()
-
-    # Assert
-    assert_logs(sink.getvalue())
+        # Assert
+        assert_logs(sink.getvalue())
 
 
-def test_configure_logging_default(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test Configure Logging Default."""
-    # Arrange
-    monkeypatch.delenv("LOG_LEVEL", raising=False)
-    monkeypatch.delenv("LOG_FORMAT", raising=False)
+class TestJsonPatcher:
+    """Test loguru _json_patcher function."""
 
-    # Act
-    configure_logging()
-    generate_logs()
+    def test_json_patching(self) -> None:
+        """Test JSON Patching produces valid output."""
+        # Arrange
+        sink = StringIO()
 
-    # Assert
-    assert_logs(capsys.readouterr().out)
+        # Act
+        logger.configure(patcher=_json_patcher)
+        logger.add(sink, format=lambda _: JSON_FORMAT + "\n", level="INFO")
+        generate_logs()
 
-
-def test_configure_logging_text(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test Configure Logging Text."""
-    # Arrange
-    monkeypatch.delenv("LOG_LEVEL", raising=False)
-    monkeypatch.setenv("LOG_FORMAT", "text")
-
-    # Act
-    configure_logging()
-    generate_logs()
-
-    # Assert
-    lines = capsys.readouterr().out.splitlines()
-
-    assert "tests.logging.test_loguru:generate_logs:" in lines[0]
-    assert " | INFO     | " in lines[0]
-    assert " - Hello, World!" in lines[0]
-
-    assert "tests.logging.test_loguru:generate_logs:" in lines[1]
-    assert " | WARNING  | " in lines[1]
-    assert " - Hello, World!" in lines[1]
-
-    assert "tests.logging.test_loguru:generate_logs:" in lines[2]
-    assert " | ERROR    | " in lines[2]
-    assert " - Hello, Alice!" in lines[2]
-
-    assert "tests.logging.test_loguru:generate_logs:" in lines[3]
-    assert " | ERROR    | " in lines[3]
-    assert " - Hello, Bob!" in lines[3]
-    assert "Traceback" in lines[4]
-    assert "ZeroDivisionError: division by zero" in lines[-1]
+        # Assert
+        assert_logs(sink.getvalue())
 
 
-def test_configure_logging_json(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test Configure Logging JSON."""
-    # Arrange
-    monkeypatch.delenv("LOG_LEVEL", raising=False)
-    monkeypatch.setenv("LOG_FORMAT", "json")
+class TestOtelPatcher:
+    """Test loguru _otel_patcher function."""
 
-    # Act
-    configure_logging()
-    generate_logs()
+    def test_otel_patcher_without_opentelemetry(
+        self,
+        mocker: pytest_mock.MockerFixture,
+    ) -> None:
+        """Test _otel_patcher when OpenTelemetry is not installed."""
+        # Arrange
+        mocker.patch(
+            "grelmicro.logging._loguru.get_otel_trace_context",
+            return_value={},
+        )
+        sink = StringIO()
 
-    # Assert
-    assert_logs(capsys.readouterr().out)
+        # Act
+        logger.configure(patcher=_otel_patcher)
+        logger.add(sink, format=_json_formatter, level="INFO")
+        logger.info("Test without OpenTelemetry", user_id=123)
+
+        # Assert
+        log_line = sink.getvalue().strip()
+        log_record = json_record_type_adapter.validate_json(log_line)
+
+        assert "trace_id" not in log_record
+        assert "span_id" not in log_record
+        assert log_record["msg"] == "Test without OpenTelemetry"
+        assert log_record["ctx"] == {"user_id": 123}
+
+    def test_otel_patcher_with_invalid_span(
+        self,
+        mocker: pytest_mock.MockerFixture,
+    ) -> None:
+        """Test _otel_patcher when span context is invalid."""
+        # Arrange
+        mocker.patch(
+            "grelmicro.logging._loguru.get_otel_trace_context",
+            return_value={},
+        )
+        sink = StringIO()
+
+        # Act
+        logger.configure(patcher=_otel_patcher)
+        logger.add(sink, format=_json_formatter, level="INFO")
+        logger.info("Test with invalid span", user_id=456)
+
+        # Assert
+        log_line = sink.getvalue().strip()
+        log_record = json_record_type_adapter.validate_json(log_line)
+
+        assert "trace_id" not in log_record
+        assert "span_id" not in log_record
+        assert log_record["msg"] == "Test with invalid span"
+        assert log_record["ctx"] == {"user_id": 456}
+
+    def test_otel_patcher_with_valid_span(
+        self,
+        mocker: pytest_mock.MockerFixture,
+    ) -> None:
+        """Test _otel_patcher with valid OpenTelemetry span."""
+        # Arrange
+        mocker.patch(
+            "grelmicro.logging._loguru.get_otel_trace_context",
+            return_value={
+                "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+                "span_id": "00f067aa0ba902b7",
+            },
+        )
+        sink = StringIO()
+
+        # Act
+        logger.configure(patcher=_otel_patcher)
+        logger.add(sink, format=_json_formatter, level="INFO")
+        logger.info("Test with valid span", user_id=789)
+
+        # Assert
+        log_line = sink.getvalue().strip()
+        log_record = json_record_type_adapter.validate_json(log_line)
+
+        assert log_record["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
+        assert log_record["span_id"] == "00f067aa0ba902b7"
+        assert log_record["msg"] == "Test with valid span"
+        assert log_record["ctx"] == {"user_id": 789}
 
 
-def test_configure_logging_level(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test Configure Logging Level."""
-    # Arrange
-    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
-    monkeypatch.delenv("LOG_FORMAT", raising=False)
+class TestLoguruSpecificFeatures:
+    """Test loguru-specific features not available in other backends."""
 
-    # Act
-    configure_logging()
-    logs_count = generate_logs()
+    def test_configure_logging_text_with_traceback(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test TEXT format includes traceback for exceptions."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", "text")
 
-    # Assert
-    assert len(capsys.readouterr().out.splitlines()) == logs_count
-
-
-def test_configure_logging_invalid_level(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test Configure Logging Invalid Level."""
-    # Arrange
-    monkeypatch.setenv("LOG_LEVEL", "INVALID")
-    monkeypatch.delenv("LOG_FORMAT", raising=False)
-
-    # Act
-    with pytest.raises(
-        LoggingSettingsValidationError,
-        match=(
-            r"Could not validate environment variables settings:\n"
-            r"- LOG_LEVEL: Input should be 'DEBUG', 'INFO', 'WARNING', 'ERROR' or 'CRITICAL'"
-            r" \[input=INVALID\]"
-        ),
-    ):
+        # Act
         configure_logging()
+        generate_logs()
 
-    # Assert
-    assert not capsys.readouterr().out
+        # Assert
+        lines = capsys.readouterr().out.splitlines()
 
+        assert "tests.logging.test_loguru:generate_logs:" in lines[0]
+        assert " | INFO     | " in lines[0]
+        assert " - Hello, World!" in lines[0]
 
-def test_configure_logging_format_template(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test Configure Logging Format Template."""
-    # Arrange
-    monkeypatch.delenv("LOG_LEVEL", raising=False)
-    monkeypatch.setenv("LOG_FORMAT", "{level}: {message}")
+        assert "tests.logging.test_loguru:generate_logs:" in lines[1]
+        assert " | WARNING  | " in lines[1]
+        assert " - Hello, World!" in lines[1]
 
-    # Act
-    configure_logging()
-    generate_logs()
+        assert "tests.logging.test_loguru:generate_logs:" in lines[2]
+        assert " | ERROR    | " in lines[2]
+        assert " - Hello, Alice!" in lines[2]
 
-    # Assert
-    lines = capsys.readouterr().out.splitlines()
-    assert "INFO: Hello, World!" in lines[0]
-    assert "WARNING: Hello, World!" in lines[1]
-    assert "ERROR: Hello, Alice!" in lines[2]
-    assert "ERROR: Hello, Bob!" in lines[3]
-    assert "Traceback" in lines[4]
-    assert "ZeroDivisionError: division by zero" in lines[-1]
+        assert "tests.logging.test_loguru:generate_logs:" in lines[3]
+        assert " | ERROR    | " in lines[3]
+        assert " - Hello, Bob!" in lines[3]
+        assert "Traceback" in lines[4]
+        assert "ZeroDivisionError: division by zero" in lines[-1]
 
+    def test_configure_logging_custom_format_template(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test custom loguru format template."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", "{level}: {message}")
 
-def test_configure_logging_dependency_not_found(
-    mocker: pytest_mock.MockerFixture,
-) -> None:
-    """Test Configure Logging Dependency Not Found."""
-    # Arrange
-    mocker.patch("grelmicro.logging.loguru.loguru", None)
-
-    # Act / Assert
-    with pytest.raises(DependencyNotFoundError, match="loguru"):
+        # Act
         configure_logging()
+        generate_logs()
 
+        # Assert
+        lines = capsys.readouterr().out.splitlines()
+        assert "INFO: Hello, World!" in lines[0]
+        assert "WARNING: Hello, World!" in lines[1]
+        assert "ERROR: Hello, Alice!" in lines[2]
+        assert "ERROR: Hello, Bob!" in lines[3]
+        assert "Traceback" in lines[4]
+        assert "ZeroDivisionError: division by zero" in lines[-1]
 
-def test_configure_logging_otel_dependency_not_found(
-    mocker: pytest_mock.MockerFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test configure_logging when LOG_OTEL_ENABLED is true but OpenTelemetry is not installed."""
-    # Arrange
-    mocker.patch("grelmicro.logging.loguru.trace", None)
-    monkeypatch.setenv("LOG_OTEL_ENABLED", "true")
+    def test_configure_logging_simple_format_no_patcher(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test simple format that doesn't need patcher."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", "{level}: {message}")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
 
-    # Act / Assert
-    with pytest.raises(DependencyNotFoundError, match="opentelemetry"):
+        # Act
         configure_logging()
+        logger.info("Simple test")
 
+        # Assert
+        assert capsys.readouterr().out.strip() == "INFO: Simple test"
 
-def test_otel_patcher_without_opentelemetry(
-    mocker: pytest_mock.MockerFixture,
-) -> None:
-    """Test otel_patcher when OpenTelemetry is not installed."""
-    # Arrange
-    mocker.patch("grelmicro.logging.loguru.trace", None)
-    sink = StringIO()
+    def test_exception_captured_in_ctx(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test exception is captured in ctx field for JSON format."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
 
-    # Act
-    logger.configure(patcher=otel_patcher)
-    logger.add(sink, format=json_formatter, level="INFO")
-    logger.info("Test without OpenTelemetry", user_id=123)
+        # Act
+        configure_logging()
+        try:
+            1 / 0  # noqa: B018
+        except ZeroDivisionError:
+            logger.exception("Division error")
 
-    # Assert
-    log_line = sink.getvalue().strip()
-    log_record = json_record_type_adapter.validate_json(log_line)
+        # Assert
+        output = capsys.readouterr().out.strip()
+        log_record = json_record_type_adapter.validate_json(output)
 
-    assert "trace_id" not in log_record
-    assert "span_id" not in log_record
-    assert log_record["msg"] == "Test without OpenTelemetry"
-    assert log_record["ctx"] == {"user_id": 123}
-
-
-def test_otel_patcher_with_invalid_span(
-    mocker: pytest_mock.MockerFixture,
-) -> None:
-    """Test otel_patcher when span context is invalid."""
-    # Arrange
-    mock_span_context = mocker.MagicMock()
-    mock_span_context.is_valid = False
-
-    mock_span = mocker.MagicMock()
-    mock_span.get_span_context.return_value = mock_span_context
-
-    mock_trace = mocker.MagicMock()
-    mock_trace.get_current_span.return_value = mock_span
-
-    mocker.patch("grelmicro.logging.loguru.trace", mock_trace)
-
-    sink = StringIO()
-
-    # Act
-    logger.configure(patcher=otel_patcher)
-    logger.add(sink, format=json_formatter, level="INFO")
-    logger.info("Test with invalid span", user_id=456)
-
-    # Assert
-    log_line = sink.getvalue().strip()
-    log_record = json_record_type_adapter.validate_json(log_line)
-
-    assert "trace_id" not in log_record
-    assert "span_id" not in log_record
-    assert log_record["msg"] == "Test with invalid span"
-    assert log_record["ctx"] == {"user_id": 456}
-
-
-def test_otel_patcher_with_valid_span(
-    mocker: pytest_mock.MockerFixture,
-) -> None:
-    """Test otel_patcher with valid OpenTelemetry span."""
-    # Arrange
-    mock_span_context = mocker.MagicMock()
-    mock_span_context.is_valid = True
-    mock_span_context.trace_id = 0x4BF92F3577B34DA6A3CE929D0E0E4736
-    mock_span_context.span_id = 0x00F067AA0BA902B7
-
-    mock_span = mocker.MagicMock()
-    mock_span.get_span_context.return_value = mock_span_context
-
-    mock_trace = mocker.MagicMock()
-    mock_trace.get_current_span.return_value = mock_span
-
-    mocker.patch("grelmicro.logging.loguru.trace", mock_trace)
-
-    sink = StringIO()
-
-    # Act
-    logger.configure(patcher=otel_patcher)
-    logger.add(sink, format=json_formatter, level="INFO")
-    logger.info("Test with valid span", user_id=789)
-
-    # Assert
-    log_line = sink.getvalue().strip()
-    log_record = json_record_type_adapter.validate_json(log_line)
-
-    assert log_record["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
-    assert log_record["span_id"] == "00f067aa0ba902b7"
-    assert log_record["msg"] == "Test with valid span"
-    assert log_record["ctx"] == {"user_id": 789}
-
-
-def test_configure_logging_with_otel_enabled(
-    capsys: pytest.CaptureFixture[str],
-    mocker: pytest_mock.MockerFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test configure_logging with OpenTelemetry enabled."""
-    # Arrange
-    mock_span_context = mocker.MagicMock()
-    mock_span_context.is_valid = True
-    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
-    mock_span_context.span_id = 0x1234567890ABCDEF
-
-    mock_span = mocker.MagicMock()
-    mock_span.get_span_context.return_value = mock_span_context
-
-    mock_trace = mocker.MagicMock()
-    mock_trace.get_current_span.return_value = mock_span
-
-    mocker.patch("grelmicro.logging.loguru.trace", mock_trace)
-    monkeypatch.setenv("LOG_OTEL_ENABLED", "true")
-    monkeypatch.setenv("LOG_FORMAT", "json")
-
-    # Act
-    configure_logging()
-    logger.info("Test with OTel enabled", request_id="abc-123")
-
-    # Assert
-    log_line = capsys.readouterr().out.strip()
-    log_record = json_record_type_adapter.validate_json(log_line)
-
-    assert log_record["trace_id"] == "1234567890abcdef1234567890abcdef"
-    assert log_record["span_id"] == "1234567890abcdef"
-    assert log_record["msg"] == "Test with OTel enabled"
-    assert log_record["ctx"] == {"request_id": "abc-123"}
-
-
-def test_configure_logging_with_otel_disabled(
-    capsys: pytest.CaptureFixture[str],
-    mocker: pytest_mock.MockerFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test configure_logging with OpenTelemetry explicitly disabled."""
-    # Arrange
-    # Even with trace available, should not be used when disabled
-    mock_trace = mocker.MagicMock()
-    mocker.patch("grelmicro.logging.loguru.trace", mock_trace)
-    monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-    monkeypatch.setenv("LOG_FORMAT", "json")
-
-    # Act
-    configure_logging()
-    logger.info("Test with OTel disabled", request_id="xyz-456")
-
-    # Assert
-    log_line = capsys.readouterr().out.strip()
-    log_record = json_record_type_adapter.validate_json(log_line)
-
-    assert "trace_id" not in log_record
-    assert "span_id" not in log_record
-    assert log_record["msg"] == "Test with OTel disabled"
-    assert log_record["ctx"] == {"request_id": "xyz-456"}
-
-    # Verify trace was never called
-    mock_trace.get_current_span.assert_not_called()
-
-
-def test_configure_logging_simple_format_no_patcher(
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test configure_logging with simple format that doesn't need patcher."""
-    # Arrange
-    monkeypatch.setenv("LOG_FORMAT", "{level}: {message}")
-    monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-
-    # Act
-    configure_logging()
-    logger.info("Simple test")
-
-    # Assert
-    assert capsys.readouterr().out.strip() == "INFO: Simple test"
+        assert log_record["ctx"]["exception"] == (
+            "ZeroDivisionError: division by zero"
+        )

@@ -4,35 +4,43 @@ The `logging` package provides a simple and easy-to-configure logging system.
 
 The logging feature adheres to the 12-factor app methodology, directing logs to stdout. It supports JSON formatting and allows log level configuration via environment variables.
 
-## Dependencies
+## Backend Selection
 
-For the moment the `logging` package is only working with the `loguru` Python logging library.
-When `orjson` is installed, it will be used as the default JSON serializer for faster performance, otherwise, the standard `json` library will be used.
+Grelmicro supports two logging backends:
 
-[**Loguru**](https://loguru.readthedocs.io/en/stable/overview.html) is used as the logging library.
+- **[Loguru](https://loguru.readthedocs.io/en/stable/overview.html)** (default) - Feature-rich Python logging library
+- **[structlog](https://www.structlog.org/en/stable/)** - Structured logging for Python
 
-For using `logging` package, please install the required dependencies:
+Both backends produce identical JSON output structure (`JSONRecordDict`), making it easy to switch between them.
 
-=== "Standard"
+### Dependencies
+
+=== "Loguru (Standard)"
     ```bash
     pip install grelmicro[standard]
+    ```
+
+=== "structlog"
+    ```bash
+    pip install grelmicro[structlog]
     ```
 
 === "With OpenTelemetry"
     ```bash
     pip install grelmicro[standard,opentelemetry]
+    # or
+    pip install grelmicro[structlog,opentelemetry]
     ```
 
-=== "only loguru (minimum)"
+=== "Minimal (loguru only)"
     ```bash
     pip install loguru
     ```
 
-=== "loguru and orjson (manual)"
+=== "Minimal (structlog only)"
     ```bash
-    pip install loguru orjson
+    pip install structlog orjson
     ```
-
 
 ## Configure Logging
 
@@ -46,12 +54,44 @@ Just call the `configure_logging` function to set up the logging system.
 
 You can change the default settings using the following environment variables:
 
+- `LOG_BACKEND`: Select the logging backend (`loguru` or `structlog`). Default: `loguru`
 - `LOG_LEVEL`: Set the desired log level (default: `INFO`). Available options: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
-- `LOG_FORMAT`: Choose the log format. Options are `TEXT` and `JSON`, or you can provide a custom [loguru](https://loguru.readthedocs.io/en/stable/overview.html) template (default: `JSON`).
+- `LOG_FORMAT`: Choose the log format. Options are `TEXT` and `JSON`, or you can provide a custom template (default: `JSON`).
 - `LOG_TIMEZONE`: IANA timezone for timestamps (e.g., `UTC`, `Europe/Zurich`, `America/New_York`) (default: `UTC`).
 - `LOG_OTEL_ENABLED`: Enable OpenTelemetry trace context extraction (default: auto-enabled if OpenTelemetry is installed).
 
-#### Timezone Support
+### Backend Selection
+
+Select the backend using the `LOG_BACKEND` environment variable:
+
+```bash
+# Use loguru (default)
+LOG_BACKEND=loguru
+
+# Use structlog
+LOG_BACKEND=structlog
+```
+
+After calling `configure_logging()`, use the appropriate logger for your backend:
+
+=== "Loguru"
+    ```python
+    from loguru import logger
+
+    configure_logging()
+    logger.info("Hello, World!", user_id=123)
+    ```
+
+=== "structlog"
+    ```python
+    import structlog
+
+    configure_logging()
+    log = structlog.get_logger()
+    log.info("Hello, World!", user_id=123)
+    ```
+
+### Timezone Support
 
 The `LOG_TIMEZONE` setting controls the timezone used for all log timestamps in both JSON and TEXT formats. This is particularly useful when running applications across multiple regions or when you need logs in a specific timezone for compliance or debugging purposes.
 
@@ -67,7 +107,7 @@ The `LOG_TIMEZONE` setting controls the timezone used for all log timestamps in 
 2024-11-25 14:56:36.066 | INFO     | ...  // UTC
 ```
 
-#### Structured Logging
+### Structured Logging
 
 When using JSON format, additional context can be passed to logger methods as keyword arguments. These will be captured in the `ctx` field:
 
@@ -80,7 +120,7 @@ Output:
 {"time":"...","level":"INFO",...,"msg":"User logged in","ctx":{"user_id":123,"ip_address":"192.168.1.1"}}
 ```
 
-Exceptions are automatically captured in the `ctx` field when using `logger.exception()`:
+Exceptions are automatically captured in the `ctx` field when using `logger.exception()` (loguru only):
 
 ```python
 --8<-- "logging/exception_logging.py"
@@ -91,7 +131,7 @@ Output:
 {"time":"...","level":"ERROR",...,"msg":"Operation failed","ctx":{"operation":"divide","exception":"ZeroDivisionError: division by zero"}}
 ```
 
-#### OpenTelemetry Integration
+### OpenTelemetry Integration
 
 The logging system automatically integrates with [OpenTelemetry](https://opentelemetry.io/) for distributed tracing. When you install the `opentelemetry` extras and have an active span, `trace_id` and `span_id` are automatically added to your logs at the top level:
 
@@ -184,7 +224,7 @@ Output:
 2024-11-25 09:56:36.066 | INFO     | __main__:<module>:12 - Application started
 ```
 
-#### Custom Format
+#### Custom Format (Loguru only)
 
 You can provide a custom [loguru format template](https://loguru.readthedocs.io/en/stable/api/logger.html#message):
 
@@ -201,20 +241,10 @@ Output:
 INFO | Custom format example
 ```
 
-## Advanced Usage
+!!! note
+    Custom format strings only work with the loguru backend. When using structlog with a custom format, it falls back to the ConsoleRenderer.
 
-!!! warning "API Stability"
-    The advanced APIs (`LoguruPatcher`, `json_patcher`, `localtime_patcher`, `otel_patcher`) are subject to change in future versions. For most use cases, prefer using `configure_logging()` with environment variables.
-
-### Using LoguruPatcher Directly
-
-For advanced use cases where you need more control over logging configuration, you can use the `LoguruPatcher` class directly:
-
-```python
---8<-- "logging/advanced_patcher.py"
-```
-
-### JSON Record Structure
+## JSON Record Structure
 
 When using JSON format, log records follow this structure:
 

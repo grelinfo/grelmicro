@@ -87,7 +87,7 @@ from contextlib import asynccontextmanager
 import typer
 from fastapi import FastAPI
 
-from grelmicro.logging.loguru import configure_logging
+from grelmicro.logging import configure_logging
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncBackend
 from grelmicro.task import TaskManager
