@@ -176,6 +176,34 @@ To disable: `LOG_OTEL_ENABLED=false`
 
 For strict unbuffered output (12-factor compliance), set the `PYTHONUNBUFFERED=1` environment variable in your container runtime.
 
+## Performance
+
+Benchmark results comparing all backend and serializer combinations (50,000 iterations):
+
+| Backend | Serializer | Ops/sec | vs Best |
+|---------|------------|---------|---------|
+| structlog | orjson | 236,173 | 100.0% |
+| stdlib | orjson | 220,328 | 93.3% |
+| structlog | stdlib | 181,909 | 77.0% |
+| stdlib | stdlib | 169,107 | 71.6% |
+| loguru | orjson | 150,303 | 63.6% |
+| loguru | stdlib | 122,035 | 51.7% |
+
+**Key findings:**
+
+- **structlog + orjson** is the fastest combination
+- **stdlib + orjson** is very close (93% of best) with minimal dependencies
+- **orjson** provides ~20-30% speedup over stdlib json across all backends
+- **stdlib** (default, no extra dependencies) performs well at 72% of best
+
+!!! tip "Performance Recommendation"
+    For high-throughput applications, use `LOG_JSON_SERIALIZER=orjson` with either `structlog` or `stdlib` backend. For most applications, the default `stdlib` backend with `stdlib` serializer provides excellent performance with zero dependencies.
+
+Run the benchmark yourself:
+```bash
+python benchmarks/logging_benchmark.py
+```
+
 ## Examples
 
 ### Basic Usage
