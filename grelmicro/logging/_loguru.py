@@ -1,20 +1,16 @@
 """Loguru Logging Backend."""
 
 import sys
+from collections.abc import Callable, Mapping
 from datetime import UTC, tzinfo
-from typing import TYPE_CHECKING
-from zoneinfo import ZoneInfo
+from typing import TYPE_CHECKING, Any
 
-from pydantic import ValidationError
-
-from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging._shared import (
+    _stdlib_json_dumps,
     get_otel_trace_context,
-    has_opentelemetry,
-    json_dumps,
+    load_settings,
 )
-from grelmicro.logging.config import LoggingFormatType, LoggingSettings
-from grelmicro.logging.errors import LoggingSettingsValidationError
+from grelmicro.logging.config import LoggingFormatType
 from grelmicro.logging.types import JSONRecordDict
 
 try:
@@ -26,6 +22,9 @@ except ImportError as exc:  # pragma: no cover
 if TYPE_CHECKING:
     from loguru import FormatFunction, Record
 
+# Module-level json_dumps function, set during configure_logging
+# Default to stdlib json for direct function usage (e.g., tests)
+_json_dumps: Callable[[Mapping[str, Any]], str] = _stdlib_json_dumps
 
 JSON_FORMAT = "{extra[serialized]}"
 TEXT_FORMAT = (
@@ -93,7 +92,7 @@ def _json_patcher(record: "Record", *, timezone: tzinfo | None = None) -> None:
     if ctx:
         json_record["ctx"] = ctx
 
-    record["extra"]["serialized"] = json_dumps(json_record)
+    record["extra"]["serialized"] = _json_dumps(json_record)
 
 
 def _localtime_patcher(
@@ -144,17 +143,12 @@ def configure_logging() -> None:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
         LoggingSettingsValidationError: If environment variables are invalid.
     """
-    try:
-        settings = LoggingSettings()
-    except ValidationError as error:
-        raise LoggingSettingsValidationError(error) from None
-
-    if settings.LOG_OTEL_ENABLED and not has_opentelemetry():
-        raise DependencyNotFoundError(module="opentelemetry")
+    global _json_dumps  # noqa: PLW0603
+    settings, timezone, _, json_dumps = load_settings()
+    _json_dumps = json_dumps
 
     logger = loguru.logger
     log_format: str | FormatFunction = settings.LOG_FORMAT
-    timezone = ZoneInfo(str(settings.LOG_TIMEZONE))
     needs_json = False
     needs_localtime = False
 

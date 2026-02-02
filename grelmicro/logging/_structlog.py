@@ -4,31 +4,12 @@ import logging
 import sys
 import threading
 from datetime import UTC, datetime, tzinfo
-from typing import Any
-from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
-
-from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging._shared import (
     get_otel_trace_context,
-    has_opentelemetry,
+    load_settings,
 )
-
-try:
-    import orjson
-
-    def _orjson_dumps(
-        obj: dict[str, Any],
-        **_kwargs: object,
-    ) -> bytes:
-        """Serialize to JSON bytes using orjson."""
-        return orjson.dumps(obj)
-
-except ImportError:  # pragma: no cover
-    _orjson_dumps = None  # type: ignore[assignment]
-from grelmicro.logging.config import LoggingFormatType, LoggingSettings
-from grelmicro.logging.errors import LoggingSettingsValidationError
+from grelmicro.logging.config import LoggingSerializerType
 from grelmicro.logging.types import JSONRecordDict
 
 try:
@@ -174,16 +155,7 @@ def configure_logging() -> None:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
         LoggingSettingsValidationError: If environment variables are invalid.
     """
-    try:
-        settings = LoggingSettings()
-    except ValidationError as error:
-        raise LoggingSettingsValidationError(error) from None
-
-    if settings.LOG_OTEL_ENABLED and not has_opentelemetry():
-        raise DependencyNotFoundError(module="opentelemetry")
-
-    timezone = ZoneInfo(str(settings.LOG_TIMEZONE))
-    use_json = settings.LOG_FORMAT == LoggingFormatType.JSON
+    settings, timezone, use_json, _ = load_settings()
 
     # Build processor chain
     processors: list[Processor] = [
@@ -212,12 +184,16 @@ def configure_logging() -> None:
     # Format-specific processors
     if use_json:
         processors.append(_build_json_record)
-        # Use orjson if available for better performance
-        if _orjson_dumps:
+        # Use orjson bytes serialization for better performance when configured
+        if settings.LOG_JSON_SERIALIZER == LoggingSerializerType.ORJSON:
+            import orjson  # noqa: PLC0415
+
             processors.append(
-                structlog.processors.JSONRenderer(serializer=_orjson_dumps)
+                structlog.processors.JSONRenderer(serializer=orjson.dumps)
             )
-            logger_factory = structlog.BytesLoggerFactory(file=sys.stdout.buffer)
+            logger_factory = structlog.BytesLoggerFactory(
+                file=sys.stdout.buffer
+            )
         else:
             processors.append(structlog.processors.JSONRenderer())
             logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)

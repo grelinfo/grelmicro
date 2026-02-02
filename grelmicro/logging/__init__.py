@@ -13,7 +13,7 @@ def configure_logging() -> None:
     Simple twelve-factor app logging configuration that logs to stdout.
 
     Environment Variables:
-        LOG_BACKEND: Logging backend (loguru, structlog). Default: loguru
+        LOG_BACKEND: Logging backend (stdlib, loguru, structlog). Default: stdlib
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
         LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
@@ -35,6 +35,12 @@ def configure_logging() -> None:
         )
 
         configure_structlog()
+    elif settings.LOG_BACKEND == LoggingBackendType.STDLIB:
+        from grelmicro.logging._stdlib import (  # noqa: PLC0415
+            configure_logging as configure_stdlib,
+        )
+
+        configure_stdlib()
     else:
         from grelmicro.logging._loguru import (  # noqa: PLC0415
             configure_logging as configure_loguru,

@@ -6,12 +6,13 @@ The logging feature adheres to the 12-factor app methodology, directing logs to 
 
 ## Backend Selection
 
-Grelmicro supports two logging backends:
+Grelmicro supports three logging backends:
 
-- **[Loguru](https://loguru.readthedocs.io/en/stable/overview.html)** (default) - Feature-rich Python logging library
+- **stdlib** (default) - Python's built-in logging module (no dependencies)
+- **[Loguru](https://loguru.readthedocs.io/en/stable/overview.html)** - Feature-rich Python logging library
 - **[structlog](https://www.structlog.org/en/stable/)** - Structured logging for Python
 
-Both backends produce identical JSON output structure (`JSONRecordDict`), making it easy to switch between them.
+All backends produce identical JSON output structure (`JSONRecordDict`), making it easy to switch between them.
 
 ### Dependencies
 
@@ -42,6 +43,9 @@ Both backends produce identical JSON output structure (`JSONRecordDict`), making
     pip install structlog orjson
     ```
 
+=== "stdlib (no dependencies)"
+    No additional dependencies required. Uses Python's built-in `logging` module.
+
 ## Configure Logging
 
 Just call the `configure_logging` function to set up the logging system.
@@ -54,10 +58,11 @@ Just call the `configure_logging` function to set up the logging system.
 
 You can change the default settings using the following environment variables:
 
-- `LOG_BACKEND`: Select the logging backend (`loguru` or `structlog`). Default: `loguru`
+- `LOG_BACKEND`: Select the logging backend (`stdlib`, `loguru`, or `structlog`). Default: `stdlib`
 - `LOG_LEVEL`: Set the desired log level (default: `INFO`). Available options: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
 - `LOG_FORMAT`: Choose the log format. Options are `TEXT` and `JSON`, or you can provide a custom template (default: `JSON`).
 - `LOG_TIMEZONE`: IANA timezone for timestamps (e.g., `UTC`, `Europe/Zurich`, `America/New_York`) (default: `UTC`).
+- `LOG_JSON_SERIALIZER`: JSON serializer to use (`stdlib` or `orjson`). Use `orjson` for better performance (default: `stdlib`).
 - `LOG_OTEL_ENABLED`: Enable OpenTelemetry trace context extraction (default: auto-enabled if OpenTelemetry is installed).
 
 ### Backend Selection
@@ -65,7 +70,10 @@ You can change the default settings using the following environment variables:
 Select the backend using the `LOG_BACKEND` environment variable:
 
 ```bash
-# Use loguru (default)
+# Use stdlib (default, no dependencies)
+LOG_BACKEND=stdlib
+
+# Use loguru
 LOG_BACKEND=loguru
 
 # Use structlog
@@ -89,6 +97,15 @@ After calling `configure_logging()`, use the appropriate logger for your backend
     configure_logging()
     log = structlog.get_logger()
     log.info("Hello, World!", user_id=123)
+    ```
+
+=== "stdlib"
+    ```python
+    import logging
+
+    configure_logging()
+    logger = logging.getLogger(__name__)
+    logger.info("Hello, World!", extra={"user_id": 123})
     ```
 
 ### Timezone Support

@@ -1,9 +1,10 @@
 """Parametrized Component Tests for Logging Backends.
 
-These tests verify that both loguru and structlog backends behave
+These tests verify that loguru, structlog, and stdlib backends behave
 identically for the public API.
 """
 
+import logging
 from collections.abc import Generator
 from datetime import datetime
 
@@ -22,7 +23,7 @@ json_record_type_adapter = TypeAdapter(JSONRecordDict)
 
 
 # Backend configurations
-BACKENDS = ["loguru", "structlog"]
+BACKENDS = ["loguru", "structlog", "stdlib"]
 
 
 @pytest.fixture
@@ -42,22 +43,38 @@ def reset_structlog() -> Generator[None, None, None]:
 
 
 @pytest.fixture
+def reset_stdlib() -> Generator[None, None, None]:
+    """Reset stdlib logging configuration."""
+    root = logging.getLogger()
+    old_handlers = root.handlers.copy()
+    old_level = root.level
+    root.handlers.clear()
+    yield
+    root.handlers.clear()
+    root.handlers.extend(old_handlers)
+    root.setLevel(old_level)
+
+
+@pytest.fixture
 def reset_backend(
     reset_loguru: None,
     reset_structlog: None,
+    reset_stdlib: None,
 ) -> None:
-    """Reset both backends before each test."""
-    # Both fixtures run due to dependencies, ensuring clean state
-    _ = reset_loguru, reset_structlog  # Use the fixtures
+    """Reset all backends before each test."""
+    _ = reset_loguru, reset_structlog, reset_stdlib
 
 
 def log_message(backend: str, msg: str, **kwargs: object) -> None:
     """Log a message using the appropriate backend."""
     if backend == "loguru":
         loguru_logger.info(msg, **kwargs)
-    else:
+    elif backend == "structlog":
         log = structlog.get_logger()
         log.info(msg, **kwargs)
+    else:
+        stdlib_logger = logging.getLogger(__name__)
+        stdlib_logger.info(msg, extra=kwargs)
 
 
 class TestConfigureLoggingJSON:
@@ -210,11 +227,16 @@ class TestConfigureLoggingLevel:
             loguru_logger.debug("Debug message")
             loguru_logger.info("Info message")
             loguru_logger.warning("Warning message")
-        else:
+        elif backend == "structlog":
             log = structlog.get_logger()
             log.debug("Debug message")
             log.info("Info message")
             log.warning("Warning message")
+        else:
+            stdlib_logger = logging.getLogger(__name__)
+            stdlib_logger.debug("Debug message")
+            stdlib_logger.info("Info message")
+            stdlib_logger.warning("Warning message")
 
         # Assert
         output = capsys.readouterr().out
@@ -307,11 +329,12 @@ class TestConfigureLoggingOTel:
         }
 
         # Mock the appropriate module
-        module_path = (
-            "grelmicro.logging._loguru"
-            if backend == "loguru"
-            else "grelmicro.logging._structlog"
-        )
+        if backend == "loguru":
+            module_path = "grelmicro.logging._loguru"
+        elif backend == "structlog":
+            module_path = "grelmicro.logging._structlog"
+        else:
+            module_path = "grelmicro.logging._stdlib"
         mocker.patch(
             f"{module_path}.get_otel_trace_context",
             return_value=trace_context,
@@ -351,11 +374,12 @@ class TestConfigureLoggingOTel:
         monkeypatch.setenv("LOG_FORMAT", "json")
 
         # Mock should not be called
-        module_path = (
-            "grelmicro.logging._loguru"
-            if backend == "loguru"
-            else "grelmicro.logging._structlog"
-        )
+        if backend == "loguru":
+            module_path = "grelmicro.logging._loguru"
+        elif backend == "structlog":
+            module_path = "grelmicro.logging._structlog"
+        else:
+            module_path = "grelmicro.logging._stdlib"
         mock_otel = mocker.patch(f"{module_path}.get_otel_trace_context")
 
         # Act
@@ -387,12 +411,9 @@ class TestConfigureLoggingOTel:
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_OTEL_ENABLED", "true")
 
-        module_path = (
-            "grelmicro.logging._loguru"
-            if backend == "loguru"
-            else "grelmicro.logging._structlog"
+        mocker.patch(
+            "grelmicro.logging._shared.has_opentelemetry", return_value=False
         )
-        mocker.patch(f"{module_path}.has_opentelemetry", return_value=False)
 
         # Act / Assert
         with pytest.raises(DependencyNotFoundError, match="opentelemetry"):
@@ -425,3 +446,76 @@ class TestConfigureLoggingText:
         assert "Text format test" in output
         # Both backends should indicate INFO level
         assert "info" in output.lower()
+
+
+class TestConfigureLoggingJSONSerializer:
+    """Test JSON serializer configuration across backends."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_default_stdlib_serializer(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test default stdlib JSON serializer works."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.delenv("LOG_JSON_SERIALIZER", raising=False)
+
+        # Act
+        configure_logging()
+        log_message(backend, "Stdlib serializer test", count=42)
+
+        # Assert
+        output = capsys.readouterr().out.strip()
+        log_record = json_record_type_adapter.validate_json(output)
+        assert log_record["msg"] == "Stdlib serializer test"
+        assert log_record["ctx"] == {"count": 42}
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_orjson_serializer(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test orjson serializer produces valid output."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("LOG_JSON_SERIALIZER", "orjson")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Orjson serializer test", count=42)
+
+        # Assert
+        output = capsys.readouterr().out.strip()
+        log_record = json_record_type_adapter.validate_json(output)
+        assert log_record["msg"] == "Orjson serializer test"
+        assert log_record["ctx"] == {"count": 42}
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_orjson_serializer_not_installed(
+        self,
+        backend: str,
+        mocker: pytest_mock.MockerFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test error when orjson serializer is configured but not installed."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_JSON_SERIALIZER", "orjson")
+
+        mocker.patch("grelmicro.logging._shared.has_orjson", return_value=False)
+
+        # Act / Assert
+        with pytest.raises(DependencyNotFoundError, match="orjson"):
+            configure_logging()
