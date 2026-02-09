@@ -72,7 +72,9 @@ def _get_logger(backend: str) -> Callable[[], None]:
         return lambda: slog.info("Msg", user_id=123, action="test")
     # stdlib
     stdlib_log = logging.getLogger("bench")
-    return lambda: stdlib_log.info("Msg", extra={"user_id": 123, "action": "test"})
+    return lambda: stdlib_log.info(
+        "Msg", extra={"user_id": 123, "action": "test"}
+    )
 
 
 def _run_benchmark(backend: str, serializer: str, iterations: int) -> float:
@@ -117,15 +119,21 @@ def _print_results(results: list[tuple[str, str, float]]) -> None:
     print("\n" + "=" * 60)  # noqa: T201
     print("Results (sorted by speed)")  # noqa: T201
     print("=" * 60)  # noqa: T201
-    print(f"\n{'Backend':<12} {'Serializer':<10} {'Ops/sec':>12} {'vs Best':>10}")  # noqa: T201
+    print(
+        f"\n{'Backend':<12} {'Serializer':<10} {'Ops/sec':>12} {'vs Best':>10}"
+    )  # noqa: T201
     print("-" * 50)  # noqa: T201
 
     for backend, serializer, ops in results:
         pct = ops / fastest * 100
         print(f"{backend:<12} {serializer:<10} {ops:>12,.0f} {pct:>9.1f}%")  # noqa: T201
 
-    print(f"\nFastest: {results[0][0]} + {results[0][1]} ({results[0][2]:,.0f} ops/sec)")  # noqa: T201
-    print(f"Slowest: {results[-1][0]} + {results[-1][1]} ({results[-1][2]:,.0f} ops/sec)")  # noqa: T201
+    print(
+        f"\nFastest: {results[0][0]} + {results[0][1]} ({results[0][2]:,.0f} ops/sec)"
+    )  # noqa: T201
+    print(
+        f"Slowest: {results[-1][0]} + {results[-1][1]} ({results[-1][2]:,.0f} ops/sec)"
+    )  # noqa: T201
     print(f"Speedup: {results[0][2] / results[-1][2]:.2f}x")  # noqa: T201
 
 

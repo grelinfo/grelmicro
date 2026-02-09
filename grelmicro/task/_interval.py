@@ -47,7 +47,7 @@ class IntervalTask(Task):
         self._name = name or alt_name
         self._interval = interval
         self._async_function = self._prepare_async_function(function)
-        self._sync = sync if sync else nullcontext()
+        self._sync = sync or nullcontext()
 
     @property
     def name(self) -> str:
