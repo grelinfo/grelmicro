@@ -48,13 +48,32 @@ class _JSONFormatter(logging.Formatter):
 
         # Extract extra context (excluding standard LogRecord attributes)
         standard_attrs = {
-            "name", "msg", "args", "created", "filename", "funcName",
-            "levelname", "levelno", "lineno", "module", "msecs",
-            "pathname", "process", "processName", "relativeCreated",
-            "stack_info", "exc_info", "exc_text", "thread", "threadName",
-            "taskName", "message",
+            "name",
+            "msg",
+            "args",
+            "created",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "module",
+            "msecs",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "stack_info",
+            "exc_info",
+            "exc_text",
+            "thread",
+            "threadName",
+            "taskName",
+            "message",
         }
-        ctx = {k: v for k, v in record.__dict__.items() if k not in standard_attrs}
+        ctx = {
+            k: v for k, v in record.__dict__.items() if k not in standard_attrs
+        }
 
         # Handle exception info
         if record.exc_info and record.exc_info[0] is not None:
