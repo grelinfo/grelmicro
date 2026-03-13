@@ -7,7 +7,7 @@ from inspect import iscoroutinefunction
 from logging import getLogger
 from typing import Any
 
-from anyio import TASK_STATUS_IGNORED, sleep, to_thread
+from anyio import TASK_STATUS_IGNORED, WouldBlock, sleep, to_thread
 from anyio.abc import TaskStatus
 from fast_depends import inject
 
@@ -72,6 +72,8 @@ class IntervalTask(Task):
                             logger.exception(
                                 "Task execution error: %s", self.name
                             )
+                except WouldBlock:
+                    logger.debug("Task skipped (already locked): %s", self.name)
                 except Exception:
                     logger.exception(
                         "Task synchronization error: %s", self.name

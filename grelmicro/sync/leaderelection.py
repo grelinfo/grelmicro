@@ -4,7 +4,7 @@ from logging import getLogger
 from time import monotonic
 from types import TracebackType
 from typing import TYPE_CHECKING, Annotated, Self
-from uuid import UUID, uuid1
+from uuid import UUID
 
 from anyio import (
     TASK_STATUS_IGNORED,
@@ -20,6 +20,7 @@ from pydantic import BaseModel, model_validator
 from typing_extensions import Doc
 
 from grelmicro.sync._backends import get_sync_backend
+from grelmicro.sync._utils import generate_worker_id
 from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
 from grelmicro.task.abc import Task
 
@@ -211,7 +212,7 @@ class LeaderElection(Synchronization, Task):
         """Initialize the leader election."""
         self.config = LeaderElectionConfig(
             name=name,
-            worker=worker or uuid1(),
+            worker=worker or generate_worker_id(),
             lease_duration=lease_duration,
             renew_deadline=renew_deadline,
             retry_interval=retry_interval,

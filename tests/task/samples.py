@@ -3,7 +3,7 @@
 from types import TracebackType
 from typing import Self
 
-from anyio import TASK_STATUS_IGNORED, Condition, Event
+from anyio import TASK_STATUS_IGNORED, Condition, Event, WouldBlock, sleep
 from anyio.abc import TaskStatus
 from typer import echo
 
@@ -11,6 +11,11 @@ from grelmicro.sync.abc import Synchronization
 from grelmicro.task.abc import Task
 
 condition = Condition()
+
+# Shared state for e2e TaskLock tests
+e2e_event_1: Event = Event()
+e2e_event_2: Event = Event()
+e2e_counter: dict[str, int] = {"worker_1": 0, "worker_2": 0}
 
 
 def test1() -> None:
@@ -36,6 +41,39 @@ async def always_fail() -> None:
     """Test Function that always fails."""
     msg = "Test Error"
     raise ValueError(msg)
+
+
+async def set_event_1() -> None:
+    """Set e2e_event_1."""
+    e2e_event_1.set()
+
+
+async def set_event_2() -> None:
+    """Set e2e_event_2."""
+    e2e_event_2.set()
+
+
+async def worker_1_hold() -> None:
+    """Set e2e_event_1 then hold."""
+    e2e_counter["worker_1"] += 1
+    e2e_event_1.set()
+    await sleep(10)
+
+
+async def worker_1_count() -> None:
+    """Increment worker_1 counter and set e2e_event_1."""
+    e2e_counter["worker_1"] += 1
+    e2e_event_1.set()
+
+
+async def worker_2_count() -> None:
+    """Increment worker_2 counter and set e2e_event_2."""
+    e2e_counter["worker_2"] += 1
+    e2e_event_2.set()
+
+
+async def noop() -> None:
+    """Do nothing."""
 
 
 class SimpleClass:
@@ -67,6 +105,23 @@ class EventTask(Task):
         """Run the task that sets the event."""
         task_status.started()
         self._event.set()
+
+
+class WouldBlockLock(Synchronization):
+    """Lock that always raises WouldBlock."""
+
+    async def __aenter__(self) -> Self:
+        """Enter the synchronization primitive."""
+        msg = "Already locked"
+        raise WouldBlock(msg)
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        """Exit the synchronization primitive."""
 
 
 class BadLock(Synchronization):
