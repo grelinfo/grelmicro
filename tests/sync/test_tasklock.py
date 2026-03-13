@@ -15,6 +15,8 @@ from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 
 LOCK_NAME = "test_task_lock"
+LOCK_AT_LEAST_FOR = 5
+LOCK_AT_MOST_FOR = 10
 WORKER_1 = "worker_1"
 WORKER_2 = "worker_2"
 
@@ -34,11 +36,11 @@ def test_tasklock_config_valid() -> None:
     config = TaskLockConfig(
         name="test",
         worker="worker",
-        lock_at_least_for=5,
-        lock_at_most_for=10,
+        lock_at_least_for=LOCK_AT_LEAST_FOR,
+        lock_at_most_for=LOCK_AT_MOST_FOR,
     )
-    assert config.lock_at_least_for == 5
-    assert config.lock_at_most_for == 10
+    assert config.lock_at_least_for == LOCK_AT_LEAST_FOR
+    assert config.lock_at_most_for == LOCK_AT_MOST_FOR
 
 
 def test_tasklock_config_at_least_greater_than_at_most() -> None:
@@ -275,7 +277,7 @@ async def test_tasklock_release_backend_error(
     )
 
     # Acquire successfully, then fail on release
-    with pytest.raises(LockReleaseError):
+    with pytest.raises(LockReleaseError):  # noqa: PT012
         async with task_lock:
             await sleep(0.01)  # Ensure elapsed > lock_at_least_for
             # Patch release after successful acquire
@@ -288,12 +290,14 @@ async def test_tasklock_reacquire_backend_error(
     backend: SyncBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock raises LockReleaseError on backend error during re-acquire in exit."""
+    lock_at_least_for = 10
+    lock_at_most_for = 60
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        lock_at_least_for=10,
-        lock_at_most_for=60,
+        lock_at_least_for=lock_at_least_for,
+        lock_at_most_for=lock_at_most_for,
     )
 
     original_acquire = backend.acquire
@@ -302,7 +306,7 @@ async def test_tasklock_reacquire_backend_error(
         *, name: str, token: str, duration: float
     ) -> bool:
         # Let initial acquire succeed, fail on re-acquire (shorter duration)
-        if duration < 60:
+        if duration < lock_at_most_for:
             msg = "Backend Error"
             raise Exception(msg)  # noqa: TRY002
         return await original_acquire(name=name, token=token, duration=duration)
@@ -322,12 +326,14 @@ async def test_tasklock_reacquire_lost_warning(
     """Test TaskLock logs warning when re-acquire returns False (lock lost)."""
     # Arrange
     caplog.set_level("WARNING")
+    lock_at_least_for = 10
+    lock_at_most_for = 60
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        lock_at_least_for=10,
-        lock_at_most_for=60,
+        lock_at_least_for=lock_at_least_for,
+        lock_at_most_for=lock_at_most_for,
     )
 
     original_acquire = backend.acquire
@@ -336,7 +342,7 @@ async def test_tasklock_reacquire_lost_warning(
         *, name: str, token: str, duration: float
     ) -> bool:
         # Let initial acquire succeed, return False on re-acquire
-        if duration < 60:
+        if duration < lock_at_most_for:
             return False
         return await original_acquire(name=name, token=token, duration=duration)
 

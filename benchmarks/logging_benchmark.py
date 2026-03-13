@@ -119,7 +119,7 @@ def _print_results(results: list[tuple[str, str, float]]) -> None:
     print("\n" + "=" * 60)  # noqa: T201
     print("Results (sorted by speed)")  # noqa: T201
     print("=" * 60)  # noqa: T201
-    print(
+    print(  # noqa: T201
         f"\n{'Backend':<12} {'Serializer':<10} {'Ops/sec':>12} {'vs Best':>10}"
     )
     print("-" * 50)  # noqa: T201
@@ -128,10 +128,10 @@ def _print_results(results: list[tuple[str, str, float]]) -> None:
         pct = ops / fastest * 100
         print(f"{backend:<12} {serializer:<10} {ops:>12,.0f} {pct:>9.1f}%")  # noqa: T201
 
-    print(
+    print(  # noqa: T201
         f"\nFastest: {results[0][0]} + {results[0][1]} ({results[0][2]:,.0f} ops/sec)"
     )
-    print(
+    print(  # noqa: T201
         f"Slowest: {results[-1][0]} + {results[-1][1]} ({results[-1][2]:,.0f} ops/sec)"
     )
     print(f"Speedup: {results[0][2] / results[-1][2]:.2f}x")  # noqa: T201

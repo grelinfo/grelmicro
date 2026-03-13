@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Annotated, Any
-from uuid import UUID
 
 from typing_extensions import Doc
 
-from grelmicro.sync.abc import Synchronization
-from grelmicro.task.abc import Task
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
-    from grelmicro.sync.abc import SyncBackend
+    from collections.abc import Awaitable, Callable
+    from uuid import UUID
+
+    from grelmicro.sync.abc import SyncBackend, Synchronization
     from grelmicro.sync.leaderelection import LeaderElection
+    from grelmicro.task.abc import Task
 
 
 class TaskRouter:

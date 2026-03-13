@@ -189,7 +189,8 @@ def test_router_scheduled() -> None:
     router.scheduled(seconds=30, name="custom-name", backend=backend)(test2)
 
     # Assert
-    assert len(router.tasks) == 2
+    expected_task_count = 2
+    assert len(router.tasks) == expected_task_count
     assert all(isinstance(task, ScheduledTask) for task in router.tasks)
     assert router.tasks[0].name == "tests.task.samples:test1"
     assert router.tasks[1].name == "custom-name"

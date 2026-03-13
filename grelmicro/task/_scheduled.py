@@ -1,7 +1,11 @@
 """Scheduled Task."""
 
-from collections.abc import Awaitable, Callable
-from contextlib import AsyncExitStack, asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import (
+    AbstractAsyncContextManager,
+    AsyncExitStack,
+    asynccontextmanager,
+)
 from functools import partial
 from inspect import iscoroutinefunction
 from logging import getLogger
@@ -12,7 +16,7 @@ from anyio import TASK_STATUS_IGNORED, WouldBlock, sleep, to_thread
 from anyio.abc import TaskStatus
 from fast_depends import inject
 
-from grelmicro.sync.abc import SyncBackend
+from grelmicro.sync.abc import SyncBackend, Synchronization
 from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.tasklock import TaskLock
 from grelmicro.task._utils import validate_and_generate_reference
@@ -117,11 +121,14 @@ class ScheduledTask(Task):
         )
 
 
+_SyncFactory = Callable[[], AbstractAsyncContextManager[None]]
+
+
 def _build_sync(
     *,
     leader: LeaderElection | None,
     task_lock: TaskLock,
-) -> Callable[..., Any]:
+) -> _SyncFactory:
     """Build a sync context manager factory from leader and task lock."""
     if leader is None:
         return _single_sync(task_lock)
@@ -129,22 +136,24 @@ def _build_sync(
     return _sync_chain(guard, task_lock)
 
 
-def _single_sync(sync: Any) -> Callable[..., Any]:
+def _single_sync(sync: Synchronization) -> _SyncFactory:
     """Wrap a single sync primitive as a factory."""
 
     @asynccontextmanager
-    async def _wrapper():  # type: ignore[no-untyped-def]
+    async def _wrapper() -> AsyncIterator[None]:
         async with sync:
             yield
 
     return _wrapper
 
 
-def _sync_chain(guard: Any, task_lock: Any) -> Callable[..., Any]:
+def _sync_chain(
+    guard: Synchronization, task_lock: Synchronization
+) -> _SyncFactory:
     """Wrap leader guard and task lock as a nested factory."""
 
     @asynccontextmanager
-    async def _wrapper():  # type: ignore[no-untyped-def]
+    async def _wrapper() -> AsyncIterator[None]:
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(guard)
             await stack.enter_async_context(task_lock)
