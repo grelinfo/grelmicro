@@ -52,6 +52,7 @@ The primitives are technology agnostic, supporting multiple backends like Redis,
 
 The available primitives are:
 
+- **Task Lock**: A distributed lock for scheduled tasks with minimum and maximum hold times. Best used via the [`scheduled()` decorator](https://grelinfo.github.io/grelmicro/task/#scheduled-task) which configures it automatically.
 - **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **Lock**: A distributed lock that can be used to synchronize access to shared resources.
 
