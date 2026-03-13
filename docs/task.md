@@ -48,23 +48,48 @@ To create an `IntervalTask`, use the `interval` decorator method of the `TaskMan
     ```
 
 
-## Synchronization
+## Scheduled Task
 
-The Task can be synchronized using a [Synchoronization Primitive](sync.md) to control concurrency and manage simultaneous task execution.
+To create a distributed scheduled task that runs at most once per interval across all workers, use the `scheduled` decorator. It has a built-in [`TaskLock`](sync.md#task-lock), so there is no need to configure synchronization manually.
 
-=== "Lock"
+```python
+--8<-- "task/scheduled.py"
+```
 
-    ```python
-    --8<-- "task/lock.py"
-    ```
+- **`seconds`**: The duration in seconds between each scheduling attempt. Each worker retries every N seconds, but only one worker executes per interval thanks to the built-in lock. Also used as the `lock_at_least_for` value.
+- **`lock_at_most_for`**: Crash protection TTL (defaults to `seconds * 5`). Must be >= `seconds`. If a worker crashes while holding the lock, the lock expires after this duration and another worker can take over.
 
+### With Leader Gating
 
-=== "Leader Election"
+You can optionally gate the task behind a [Leader Election](sync.md#leader-election). The task will only execute on the leader worker:
 
+```python
+--8<-- "task/scheduled_leader.py"
+```
 
-    ```python
-    --8<-- "task/leaderelection.py"
-    ```
+### Custom Crash Protection
+
+For long-running tasks, increase `lock_at_most_for` to avoid premature lock expiration:
+
+```python
+--8<-- "task/scheduled_custom.py"
+```
+
+### How It Works
+
+When the lock is already held, `ScheduledTask` skips the execution (logged at DEBUG level) and retries on the next interval.
+
+```
+Node A:  [acquire] → [execute] → [hold for seconds] → [TTL expires]
+Node B:  [skip] → ... → [skip] → ... → [acquire] → [execute]
+```
+
+## Synchronization (Deprecated)
+
+!!! warning "Deprecated"
+    The `sync` parameter on `interval()` is deprecated. Use the [`scheduled()`](#scheduled-task) decorator instead for distributed task execution with built-in TaskLock.
+
+See [Synchronization Primitives](sync.md) for the standalone `TaskLock` API.
 
 ## Task Router
 

@@ -1,5 +1,6 @@
 """Test Interval Task."""
 
+import warnings
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -20,7 +21,11 @@ from tests.task.samples import (
     test1,
 )
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
+pytestmark = [
+    pytest.mark.anyio,
+    pytest.mark.timeout(10),
+    pytest.mark.filterwarnings("ignore::DeprecationWarning"),
+]
 
 INTERVAL = 0.1
 SLEEP = 0.01
@@ -55,6 +60,18 @@ def test_interval_task_init_with_invalid_interval() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="Interval must be greater than 0"):
         IntervalTask(interval=0, function=test1)
+
+
+def test_interval_task_sync_deprecation_warning() -> None:
+    """Test that sync= emits DeprecationWarning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        IntervalTask(interval=1, function=test1, sync=WouldBlockLock())
+
+    assert len(w) == 1
+    assert issubclass(w[0].category, DeprecationWarning)
+    assert "sync" in str(w[0].message)
+    assert "scheduled()" in str(w[0].message)
 
 
 async def test_interval_task_start() -> None:

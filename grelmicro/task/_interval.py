@@ -1,5 +1,6 @@
 """Interval Task."""
 
+import warnings
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
 from functools import partial
@@ -42,6 +43,14 @@ class IntervalTask(Task):
         if interval <= 0:
             msg = "Interval must be greater than 0"
             raise ValueError(msg)
+
+        if sync is not None:
+            warnings.warn(
+                "The 'sync' parameter on interval() is deprecated. "
+                "Use the scheduled() decorator instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name

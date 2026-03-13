@@ -1,6 +1,6 @@
 """Grelmicro Task Lock.
 
-A ShedLock-style distributed lock for scheduled tasks with two time boundaries:
+A distributed lock for scheduled tasks with two time boundaries:
 - lock_at_least_for: Prevents re-execution on other nodes after task completes.
 - lock_at_most_for: Auto-expires the lock (deadlock protection).
 """
@@ -66,10 +66,13 @@ class TaskLockConfig(BaseModel, frozen=True, extra="forbid"):
 class TaskLock(Synchronization):
     """Task Lock.
 
-    A ShedLock-style distributed lock for scheduled tasks. Unlike a regular Lock,
+    A distributed lock for scheduled tasks. Unlike a regular Lock,
     TaskLock does not release immediately on context manager exit. Instead, it keeps
     the lock held for at least `lock_at_least_for` seconds to prevent re-execution
     on other nodes.
+
+    There is no background task that maintains the lock active during execution.
+    The lock relies entirely on the TTL (`lock_at_most_for`) set at acquire time.
 
     This lock is designed to be used as the `sync` parameter of `IntervalTask`.
     """
