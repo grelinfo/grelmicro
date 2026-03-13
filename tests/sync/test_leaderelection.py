@@ -3,7 +3,7 @@
 import math
 
 import pytest
-from anyio import Event, create_task_group, sleep
+from anyio import Event, WouldBlock, create_task_group, sleep
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
@@ -453,3 +453,60 @@ async def test_error_interval(
     # Assert
     assert leader_election1_nb_errors == 1
     assert leader_election2_nb_errors >= 1
+
+
+# --- Guard ---
+
+
+async def test_guard_raises_would_block_when_not_leader(
+    leader_election: LeaderElection,
+) -> None:
+    """Test guard raises WouldBlock when the worker is not the leader."""
+    # Arrange
+    guard = leader_election.guard()
+
+    # Act / Assert
+    with pytest.raises(WouldBlock):
+        async with guard:
+            pass
+
+
+async def test_guard_succeeds_when_leader(
+    leader_election: LeaderElection,
+) -> None:
+    """Test guard succeeds when the worker is the leader."""
+    # Arrange
+    guard = leader_election.guard()
+    entered = False
+
+    # Act
+    async with create_task_group() as tg:
+        await tg.start(leader_election)
+        await leader_election.wait_for_leader()
+        async with guard:
+            entered = True
+        tg.cancel_scope.cancel()
+
+    # Assert
+    assert entered is True
+
+
+async def test_guard_raises_would_block_after_losing_leadership(
+    leader_election: LeaderElection,
+) -> None:
+    """Test guard raises WouldBlock after leadership is lost."""
+    # Arrange
+    guard = leader_election.guard()
+
+    # Act
+    async with create_task_group() as tg:
+        await tg.start(leader_election)
+        await leader_election.wait_for_leader()
+        tg.cancel_scope.cancel()
+
+    await leader_election.wait_lose_leader()
+
+    # Assert
+    with pytest.raises(WouldBlock):
+        async with guard:
+            pass

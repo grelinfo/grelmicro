@@ -7,6 +7,7 @@ identically for the public API.
 import logging
 from collections.abc import Generator
 from datetime import datetime
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_mock
@@ -16,6 +17,8 @@ from pydantic import TypeAdapter
 
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging import configure_logging
+from grelmicro.logging._shared import get_otel_trace_context, load_settings
+from grelmicro.logging._structlog import _add_logger_info
 from grelmicro.logging.errors import LoggingSettingsValidationError
 from grelmicro.logging.types import JSONRecordDict
 
@@ -519,3 +522,135 @@ class TestConfigureLoggingJSONSerializer:
         # Act / Assert
         with pytest.raises(DependencyNotFoundError, match="orjson"):
             configure_logging()
+
+
+class TestLoadSettings:
+    """Test load_settings from _shared module."""
+
+    def test_invalid_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test load_settings raises on invalid env var."""
+        # Arrange
+        monkeypatch.setenv("LOG_LEVEL", "INVALID")
+
+        # Act / Assert
+        with pytest.raises(LoggingSettingsValidationError):
+            load_settings()
+
+
+class TestGetOtelTraceContext:
+    """Test get_otel_trace_context from _shared module."""
+
+    def test_no_active_span(self) -> None:
+        """Test returns empty dict when no active span."""
+        # Act - no active span, span_context.is_valid is False
+        result = get_otel_trace_context()
+
+        # Assert
+        assert result == {}
+
+    def test_trace_not_installed(
+        self, mocker: pytest_mock.MockerFixture
+    ) -> None:
+        """Test returns empty dict when opentelemetry is not installed."""
+        # Arrange
+        mocker.patch("grelmicro.logging._shared.trace", None)
+
+        # Act
+        result = get_otel_trace_context()
+
+        # Assert
+        assert result == {}
+
+    def test_with_active_span(self, mocker: pytest_mock.MockerFixture) -> None:
+        """Test returns trace_id and span_id with active span."""
+        # Arrange
+        mock_span_context = MagicMock()
+        mock_span_context.is_valid = True
+        mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+        mock_span_context.span_id = 0x1234567890ABCDEF
+
+        mock_span = MagicMock()
+        mock_span.get_span_context.return_value = mock_span_context
+
+        mocker.patch(
+            "grelmicro.logging._shared.trace.get_current_span",
+            return_value=mock_span,
+        )
+
+        # Act
+        result = get_otel_trace_context()
+
+        # Assert
+        assert result == {
+            "trace_id": "1234567890abcdef1234567890abcdef",
+            "span_id": "1234567890abcdef",
+        }
+
+
+class TestStructlogLoggerInfo:
+    """Test structlog _add_logger_info processor edge cases."""
+
+    def test_with_stdlib_record(self) -> None:
+        """Test _add_logger_info when stdlib record is present."""
+        # Arrange
+        record = MagicMock()
+        record.name = "mymodule"
+        record.funcName = "myfunc"
+        record.lineno = 42
+        event_dict = {"_record": record, "event": "test"}
+
+        # Act
+        result = _add_logger_info(None, "info", event_dict)
+
+        # Assert
+        assert result["logger"] == "mymodule:myfunc:42"
+
+    def test_without_callsite_info(self) -> None:
+        """Test _add_logger_info when no callsite info is available."""
+        # Arrange
+        event_dict: dict[str, object] = {"event": "test"}
+
+        # Act
+        result = _add_logger_info(None, "info", event_dict)
+
+        # Assert
+        assert result["logger"] is None
+
+
+_TEST_ERROR_MSG = "test error"
+
+
+def _raise_value_error() -> None:
+    raise ValueError(_TEST_ERROR_MSG)
+
+
+class TestStdlibExceptionFormatting:
+    """Test stdlib _JSONFormatter exception info handling."""
+
+    def test_json_format_with_exception(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test JSON format includes exception info in ctx."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", "stdlib")
+        monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        configure_logging()
+        stdlib_logger = logging.getLogger("test_exception")
+
+        # Act
+        try:
+            _raise_value_error()
+        except ValueError:
+            stdlib_logger.exception("Something failed")
+
+        # Assert
+        output = capsys.readouterr().out.strip()
+        log_record = json_record_type_adapter.validate_json(output)
+        assert log_record["msg"] == "Something failed"
+        assert "exception" in log_record["ctx"]
+        assert "ValueError: test error" in log_record["ctx"]["exception"]

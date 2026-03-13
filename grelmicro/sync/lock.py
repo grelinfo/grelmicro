@@ -3,14 +3,18 @@
 from time import sleep as thread_sleep
 from types import TracebackType
 from typing import Annotated, Self
-from uuid import UUID, uuid1
+from uuid import UUID
 
 from anyio import WouldBlock, from_thread, sleep
 from typing_extensions import Doc
 
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLock, BaseLockConfig
-from grelmicro.sync._utils import generate_task_token, generate_thread_token
+from grelmicro.sync._utils import (
+    generate_task_token,
+    generate_thread_token,
+    generate_worker_id,
+)
 from grelmicro.sync.abc import Seconds, SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
@@ -102,7 +106,7 @@ class Lock(BaseLock):
         """Initialize the lock."""
         self._config: LockConfig = LockConfig(
             name=name,
-            worker=worker or uuid1(),
+            worker=worker or generate_worker_id(),
             lease_duration=lease_duration,
             retry_interval=retry_interval,
         )

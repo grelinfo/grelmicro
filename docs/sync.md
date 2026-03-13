@@ -6,6 +6,7 @@ The primitives are technology agnostic, supporting multiple backends (see more i
 
 The available primitives are:
 
+- **[Task Lock](#task-lock)**: A distributed lock for scheduled tasks with minimum and maximum hold times.
 - **[Leader Election](#leader-election)**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **[Lock](#lock)**: A distributed lock that can be used to synchronize access to shared resources.
 
@@ -41,6 +42,22 @@ You can initialize a backend like this:
 !!! tip
     Feel free to create your own backend and contribute it. In the `sync.abc` module, you can find the protocol for creating new backends.
 
+
+
+## Task Lock
+
+The Task Lock is a distributed lock designed for scheduled tasks. Unlike a regular Lock, it does not release immediately. Instead, it keeps the lock held for a configurable minimum duration to prevent re-execution on other nodes.
+
+There is no background task that maintains the lock active during execution. The lock relies entirely on the TTL (`lock_at_most_for`) set at acquire time. If the task runs longer than `lock_at_most_for`, the lock expires and another node may acquire it.
+
+- **`lock_at_least_for`**: Minimum duration to hold the lock after task completion. Prevents another node from re-executing too soon.
+- **`lock_at_most_for`**: Maximum duration to hold the lock. Acts as a TTL for crash/deadlock protection.
+
+!!! tip
+    For scheduled tasks, prefer the [`scheduled()` decorator](task.md#scheduled-task) which configures a `TaskLock` automatically with sensible defaults.
+
+!!! warning
+    When the lock expires before the task completes (`lock_at_most_for` exceeded), another node may acquire the lock and execute concurrently. A warning is logged in this case.
 
 
 ## Leader Election

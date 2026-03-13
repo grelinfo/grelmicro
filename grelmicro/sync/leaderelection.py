@@ -4,12 +4,13 @@ from logging import getLogger
 from time import monotonic
 from types import TracebackType
 from typing import TYPE_CHECKING, Annotated, Self
-from uuid import UUID, uuid1
+from uuid import UUID
 
 from anyio import (
     TASK_STATUS_IGNORED,
     CancelScope,
     Condition,
+    WouldBlock,
     fail_after,
     get_cancelled_exc_class,
     move_on_after,
@@ -20,6 +21,7 @@ from pydantic import BaseModel, model_validator
 from typing_extensions import Doc
 
 from grelmicro.sync._backends import get_sync_backend
+from grelmicro.sync._utils import generate_worker_id
 from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
 from grelmicro.task.abc import Task
 
@@ -211,7 +213,7 @@ class LeaderElection(Synchronization, Task):
         """Initialize the leader election."""
         self.config = LeaderElectionConfig(
             name=name,
-            worker=worker or uuid1(),
+            worker=worker or generate_worker_id(),
             lease_duration=lease_duration,
             renew_deadline=renew_deadline,
             retry_interval=retry_interval,
@@ -369,6 +371,17 @@ class LeaderElection(Synchronization, Task):
             monotonic() - self._state_updated_at
         ) >= self.config.renew_deadline
 
+    def guard(self) -> "_LeaderGuard":
+        """Return a non-blocking synchronization guard.
+
+        The guard raises ``WouldBlock`` if the current worker is not the leader,
+        making it suitable for use as the ``sync`` parameter of ``IntervalTask``.
+
+        Unlike using ``LeaderElection`` directly (which blocks until leader),
+        the guard skips the current tick and retries on the next interval.
+        """
+        return _LeaderGuard(self)
+
     async def _release(self) -> None:
         try:
             with fail_after(self.config.backend_timeout):
@@ -384,3 +397,28 @@ class LeaderElection(Synchronization, Task):
             logger.exception(
                 "Leader Election failed to release lock: %s", self.name
             )
+
+
+class _LeaderGuard(Synchronization):
+    """Non-blocking leader election guard.
+
+    Raises ``WouldBlock`` on entry if the worker is not the leader.
+    """
+
+    def __init__(self, election: LeaderElection) -> None:
+        self._election = election
+
+    async def __aenter__(self) -> Self:
+        """Enter the guard, raising WouldBlock if not leader."""
+        if not self._election.is_leader():
+            msg = f"Not leader: {self._election.name}"
+            raise WouldBlock(msg)
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        """Exit the guard (no-op)."""

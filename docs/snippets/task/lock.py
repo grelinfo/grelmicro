@@ -1,11 +1,10 @@
 from grelmicro.sync import Lock
 from grelmicro.task import TaskManager
 
-lock = Lock("my_task")
 task = TaskManager()
 
 
-@task.interval(seconds=5, sync=lock)
+@task.interval(seconds=5)
 async def my_task():
-    async with lock:
+    async with Lock("shared-resource"):
         print("Hello, World!")

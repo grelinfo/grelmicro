@@ -1,13 +1,20 @@
 """Grelmicro Task Router."""
 
-from collections.abc import Awaitable, Callable
-from typing import Annotated, Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
-from grelmicro.sync.abc import Synchronization
-from grelmicro.task.abc import Task
 from grelmicro.task.errors import TaskAddOperationError
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from uuid import UUID
+
+    from grelmicro.sync.abc import SyncBackend, Synchronization
+    from grelmicro.sync.leaderelection import LeaderElection
+    from grelmicro.task.abc import Task
 
 
 class TaskRouter:
@@ -79,8 +86,12 @@ class TaskRouter:
                 """
                 The synchronization primitive to use for the task.
 
-                You can use a `LeasedLock` or a `LeaderElection`, for example. If None,
-                no synchronization is used and the task will run on all workers.
+                .. deprecated::
+                    The ``sync`` parameter is deprecated. Use the ``scheduled()``
+                    decorator instead for distributed task execution with built-in
+                    TaskLock.
+
+                If None, no synchronization is used and the task will run on all workers.
                 """,
             ),
         ] = None,
@@ -88,7 +99,9 @@ class TaskRouter:
         [Callable[..., Any | Awaitable[Any]]],
         Callable[..., Any | Awaitable[Any]],
     ]:
-        """Decorate function to add it to the task scheduler.
+        """Decorate function to add it as a local interval task.
+
+        For distributed scheduled tasks with built-in locking, use ``scheduled()`` instead.
 
         Raises:
             TaskNameGenerationError: If the task name generation fails.
@@ -110,7 +123,107 @@ class TaskRouter:
 
         return decorator
 
-    def include_router(self, router: "TaskRouter") -> None:
+    def scheduled(
+        self,
+        *,
+        seconds: Annotated[
+            float,
+            Doc(
+                """
+                The duration in seconds between each scheduling attempt.
+
+                Each worker retries every N seconds, but only one worker executes
+                per interval thanks to the built-in lock. Also used as the
+                ``lock_at_least_for`` value.
+                """,
+            ),
+        ],
+        name: Annotated[
+            str | None,
+            Doc(
+                """
+                The name of the task.
+
+                If None, a name will be generated automatically from the function.
+                Also used as the TaskLock name.
+                """,
+            ),
+        ] = None,
+        lock_at_most_for: Annotated[
+            float | None,
+            Doc(
+                """
+                The maximum duration in seconds to hold the lock (crash protection).
+
+                Defaults to ``seconds * 5``. Must be >= ``seconds``.
+                """,
+            ),
+        ] = None,
+        leader: Annotated[
+            LeaderElection | None,
+            Doc(
+                """
+                Optional leader election for leader gating.
+
+                When provided, the task only executes on the leader worker.
+                """,
+            ),
+        ] = None,
+        backend: Annotated[
+            SyncBackend | None,
+            Doc(
+                """
+                The distributed lock backend.
+
+                By default, uses the lock backend registry.
+                """,
+            ),
+        ] = None,
+        worker: Annotated[
+            str | UUID | None,
+            Doc(
+                """
+                The worker identity.
+
+                By default, a UUIDv1 will be generated.
+                """,
+            ),
+        ] = None,
+    ) -> Callable[
+        [Callable[..., Any | Awaitable[Any]]],
+        Callable[..., Any | Awaitable[Any]],
+    ]:
+        """Decorate function to add it as a distributed scheduled task.
+
+        The task runs at most once per interval across all workers, using a built-in
+        TaskLock. Can optionally be gated behind a leader election.
+
+        Raises:
+            TaskNameGenerationError: If the task name generation fails.
+            ValueError: If seconds is less than or equal to 0.
+            ValueError: If lock_at_most_for is less than seconds.
+        """
+        from grelmicro.task._scheduled import ScheduledTask  # noqa: PLC0415
+
+        def decorator(
+            function: Callable[[], None | Awaitable[None]],
+        ) -> Callable[[], None | Awaitable[None]]:
+            self.add_task(
+                ScheduledTask(
+                    function=function,
+                    seconds=seconds,
+                    name=name,
+                    lock_at_most_for=lock_at_most_for,
+                    leader=leader,
+                    backend=backend,
+                    worker=worker,
+                ),
+            )
+            return function
+
+        return decorator
+
+    def include_router(self, router: TaskRouter) -> None:
         """Include another router in this router."""
         if self._started:
             raise TaskAddOperationError

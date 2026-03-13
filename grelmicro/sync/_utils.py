@@ -1,7 +1,12 @@
 from threading import get_ident
-from uuid import NAMESPACE_DNS, UUID, uuid3
+from uuid import NAMESPACE_DNS, UUID, uuid1, uuid3
 
 from anyio import get_current_task
+
+
+def generate_worker_id() -> UUID:
+    """Generate a unique worker identity using UUIDv1."""
+    return uuid1()
 
 
 def generate_worker_namespace(worker: str) -> UUID:

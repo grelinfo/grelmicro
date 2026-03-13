@@ -1,5 +1,6 @@
 """Interval Task."""
 
+import warnings
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
 from functools import partial
@@ -7,7 +8,7 @@ from inspect import iscoroutinefunction
 from logging import getLogger
 from typing import Any
 
-from anyio import TASK_STATUS_IGNORED, sleep, to_thread
+from anyio import TASK_STATUS_IGNORED, WouldBlock, sleep, to_thread
 from anyio.abc import TaskStatus
 from fast_depends import inject
 
@@ -43,6 +44,14 @@ class IntervalTask(Task):
             msg = "Interval must be greater than 0"
             raise ValueError(msg)
 
+        if sync is not None:
+            warnings.warn(
+                "The 'sync' parameter on interval() is deprecated. "
+                "Use the scheduled() decorator instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
         self._interval = interval
@@ -72,6 +81,8 @@ class IntervalTask(Task):
                             logger.exception(
                                 "Task execution error: %s", self.name
                             )
+                except WouldBlock:
+                    logger.debug("Task skipped (already locked): %s", self.name)
                 except Exception:
                     logger.exception(
                         "Task synchronization error: %s", self.name

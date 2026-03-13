@@ -6,7 +6,6 @@ task = TaskManager()
 task.add_task(leader)
 
 
-@task.interval(seconds=5)
-async def my_task():
-    if leader.is_leader():
-        print("Hello from the leader!")
+@task.scheduled(seconds=60, leader=leader)
+async def cleanup():
+    print("Running cleanup...")

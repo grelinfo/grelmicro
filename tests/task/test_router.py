@@ -9,6 +9,7 @@ from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.task import TaskRouter
 from grelmicro.task._interval import IntervalTask
+from grelmicro.task._scheduled import ScheduledTask
 from grelmicro.task.errors import FunctionTypeError, TaskAddOperationError
 from tests.task.samples import EventTask, SimpleClass, test1, test2, test3
 
@@ -59,6 +60,7 @@ def test_router_include_router() -> None:
     assert router.tasks == [custom_task1, custom_task2]
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_router_interval() -> None:
     """Test Task Router add interval task."""
     # Arrange
@@ -174,3 +176,50 @@ def test_router_started_propagation() -> None:
     assert router_child_started_before is False
     assert router_started_after is True
     assert router_child_started_after is True
+
+
+def test_router_scheduled() -> None:
+    """Test Task Router add scheduled task."""
+    # Arrange
+    backend = MemorySyncBackend()
+    router = TaskRouter()
+
+    # Act
+    router.scheduled(seconds=60, backend=backend)(test1)
+    router.scheduled(seconds=30, name="custom-name", backend=backend)(test2)
+
+    # Assert
+    expected_task_count = 2
+    assert len(router.tasks) == expected_task_count
+    assert all(isinstance(task, ScheduledTask) for task in router.tasks)
+    assert router.tasks[0].name == "tests.task.samples:test1"
+    assert router.tasks[1].name == "custom-name"
+
+
+def test_router_scheduled_name_generation() -> None:
+    """Test Task Router Scheduled Name Generation."""
+    # Arrange
+    backend = MemorySyncBackend()
+    router = TaskRouter()
+
+    # Act
+    router.scheduled(seconds=10, backend=backend)(test1)
+    router.scheduled(seconds=10, backend=backend)(SimpleClass.static_method)
+
+    # Assert
+    assert router.tasks[0].name == "tests.task.samples:test1"
+    assert (
+        router.tasks[1].name == "tests.task.samples:SimpleClass.static_method"
+    )
+
+
+def test_router_scheduled_when_started() -> None:
+    """Test Task Router Scheduled When Started."""
+    # Arrange
+    backend = MemorySyncBackend()
+    router = TaskRouter()
+    router.do_mark_as_started()
+
+    # Act
+    with pytest.raises(TaskAddOperationError):
+        router.scheduled(seconds=10, backend=backend)(test1)

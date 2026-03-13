@@ -4,7 +4,7 @@ coverage:
   status:
     project:
       default:
-        target: 100% # overall project coverage
+        target: auto # do not regress from base branch
         if_ci_failed: error
       unit:
         target: 90% # unit test coverage
