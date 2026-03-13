@@ -60,18 +60,6 @@ async def worker_1_hold() -> None:
     await sleep(10)
 
 
-async def worker_1_count() -> None:
-    """Increment worker_1 counter and set e2e_event_1."""
-    e2e_counter["worker_1"] += 1
-    e2e_event_1.set()
-
-
-async def worker_2_count() -> None:
-    """Increment worker_2 counter and set e2e_event_2."""
-    e2e_counter["worker_2"] += 1
-    e2e_event_2.set()
-
-
 async def noop() -> None:
     """Do nothing."""
 

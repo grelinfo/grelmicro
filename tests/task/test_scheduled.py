@@ -207,14 +207,14 @@ async def test_scheduled_task_two_workers(backend: SyncBackend) -> None:
     # Arrange
     task_1 = ScheduledTask(
         seconds=SECONDS,
-        function=samples.worker_1_count,
+        function=samples.set_event_1,
         name="e2e_task",
         backend=backend,
         worker="worker_1",
     )
     task_2 = ScheduledTask(
         seconds=SECONDS,
-        function=samples.worker_2_count,
+        function=samples.set_event_2,
         name="e2e_task",
         backend=backend,
         worker="worker_2",
@@ -228,9 +228,9 @@ async def test_scheduled_task_two_workers(backend: SyncBackend) -> None:
         await sleep(SECONDS * 2)
         tg.cancel_scope.cancel()
 
-    # Assert
-    assert samples.e2e_counter["worker_1"] >= 1
-    assert samples.e2e_counter["worker_2"] == 0
+    # Assert - worker_1 acquired the lock, worker_2 was blocked
+    assert samples.e2e_event_1.is_set()
+    assert not samples.e2e_event_2.is_set()
 
 
 async def test_scheduled_task_lock_at_least_for(backend: SyncBackend) -> None:

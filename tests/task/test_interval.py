@@ -242,13 +242,13 @@ async def test_interval_task_with_tasklock_two_workers(
     )
     task_1 = IntervalTask(
         interval=INTERVAL,
-        function=samples.worker_1_count,
+        function=samples.set_event_1,
         name="e2e_worker_1",
         sync=lock_1,
     )
     task_2 = IntervalTask(
         interval=INTERVAL,
-        function=samples.worker_2_count,
+        function=samples.set_event_2,
         name="e2e_worker_2",
         sync=lock_2,
     )
@@ -261,9 +261,9 @@ async def test_interval_task_with_tasklock_two_workers(
         await sleep(INTERVAL * 2)
         tg.cancel_scope.cancel()
 
-    # Assert
-    assert samples.e2e_counter["worker_1"] >= 1
-    assert samples.e2e_counter["worker_2"] == 0
+    # Assert - worker_1 acquired the lock, worker_2 was blocked
+    assert samples.e2e_event_1.is_set()
+    assert not samples.e2e_event_2.is_set()
 
 
 async def test_interval_task_with_tasklock_lock_at_least_for(
