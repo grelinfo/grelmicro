@@ -560,9 +560,7 @@ class TestGetOtelTraceContext:
         # Assert
         assert result == {}
 
-    def test_with_active_span(
-        self, mocker: pytest_mock.MockerFixture
-    ) -> None:
+    def test_with_active_span(self, mocker: pytest_mock.MockerFixture) -> None:
         """Test returns trace_id and span_id with active span."""
         # Arrange
         mock_span_context = MagicMock()
