@@ -178,7 +178,6 @@ def test_router_started_propagation() -> None:
     assert router_child_started_after is True
 
 
-
 def test_router_scheduled() -> None:
     """Test Task Router add scheduled task."""
     # Arrange

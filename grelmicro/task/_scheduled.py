@@ -50,7 +50,9 @@ class ScheduledTask(Task):
             msg = "seconds must be greater than 0"
             raise ValueError(msg)
 
-        resolved_lock_at_most_for = lock_at_most_for if lock_at_most_for is not None else seconds * 5
+        resolved_lock_at_most_for = (
+            lock_at_most_for if lock_at_most_for is not None else seconds * 5
+        )
 
         if resolved_lock_at_most_for < seconds:
             msg = "lock_at_most_for must be greater than or equal to seconds"

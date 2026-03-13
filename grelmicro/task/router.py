@@ -223,7 +223,7 @@ class TaskRouter:
 
         return decorator
 
-    def include_router(self, router: "TaskRouter") -> None:
+    def include_router(self, router: TaskRouter) -> None:
         """Include another router in this router."""
         if self._started:
             raise TaskAddOperationError

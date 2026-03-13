@@ -121,7 +121,7 @@ def _print_results(results: list[tuple[str, str, float]]) -> None:
     print("=" * 60)  # noqa: T201
     print(
         f"\n{'Backend':<12} {'Serializer':<10} {'Ops/sec':>12} {'vs Best':>10}"
-    )  # noqa: T201
+    )
     print("-" * 50)  # noqa: T201
 
     for backend, serializer, ops in results:
@@ -130,10 +130,10 @@ def _print_results(results: list[tuple[str, str, float]]) -> None:
 
     print(
         f"\nFastest: {results[0][0]} + {results[0][1]} ({results[0][2]:,.0f} ops/sec)"
-    )  # noqa: T201
+    )
     print(
         f"Slowest: {results[-1][0]} + {results[-1][1]} ({results[-1][2]:,.0f} ops/sec)"
-    )  # noqa: T201
+    )
     print(f"Speedup: {results[0][2] / results[-1][2]:.2f}x")  # noqa: T201
 
 

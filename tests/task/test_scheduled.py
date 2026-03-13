@@ -31,7 +31,6 @@ async def backend() -> AsyncGenerator[SyncBackend]:
         yield backend
 
 
-
 def test_scheduled_task_init() -> None:
     """Test Scheduled Task Initialization."""
     # Arrange
@@ -47,7 +46,9 @@ def test_scheduled_task_init_with_name() -> None:
     # Arrange
     backend = MemorySyncBackend()
     # Act
-    task = ScheduledTask(seconds=1, function=test1, name="my-task", backend=backend)
+    task = ScheduledTask(
+        seconds=1, function=test1, name="my-task", backend=backend
+    )
     # Assert
     assert task.name == "my-task"
 
@@ -89,10 +90,12 @@ def test_scheduled_task_init_lock_at_most_for_validation() -> None:
     backend = MemorySyncBackend()
     # Act / Assert
     with pytest.raises(
-        ValueError, match="lock_at_most_for must be greater than or equal to seconds"
+        ValueError,
+        match="lock_at_most_for must be greater than or equal to seconds",
     ):
-        ScheduledTask(seconds=10, function=test1, lock_at_most_for=5, backend=backend)
-
+        ScheduledTask(
+            seconds=10, function=test1, lock_at_most_for=5, backend=backend
+        )
 
 
 async def test_scheduled_task_start(backend: SyncBackend) -> None:
@@ -370,8 +373,9 @@ async def test_scheduled_task_sequential_executions(
         tg.cancel_scope.cancel()
 
 
-
-async def test_scheduled_task_with_leader_executes(backend: SyncBackend) -> None:
+async def test_scheduled_task_with_leader_executes(
+    backend: SyncBackend,
+) -> None:
     """Test Scheduled Task executes when worker is leader."""
     # Arrange
     leader = LeaderElection("test-leader", backend=backend, worker="worker_1")

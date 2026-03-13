@@ -315,7 +315,9 @@ async def test_tasklock_reacquire_backend_error(
 
 
 async def test_tasklock_reacquire_lost_warning(
-    backend: SyncBackend, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    backend: SyncBackend,
+    mocker: MockerFixture,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test TaskLock logs warning when re-acquire returns False (lock lost)."""
     # Arrange
