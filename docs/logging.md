@@ -6,7 +6,7 @@ The logging feature adheres to the 12-factor app methodology, directing logs to 
 
 ## Backend Selection
 
-Grelmicro supports three logging backends:
+grelmicro supports three logging backends:
 
 - **stdlib** (default) - Python's built-in logging module (no dependencies)
 - **[Loguru](https://loguru.readthedocs.io/en/stable/overview.html)** - Feature-rich Python logging library

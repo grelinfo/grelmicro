@@ -1,4 +1,4 @@
-"""Grelmicro Lock."""
+"""grelmicro Lock."""
 
 from time import sleep as thread_sleep
 from types import TracebackType
@@ -80,7 +80,7 @@ class Lock(BaseLock):
                 """
                 The worker identity.
 
-                By default, use a UUIDv1 will be generated.
+                By default, a UUIDv1 will be generated.
                 """,
             ),
         ] = None,
@@ -185,7 +185,7 @@ class Lock(BaseLock):
     async def locked(self) -> bool:
         """Check if the lock is acquired.
 
-        Raise:
+        Raises:
             SyncBackendError: If the lock cannot be checked due to an error on the backend.
         """
         try:
@@ -197,7 +197,7 @@ class Lock(BaseLock):
     async def owned(self) -> bool:
         """Check if the lock is owned by the current token.
 
-        Raise:
+        Raises:
             SyncBackendError: If the lock cannot be checked due to an error on the backend.
         """
         return await self.do_owned(generate_task_token(self._config.worker))
@@ -309,7 +309,7 @@ class ThreadLockAdapter:
         """Release the lock.
 
         Raises:
-            ReleaseSyncBackendError: Cannot release the lock due to backend error.
+            LockReleaseError: Cannot release the lock due to backend error.
             LockNotOwnedError: If the lock is not currently held.
 
         """

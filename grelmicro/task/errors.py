@@ -1,10 +1,10 @@
-"""Grelmicro Task Scheduler Errors."""
+"""grelmicro Task Scheduler Errors."""
 
 from grelmicro.errors import GrelmicroError
 
 
 class TaskError(GrelmicroError):
-    """Base Grelmicro Task error."""
+    """Base grelmicro Task error."""
 
 
 class FunctionTypeError(TaskError, TypeError):

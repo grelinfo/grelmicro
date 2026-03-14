@@ -147,7 +147,7 @@ class LeaderElection(Synchronization, Task):
                 """
                 The worker identity.
 
-                By default, use a UUIDv1 will be generated.
+                By default, a UUIDv1 will be generated.
                 """,
             ),
         ] = None,
@@ -158,7 +158,7 @@ class LeaderElection(Synchronization, Task):
                 The duration in seconds after the lock will be released if not renewed.
 
                 If the worker becomes unavailable, the lock can only be acquired by an other worker
-                after it' has expired.
+                after it has expired.
                 """,
             ),
         ] = 15,
@@ -170,7 +170,7 @@ class LeaderElection(Synchronization, Task):
                 giving up.
 
                 Must be shorter than the lease duration. In case of multiple errors, the leader
-                worker will loose the lead to prevent split-brain scenarios and ensure that only one
+                worker will lose the lead to prevent split-brain scenarios and ensure that only one
                 worker is the leader at any time.
                 """,
             ),
@@ -305,7 +305,7 @@ class LeaderElection(Synchronization, Task):
                 await self._release()
 
     async def _update_state(
-        self, *, is_leader: bool, raison_if_no_more_leader: str
+        self, *, is_leader: bool, reason_if_no_more_leader: str
     ) -> None:
         """Update the state of the leader election."""
         self._state_updated_at = monotonic()
@@ -320,7 +320,7 @@ class LeaderElection(Synchronization, Task):
             logger.warning(
                 "Leader Election lost leadership: %s (%s)",
                 self.name,
-                raison_if_no_more_leader,
+                reason_if_no_more_leader,
             )
 
         async with self._state_change_condition:
@@ -343,12 +343,12 @@ class LeaderElection(Synchronization, Task):
             if self._is_renew_deadline_reached():
                 await self._update_state(
                     is_leader=False,
-                    raison_if_no_more_leader="renew deadline reached",
+                    reason_if_no_more_leader="renew deadline reached",
                 )
         else:
             await self._update_state(
                 is_leader=is_leader,
-                raison_if_no_more_leader="lock not acquired",
+                reason_if_no_more_leader="lock not acquired",
             )
 
     def _seconds_before_expiration_deadline(self) -> float:

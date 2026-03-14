@@ -1,4 +1,4 @@
-"""Grelmicro Backend Registry.
+"""grelmicro Backend Registry.
 
 Contains loaded backends of each type to be used as default.
 

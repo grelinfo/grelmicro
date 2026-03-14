@@ -1,19 +1,27 @@
+import logging
 from contextlib import asynccontextmanager
 
-import typer
 from fastapi import FastAPI
 
 from grelmicro.logging import configure_logging
+from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncBackend
 from grelmicro.task import TaskManager
+
+logger = logging.getLogger(__name__)
+
+# === grelmicro ===
+task = TaskManager()
+sync_backend = RedisSyncBackend("redis://localhost:6379/0")
+leader_election = LeaderElection("leader-election")
+task.add_task(leader_election)
 
 
 # === FastAPI ===
 @asynccontextmanager
 async def lifespan(app):
     configure_logging()
-    # Start the lock backend and task manager
     async with sync_backend, task:
         yield
 
@@ -21,34 +29,39 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 
+# --- Circuit Breaker: protect calls to an unreliable service ---
+cb = CircuitBreaker("my-service")
+
+
 @app.get("/")
-def read_root():
-    return {"Hello": "World"}
+async def read_root():
+    async with cb:
+        return {"Hello": "World"}
 
 
-# === Grelmicro ===
-task = TaskManager()
-sync_backend = RedisSyncBackend("redis://localhost:6379/0")
-
-# --- Ensure that only one say hello world at the same time ---
-lock = Lock("say_hello_world")
+# --- Distributed Lock: synchronize access to a shared resource ---
+lock = Lock("shared-resource")
 
 
-@task.interval(seconds=1, sync=lock)
-def say_hello_world_every_second():
-    typer.echo("Hello World")
+@app.get("/protected")
+async def protected():
+    async with lock:
+        return {"status": "ok"}
 
 
-@task.interval(seconds=1, sync=lock)
-def say_as_well_hello_world_every_second():
-    typer.echo("Hello World")
+# --- Interval Task: run locally on every worker ---
+@task.interval(seconds=5)
+def heartbeat():
+    logger.info("heartbeat")
 
 
-# --- Ensure that only one worker is the leader ---
-leader_election = LeaderElection("leader-election")
-task.add_task(leader_election)
+# --- Scheduled Task: run once per interval across all workers ---
+@task.scheduled(seconds=60)
+def cleanup():
+    logger.info("cleanup")
 
 
-@task.interval(seconds=10, sync=leader_election)
-def say_hello_leader_every_ten_seconds():
-    typer.echo("Hello Leader")
+# --- Leader-gated Scheduled Task: only the leader executes ---
+@task.scheduled(seconds=10, leader=leader_election)
+def leader_only_task():
+    logger.info("leader task")

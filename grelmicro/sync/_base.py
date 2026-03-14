@@ -1,4 +1,4 @@
-"""Grelmicro Lock API."""
+"""grelmicro Lock Base Classes."""
 
 from types import TracebackType
 from typing import Annotated, Protocol, Self

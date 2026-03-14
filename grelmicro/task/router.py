@@ -1,4 +1,4 @@
-"""Grelmicro Task Router."""
+"""grelmicro Task Router."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class TaskRouter:
     """Task Router.
 
     `TaskRouter` class, used to group task schedules, for example to structure an app in
-    multiple files. It would then included in the `TaskManager`, or in another
+    multiple files. It would then be included in the `TaskManager`, or in another
     `TaskRouter`.
     """
 
@@ -32,7 +32,7 @@ class TaskRouter:
             list[Task] | None,
             Doc(
                 """
-                A list of schedules or scheduled tasks to be scheduled.
+                A list of tasks to be scheduled.
                 """,
             ),
         ] = None,
@@ -104,7 +104,7 @@ class TaskRouter:
         For distributed scheduled tasks with built-in locking, use ``scheduled()`` instead.
 
         Raises:
-            TaskNameGenerationError: If the task name generation fails.
+            FunctionTypeError: If the task name generation fails.
         """
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
@@ -199,7 +199,7 @@ class TaskRouter:
         TaskLock. Can optionally be gated behind a leader election.
 
         Raises:
-            TaskNameGenerationError: If the task name generation fails.
+            FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
             ValueError: If lock_at_most_for is less than seconds.
         """

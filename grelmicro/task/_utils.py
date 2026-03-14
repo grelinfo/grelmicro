@@ -11,11 +11,11 @@ from grelmicro.task.errors import FunctionTypeError
 def validate_and_generate_reference(function: Callable[..., Any]) -> str:
     """Generate a task name from the given function.
 
-    This implementation is inspirated by the APScheduler project under MIT License.
+    This implementation is inspired by the APScheduler project under MIT License.
     Original source: https://github.com/agronholm/apscheduler/blob/master/src/apscheduler/_marshalling.py
 
     Raises:
-        FunctionNotSupportedError: If function is not supported.
+        FunctionTypeError: If function is not supported.
 
     """
     if isinstance(function, partial):

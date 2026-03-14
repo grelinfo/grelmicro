@@ -1,4 +1,4 @@
-"""Grelmicro Task Lock.
+"""grelmicro Task Lock.
 
 A distributed lock for scheduled tasks with two time boundaries:
 - lock_at_least_for: Prevents re-execution on other nodes after task completes.

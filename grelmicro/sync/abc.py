@@ -1,4 +1,4 @@
-"""Grelmicro Synchronization Abstract Base Classes and Protocols."""
+"""grelmicro Synchronization Abstract Base Classes and Protocols."""
 
 from types import TracebackType
 from typing import Protocol, Self, runtime_checkable

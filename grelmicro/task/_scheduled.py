@@ -46,7 +46,7 @@ class ScheduledTask(Task):
         """Initialize the ScheduledTask.
 
         Raises:
-            FunctionNotSupportedError: If the function is not supported.
+            FunctionTypeError: If the function is not supported.
             ValueError: If seconds is less than or equal to 0.
             ValueError: If lock_at_most_for is less than seconds.
         """

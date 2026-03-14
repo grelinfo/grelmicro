@@ -1,4 +1,4 @@
-"""Grelmicro Logging Errors."""
+"""grelmicro Logging Errors."""
 
 from grelmicro.errors import SettingsValidationError
 

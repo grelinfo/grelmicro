@@ -30,7 +30,8 @@ def _get_postgres_url() -> str:
     """Get the PostgreSQL URL from the environment variables.
 
     Raises:
-        SyncSettingsValidationError: If the URL or all of the host, database, user, and password
+        SyncSettingsValidationError: If neither POSTGRES_URL nor all of POSTGRES_HOST,
+            POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD are set.
     """
     try:
         settings = _PostgresSettings()

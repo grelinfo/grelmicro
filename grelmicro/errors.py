@@ -1,4 +1,4 @@
-"""Grelmicro Errors."""
+"""grelmicro Errors."""
 
 from typing import assert_never
 
@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 
 class GrelmicroError(Exception):
-    """Base Grelmicro error."""
+    """Base grelmicro error."""
 
 
 class OutOfContextError(GrelmicroError, RuntimeError):

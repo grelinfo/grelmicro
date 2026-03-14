@@ -1,4 +1,4 @@
-"""Grelmicro Test Config."""
+"""grelmicro Test Config."""
 
 import pytest
 

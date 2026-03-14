@@ -8,7 +8,7 @@ from typing_extensions import TypedDict
 class JSONRecordDict(TypedDict):
     """JSON log record representation.
 
-    The time use a ISO 8601 string.
+    The time uses an ISO 8601 string.
     """
 
     time: str

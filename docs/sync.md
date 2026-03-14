@@ -17,7 +17,7 @@ The synchronization primitives can be used in combination with the `TaskManager`
 You must load a synchronization backend before using synchronization primitives.
 
 !!! note
-    Although Grelmicro use AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
+    Although grelmicro uses AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
 
 You can initialize a backend like this:
 
@@ -37,7 +37,7 @@ You can initialize a backend like this:
     ```
 
 !!! warning
-    Please make sure to use a proper way to store connection url, such as environment variables (not like the example above).
+    Please make sure to use a proper way to store connection URLs, such as environment variables (not like the example above).
 
 !!! tip
     Feel free to create your own backend and contribute it. In the `sync.abc` module, you can find the protocol for creating new backends.

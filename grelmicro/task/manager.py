@@ -1,4 +1,4 @@
-"""Grelmicro Task Manager."""
+"""grelmicro Task Manager."""
 
 from contextlib import AsyncExitStack
 from logging import getLogger

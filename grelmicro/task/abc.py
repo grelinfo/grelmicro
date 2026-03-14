@@ -1,4 +1,4 @@
-"""Grelmicro Task Synchronization Abstract Base Classes and Protocols."""
+"""grelmicro Task Abstract Base Classes and Protocols."""
 
 from typing import Protocol
 

@@ -1,4 +1,4 @@
-"""Grelmicro Synchronization Primitive Errors."""
+"""grelmicro Synchronization Primitive Errors."""
 
 from grelmicro.errors import SettingsValidationError
 
@@ -6,7 +6,7 @@ from grelmicro.errors import SettingsValidationError
 class SyncError(Exception):
     """Synchronization Primitive Error.
 
-    This the base class for all lock errors.
+    This is the base class for all lock errors.
     """
 
 

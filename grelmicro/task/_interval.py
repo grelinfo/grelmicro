@@ -37,8 +37,8 @@ class IntervalTask(Task):
         """Initialize the IntervalTask.
 
         Raises:
-            FunctionNotSupportedError: If the function is not supported.
-            ValueError: If internal is less than or equal to 0.
+            FunctionTypeError: If the function is not supported.
+            ValueError: If interval is less than or equal to 0.
         """
         if interval <= 0:
             msg = "Interval must be greater than 0"
@@ -60,7 +60,7 @@ class IntervalTask(Task):
 
     @property
     def name(self) -> str:
-        """Return the lock name."""
+        """Return the task name."""
         return self._name
 
     async def __call__(
