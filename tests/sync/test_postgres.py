@@ -3,12 +3,14 @@
 import pytest
 
 from grelmicro.errors import OutOfContextError
+from grelmicro.sync._backends import loaded_backends
 from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.postgres import PostgresSyncBackend
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
+URL_DEFAULT_PORT = "postgresql://test_user:test_password@test_host:5432/test_db"
 
 
 @pytest.mark.parametrize(
@@ -107,3 +109,56 @@ def test_postgres_env_var_settings_validation_error(
         match=(r"Could not validate environment variables settings:\n"),
     ):
         PostgresSyncBackend()
+
+
+def test_sync_backend_auto_register() -> None:
+    """Test Synchronization Backend Auto Register."""
+    # Arrange
+    loaded_backends.pop("lock", None)
+
+    # Act
+    PostgresSyncBackend(url=URL)
+
+    # Assert
+    assert "lock" in loaded_backends
+
+    # Cleanup
+    loaded_backends.pop("lock", None)
+
+
+def test_sync_backend_auto_register_false() -> None:
+    """Test Synchronization Backend Auto Register Disabled."""
+    # Arrange
+    loaded_backends.pop("lock", None)
+
+    # Act
+    PostgresSyncBackend(url=URL, auto_register=False)
+
+    # Assert
+    assert "lock" not in loaded_backends
+
+
+def test_sync_backend_custom_table_name() -> None:
+    """Test Synchronization Backend Custom Table Name."""
+    # Act
+    backend = PostgresSyncBackend(url=URL, table_name="my_locks")
+
+    # Assert
+    assert backend._table_name == "my_locks"
+
+
+def test_postgres_env_var_settings_default_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test PostgreSQL Settings from Environment Variables with Default Port."""
+    # Arrange
+    monkeypatch.setenv("POSTGRES_USER", "test_user")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "test_password")
+    monkeypatch.setenv("POSTGRES_HOST", "test_host")
+    monkeypatch.setenv("POSTGRES_DB", "test_db")
+
+    # Act
+    backend = PostgresSyncBackend()
+
+    # Assert
+    assert backend._url == URL_DEFAULT_PORT
