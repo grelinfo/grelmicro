@@ -71,7 +71,7 @@ def test_interval_task_sync_deprecation_warning() -> None:
     assert len(w) == 1
     assert issubclass(w[0].category, DeprecationWarning)
     assert "sync" in str(w[0].message)
-    assert "scheduled()" in str(w[0].message)
+    assert "lock_at_most_for" in str(w[0].message)
 
 
 async def test_interval_task_start() -> None:
