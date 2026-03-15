@@ -115,9 +115,7 @@ def test_interval_task_lock_at_least_for_without_lock() -> None:
         ValueError,
         match="lock_at_least_for requires lock_at_most_for or leader",
     ):
-        IntervalTask(
-            interval=10, function=test1, lock_at_least_for=5
-        )
+        IntervalTask(interval=10, function=test1, lock_at_least_for=5)
 
 
 def test_interval_task_lock_at_least_for_validation() -> None:

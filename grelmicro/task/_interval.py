@@ -96,13 +96,13 @@ class IntervalTask(Task):
                 else interval * 5
             )
             resolved_lock_at_least_for = (
-                lock_at_least_for
-                if lock_at_least_for is not None
-                else interval
+                lock_at_least_for if lock_at_least_for is not None else interval
             )
 
             if resolved_lock_at_most_for < interval:
-                msg = "lock_at_most_for must be greater than or equal to interval"
+                msg = (
+                    "lock_at_most_for must be greater than or equal to interval"
+                )
                 raise ValueError(msg)
 
             if resolved_lock_at_least_for > resolved_lock_at_most_for:
@@ -125,7 +125,9 @@ class IntervalTask(Task):
         elif sync is not None:
             # Legacy sync parameter support
             self._sync_factory = None
-            self._legacy_sync: Synchronization | AbstractAsyncContextManager[None] = sync
+            self._legacy_sync: (
+                Synchronization | AbstractAsyncContextManager[None]
+            ) = sync
         else:
             self._sync_factory = None
             self._legacy_sync = nullcontext()
