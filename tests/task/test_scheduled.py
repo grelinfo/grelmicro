@@ -1,4 +1,4 @@
-"""Test Scheduled Task."""
+"""Test Scheduled Task (IntervalTask with distributed lock)."""
 
 from collections.abc import AsyncGenerator
 
@@ -9,7 +9,7 @@ from pytest_mock import MockFixture
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.memory import MemorySyncBackend
-from grelmicro.task._scheduled import ScheduledTask
+from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task.samples import (
     always_fail,
@@ -31,77 +31,132 @@ async def backend() -> AsyncGenerator[SyncBackend]:
         yield backend
 
 
-def test_scheduled_task_init() -> None:
-    """Test Scheduled Task Initialization."""
+def test_interval_task_with_lock_init() -> None:
+    """Test IntervalTask with lock initialization."""
     # Arrange
     backend = MemorySyncBackend()
     # Act
-    task = ScheduledTask(seconds=1, function=test1, backend=backend)
+    task = IntervalTask(
+        interval=1, function=test1, lock_at_most_for=5, backend=backend
+    )
     # Assert
     assert task.name == "tests.task.samples:test1"
 
 
-def test_scheduled_task_init_with_name() -> None:
-    """Test Scheduled Task Initialization with Name."""
+def test_interval_task_with_lock_init_with_name() -> None:
+    """Test IntervalTask with lock initialization with name."""
     # Arrange
     backend = MemorySyncBackend()
     # Act
-    task = ScheduledTask(
-        seconds=1, function=test1, name="my-task", backend=backend
+    task = IntervalTask(
+        interval=1,
+        function=test1,
+        name="my-task",
+        lock_at_most_for=5,
+        backend=backend,
     )
     # Assert
     assert task.name == "my-task"
 
 
-def test_scheduled_task_init_invalid_seconds() -> None:
-    """Test Scheduled Task Initialization with Invalid Seconds."""
+def test_interval_task_with_lock_init_invalid_seconds() -> None:
+    """Test IntervalTask with lock initialization with invalid seconds."""
     # Arrange
     backend = MemorySyncBackend()
     # Act / Assert
-    with pytest.raises(ValueError, match="seconds must be greater than 0"):
-        ScheduledTask(seconds=0, function=test1, backend=backend)
+    with pytest.raises(ValueError, match="Interval must be greater than 0"):
+        IntervalTask(
+            interval=0, function=test1, lock_at_most_for=5, backend=backend
+        )
 
 
-def test_scheduled_task_init_lock_at_most_for_default() -> None:
-    """Test Scheduled Task Initialization lock_at_most_for Default."""
+def test_interval_task_with_lock_default_lock_at_most_for() -> None:
+    """Test IntervalTask with leader uses default lock_at_most_for."""
     # Arrange
     backend = MemorySyncBackend()
-    # Act
-    task = ScheduledTask(seconds=10, function=test1, backend=backend)
-    # Assert
-    assert task.name == "tests.task.samples:test1"
-
-
-def test_scheduled_task_init_lock_at_most_for_custom() -> None:
-    """Test Scheduled Task Initialization lock_at_most_for Custom."""
-    # Arrange
-    backend = MemorySyncBackend()
-    # Act
-    task = ScheduledTask(
-        seconds=10, function=test1, lock_at_most_for=100, backend=backend
+    leader = LeaderElection("test-leader", backend=backend)
+    # Act — leader implies lock, lock_at_most_for defaults to interval * 5
+    task = IntervalTask(
+        interval=10, function=test1, leader=leader, backend=backend
     )
     # Assert
     assert task.name == "tests.task.samples:test1"
 
 
-def test_scheduled_task_init_lock_at_most_for_validation() -> None:
-    """Test Scheduled Task Initialization lock_at_most_for Validation."""
+def test_interval_task_with_lock_custom_lock_at_most_for() -> None:
+    """Test IntervalTask with custom lock_at_most_for."""
+    # Arrange
+    backend = MemorySyncBackend()
+    # Act
+    task = IntervalTask(
+        interval=10, function=test1, lock_at_most_for=100, backend=backend
+    )
+    # Assert
+    assert task.name == "tests.task.samples:test1"
+
+
+def test_interval_task_with_lock_at_most_for_validation() -> None:
+    """Test IntervalTask lock_at_most_for validation."""
     # Arrange
     backend = MemorySyncBackend()
     # Act / Assert
     with pytest.raises(
         ValueError,
-        match="lock_at_most_for must be greater than or equal to seconds",
+        match="lock_at_most_for must be greater than or equal to interval",
     ):
-        ScheduledTask(
-            seconds=10, function=test1, lock_at_most_for=5, backend=backend
+        IntervalTask(
+            interval=10, function=test1, lock_at_most_for=5, backend=backend
         )
 
 
-async def test_scheduled_task_start(backend: SyncBackend) -> None:
-    """Test Scheduled Task Start."""
+def test_interval_task_lock_at_least_for_without_lock() -> None:
+    """Test lock_at_least_for requires lock_at_most_for or leader."""
+    with pytest.raises(
+        ValueError,
+        match="lock_at_least_for requires lock_at_most_for or leader",
+    ):
+        IntervalTask(interval=10, function=test1, lock_at_least_for=5)
+
+
+def test_interval_task_lock_at_least_for_validation() -> None:
+    """Test lock_at_least_for must be <= lock_at_most_for."""
+    backend = MemorySyncBackend()
+    with pytest.raises(
+        ValueError,
+        match="lock_at_least_for must be less than or equal to lock_at_most_for",
+    ):
+        IntervalTask(
+            interval=10,
+            function=test1,
+            lock_at_most_for=20,
+            lock_at_least_for=25,
+            backend=backend,
+        )
+
+
+def test_interval_task_custom_lock_at_least_for() -> None:
+    """Test IntervalTask with custom lock_at_least_for."""
+    backend = MemorySyncBackend()
+    # Act — should not raise
+    task = IntervalTask(
+        interval=10,
+        function=test1,
+        lock_at_most_for=100,
+        lock_at_least_for=5,
+        backend=backend,
+    )
+    assert task.name == "tests.task.samples:test1"
+
+
+async def test_interval_task_with_lock_start(backend: SyncBackend) -> None:
+    """Test IntervalTask with lock start."""
     # Arrange
-    task = ScheduledTask(seconds=SECONDS, function=notify, backend=backend)
+    task = IntervalTask(
+        interval=SECONDS,
+        function=notify,
+        lock_at_most_for=SECONDS * 5,
+        backend=backend,
+    )
     # Act
     async with create_task_group() as tg:
         await tg.start(task)
@@ -110,13 +165,18 @@ async def test_scheduled_task_start(backend: SyncBackend) -> None:
         tg.cancel_scope.cancel()
 
 
-async def test_scheduled_task_execution_error(
+async def test_interval_task_with_lock_execution_error(
     backend: SyncBackend,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test Scheduled Task Execution Error."""
+    """Test IntervalTask with lock execution error."""
     # Arrange
-    task = ScheduledTask(seconds=SECONDS, function=always_fail, backend=backend)
+    task = IntervalTask(
+        interval=SECONDS,
+        function=always_fail,
+        lock_at_most_for=SECONDS * 5,
+        backend=backend,
+    )
     # Act
     async with create_task_group() as tg:
         await tg.start(task)
@@ -131,14 +191,19 @@ async def test_scheduled_task_execution_error(
     )
 
 
-async def test_scheduled_task_synchronization_error(
+async def test_interval_task_with_lock_synchronization_error(
     backend: SyncBackend,
     caplog: pytest.LogCaptureFixture,
     mocker: MockFixture,
 ) -> None:
-    """Test Scheduled Task Synchronization Error."""
+    """Test IntervalTask with lock synchronization error."""
     # Arrange
-    task = ScheduledTask(seconds=SECONDS, function=notify, backend=backend)
+    task = IntervalTask(
+        interval=SECONDS,
+        function=notify,
+        lock_at_most_for=SECONDS * 5,
+        backend=backend,
+    )
     mocker.patch.object(
         backend, "acquire", side_effect=RuntimeError("backend down")
     )
@@ -157,12 +222,12 @@ async def test_scheduled_task_synchronization_error(
     )
 
 
-async def test_scheduled_task_stop(
+async def test_interval_task_with_lock_stop(
     backend: SyncBackend,
     caplog: pytest.LogCaptureFixture,
     mocker: MockFixture,
 ) -> None:
-    """Test Scheduled Task Stop."""
+    """Test IntervalTask with lock stop."""
     # Arrange
     caplog.set_level("INFO")
 
@@ -170,18 +235,23 @@ async def test_scheduled_task_stop(
         pass
 
     mocker.patch(
-        "grelmicro.task._scheduled.sleep", side_effect=CustomBaseException
+        "grelmicro.task._interval.sleep", side_effect=CustomBaseException
     )
-    task = ScheduledTask(seconds=1, function=test1, backend=backend)
+    task = IntervalTask(
+        interval=1,
+        function=test1,
+        lock_at_most_for=5,
+        backend=backend,
+    )
 
-    async def scheduled_task_during_runtime_error() -> None:
+    async def task_during_runtime_error() -> None:
         async with create_task_group() as tg:
             await tg.start(task)
             await sleep_forever()
 
     # Act
     with pytest.raises(BaseExceptionGroup):
-        await scheduled_task_during_runtime_error()
+        await task_during_runtime_error()
 
     # Assert
     assert any(
@@ -191,7 +261,7 @@ async def test_scheduled_task_stop(
     )
 
 
-# --- End-to-end: ScheduledTask ---
+# --- End-to-end: IntervalTask with distributed lock ---
 
 
 @pytest.fixture(autouse=True)
@@ -202,20 +272,24 @@ def _reset_e2e_state() -> None:
     samples.e2e_counter = {"worker_1": 0, "worker_2": 0}
 
 
-async def test_scheduled_task_two_workers(backend: SyncBackend) -> None:
-    """Test only one worker executes when both use ScheduledTask."""
+async def test_interval_task_with_lock_two_workers(
+    backend: SyncBackend,
+) -> None:
+    """Test only one worker executes when both use lock."""
     # Arrange
-    task_1 = ScheduledTask(
-        seconds=SECONDS,
+    task_1 = IntervalTask(
+        interval=SECONDS,
         function=samples.set_event_1,
         name="e2e_task",
+        lock_at_most_for=SECONDS * 5,
         backend=backend,
         worker="worker_1",
     )
-    task_2 = ScheduledTask(
-        seconds=SECONDS,
+    task_2 = IntervalTask(
+        interval=SECONDS,
         function=samples.set_event_2,
         name="e2e_task",
+        lock_at_most_for=SECONDS * 5,
         backend=backend,
         worker="worker_2",
     )
@@ -233,24 +307,24 @@ async def test_scheduled_task_two_workers(backend: SyncBackend) -> None:
     assert not samples.e2e_event_2.is_set()
 
 
-async def test_scheduled_task_lock_at_least_for(backend: SyncBackend) -> None:
+async def test_interval_task_lock_at_least_for(backend: SyncBackend) -> None:
     """Test lock_at_least_for prevents re-execution on another worker."""
     # Arrange
-    task_1 = ScheduledTask(
-        seconds=0.5,
+    task_1 = IntervalTask(
+        interval=0.5,
         function=samples.set_event_1,
         name="e2e_task",
+        lock_at_most_for=10,
         backend=backend,
         worker="worker_1",
-        lock_at_most_for=10,
     )
-    task_2 = ScheduledTask(
-        seconds=0.5,
+    task_2 = IntervalTask(
+        interval=0.5,
         function=samples.set_event_2,
         name="e2e_task",
+        lock_at_most_for=10,
         backend=backend,
         worker="worker_2",
-        lock_at_most_for=10,
     )
 
     # Act - worker 1 executes then is cancelled, lock stays held for lock_at_least_for
@@ -272,24 +346,24 @@ async def test_scheduled_task_lock_at_least_for(backend: SyncBackend) -> None:
     assert worker_2_ran
 
 
-async def test_scheduled_task_lock_at_most_for(backend: SyncBackend) -> None:
+async def test_interval_task_lock_at_most_for(backend: SyncBackend) -> None:
     """Test lock_at_most_for auto-expires when task takes too long."""
     # Arrange
-    task_1 = ScheduledTask(
-        seconds=SECONDS,
+    task_1 = IntervalTask(
+        interval=SECONDS,
         function=samples.worker_1_hold,
         name="e2e_task",
+        lock_at_most_for=0.2,
         backend=backend,
         worker="worker_1",
-        lock_at_most_for=0.2,
     )
-    task_2 = ScheduledTask(
-        seconds=SECONDS,
+    task_2 = IntervalTask(
+        interval=SECONDS,
         function=samples.set_event_2,
         name="e2e_task",
+        lock_at_most_for=0.2,
         backend=backend,
         worker="worker_2",
-        lock_at_most_for=0.2,
     )
 
     # Act
@@ -308,24 +382,26 @@ async def test_scheduled_task_lock_at_most_for(backend: SyncBackend) -> None:
     assert worker_2_ran
 
 
-async def test_scheduled_task_would_block_debug_log(
+async def test_interval_task_with_lock_would_block_debug_log(
     backend: SyncBackend,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test WouldBlock from TaskLock logs at DEBUG in ScheduledTask."""
+    """Test WouldBlock from lock logs at DEBUG."""
     # Arrange
     caplog.set_level("DEBUG")
-    task_1 = ScheduledTask(
-        seconds=SECONDS,
+    task_1 = IntervalTask(
+        interval=SECONDS,
         function=samples.worker_1_hold,
         name="e2e_task",
+        lock_at_most_for=SECONDS * 5,
         backend=backend,
         worker="worker_1",
     )
-    task_2 = ScheduledTask(
-        seconds=SECONDS,
+    task_2 = IntervalTask(
+        interval=SECONDS,
         function=samples.noop,
         name="e2e_task",
+        lock_at_most_for=SECONDS * 5,
         backend=backend,
         worker="worker_2",
     )
@@ -351,15 +427,16 @@ async def test_scheduled_task_would_block_debug_log(
     )
 
 
-async def test_scheduled_task_sequential_executions(
+async def test_interval_task_with_lock_sequential_executions(
     backend: SyncBackend,
 ) -> None:
     """Test same worker executes again after lock_at_least_for expires."""
     # Arrange
-    task = ScheduledTask(
-        seconds=SECONDS,
+    task = IntervalTask(
+        interval=SECONDS,
         function=samples.set_event_1,
         name="e2e_task",
+        lock_at_most_for=SECONDS * 5,
         backend=backend,
         worker="worker_1",
     )
@@ -373,14 +450,14 @@ async def test_scheduled_task_sequential_executions(
         tg.cancel_scope.cancel()
 
 
-async def test_scheduled_task_with_leader_executes(
+async def test_interval_task_with_leader_executes(
     backend: SyncBackend,
 ) -> None:
-    """Test Scheduled Task executes when worker is leader."""
+    """Test IntervalTask executes when worker is leader."""
     # Arrange
     leader = LeaderElection("test-leader", backend=backend, worker="worker_1")
-    task = ScheduledTask(
-        seconds=SECONDS,
+    task = IntervalTask(
+        interval=SECONDS,
         function=samples.set_event_1,
         name="e2e_task",
         backend=backend,
@@ -396,17 +473,17 @@ async def test_scheduled_task_with_leader_executes(
         tg.cancel_scope.cancel()
 
 
-async def test_scheduled_task_with_leader_skips_when_not_leader(
+async def test_interval_task_with_leader_skips_when_not_leader(
     backend: SyncBackend,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test Scheduled Task skips when worker is not leader."""
+    """Test IntervalTask skips when worker is not leader."""
     # Arrange
     caplog.set_level("DEBUG")
     leader_1 = LeaderElection("test-leader", backend=backend, worker="worker_1")
     leader_2 = LeaderElection("test-leader", backend=backend, worker="worker_2")
-    task = ScheduledTask(
-        seconds=SECONDS,
+    task = IntervalTask(
+        interval=SECONDS,
         function=samples.set_event_1,
         name="e2e_task",
         backend=backend,

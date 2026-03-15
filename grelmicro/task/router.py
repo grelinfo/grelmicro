@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
@@ -77,6 +78,64 @@ class TaskRouter:
                 The name of the task.
 
                 If None, a name will be generated automatically from the function.
+                Also used as the lock name when distributed locking is enabled.
+                """,
+            ),
+        ] = None,
+        lock_at_most_for: Annotated[
+            float | None,
+            Doc(
+                """
+                The maximum duration in seconds to hold the lock (crash protection).
+
+                Setting this enables distributed locking: the task runs at most once
+                per interval across all workers. Must be >= ``seconds``.
+                When ``leader`` is set without this, defaults to ``seconds * 5``.
+                """,
+            ),
+        ] = None,
+        lock_at_least_for: Annotated[
+            float | None,
+            Doc(
+                """
+                The minimum duration in seconds to hold the lock after task completion.
+
+                Prevents re-execution on other nodes before this duration has elapsed.
+                Defaults to ``seconds`` when distributed locking is enabled.
+                Requires ``lock_at_most_for`` or ``leader`` to be set.
+                """,
+            ),
+        ] = None,
+        leader: Annotated[
+            LeaderElection | None,
+            Doc(
+                """
+                Optional leader election for leader gating.
+
+                When provided, the task only executes on the leader worker.
+                Implies distributed locking (lock is automatically configured).
+                """,
+            ),
+        ] = None,
+        backend: Annotated[
+            SyncBackend | None,
+            Doc(
+                """
+                The distributed lock backend.
+
+                By default, uses the lock backend registry.
+                Only used when distributed locking is enabled.
+                """,
+            ),
+        ] = None,
+        worker: Annotated[
+            str | UUID | None,
+            Doc(
+                """
+                The worker identity.
+
+                By default, a UUIDv1 will be generated.
+                Only used when distributed locking is enabled.
                 """,
             ),
         ] = None,
@@ -87,9 +146,8 @@ class TaskRouter:
                 The synchronization primitive to use for the task.
 
                 .. deprecated::
-                    The ``sync`` parameter is deprecated. Use the ``scheduled()``
-                    decorator instead for distributed task execution with built-in
-                    TaskLock.
+                    The ``sync`` parameter is deprecated. Use ``lock_at_most_for``
+                    and ``leader`` parameters instead.
 
                 If None, no synchronization is used and the task will run on all workers.
                 """,
@@ -99,12 +157,21 @@ class TaskRouter:
         [Callable[..., Any | Awaitable[Any]]],
         Callable[..., Any | Awaitable[Any]],
     ]:
-        """Decorate function to add it as a local interval task.
+        """Decorate function to add it as an interval task.
 
-        For distributed scheduled tasks with built-in locking, use ``scheduled()`` instead.
+        Supports three modes:
+
+        - **Local**: No lock params — runs on every worker, every interval.
+        - **Distributed lock**: Set ``lock_at_most_for`` — runs at most once per
+          interval across all workers.
+        - **Leader-gated**: Set ``leader`` — only the leader worker runs the task
+          (lock is implied).
 
         Raises:
             FunctionTypeError: If the task name generation fails.
+            ValueError: If seconds is less than or equal to 0.
+            ValueError: If lock_at_most_for is less than seconds.
+            ValueError: If lock_at_least_for is set without lock_at_most_for or leader.
         """
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
@@ -116,6 +183,11 @@ class TaskRouter:
                     name=name,
                     function=function,
                     interval=seconds,
+                    lock_at_most_for=lock_at_most_for,
+                    lock_at_least_for=lock_at_least_for,
+                    leader=leader,
+                    backend=backend,
+                    worker=worker,
                     sync=sync,
                 ),
             )
@@ -195,6 +267,9 @@ class TaskRouter:
     ]:
         """Decorate function to add it as a distributed scheduled task.
 
+        .. deprecated::
+            Use ``interval()`` with ``lock_at_most_for`` instead.
+
         The task runs at most once per interval across all workers, using a built-in
         TaskLock. Can optionally be gated behind a leader election.
 
@@ -203,17 +278,29 @@ class TaskRouter:
             ValueError: If seconds is less than or equal to 0.
             ValueError: If lock_at_most_for is less than seconds.
         """
-        from grelmicro.task._scheduled import ScheduledTask  # noqa: PLC0415
+        warnings.warn(
+            "The 'scheduled()' decorator is deprecated. "
+            "Use 'interval()' with 'lock_at_most_for' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+        from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
+
+        resolved_lock_at_most_for = (
+            lock_at_most_for if lock_at_most_for is not None else seconds * 5
+        )
 
         def decorator(
             function: Callable[[], None | Awaitable[None]],
         ) -> Callable[[], None | Awaitable[None]]:
             self.add_task(
-                ScheduledTask(
+                IntervalTask(
                     function=function,
-                    seconds=seconds,
+                    interval=seconds,
                     name=name,
-                    lock_at_most_for=lock_at_most_for,
+                    lock_at_most_for=resolved_lock_at_most_for,
+                    lock_at_least_for=seconds,
                     leader=leader,
                     backend=backend,
                     worker=worker,
