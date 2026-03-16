@@ -47,49 +47,58 @@ To create an `IntervalTask`, use the `interval` decorator method of the `TaskMan
     --8<-- "task/interval_router.py"
     ```
 
+### Distributed Lock
 
-## Scheduled Task
-
-To create a distributed scheduled task that runs at most once per interval across all workers, use the `scheduled` decorator. It has a built-in [`TaskLock`](sync.md#task-lock), so there is no need to configure synchronization manually.
+To create a distributed interval task that runs at most once per interval across all workers, set `lock_at_most_for` on the `interval` decorator. This enables a built-in [`TaskLock`](sync.md#task-lock), so there is no need to configure synchronization manually.
 
 ```python
---8<-- "task/scheduled.py"
+--8<-- "task/interval_lock.py"
 ```
 
-- **`seconds`**: The duration in seconds between each scheduling attempt. Each worker retries every N seconds, but only one worker executes per interval thanks to the built-in lock. Also used as the `lock_at_least_for` value.
-- **`lock_at_most_for`**: Crash protection TTL (defaults to `seconds * 5`). Must be >= `seconds`. If a worker crashes while holding the lock, the lock expires after this duration and another worker can take over.
+- **`seconds`**: The duration in seconds between each scheduling attempt. Each worker retries every N seconds, but only one worker executes per interval thanks to the built-in lock.
+- **`lock_at_most_for`**: Crash protection TTL. Must be >= `seconds`. If a worker crashes while holding the lock, the lock expires after this duration and another worker can take over.
+- **`lock_at_least_for`**: Minimum duration to hold the lock after task completion. Prevents re-execution on other nodes too soon. Defaults to `seconds`.
 
 ### With Leader Gating
 
-You can optionally gate the task behind a [Leader Election](sync.md#leader-election). The task will only execute on the leader worker:
+You can optionally gate the task behind a [Leader Election](sync.md#leader-election). The task will only execute on the leader worker. Setting `leader` implies distributed locking (with `lock_at_most_for` defaulting to `seconds * 5`):
 
 ```python
---8<-- "task/scheduled_leader.py"
+--8<-- "task/interval_leader.py"
 ```
 
-### Custom Crash Protection
+### Custom Lock Timing
 
-For long-running tasks, increase `lock_at_most_for` to avoid premature lock expiration:
+For long-running tasks, you can customize both `lock_at_most_for` and `lock_at_least_for`:
 
 ```python
---8<-- "task/scheduled_custom.py"
+--8<-- "task/interval_lock_custom.py"
 ```
 
 ### How It Works
 
-When the lock is already held, `ScheduledTask` skips the execution (logged at DEBUG level) and retries on the next interval.
+When the lock is already held, the task skips the execution (logged at DEBUG level) and retries on the next interval.
 
 ```
 Node A:  [acquire] → [execute] → [hold for seconds] → [TTL expires]
 Node B:  [skip] → ... → [skip] → ... → [acquire] → [execute]
 ```
 
-## Synchronization (Deprecated)
+## Scheduled Task (Deprecated)
 
 !!! warning "Deprecated"
-    The `sync` parameter on `interval()` is deprecated. Use the [`scheduled()`](#scheduled-task) decorator instead for distributed task execution with built-in TaskLock.
+    The `scheduled()` decorator is deprecated. Use `interval()` with `lock_at_most_for` or `leader` instead.
 
-See [Synchronization Primitives](sync.md) for the standalone `TaskLock` API.
+The `scheduled()` decorator still works but emits a `DeprecationWarning`. It is equivalent to `interval(seconds=N, lock_at_most_for=N*5, lock_at_least_for=N)`.
+
+## Synchronization
+
+The `sync` parameter on `interval()` accepts a [`Lock`](sync.md#lock) to synchronize access to a shared resource during task execution.
+
+!!! warning "Deprecated for TaskLock and LeaderElection"
+    Using `sync` with `TaskLock` or `LeaderElection` is deprecated. Use `lock_at_most_for` and `leader` parameters instead.
+
+See [Synchronization Primitives](sync.md) for more details.
 
 ## Task Router
 

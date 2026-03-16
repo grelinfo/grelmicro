@@ -20,6 +20,7 @@ from fast_depends import inject
 
 from grelmicro.sync.abc import SyncBackend, Synchronization
 from grelmicro.sync.leaderelection import LeaderElection
+from grelmicro.sync.lock import Lock
 from grelmicro.sync.tasklock import TaskLock
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.abc import Task
@@ -59,16 +60,32 @@ class IntervalTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             ValueError: If interval is less than or equal to 0.
+            ValueError: If deprecated sync (non-Lock) is combined with
+                lock_at_most_for, lock_at_least_for, or leader.
             ValueError: If lock_at_most_for is less than interval.
             ValueError: If lock_at_least_for is set without lock_at_most_for or leader.
+            ValueError: If lock_at_least_for is greater than lock_at_most_for.
         """
         if interval <= 0:
             msg = "Interval must be greater than 0"
             raise ValueError(msg)
 
-        if sync is not None:
+        # Validate sync parameter usage
+        if sync is not None and not isinstance(sync, Lock):
+            if (
+                lock_at_most_for is not None
+                or lock_at_least_for is not None
+                or leader is not None
+            ):
+                msg = (
+                    "Cannot combine deprecated 'sync' parameter with "
+                    "lock_at_most_for, lock_at_least_for, or leader. "
+                    "Use a Lock for resource synchronization instead."
+                )
+                raise ValueError(msg)
             warnings.warn(
-                "The 'sync' parameter on interval() is deprecated. "
+                "The 'sync' parameter on interval() is deprecated "
+                "for TaskLock and LeaderElection. "
                 "Use lock_at_most_for and leader parameters instead.",
                 DeprecationWarning,
                 stacklevel=2,
@@ -88,6 +105,14 @@ class IntervalTask(Task):
                 "to be set"
             )
             raise ValueError(msg)
+
+        # Build the synchronization chain
+        resource_lock: Synchronization | None = (
+            sync if isinstance(sync, Lock) else None
+        )
+        legacy_sync: Synchronization | None = (
+            sync if sync is not None and not isinstance(sync, Lock) else None
+        )
 
         if distributed:
             resolved_lock_at_most_for = (
@@ -120,14 +145,20 @@ class IntervalTask(Task):
                 lock_at_most_for=resolved_lock_at_most_for,
             )
             self._sync_factory: _SyncFactory | None = _build_sync(
-                leader=leader, task_lock=task_lock
+                leader=leader,
+                task_lock=task_lock,
+                resource_lock=resource_lock,
             )
-        elif sync is not None:
-            # Legacy sync parameter support
+        elif legacy_sync is not None:
+            # Legacy sync parameter support (deprecated non-Lock types)
             self._sync_factory = None
             self._legacy_sync: (
                 Synchronization | AbstractAsyncContextManager[None]
-            ) = sync
+            ) = legacy_sync
+        elif resource_lock is not None:
+            # Lock for resource synchronization (not deprecated)
+            self._sync_factory = None
+            self._legacy_sync = resource_lock
         else:
             self._sync_factory = None
             self._legacy_sync = nullcontext()
@@ -164,8 +195,8 @@ class IntervalTask(Task):
                                 logger.exception(
                                     "Task execution error: %s", self.name
                                 )
-                except WouldBlock:
-                    logger.debug("Task skipped (already locked): %s", self.name)
+                except WouldBlock as exc:
+                    logger.debug("Task skipped: %s (%s)", self.name, exc)
                 except Exception:
                     logger.exception(
                         "Task synchronization error: %s", self.name
@@ -190,12 +221,19 @@ def _build_sync(
     *,
     leader: LeaderElection | None,
     task_lock: TaskLock,
+    resource_lock: Synchronization | None = None,
 ) -> _SyncFactory:
-    """Build a sync context manager factory from leader and task lock."""
-    if leader is None:
-        return _single_sync(task_lock)
-    guard = leader.guard()
-    return _sync_chain(guard, task_lock)
+    """Build a sync context manager factory from leader, task lock, and resource lock."""
+    primitives: list[Synchronization] = []
+    if resource_lock is not None:
+        primitives.append(resource_lock)
+    if leader is not None:
+        primitives.append(leader.guard())
+    primitives.append(task_lock)
+
+    if len(primitives) == 1:
+        return _single_sync(primitives[0])
+    return _sync_chain(primitives)
 
 
 def _single_sync(sync: Synchronization) -> _SyncFactory:
@@ -209,16 +247,14 @@ def _single_sync(sync: Synchronization) -> _SyncFactory:
     return _wrapper
 
 
-def _sync_chain(
-    guard: Synchronization, task_lock: Synchronization
-) -> _SyncFactory:
-    """Wrap leader guard and task lock as a nested factory."""
+def _sync_chain(primitives: list[Synchronization]) -> _SyncFactory:
+    """Wrap multiple sync primitives as a nested factory."""
 
     @asynccontextmanager
     async def _wrapper() -> AsyncIterator[None]:
         async with AsyncExitStack() as stack:
-            await stack.enter_async_context(guard)
-            await stack.enter_async_context(task_lock)
+            for primitive in primitives:
+                await stack.enter_async_context(primitive)
             yield
 
     return _wrapper

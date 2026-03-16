@@ -52,7 +52,7 @@ The primitives are technology agnostic, supporting multiple backends like Redis,
 
 The available primitives are:
 
-- **Task Lock**: A distributed lock for scheduled tasks with minimum and maximum hold times. Best used via the [`scheduled()` decorator](https://grelinfo.github.io/grelmicro/task/#scheduled-task) which configures it automatically.
+- **Task Lock**: A distributed lock for scheduled tasks with minimum and maximum hold times. Best used via the [`interval()` decorator with `lock_at_most_for`](https://grelinfo.github.io/grelmicro/task/#distributed-lock) which configures it automatically.
 - **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **Lock**: A distributed lock that can be used to synchronize access to shared resources.
 
@@ -140,14 +140,14 @@ def heartbeat():
     logger.info("heartbeat")
 
 
-# --- Scheduled Task: run once per interval across all workers ---
-@task.scheduled(seconds=60)
+# --- Distributed Task: run once per interval across all workers ---
+@task.interval(seconds=60, lock_at_most_for=300)
 def cleanup():
     logger.info("cleanup")
 
 
-# --- Leader-gated Scheduled Task: only the leader executes ---
-@task.scheduled(seconds=10, leader=leader_election)
+# --- Leader-gated Task: only the leader executes ---
+@task.interval(seconds=10, leader=leader_election)
 def leader_only_task():
     logger.info("leader task")
 ```

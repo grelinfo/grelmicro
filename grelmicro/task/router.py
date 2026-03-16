@@ -145,9 +145,11 @@ class TaskRouter:
                 """
                 The synchronization primitive to use for the task.
 
+                Use a ``Lock`` to synchronize access to a shared resource.
+
                 .. deprecated::
-                    The ``sync`` parameter is deprecated. Use ``lock_at_most_for``
-                    and ``leader`` parameters instead.
+                    Using ``sync`` with ``TaskLock`` or ``LeaderElection`` is deprecated.
+                    Use ``lock_at_most_for`` and ``leader`` parameters instead.
 
                 If None, no synchronization is used and the task will run on all workers.
                 """,
@@ -170,8 +172,11 @@ class TaskRouter:
         Raises:
             FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
+            ValueError: If deprecated sync (non-Lock) is combined with
+                lock_at_most_for, lock_at_least_for, or leader.
             ValueError: If lock_at_most_for is less than seconds.
             ValueError: If lock_at_least_for is set without lock_at_most_for or leader.
+            ValueError: If lock_at_least_for is greater than lock_at_most_for.
         """
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
@@ -280,7 +285,7 @@ class TaskRouter:
         """
         warnings.warn(
             "The 'scheduled()' decorator is deprecated. "
-            "Use 'interval()' with 'lock_at_most_for' instead.",
+            "Use 'interval()' with 'lock_at_most_for' or 'leader' instead.",
             DeprecationWarning,
             stacklevel=2,
         )

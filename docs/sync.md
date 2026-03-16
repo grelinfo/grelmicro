@@ -54,7 +54,7 @@ There is no background task that maintains the lock active during execution. The
 - **`lock_at_most_for`**: Maximum duration to hold the lock. Acts as a TTL for crash/deadlock protection.
 
 !!! tip
-    For scheduled tasks, prefer the [`scheduled()` decorator](task.md#scheduled-task) which configures a `TaskLock` automatically with sensible defaults.
+    For scheduled tasks, prefer the [`interval()` decorator with `lock_at_most_for`](task.md#distributed-lock) which configures a `TaskLock` automatically with sensible defaults.
 
 !!! warning
     When the lock expires before the task completes (`lock_at_most_for` exceeded), another node may acquire the lock and execute concurrently. A warning is logged in this case.

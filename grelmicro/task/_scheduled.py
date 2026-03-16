@@ -1,4 +1,8 @@
-"""Scheduled Task."""
+"""Scheduled Task.
+
+.. deprecated::
+    Use :class:`IntervalTask` with ``lock_at_most_for`` or ``leader`` instead.
+"""
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import (
@@ -28,8 +32,9 @@ logger = getLogger("grelmicro.task")
 class ScheduledTask(Task):
     """Scheduled Task with built-in TaskLock.
 
-    Use the `TaskManager.scheduled()` or `TaskRouter.scheduled()` decorator instead
-    of creating ScheduledTask objects directly.
+    .. deprecated::
+        Use :class:`IntervalTask` with ``lock_at_most_for`` or ``leader`` instead.
+        See ``TaskManager.interval()`` or ``TaskRouter.interval()``.
     """
 
     def __init__(

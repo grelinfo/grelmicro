@@ -8,7 +8,9 @@ from pytest_mock import MockFixture
 
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection
+from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.tasklock import TaskLock
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task.samples import (
@@ -132,6 +134,46 @@ def test_interval_task_lock_at_least_for_validation() -> None:
             lock_at_least_for=25,
             backend=backend,
         )
+
+
+def test_interval_task_deprecated_sync_with_new_params() -> None:
+    """Test deprecated sync cannot be combined with new params."""
+    backend = MemorySyncBackend()
+    task_lock = TaskLock(
+        "test",
+        backend=backend,
+        lock_at_least_for=1,
+        lock_at_most_for=10,
+    )
+    with pytest.raises(
+        ValueError,
+        match="Cannot combine deprecated 'sync' parameter",
+    ):
+        IntervalTask(
+            interval=10,
+            function=test1,
+            sync=task_lock,
+            lock_at_most_for=50,
+        )
+
+
+async def test_interval_task_with_lock_and_resource_lock(
+    backend: SyncBackend,
+) -> None:
+    """Test IntervalTask with Lock (resource sync) + distributed lock."""
+    resource_lock = Lock(name="shared-resource", backend=backend)
+    task = IntervalTask(
+        interval=SECONDS,
+        function=notify,
+        lock_at_most_for=SECONDS * 5,
+        backend=backend,
+        sync=resource_lock,
+    )
+    async with create_task_group() as tg:
+        await tg.start(task)
+        async with condition:
+            await condition.wait()
+        tg.cancel_scope.cancel()
 
 
 def test_interval_task_custom_lock_at_least_for() -> None:
@@ -416,7 +458,7 @@ async def test_interval_task_with_lock_would_block_debug_log(
 
     # Assert
     assert any(
-        "Task skipped (already locked):" in record.message
+        "Task skipped:" in record.message
         for record in caplog.records
         if record.levelname == "DEBUG"
     )
@@ -502,7 +544,7 @@ async def test_interval_task_with_leader_skips_when_not_leader(
     # Assert
     assert not samples.e2e_event_1.is_set()
     assert any(
-        "Task skipped (already locked):" in record.message
+        "Task skipped:" in record.message
         for record in caplog.records
         if record.levelname == "DEBUG"
     )

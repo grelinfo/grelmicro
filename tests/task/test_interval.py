@@ -122,7 +122,7 @@ async def test_interval_task_would_block(
 
     # Assert
     assert any(
-        "Task skipped (already locked):" in record.message
+        "Task skipped:" in record.message
         for record in caplog.records
         if record.levelname == "DEBUG"
     )
@@ -408,7 +408,7 @@ async def test_interval_task_with_tasklock_would_block_debug_log(
 
     # Assert
     assert any(
-        "Task skipped (already locked):" in record.message
+        "Task skipped:" in record.message
         for record in caplog.records
         if record.levelname == "DEBUG"
     )
