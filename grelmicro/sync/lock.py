@@ -18,9 +18,10 @@ from grelmicro.sync._utils import (
 from grelmicro.sync.abc import Seconds, SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
+    LockLockedCheckError,
     LockNotOwnedError,
+    LockOwnedCheckError,
     LockReleaseError,
-    SyncBackendError,
 )
 
 
@@ -186,13 +187,12 @@ class Lock(BaseLock):
         """Check if the lock is acquired.
 
         Raises:
-            SyncBackendError: If the lock cannot be checked due to an error on the backend.
+            LockLockedCheckError: If the lock cannot be checked due to an error on the backend.
         """
         try:
             return await self.backend.locked(name=self._config.name)
         except Exception as exc:
-            msg = "Failed to check if the lock is acquired"
-            raise SyncBackendError(msg) from exc
+            raise LockLockedCheckError(name=self._config.name) from exc
 
     async def owned(self) -> bool:
         """Check if the lock is owned by the current token.
@@ -249,13 +249,12 @@ class Lock(BaseLock):
             bool: True if the lock is owned by the current token, False otherwise.
 
         Raises:
-            SyncBackendError: Cannot check if the lock is owned due to backend error.
+            LockOwnedCheckError: Cannot check if the lock is owned due to backend error.
         """
         try:
             return await self.backend.owned(name=self._config.name, token=token)
         except Exception as exc:
-            msg = "Failed to check if the lock is owned"
-            raise SyncBackendError(msg) from exc
+            raise LockOwnedCheckError(name=self._config.name) from exc
 
 
 class ThreadLockAdapter:

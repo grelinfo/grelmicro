@@ -10,6 +10,22 @@ class SyncError(Exception):
     """
 
 
+class LockReentrantError(SyncError):
+    """Lock Reentrant Error.
+
+    This error is raised when a lock that does not support nested usage
+    is acquired while already held.
+    """
+
+    def __init__(self, *, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(
+            f"Lock does not support nested usage: name={name}."
+            f" The lock is already acquired by this instance."
+            f" Use separate instances if you need independent locks."
+        )
+
+
 class SyncBackendError(SyncError):
     """Synchronization Backend Error."""
 
@@ -22,6 +38,28 @@ class BackendNotLoadedError(SyncBackendError):
         super().__init__(
             f"Could not load backend {backend_name}, try initializing one first"
         )
+
+
+class LockLockedCheckError(SyncBackendError):
+    """Lock Locked Check Error.
+
+    This error is raised when an error on backend side occurs while checking if a lock is acquired.
+    """
+
+    def __init__(self, *, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Failed to check if lock is acquired: name={name}")
+
+
+class LockOwnedCheckError(SyncBackendError):
+    """Lock Owned Check Error.
+
+    This error is raised when an error on backend side occurs while checking if a lock is owned.
+    """
+
+    def __init__(self, *, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Failed to check if lock is owned: name={name}")
 
 
 class LockAcquireError(SyncBackendError):

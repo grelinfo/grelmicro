@@ -96,3 +96,6 @@ The lock supports the following features:
 
 !!! warning
     The lock is designed for use within an async event loop and is not thread-safe or process-safe.
+
+!!! tip "Want to understand how worker identity and lock tokens work internally?"
+    See [Synchronization Internals](architecture/sync.md) for details on UUID generation, token scoping, and design guarantees.

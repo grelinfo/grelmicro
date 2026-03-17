@@ -10,9 +10,10 @@ from pytest_mock import MockerFixture
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
+    LockLockedCheckError,
     LockNotOwnedError,
+    LockOwnedCheckError,
     LockReleaseError,
-    SyncBackendError,
 )
 from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncBackend
@@ -488,7 +489,7 @@ async def test_lock_owned_backend_error(
     )
 
     # Act / Assert
-    with pytest.raises(SyncBackendError):
+    with pytest.raises(LockOwnedCheckError):
         await lock.owned()
 
 
@@ -502,5 +503,5 @@ async def test_lock_locked_backend_error(
     )
 
     # Act / Assert
-    with pytest.raises(SyncBackendError):
+    with pytest.raises(LockLockedCheckError):
         await lock.locked()

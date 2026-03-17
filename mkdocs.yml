@@ -36,6 +36,9 @@ nav:
     - resilience.md
     - sync.md
     - task.md
+- Architecture:
+    - architecture/index.md
+    - architecture/sync.md
 
 markdown_extensions:
   - admonition
