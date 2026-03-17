@@ -1,7 +1,7 @@
 """Scheduled Task.
 
 .. deprecated::
-    Use :class:`IntervalTask` with ``lock_at_most_for`` or ``leader`` instead.
+    Use :class:`IntervalTask` with ``max_lock_seconds`` or ``leader`` instead.
 """
 
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -33,7 +33,7 @@ class ScheduledTask(Task):
     """Scheduled Task with built-in TaskLock.
 
     .. deprecated::
-        Use :class:`IntervalTask` with ``lock_at_most_for`` or ``leader`` instead.
+        Use :class:`IntervalTask` with ``max_lock_seconds`` or ``leader`` instead.
         See ``TaskManager.interval()`` or ``TaskRouter.interval()``.
     """
 
@@ -43,7 +43,7 @@ class ScheduledTask(Task):
         function: Callable[..., Any],
         seconds: float,
         name: str | None = None,
-        lock_at_most_for: float | None = None,
+        max_lock_seconds: float | None = None,
         leader: LeaderElection | None = None,
         backend: SyncBackend | None = None,
         worker: str | UUID | None = None,
@@ -53,18 +53,18 @@ class ScheduledTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If lock_at_most_for is less than seconds.
+            ValueError: If max_lock_seconds is less than seconds.
         """
         if seconds <= 0:
             msg = "seconds must be greater than 0"
             raise ValueError(msg)
 
-        resolved_lock_at_most_for = (
-            lock_at_most_for if lock_at_most_for is not None else seconds * 5
+        resolved_max_lock_seconds = (
+            max_lock_seconds if max_lock_seconds is not None else seconds * 5
         )
 
-        if resolved_lock_at_most_for < seconds:
-            msg = "lock_at_most_for must be greater than or equal to seconds"
+        if resolved_max_lock_seconds < seconds:
+            msg = "max_lock_seconds must be greater than or equal to seconds"
             raise ValueError(msg)
 
         alt_name = validate_and_generate_reference(function)
@@ -76,8 +76,8 @@ class ScheduledTask(Task):
             self._name,
             backend=backend,
             worker=worker,
-            lock_at_least_for=seconds,
-            lock_at_most_for=resolved_lock_at_most_for,
+            min_lock_seconds=seconds,
+            max_lock_seconds=resolved_max_lock_seconds,
         )
         self._sync = _build_sync(leader=leader, task_lock=task_lock)
 

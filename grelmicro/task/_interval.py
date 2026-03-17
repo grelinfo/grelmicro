@@ -38,7 +38,7 @@ class IntervalTask(Task):
 
     Supports three modes:
     - Local: No lock params, runs on every worker.
-    - Distributed lock: Set ``lock_at_most_for`` to enable at-most-once per interval.
+    - Distributed lock: Set ``max_lock_seconds`` to enable at-most-once per interval.
     - Leader-gated: Set ``leader`` to restrict execution to the leader worker.
     """
 
@@ -47,9 +47,9 @@ class IntervalTask(Task):
         *,
         function: Callable[..., Any],
         name: str | None = None,
-        interval: float,
-        lock_at_most_for: float | None = None,
-        lock_at_least_for: float | None = None,
+        seconds: float,
+        max_lock_seconds: float | None = None,
+        min_lock_seconds: float | None = None,
         leader: LeaderElection | None = None,
         backend: SyncBackend | None = None,
         worker: str | UUID | None = None,
@@ -59,50 +59,49 @@ class IntervalTask(Task):
 
         Raises:
             FunctionTypeError: If the function is not supported.
-            ValueError: If interval is less than or equal to 0.
+            ValueError: If seconds is less than or equal to 0.
             ValueError: If deprecated sync (non-Lock) is combined with
-                lock_at_most_for, lock_at_least_for, or leader.
-            ValueError: If lock_at_most_for is less than interval.
-            ValueError: If lock_at_least_for is set without lock_at_most_for or leader.
-            ValueError: If lock_at_least_for is greater than lock_at_most_for.
+                max_lock_seconds, min_lock_seconds, or leader.
+            ValueError: If max_lock_seconds is less than seconds.
+            ValueError: If min_lock_seconds is set without max_lock_seconds or leader.
+            ValueError: If min_lock_seconds is greater than max_lock_seconds.
         """
-        if interval <= 0:
-            msg = "Interval must be greater than 0"
+        if seconds <= 0:
+            msg = "seconds must be greater than 0"
             raise ValueError(msg)
 
         # Validate sync parameter usage
         if sync is not None and not isinstance(sync, Lock):
             if (
-                lock_at_most_for is not None
-                or lock_at_least_for is not None
+                max_lock_seconds is not None
+                or min_lock_seconds is not None
                 or leader is not None
             ):
                 msg = (
                     "Cannot combine deprecated 'sync' parameter with "
-                    "lock_at_most_for, lock_at_least_for, or leader. "
+                    "max_lock_seconds, min_lock_seconds, or leader. "
                     "Use a Lock for resource synchronization instead."
                 )
                 raise ValueError(msg)
             warnings.warn(
                 "The 'sync' parameter on interval() is deprecated "
                 "for TaskLock and LeaderElection. "
-                "Use lock_at_most_for and leader parameters instead.",
+                "Use max_lock_seconds and leader parameters instead.",
                 DeprecationWarning,
                 stacklevel=2,
             )
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
-        self._interval = interval
+        self._seconds = seconds
         self._async_function = self._prepare_async_function(function)
 
         # Determine if distributed lock is needed
-        distributed = lock_at_most_for is not None or leader is not None
+        distributed = max_lock_seconds is not None or leader is not None
 
-        if lock_at_least_for is not None and not distributed:
+        if min_lock_seconds is not None and not distributed:
             msg = (
-                "lock_at_least_for requires lock_at_most_for or leader "
-                "to be set"
+                "min_lock_seconds requires max_lock_seconds or leader to be set"
             )
             raise ValueError(msg)
 
@@ -115,25 +114,25 @@ class IntervalTask(Task):
         )
 
         if distributed:
-            resolved_lock_at_most_for = (
-                lock_at_most_for
-                if lock_at_most_for is not None
-                else interval * 5
+            resolved_max_lock_seconds = (
+                max_lock_seconds
+                if max_lock_seconds is not None
+                else seconds * 5
             )
-            resolved_lock_at_least_for = (
-                lock_at_least_for if lock_at_least_for is not None else interval
+            resolved_min_lock_seconds = (
+                min_lock_seconds if min_lock_seconds is not None else seconds
             )
 
-            if resolved_lock_at_most_for < interval:
+            if resolved_max_lock_seconds < seconds:
                 msg = (
-                    "lock_at_most_for must be greater than or equal to interval"
+                    "max_lock_seconds must be greater than or equal to seconds"
                 )
                 raise ValueError(msg)
 
-            if resolved_lock_at_least_for > resolved_lock_at_most_for:
+            if resolved_min_lock_seconds > resolved_max_lock_seconds:
                 msg = (
-                    "lock_at_least_for must be less than or equal to "
-                    "lock_at_most_for"
+                    "min_lock_seconds must be less than or equal to "
+                    "max_lock_seconds"
                 )
                 raise ValueError(msg)
 
@@ -141,8 +140,8 @@ class IntervalTask(Task):
                 self._name,
                 backend=backend,
                 worker=worker,
-                lock_at_least_for=resolved_lock_at_least_for,
-                lock_at_most_for=resolved_lock_at_most_for,
+                min_lock_seconds=resolved_min_lock_seconds,
+                max_lock_seconds=resolved_max_lock_seconds,
             )
             self._sync_factory: _SyncFactory | None = _build_sync(
                 leader=leader,
@@ -173,7 +172,7 @@ class IntervalTask(Task):
     ) -> None:
         """Run the repeated task loop."""
         logger.info(
-            "Task started (interval: %ss): %s", self._interval, self.name
+            "Task started (interval: %ss): %s", self._seconds, self.name
         )
         task_status.started()
         try:
@@ -201,7 +200,7 @@ class IntervalTask(Task):
                     logger.exception(
                         "Task synchronization error: %s", self.name
                     )
-                await sleep(self._interval)
+                await sleep(self._seconds)
         finally:
             logger.info("Task stopped: %s", self.name)
 

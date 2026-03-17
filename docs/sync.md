@@ -48,16 +48,16 @@ You can initialize a backend like this:
 
 The Task Lock is a distributed lock designed for scheduled tasks. Unlike a regular Lock, it does not release immediately. Instead, it keeps the lock held for a configurable minimum duration to prevent re-execution on other nodes.
 
-There is no background task that maintains the lock active during execution. The lock relies entirely on the TTL (`lock_at_most_for`) set at acquire time. If the task runs longer than `lock_at_most_for`, the lock expires and another node may acquire it.
+There is no background task that maintains the lock active during execution. The lock relies entirely on the TTL (`max_lock_seconds`) set at acquire time. If the task runs longer than `max_lock_seconds`, the lock expires and another node may acquire it.
 
-- **`lock_at_least_for`**: Minimum duration to hold the lock after task completion. Prevents another node from re-executing too soon.
-- **`lock_at_most_for`**: Maximum duration to hold the lock. Acts as a TTL for crash/deadlock protection.
+- **`min_lock_seconds`**: Minimum duration to hold the lock after task completion. Prevents another node from re-executing too soon.
+- **`max_lock_seconds`**: Maximum duration to hold the lock. Acts as a TTL for crash/deadlock protection.
 
 !!! tip
-    For scheduled tasks, prefer the [`interval()` decorator with `lock_at_most_for`](task.md#distributed-lock) which configures a `TaskLock` automatically with sensible defaults.
+    For scheduled tasks, prefer the [`interval()` decorator with `max_lock_seconds`](task.md#distributed-lock) which configures a `TaskLock` automatically with sensible defaults.
 
 !!! warning
-    When the lock expires before the task completes (`lock_at_most_for` exceeded), another node may acquire the lock and execute concurrently. A warning is logged in this case.
+    When the lock expires before the task completes (`max_lock_seconds` exceeded), another node may acquire the lock and execute concurrently. A warning is logged in this case.
 
 
 ## Leader Election

@@ -42,7 +42,7 @@ async def backend() -> AsyncGenerator[SyncBackend]:
 def test_interval_task_init() -> None:
     """Test Interval Task Initialization."""
     # Act
-    task = IntervalTask(interval=1, function=test1)
+    task = IntervalTask(seconds=1, function=test1)
     # Assert
     assert task.name == "tests.task.samples:test1"
 
@@ -50,7 +50,7 @@ def test_interval_task_init() -> None:
 def test_interval_task_init_with_name() -> None:
     """Test Interval Task Initialization with Name."""
     # Act
-    task = IntervalTask(interval=1, function=test1, name="test1")
+    task = IntervalTask(seconds=1, function=test1, name="test1")
     # Assert
     assert task.name == "test1"
 
@@ -58,26 +58,26 @@ def test_interval_task_init_with_name() -> None:
 def test_interval_task_init_with_invalid_interval() -> None:
     """Test Interval Task Initialization with Invalid Interval."""
     # Act / Assert
-    with pytest.raises(ValueError, match="Interval must be greater than 0"):
-        IntervalTask(interval=0, function=test1)
+    with pytest.raises(ValueError, match="seconds must be greater than 0"):
+        IntervalTask(seconds=0, function=test1)
 
 
 def test_interval_task_sync_deprecation_warning() -> None:
     """Test that sync= emits DeprecationWarning."""
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        IntervalTask(interval=1, function=test1, sync=WouldBlockLock())
+        IntervalTask(seconds=1, function=test1, sync=WouldBlockLock())
 
     assert len(w) == 1
     assert issubclass(w[0].category, DeprecationWarning)
     assert "sync" in str(w[0].message)
-    assert "lock_at_most_for" in str(w[0].message)
+    assert "max_lock_seconds" in str(w[0].message)
 
 
 async def test_interval_task_start() -> None:
     """Test Interval Task Start."""
     # Arrange
-    task = IntervalTask(interval=1, function=notify)
+    task = IntervalTask(seconds=1, function=notify)
     # Act
     async with create_task_group() as tg:
         await tg.start(task)
@@ -91,7 +91,7 @@ async def test_interval_task_execution_error(
 ) -> None:
     """Test Interval Task Execution Error."""
     # Arrange
-    task = IntervalTask(interval=1, function=always_fail)
+    task = IntervalTask(seconds=1, function=always_fail)
     # Act
     async with create_task_group() as tg:
         await tg.start(task)
@@ -112,7 +112,7 @@ async def test_interval_task_would_block(
     """Test Interval Task WouldBlock logs at DEBUG, not ERROR."""
     # Arrange
     caplog.set_level("DEBUG")
-    task = IntervalTask(interval=1, function=notify, sync=WouldBlockLock())
+    task = IntervalTask(seconds=1, function=notify, sync=WouldBlockLock())
 
     # Act
     async with create_task_group() as tg:
@@ -138,7 +138,7 @@ async def test_interval_task_synchronization_error(
 ) -> None:
     """Test Interval Task Synchronization Error."""
     # Arrange
-    task = IntervalTask(interval=1, function=notify, sync=BadLock())
+    task = IntervalTask(seconds=1, function=notify, sync=BadLock())
 
     # Act
     async with create_task_group() as tg:
@@ -167,7 +167,7 @@ async def test_interval_stop(
     mocker.patch(
         "grelmicro.task._interval.sleep", side_effect=CustomBaseException
     )
-    task = IntervalTask(interval=1, function=test1)
+    task = IntervalTask(seconds=1, function=test1)
 
     async def leader_election_during_runtime_error() -> None:
         async with create_task_group() as tg:
@@ -204,11 +204,11 @@ async def test_interval_task_with_tasklock(backend: SyncBackend) -> None:
         LOCK_NAME,
         backend=backend,
         worker="worker_1",
-        lock_at_least_for=0.001,
-        lock_at_most_for=10,
+        min_lock_seconds=0.001,
+        max_lock_seconds=10,
     )
     task = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.set_event_1,
         name="e2e_task",
         sync=task_lock,
@@ -230,24 +230,24 @@ async def test_interval_task_with_tasklock_two_workers(
         LOCK_NAME,
         backend=backend,
         worker="worker_1",
-        lock_at_least_for=1,
-        lock_at_most_for=10,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
     )
     lock_2 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_2",
-        lock_at_least_for=1,
-        lock_at_most_for=10,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
     )
     task_1 = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.set_event_1,
         name="e2e_worker_1",
         sync=lock_1,
     )
     task_2 = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.set_event_2,
         name="e2e_worker_2",
         sync=lock_2,
@@ -266,39 +266,39 @@ async def test_interval_task_with_tasklock_two_workers(
     assert not samples.e2e_event_2.is_set()
 
 
-async def test_interval_task_with_tasklock_lock_at_least_for(
+async def test_interval_task_with_tasklock_min_lock_seconds(
     backend: SyncBackend,
 ) -> None:
-    """Test lock_at_least_for prevents re-execution on another worker."""
+    """Test min_lock_seconds prevents re-execution on another worker."""
     # Arrange
     lock_1 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_1",
-        lock_at_least_for=0.5,
-        lock_at_most_for=10,
+        min_lock_seconds=0.5,
+        max_lock_seconds=10,
     )
     lock_2 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_2",
-        lock_at_least_for=0.5,
-        lock_at_most_for=10,
+        min_lock_seconds=0.5,
+        max_lock_seconds=10,
     )
     task_1 = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.set_event_1,
         name="e2e_worker_1",
         sync=lock_1,
     )
     task_2 = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.set_event_2,
         name="e2e_worker_2",
         sync=lock_2,
     )
 
-    # Act - worker 1 executes then is cancelled, lock stays held for lock_at_least_for
+    # Act - worker 1 executes then is cancelled, lock stays held for min_lock_seconds
     async with create_task_group() as tg:
         async with create_task_group() as tg_worker_1:
             await tg_worker_1.start(task_1)
@@ -317,33 +317,33 @@ async def test_interval_task_with_tasklock_lock_at_least_for(
     assert worker_2_ran
 
 
-async def test_interval_task_with_tasklock_lock_at_most_for(
+async def test_interval_task_with_tasklock_max_lock_seconds(
     backend: SyncBackend,
 ) -> None:
-    """Test lock_at_most_for auto-expires when task takes too long."""
+    """Test max_lock_seconds auto-expires when task takes too long."""
     # Arrange
     lock_1 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_1",
-        lock_at_least_for=0.01,
-        lock_at_most_for=0.2,
+        min_lock_seconds=0.01,
+        max_lock_seconds=0.2,
     )
     lock_2 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_2",
-        lock_at_least_for=0.01,
-        lock_at_most_for=0.2,
+        min_lock_seconds=0.01,
+        max_lock_seconds=0.2,
     )
     task_1 = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.worker_1_hold,
         name="e2e_worker_1",
         sync=lock_1,
     )
     task_2 = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.set_event_2,
         name="e2e_worker_2",
         sync=lock_2,
@@ -375,24 +375,24 @@ async def test_interval_task_with_tasklock_would_block_debug_log(
         LOCK_NAME,
         backend=backend,
         worker="worker_1",
-        lock_at_least_for=1,
-        lock_at_most_for=10,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
     )
     lock_2 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_2",
-        lock_at_least_for=1,
-        lock_at_most_for=10,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
     )
     task_1 = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.worker_1_hold,
         name="e2e_worker_1",
         sync=lock_1,
     )
     task_2 = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.noop,
         name="e2e_worker_2",
         sync=lock_2,
@@ -422,17 +422,17 @@ async def test_interval_task_with_tasklock_would_block_debug_log(
 async def test_interval_task_with_tasklock_sequential_executions(
     backend: SyncBackend,
 ) -> None:
-    """Test same worker executes again after lock_at_least_for expires."""
+    """Test same worker executes again after min_lock_seconds expires."""
     # Arrange
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_1",
-        lock_at_least_for=0.1,
-        lock_at_most_for=10,
+        min_lock_seconds=0.1,
+        max_lock_seconds=10,
     )
     task = IntervalTask(
-        interval=INTERVAL,
+        seconds=INTERVAL,
         function=samples.set_event_1,
         name="e2e_task",
         sync=task_lock,

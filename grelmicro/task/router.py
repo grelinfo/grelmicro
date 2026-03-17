@@ -82,7 +82,7 @@ class TaskRouter:
                 """,
             ),
         ] = None,
-        lock_at_most_for: Annotated[
+        max_lock_seconds: Annotated[
             float | None,
             Doc(
                 """
@@ -94,7 +94,7 @@ class TaskRouter:
                 """,
             ),
         ] = None,
-        lock_at_least_for: Annotated[
+        min_lock_seconds: Annotated[
             float | None,
             Doc(
                 """
@@ -102,7 +102,7 @@ class TaskRouter:
 
                 Prevents re-execution on other nodes before this duration has elapsed.
                 Defaults to ``seconds`` when distributed locking is enabled.
-                Requires ``lock_at_most_for`` or ``leader`` to be set.
+                Requires ``max_lock_seconds`` or ``leader`` to be set.
                 """,
             ),
         ] = None,
@@ -149,7 +149,7 @@ class TaskRouter:
 
                 .. deprecated::
                     Using ``sync`` with ``TaskLock`` or ``LeaderElection`` is deprecated.
-                    Use ``lock_at_most_for`` and ``leader`` parameters instead.
+                    Use ``max_lock_seconds`` and ``leader`` parameters instead.
 
                 If None, no synchronization is used and the task will run on all workers.
                 """,
@@ -164,7 +164,7 @@ class TaskRouter:
         Supports three modes:
 
         - **Local**: No lock params — runs on every worker, every interval.
-        - **Distributed lock**: Set ``lock_at_most_for`` — runs at most once per
+        - **Distributed lock**: Set ``max_lock_seconds`` — runs at most once per
           interval across all workers.
         - **Leader-gated**: Set ``leader`` — only the leader worker runs the task
           (lock is implied).
@@ -173,10 +173,10 @@ class TaskRouter:
             FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
             ValueError: If deprecated sync (non-Lock) is combined with
-                lock_at_most_for, lock_at_least_for, or leader.
-            ValueError: If lock_at_most_for is less than seconds.
-            ValueError: If lock_at_least_for is set without lock_at_most_for or leader.
-            ValueError: If lock_at_least_for is greater than lock_at_most_for.
+                max_lock_seconds, min_lock_seconds, or leader.
+            ValueError: If max_lock_seconds is less than seconds.
+            ValueError: If min_lock_seconds is set without max_lock_seconds or leader.
+            ValueError: If min_lock_seconds is greater than max_lock_seconds.
         """
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
@@ -187,9 +187,9 @@ class TaskRouter:
                 IntervalTask(
                     name=name,
                     function=function,
-                    interval=seconds,
-                    lock_at_most_for=lock_at_most_for,
-                    lock_at_least_for=lock_at_least_for,
+                    seconds=seconds,
+                    max_lock_seconds=max_lock_seconds,
+                    min_lock_seconds=min_lock_seconds,
                     leader=leader,
                     backend=backend,
                     worker=worker,
@@ -211,7 +211,7 @@ class TaskRouter:
 
                 Each worker retries every N seconds, but only one worker executes
                 per interval thanks to the built-in lock. Also used as the
-                ``lock_at_least_for`` value.
+                ``min_lock_seconds`` value.
                 """,
             ),
         ],
@@ -226,7 +226,7 @@ class TaskRouter:
                 """,
             ),
         ] = None,
-        lock_at_most_for: Annotated[
+        max_lock_seconds: Annotated[
             float | None,
             Doc(
                 """
@@ -273,7 +273,7 @@ class TaskRouter:
         """Decorate function to add it as a distributed scheduled task.
 
         .. deprecated::
-            Use ``interval()`` with ``lock_at_most_for`` instead.
+            Use ``interval()`` with ``max_lock_seconds`` instead.
 
         The task runs at most once per interval across all workers, using a built-in
         TaskLock. Can optionally be gated behind a leader election.
@@ -281,19 +281,19 @@ class TaskRouter:
         Raises:
             FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If lock_at_most_for is less than seconds.
+            ValueError: If max_lock_seconds is less than seconds.
         """
         warnings.warn(
             "The 'scheduled()' decorator is deprecated. "
-            "Use 'interval()' with 'lock_at_most_for' or 'leader' instead.",
+            "Use 'interval()' with 'max_lock_seconds' or 'leader' instead.",
             DeprecationWarning,
             stacklevel=2,
         )
 
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
-        resolved_lock_at_most_for = (
-            lock_at_most_for if lock_at_most_for is not None else seconds * 5
+        resolved_max_lock_seconds = (
+            max_lock_seconds if max_lock_seconds is not None else seconds * 5
         )
 
         def decorator(
@@ -302,10 +302,10 @@ class TaskRouter:
             self.add_task(
                 IntervalTask(
                     function=function,
-                    interval=seconds,
+                    seconds=seconds,
                     name=name,
-                    lock_at_most_for=resolved_lock_at_most_for,
-                    lock_at_least_for=seconds,
+                    max_lock_seconds=resolved_max_lock_seconds,
+                    min_lock_seconds=seconds,
                     leader=leader,
                     backend=backend,
                     worker=worker,
