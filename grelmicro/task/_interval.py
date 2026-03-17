@@ -212,11 +212,23 @@ def _build_sync_list(
     task_lock: TaskLock,
     resource_lock: Synchronization | None = None,
 ) -> list[Synchronization]:
-    """Build an ordered list of sync primitives."""
+    """Build an ordered list of sync primitives.
+
+    Acquisition order (outermost to innermost):
+
+    1. **Leader guard**: Cheapest check; instantly rejects non-leader workers
+       without touching any lock, avoiding unnecessary contention.
+    2. **Task lock**: The distributed ``TaskLock`` with TTL that guarantees
+       at-most-once execution per interval. Acquired after leadership is
+       confirmed to keep the TTL window tight.
+    3. **Resource lock**: A user-provided ``Lock`` for shared-resource access.
+       Acquired last so the resource is held only during actual execution,
+       minimizing contention on the shared resource.
+    """
     primitives: list[Synchronization] = []
-    if resource_lock is not None:
-        primitives.append(resource_lock)
     if leader is not None:
         primitives.append(leader.guard())
     primitives.append(task_lock)
+    if resource_lock is not None:
+        primitives.append(resource_lock)
     return primitives

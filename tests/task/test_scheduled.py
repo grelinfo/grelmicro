@@ -77,7 +77,7 @@ def test_interval_task_with_lock_default_max_lock_seconds() -> None:
     # Arrange
     backend = MemorySyncBackend()
     leader = LeaderElection("test-leader", backend=backend)
-    # Act — leader implies lock, max_lock_seconds defaults to interval * 5
+    # Act - leader implies lock, max_lock_seconds defaults to interval * 5
     task = IntervalTask(
         seconds=10, function=test1, leader=leader, backend=backend
     )
@@ -179,7 +179,7 @@ async def test_interval_task_with_lock_and_resource_lock(
 def test_interval_task_custom_min_lock_seconds() -> None:
     """Test IntervalTask with custom min_lock_seconds."""
     backend = MemorySyncBackend()
-    # Act — should not raise
+    # Act - should not raise
     task = IntervalTask(
         seconds=10,
         function=test1,

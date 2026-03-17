@@ -84,6 +84,18 @@ Node A:  [acquire] → [execute] → [hold for seconds] → [TTL expires]
 Node B:  [skip] → ... → [skip] → ... → [acquire] → [execute]
 ```
 
+### Synchronization Acquisition Order
+
+When combining leader gating, distributed locking, and a resource lock, the synchronization primitives are acquired in the following order (outermost to innermost):
+
+| Order | Primitive | Purpose |
+|-------|-----------|---------|
+| 1 | [`LeaderElection`](sync.md#leader-election) | Instantly rejects non-leader workers without touching any lock, avoiding unnecessary contention. |
+| 2 | [`TaskLock`](sync.md#task-lock) | Guarantees at-most-once execution per interval via a TTL-based distributed lock. Acquired after leadership is confirmed to keep the TTL window tight. |
+| 3 | [`Lock`](sync.md#lock) | User-provided lock for shared-resource access. Acquired last so the resource is held only during actual execution, minimizing contention. |
+
+Each primitive is only acquired if the previous one succeeded. For example, a non-leader worker is rejected at step 1 and never touches the task lock or resource lock.
+
 ## Scheduled Task (Deprecated)
 
 !!! warning "Deprecated"
