@@ -1,13 +1,7 @@
 """Interval Task."""
 
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import (
-    AbstractAsyncContextManager,
-    AsyncExitStack,
-    asynccontextmanager,
-    nullcontext,
-)
+from collections.abc import Awaitable, Callable
 from functools import partial
 from inspect import iscoroutinefunction
 from logging import getLogger
@@ -26,8 +20,6 @@ from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.abc import Task
 
 logger = getLogger("grelmicro.task")
-
-_SyncFactory = Callable[[], AbstractAsyncContextManager[None]]
 
 
 class IntervalTask(Task):
@@ -143,24 +135,19 @@ class IntervalTask(Task):
                 min_lock_seconds=resolved_min_lock_seconds,
                 max_lock_seconds=resolved_max_lock_seconds,
             )
-            self._sync_factory: _SyncFactory | None = _build_sync(
+            self._sync_primitives: list[Synchronization] = _build_sync_list(
                 leader=leader,
                 task_lock=task_lock,
                 resource_lock=resource_lock,
             )
         elif legacy_sync is not None:
             # Legacy sync parameter support (deprecated non-Lock types)
-            self._sync_factory = None
-            self._legacy_sync: (
-                Synchronization | AbstractAsyncContextManager[None]
-            ) = legacy_sync
+            self._sync_primitives = [legacy_sync]
         elif resource_lock is not None:
             # Lock for resource synchronization (not deprecated)
-            self._sync_factory = None
-            self._legacy_sync = resource_lock
+            self._sync_primitives = [resource_lock]
         else:
-            self._sync_factory = None
-            self._legacy_sync = nullcontext()
+            self._sync_primitives = []
 
     @property
     def name(self) -> str:
@@ -178,22 +165,7 @@ class IntervalTask(Task):
         try:
             while True:
                 try:
-                    if self._sync_factory is not None:
-                        async with self._sync_factory():
-                            try:
-                                await self._async_function()
-                            except Exception:
-                                logger.exception(
-                                    "Task execution error: %s", self.name
-                                )
-                    else:
-                        async with self._legacy_sync:
-                            try:
-                                await self._async_function()
-                            except Exception:
-                                logger.exception(
-                                    "Task execution error: %s", self.name
-                                )
+                    await self._run_with_sync(self._sync_primitives)
                 except WouldBlock as exc:
                     logger.debug("Task skipped: %s (%s)", self.name, exc)
                 except Exception:
@@ -203,6 +175,24 @@ class IntervalTask(Task):
                 await sleep(self._seconds)
         finally:
             logger.info("Task stopped: %s", self.name)
+
+    async def _run_with_sync(
+        self, primitives: list[Synchronization], index: int = 0
+    ) -> None:
+        """Enter sync primitives via recursive nesting, then run the task.
+
+        Using explicit recursion avoids AsyncExitStack and @asynccontextmanager
+        overhead on every iteration.
+        """
+        if index >= len(primitives):
+            try:
+                await self._async_function()
+            except Exception:
+                logger.exception("Task execution error: %s", self.name)
+            return
+
+        async with primitives[index]:
+            await self._run_with_sync(primitives, index + 1)
 
     def _prepare_async_function(
         self, function: Callable[..., Any]
@@ -216,44 +206,17 @@ class IntervalTask(Task):
         )
 
 
-def _build_sync(
+def _build_sync_list(
     *,
     leader: LeaderElection | None,
     task_lock: TaskLock,
     resource_lock: Synchronization | None = None,
-) -> _SyncFactory:
-    """Build a sync context manager factory from leader, task lock, and resource lock."""
+) -> list[Synchronization]:
+    """Build an ordered list of sync primitives."""
     primitives: list[Synchronization] = []
     if resource_lock is not None:
         primitives.append(resource_lock)
     if leader is not None:
         primitives.append(leader.guard())
     primitives.append(task_lock)
-
-    if len(primitives) == 1:
-        return _single_sync(primitives[0])
-    return _sync_chain(primitives)
-
-
-def _single_sync(sync: Synchronization) -> _SyncFactory:
-    """Wrap a single sync primitive as a factory."""
-
-    @asynccontextmanager
-    async def _wrapper() -> AsyncIterator[None]:
-        async with sync:
-            yield
-
-    return _wrapper
-
-
-def _sync_chain(primitives: list[Synchronization]) -> _SyncFactory:
-    """Wrap multiple sync primitives as a nested factory."""
-
-    @asynccontextmanager
-    async def _wrapper() -> AsyncIterator[None]:
-        async with AsyncExitStack() as stack:
-            for primitive in primitives:
-                await stack.enter_async_context(primitive)
-            yield
-
-    return _wrapper
+    return primitives
