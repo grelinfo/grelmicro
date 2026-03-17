@@ -11,6 +11,8 @@ from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
 from grelmicro.sync.memory import MemorySyncBackend
 
+LEADER_NAME = "test_leader_election"
+BACKEND_LOCK_NAME = f"leader:{LEADER_NAME}"
 WORKERS = 4
 WORKER_1 = 0
 WORKER_2 = 1
@@ -30,7 +32,7 @@ def configs() -> list[LeaderElectionConfig]:
     """Leader election Config."""
     return [
         LeaderElectionConfig(
-            name="test_leader_election",
+            name=LEADER_NAME,
             worker=f"worker_{i}",
             lease_duration=0.02,
             renew_deadline=0.015,
@@ -81,7 +83,7 @@ def test_leader_election_config() -> None:
     """Test leader election Config."""
     # Arrange
     config = LeaderElectionConfig(
-        name="test_leader_election",
+        name=LEADER_NAME,
         worker="worker_1",
         lease_duration=0.01,
         renew_deadline=0.008,
@@ -105,9 +107,7 @@ def test_leader_election_config() -> None:
 def test_leader_election_config_defaults() -> None:
     """Test leader election Config Defaults."""
     # Arrange
-    config = LeaderElectionConfig(
-        name="test_leader_election", worker="worker_1"
-    )
+    config = LeaderElectionConfig(name=LEADER_NAME, worker="worker_1")
 
     # Assert
     assert config.model_dump() == {
@@ -129,7 +129,7 @@ def test_leader_election_config_validation_errors() -> None:
         match="Renew deadline must be shorter than lease duration",
     ):
         LeaderElectionConfig(
-            name="test_leader_election",
+            name=LEADER_NAME,
             worker="worker_1",
             lease_duration=15,
             renew_deadline=20,
@@ -139,7 +139,7 @@ def test_leader_election_config_validation_errors() -> None:
         match="Retry interval must be shorter than renew deadline",
     ):
         LeaderElectionConfig(
-            name="test_leader_election",
+            name=LEADER_NAME,
             worker="worker_1",
             renew_deadline=10,
             retry_interval=15,
@@ -149,11 +149,27 @@ def test_leader_election_config_validation_errors() -> None:
         match="Backend timeout must be shorter than renew deadline",
     ):
         LeaderElectionConfig(
-            name="test_leader_election",
+            name=LEADER_NAME,
             worker="worker_1",
             renew_deadline=10,
             backend_timeout=15,
         )
+
+
+async def test_leader_key_prefix(
+    backend: SyncBackend, leader_election: LeaderElection
+) -> None:
+    """Test LeaderElection uses prefixed key on the backend."""
+    # Act
+    async with create_task_group() as tg:
+        await tg.start(leader_election)
+        await leader_election.wait_for_leader()
+
+        # Assert - backend key should be prefixed
+        assert await backend.locked(name=BACKEND_LOCK_NAME) is True
+        # Raw name should NOT be locked
+        assert await backend.locked(name=LEADER_NAME) is False
+        tg.cancel_scope.cancel()
 
 
 async def test_lifecycle(leader_election: LeaderElection) -> None:
