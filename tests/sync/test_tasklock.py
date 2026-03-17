@@ -9,7 +9,11 @@ from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
 from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.errors import LockAcquireError, LockReleaseError
+from grelmicro.sync.errors import (
+    LockAcquireError,
+    LockLockedCheckError,
+    LockReleaseError,
+)
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
 
@@ -263,6 +267,23 @@ async def test_tasklock_acquire_backend_error(
     with pytest.raises(LockAcquireError):
         async with task_lock:
             pass
+
+
+async def test_tasklock_locked_backend_error(
+    backend: SyncBackend, mocker: MockerFixture
+) -> None:
+    """Test TaskLock raises LockLockedCheckError on backend error during locked check."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+    )
+    mocker.patch.object(
+        backend, "locked", side_effect=Exception("Backend Error")
+    )
+
+    with pytest.raises(LockLockedCheckError):
+        await task_lock.locked()
 
 
 async def test_tasklock_release_backend_error(
