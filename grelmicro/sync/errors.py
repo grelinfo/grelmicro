@@ -24,6 +24,28 @@ class BackendNotLoadedError(SyncBackendError):
         )
 
 
+class LockLockedCheckError(SyncBackendError):
+    """Lock Locked Check Error.
+
+    This error is raised when an error on backend side occurs while checking if a lock is acquired.
+    """
+
+    def __init__(self, *, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Failed to check if lock is acquired: name={name}")
+
+
+class LockOwnedCheckError(SyncBackendError):
+    """Lock Owned Check Error.
+
+    This error is raised when an error on backend side occurs while checking if a lock is owned.
+    """
+
+    def __init__(self, *, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Failed to check if lock is owned: name={name}")
+
+
 class LockAcquireError(SyncBackendError):
     """Acquire Lock Error.
 

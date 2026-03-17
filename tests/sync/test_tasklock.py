@@ -1,9 +1,10 @@
 """Test Task Lock."""
 
+import time
 from collections.abc import AsyncGenerator
 
 import pytest
-from anyio import WouldBlock, sleep
+from anyio import WouldBlock, sleep, to_thread
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
@@ -355,6 +356,193 @@ async def test_tasklock_reacquire_lost_warning(
     # Assert
     assert any(
         "Task lock lost before re-acquire" in record.message
+        for record in caplog.records
+        if record.levelname == "WARNING"
+    )
+
+
+# --- from_thread ---
+
+
+async def test_tasklock_from_thread_acquire_release(
+    backend: SyncBackend,
+) -> None:
+    """Test TaskLock from thread acquires and releases when elapsed >= min_lock_seconds."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=0.001,
+        max_lock_seconds=10,
+    )
+    locked_before = False
+    locked_inside = False
+    locked_after = False
+
+    def sync() -> None:
+        nonlocal locked_before, locked_inside, locked_after
+
+        locked_before = task_lock.from_thread.locked()
+        with task_lock.from_thread:
+            locked_inside = task_lock.from_thread.locked()
+            time.sleep(0.01)  # Ensure elapsed > min_lock_seconds
+        locked_after = task_lock.from_thread.locked()
+
+    await to_thread.run_sync(sync)
+
+    assert locked_before is False
+    assert locked_inside is True
+    assert locked_after is False
+
+
+async def test_tasklock_from_thread_would_block(backend: SyncBackend) -> None:
+    """Test TaskLock from thread raises WouldBlock when already locked."""
+    task_lock_1 = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    task_lock_2 = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_2,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+
+    def sync() -> None:
+        with (
+            task_lock_1.from_thread,
+            pytest.raises(WouldBlock),
+            task_lock_2.from_thread,
+        ):
+            pass
+
+    await to_thread.run_sync(sync)
+
+
+async def test_tasklock_from_thread_stays_locked(backend: SyncBackend) -> None:
+    """Test TaskLock from thread stays locked when elapsed < min_lock_seconds."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=0.5,
+        max_lock_seconds=10,
+    )
+    locked_after = False
+
+    def sync() -> None:
+        nonlocal locked_after
+
+        with task_lock.from_thread:
+            pass  # Completes almost instantly (elapsed << 0.5)
+        locked_after = task_lock.from_thread.locked()
+
+    await to_thread.run_sync(sync)
+
+    assert locked_after is True
+
+
+async def test_tasklock_from_thread_acquire_backend_error(
+    backend: SyncBackend, mocker: MockerFixture
+) -> None:
+    """Test TaskLock from thread raises LockAcquireError on backend error."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+    )
+    mocker.patch.object(
+        backend, "acquire", side_effect=Exception("Backend Error")
+    )
+
+    def sync() -> None:
+        with pytest.raises(LockAcquireError), task_lock.from_thread:
+            pass
+
+    await to_thread.run_sync(sync)
+
+
+async def test_tasklock_from_thread_release_backend_error(
+    backend: SyncBackend, mocker: MockerFixture
+) -> None:
+    """Test TaskLock from thread raises LockReleaseError on backend error during release."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=0.001,
+        max_lock_seconds=10,
+    )
+
+    def sync() -> None:
+        with pytest.raises(LockReleaseError):  # noqa: PT012, SIM117
+            with task_lock.from_thread:
+                time.sleep(0.01)  # Ensure elapsed > min_lock_seconds
+                mocker.patch.object(
+                    backend, "release", side_effect=Exception("Backend Error")
+                )
+
+    await to_thread.run_sync(sync)
+
+
+async def test_tasklock_from_thread_reacquire_backend_error(
+    backend: SyncBackend, mocker: MockerFixture
+) -> None:
+    """Test TaskLock from thread raises LockReleaseError on backend error during re-acquire."""
+    min_lock_seconds = 10
+    max_lock_seconds = 60
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=min_lock_seconds,
+        max_lock_seconds=max_lock_seconds,
+    )
+
+    original_acquire = backend.acquire
+
+    async def fail_on_reacquire(
+        *, name: str, token: str, duration: float
+    ) -> bool:
+        if duration < max_lock_seconds:
+            msg = "Backend Error"
+            raise Exception(msg)  # noqa: TRY002
+        return await original_acquire(name=name, token=token, duration=duration)
+
+    mocker.patch.object(backend, "acquire", side_effect=fail_on_reacquire)
+
+    def sync() -> None:
+        with pytest.raises(LockReleaseError), task_lock.from_thread:
+            pass
+
+    await to_thread.run_sync(sync)
+
+
+async def test_tasklock_from_thread_release_expired_warning(
+    backend: SyncBackend, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test TaskLock from thread logs warning when lock expired before release."""
+    caplog.set_level("WARNING")
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=0.01,
+        max_lock_seconds=0.05,
+    )
+
+    def sync() -> None:
+        with task_lock.from_thread:
+            time.sleep(0.1)  # Wait for lock to expire
+
+    await to_thread.run_sync(sync)
+
+    assert any(
+        "Task lock expired before release" in record.message
         for record in caplog.records
         if record.levelname == "WARNING"
     )
