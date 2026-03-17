@@ -3,6 +3,6 @@ from grelmicro.task import TaskManager
 task = TaskManager()
 
 
-@task.scheduled(seconds=60)
+@task.interval(seconds=60, max_lock_seconds=300)
 async def cleanup():
     print("Running cleanup...")

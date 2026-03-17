@@ -6,6 +6,6 @@ task = TaskManager()
 task.add_task(leader)
 
 
-@task.scheduled(seconds=60, leader=leader)
+@task.interval(seconds=60, leader=leader)
 async def cleanup():
     print("Running cleanup...")

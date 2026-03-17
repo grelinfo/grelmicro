@@ -1,6 +1,7 @@
 """Test Task Router."""
 
 import re
+import warnings
 from functools import partial
 
 import pytest
@@ -9,7 +10,6 @@ from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.task import TaskRouter
 from grelmicro.task._interval import IntervalTask
-from grelmicro.task._scheduled import ScheduledTask
 from grelmicro.task.errors import FunctionTypeError, TaskAddOperationError
 from tests.task.samples import EventTask, SimpleClass, test1, test2, test3
 
@@ -133,6 +133,40 @@ def test_router_interval_name_generation_error() -> None:
         router.interval(seconds=10)(object())  # type: ignore[arg-type]
 
 
+def test_router_interval_with_lock() -> None:
+    """Test Task Router add interval task with distributed lock."""
+    # Arrange
+    backend = MemorySyncBackend()
+    router = TaskRouter()
+
+    # Act
+    router.interval(seconds=60, max_lock_seconds=300, backend=backend)(test1)
+
+    # Assert
+    assert len(router.tasks) == 1
+    assert isinstance(router.tasks[0], IntervalTask)
+    assert router.tasks[0].name == "tests.task.samples:test1"
+
+
+def test_router_interval_with_lock_and_custom_least() -> None:
+    """Test Task Router add interval task with custom min_lock_seconds."""
+    # Arrange
+    backend = MemorySyncBackend()
+    router = TaskRouter()
+
+    # Act
+    router.interval(
+        seconds=60,
+        max_lock_seconds=300,
+        min_lock_seconds=30,
+        backend=backend,
+    )(test1)
+
+    # Assert
+    assert len(router.tasks) == 1
+    assert isinstance(router.tasks[0], IntervalTask)
+
+
 def test_router_add_task_when_started() -> None:
     """Test Task Router Add Task When Started."""
     # Arrange
@@ -178,8 +212,9 @@ def test_router_started_propagation() -> None:
     assert router_child_started_after is True
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_router_scheduled() -> None:
-    """Test Task Router add scheduled task."""
+    """Test Task Router add scheduled task (deprecated)."""
     # Arrange
     backend = MemorySyncBackend()
     router = TaskRouter()
@@ -191,11 +226,30 @@ def test_router_scheduled() -> None:
     # Assert
     expected_task_count = 2
     assert len(router.tasks) == expected_task_count
-    assert all(isinstance(task, ScheduledTask) for task in router.tasks)
+    assert all(isinstance(task, IntervalTask) for task in router.tasks)
     assert router.tasks[0].name == "tests.task.samples:test1"
     assert router.tasks[1].name == "custom-name"
 
 
+def test_router_scheduled_deprecation_warning() -> None:
+    """Test that scheduled() emits DeprecationWarning."""
+    # Arrange
+    backend = MemorySyncBackend()
+    router = TaskRouter()
+
+    # Act
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        router.scheduled(seconds=60, backend=backend)(test1)
+
+    # Assert
+    assert len(w) == 1
+    assert issubclass(w[0].category, DeprecationWarning)
+    assert "scheduled()" in str(w[0].message)
+    assert "interval()" in str(w[0].message)
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_router_scheduled_name_generation() -> None:
     """Test Task Router Scheduled Name Generation."""
     # Arrange
@@ -213,6 +267,7 @@ def test_router_scheduled_name_generation() -> None:
     )
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_router_scheduled_when_started() -> None:
     """Test Task Router Scheduled When Started."""
     # Arrange

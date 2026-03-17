@@ -55,13 +55,13 @@ def heartbeat():
     logger.info("heartbeat")
 
 
-# --- Scheduled Task: run once per interval across all workers ---
-@task.scheduled(seconds=60)
+# --- Distributed Task: run once per interval across all workers ---
+@task.interval(seconds=60, max_lock_seconds=300)
 def cleanup():
     logger.info("cleanup")
 
 
-# --- Leader-gated Scheduled Task: only the leader executes ---
-@task.scheduled(seconds=10, leader=leader_election)
+# --- Leader-gated Task: only the leader executes ---
+@task.interval(seconds=10, leader=leader_election)
 def leader_only_task():
     logger.info("leader task")
