@@ -25,6 +25,7 @@ from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
 from grelmicro.sync.errors import (
     LockAcquireError,
     LockLockedCheckError,
+    LockReentrantError,
     LockReleaseError,
 )
 
@@ -156,7 +157,11 @@ class TaskLock(Synchronization):
         Raises:
             WouldBlock: If the lock is already held by another worker.
             LockAcquireError: If the lock cannot be acquired due to a backend error.
+            LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
+        if self._acquired_at is not None:
+            raise LockReentrantError(name=self._config.name)
+
         token = generate_task_token(self._config.worker)
         if not await self.do_acquire(token):
             msg = f"Task lock not acquired: name={self._config.name}, token={token}"
@@ -311,7 +316,11 @@ class ThreadTaskLockAdapter:
         Raises:
             WouldBlock: If the lock is already held by another worker.
             LockAcquireError: If the lock cannot be acquired due to a backend error.
+            LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
+        if self._task_lock._acquired_at is not None:  # noqa: SLF001
+            raise LockReentrantError(name=self._task_lock.config.name)
+
         token = generate_thread_token(self._task_lock.config.worker)
         if not from_thread.run(self._task_lock.do_acquire, token):
             msg = (

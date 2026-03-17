@@ -12,6 +12,7 @@ from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
     LockLockedCheckError,
+    LockReentrantError,
     LockReleaseError,
 )
 from grelmicro.sync.memory import MemorySyncBackend
@@ -92,6 +93,43 @@ def test_tasklock_config_equal_values() -> None:
         max_lock_seconds=10,
     )
     assert config.min_lock_seconds == config.max_lock_seconds
+
+
+# --- Nested usage guard ---
+
+
+async def test_tasklock_nested_raises(backend: SyncBackend) -> None:
+    """Test TaskLock raises LockReentrantError on nested async usage."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+
+    async with task_lock:
+        with pytest.raises(LockReentrantError):
+            async with task_lock:
+                pass
+
+
+async def test_tasklock_from_thread_nested_raises(backend: SyncBackend) -> None:
+    """Test TaskLock raises LockReentrantError on nested thread usage."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+
+    def sync() -> None:
+        with task_lock.from_thread, pytest.raises(LockReentrantError):  # noqa: SIM117
+            with task_lock.from_thread:
+                pass
+
+    await to_thread.run_sync(sync)
 
 
 # --- Acquire + Release (elapsed >= min_lock_seconds) ---
