@@ -317,7 +317,7 @@ async def test_owned_another(backend: SyncBackend) -> None:
 @pytest.mark.parametrize(
     "backend_factory",
     [
-        lambda: MemorySyncBackend(),
+        MemorySyncBackend,
         lambda: RedisSyncBackend("redis://localhost:6379/0"),
         lambda: PostgresSyncBackend(
             "postgresql://user:password@localhost:5432/db"
