@@ -15,12 +15,14 @@ from grelmicro.sync.errors import (
     LockReentrantError,
     LockReleaseError,
 )
+from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 
 LOCK_NAME = "test_task_lock"
+BACKEND_LOCK_NAME = f"tasklock:{LOCK_NAME}"
 LOCK_AT_LEAST_FOR = 5
 LOCK_AT_MOST_FOR = 10
 WORKER_1 = "worker_1"
@@ -95,6 +97,47 @@ def test_tasklock_config_equal_values() -> None:
     assert config.min_lock_seconds == config.max_lock_seconds
 
 
+# --- Namespace isolation ---
+
+
+async def test_tasklock_key_prefix(backend: SyncBackend) -> None:
+    """Test TaskLock uses prefixed key on the backend."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+
+    async with task_lock:
+        # Backend key should be prefixed
+        assert await backend.locked(name=BACKEND_LOCK_NAME) is True
+        # Raw name should NOT be locked
+        assert await backend.locked(name=LOCK_NAME) is False
+
+
+async def test_tasklock_no_collision_with_lock(backend: SyncBackend) -> None:
+    """Test TaskLock and Lock with same name don't collide."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    lock = Lock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        lease_duration=10,
+    )
+
+    async with task_lock:
+        # Lock with same name should not be locked
+        assert await lock.locked() is False
+
+
 # --- Nested usage guard ---
 
 
@@ -145,11 +188,11 @@ async def test_tasklock_acquire_release(backend: SyncBackend) -> None:
         max_lock_seconds=10,
     )
 
-    locked_before = await backend.locked(name=LOCK_NAME)
+    locked_before = await backend.locked(name=BACKEND_LOCK_NAME)
     async with task_lock:
-        locked_inside = await backend.locked(name=LOCK_NAME)
+        locked_inside = await backend.locked(name=BACKEND_LOCK_NAME)
         await sleep(0.01)  # Ensure elapsed > min_lock_seconds
-    locked_after = await backend.locked(name=LOCK_NAME)
+    locked_after = await backend.locked(name=BACKEND_LOCK_NAME)
 
     assert locked_before is False
     assert locked_inside is True
@@ -201,12 +244,12 @@ async def test_tasklock_stays_locked_when_elapsed_less_than_at_least(
         pass  # Completes almost instantly (elapsed << 0.5)
 
     # Lock should still be held
-    locked_after = await backend.locked(name=LOCK_NAME)
+    locked_after = await backend.locked(name=BACKEND_LOCK_NAME)
     assert locked_after is True
 
     # Wait for min_lock_seconds to expire
     await sleep(0.6)
-    locked_expired = await backend.locked(name=LOCK_NAME)
+    locked_expired = await backend.locked(name=BACKEND_LOCK_NAME)
     assert locked_expired is False
 
 
@@ -224,12 +267,12 @@ async def test_tasklock_auto_expires(backend: SyncBackend) -> None:
     )
 
     async with task_lock:
-        locked_inside = await backend.locked(name=LOCK_NAME)
+        locked_inside = await backend.locked(name=BACKEND_LOCK_NAME)
         assert locked_inside is True
         await sleep(0.1)
 
     # Lock should have expired by now
-    locked_after = await backend.locked(name=LOCK_NAME)
+    locked_after = await backend.locked(name=BACKEND_LOCK_NAME)
     assert locked_after is False
 
 
@@ -247,13 +290,13 @@ async def test_tasklock_same_worker_reacquire(backend: SyncBackend) -> None:
     )
 
     async with task_lock:
-        locked = await backend.locked(name=LOCK_NAME)
+        locked = await backend.locked(name=BACKEND_LOCK_NAME)
         assert locked is True
         await sleep(0.01)
 
     # After release, acquire again
     async with task_lock:
-        locked = await backend.locked(name=LOCK_NAME)
+        locked = await backend.locked(name=BACKEND_LOCK_NAME)
         assert locked is True
 
 

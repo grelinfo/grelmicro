@@ -25,6 +25,7 @@ WORKER_2 = 1
 WORKER_COUNT = 2
 
 LOCK_NAME = "test_leased_lock"
+BACKEND_LOCK_NAME = f"lock:{LOCK_NAME}"
 
 
 @pytest.fixture
@@ -53,6 +54,17 @@ def locks(backend: SyncBackend) -> list[Lock]:
 def lock(locks: list[Lock]) -> Lock:
     """Lock."""
     return locks[WORKER_1]
+
+
+async def test_lock_key_prefix(backend: SyncBackend, lock: Lock) -> None:
+    """Test Lock uses prefixed key on the backend."""
+    # Act
+    await lock.acquire()
+
+    # Assert - backend key should be prefixed
+    assert await backend.locked(name=BACKEND_LOCK_NAME) is True
+    # Raw name should NOT be locked
+    assert await backend.locked(name=LOCK_NAME) is False
 
 
 async def test_lock_owned(locks: list[Lock]) -> None:

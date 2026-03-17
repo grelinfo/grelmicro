@@ -117,6 +117,8 @@ class LeaderElection(Synchronization, Task):
     It runs as a task to acquire or renew the distributed lock.
     """
 
+    _LOCK_PREFIX = "leader"
+
     def __init__(
         self,
         name: Annotated[
@@ -220,6 +222,7 @@ class LeaderElection(Synchronization, Task):
             backend_timeout=backend_timeout,
             error_interval=error_interval,
         )
+        self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self.backend = backend or get_sync_backend()
 
         self._service_running = False
@@ -331,7 +334,7 @@ class LeaderElection(Synchronization, Task):
         try:
             with fail_after(self.config.backend_timeout):
                 is_leader = await self.backend.acquire(
-                    name=self.name,
+                    name=self._lock_name,
                     token=str(self.config.worker),
                     duration=self.config.lease_duration,
                 )
@@ -387,7 +390,7 @@ class LeaderElection(Synchronization, Task):
             with fail_after(self.config.backend_timeout):
                 if not (
                     await self.backend.release(
-                        name=self.config.name, token=str(self.config.worker)
+                        name=self._lock_name, token=str(self.config.worker)
                     )
                 ):
                     logger.info(

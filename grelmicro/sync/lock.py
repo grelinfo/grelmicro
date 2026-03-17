@@ -54,6 +54,8 @@ class Lock(BaseLock):
     automatically released after a duration if not extended.
     """
 
+    _LOCK_PREFIX = "lock"
+
     def __init__(
         self,
         name: Annotated[
@@ -111,6 +113,7 @@ class Lock(BaseLock):
             lease_duration=lease_duration,
             retry_interval=retry_interval,
         )
+        self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self.backend = backend or get_sync_backend()
         self._from_thread: ThreadLockAdapter | None = None
 
@@ -190,7 +193,7 @@ class Lock(BaseLock):
             LockLockedCheckError: If the lock cannot be checked due to an error on the backend.
         """
         try:
-            return await self.backend.locked(name=self._config.name)
+            return await self.backend.locked(name=self._lock_name)
         except Exception as exc:
             raise LockLockedCheckError(name=self._config.name) from exc
 
@@ -215,7 +218,7 @@ class Lock(BaseLock):
         """
         try:
             return await self.backend.acquire(
-                name=self._config.name,
+                name=self._lock_name,
                 token=token,
                 duration=self._config.lease_duration,
             )
@@ -234,9 +237,7 @@ class Lock(BaseLock):
             LockReleaseError: Cannot release the lock due to backend error.
         """
         try:
-            return await self.backend.release(
-                name=self._config.name, token=token
-            )
+            return await self.backend.release(name=self._lock_name, token=token)
         except Exception as exc:
             raise LockReleaseError(name=self._config.name, token=token) from exc
 
@@ -252,7 +253,7 @@ class Lock(BaseLock):
             LockOwnedCheckError: Cannot check if the lock is owned due to backend error.
         """
         try:
-            return await self.backend.owned(name=self._config.name, token=token)
+            return await self.backend.owned(name=self._lock_name, token=token)
         except Exception as exc:
             raise LockOwnedCheckError(name=self._config.name) from exc
 

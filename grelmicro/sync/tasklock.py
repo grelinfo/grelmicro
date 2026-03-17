@@ -86,6 +86,8 @@ class TaskLock(Synchronization):
     This lock is designed to be used as the `sync` parameter of `IntervalTask`.
     """
 
+    _LOCK_PREFIX = "tasklock"
+
     def __init__(
         self,
         name: Annotated[
@@ -147,6 +149,7 @@ class TaskLock(Synchronization):
             min_lock_seconds=min_lock_seconds,
             max_lock_seconds=max_lock_seconds,
         )
+        self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend = backend or get_sync_backend()
         self._acquired_at: float | None = None
         self._from_thread: ThreadTaskLockAdapter | None = None
@@ -206,7 +209,7 @@ class TaskLock(Synchronization):
             LockLockedCheckError: If the lock cannot be checked due to an error on the backend.
         """
         try:
-            return await self._backend.locked(name=self._config.name)
+            return await self._backend.locked(name=self._lock_name)
         except Exception as exc:
             raise LockLockedCheckError(name=self._config.name) from exc
 
@@ -223,7 +226,7 @@ class TaskLock(Synchronization):
         """
         try:
             return await self._backend.acquire(
-                name=self._config.name,
+                name=self._lock_name,
                 token=token,
                 duration=self._config.max_lock_seconds,
             )
@@ -243,7 +246,7 @@ class TaskLock(Synchronization):
         """
         try:
             return await self._backend.release(
-                name=self._config.name, token=token
+                name=self._lock_name, token=token
             )
         except Exception as exc:
             raise LockReleaseError(name=self._config.name, token=token) from exc
@@ -261,7 +264,7 @@ class TaskLock(Synchronization):
         """
         try:
             return await self._backend.acquire(
-                name=self._config.name,
+                name=self._lock_name,
                 token=token,
                 duration=duration,
             )

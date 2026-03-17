@@ -37,7 +37,15 @@ This design provides the following guarantees:
 
 ## Lock Name and Backend Key
 
-All synchronization primitives use the `name` parameter directly as the backend key. There is **no namespace or prefix** per lock type — a `Lock("my-resource")`, `TaskLock("my-resource")`, and `LeaderElection("my-resource")` would all compete for the same backend entry.
+Each synchronization primitive automatically prefixes the user-provided `name` with a type-specific namespace to form the backend key:
 
-!!! warning
-    Use distinct names across all synchronization primitive instances to avoid unintended conflicts. For example, prefix names by purpose: `"lock:my-resource"`, `"task:cleanup"`, `"leader:main"`.
+| Primitive | Name | Backend Key |
+|---|---|---|
+| `Lock("my-resource")` | `my-resource` | `lock:my-resource` |
+| `TaskLock("cleanup")` | `cleanup` | `tasklock:cleanup` |
+| `LeaderElection("main")` | `main` | `leader:main` |
+
+This prevents accidental collisions between different primitive types sharing the same backend. A `Lock("x")` and a `TaskLock("x")` operate on independent backend entries.
+
+!!! warning "Breaking change"
+    Prior versions used the `name` parameter directly as the backend key without any prefix. After upgrading, existing locks stored in backends (Redis, PostgreSQL) will no longer match. Ensure all running instances are upgraded together so they use the same key format.
