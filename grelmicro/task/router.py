@@ -147,8 +147,9 @@ class TaskRouter:
 
                 Use a ``Lock`` to synchronize access to a shared resource.
 
-                .. deprecated::
-                    Using ``sync`` with ``TaskLock`` or ``LeaderElection`` is deprecated.
+                .. deprecated:: 0.6.0
+                    Using ``sync`` with ``TaskLock`` or ``LeaderElection`` is deprecated
+                    and will be removed in v0.7.0.
                     Use ``max_lock_seconds`` and ``leader`` parameters instead.
 
                 If None, no synchronization is used and the task will run on all workers.
@@ -272,8 +273,9 @@ class TaskRouter:
     ]:
         """Decorate function to add it as a distributed scheduled task.
 
-        .. deprecated::
+        .. deprecated:: 0.6.0
             Use ``interval()`` with ``max_lock_seconds`` instead.
+            Will be removed in v0.7.0.
 
         The task runs at most once per interval across all workers, using a built-in
         TaskLock. Can optionally be gated behind a leader election.
@@ -284,7 +286,7 @@ class TaskRouter:
             ValueError: If max_lock_seconds is less than seconds.
         """
         warnings.warn(
-            "The 'scheduled()' decorator is deprecated. "
+            "The 'scheduled()' decorator is deprecated and will be removed in v0.7.0. "
             "Use 'interval()' with 'max_lock_seconds' or 'leader' instead.",
             DeprecationWarning,
             stacklevel=2,

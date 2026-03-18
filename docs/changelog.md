@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-03-18
+
+### Deprecations
+
+* 🗑️ The `sync` parameter on `interval()` for `TaskLock` and `LeaderElection` is deprecated and will be removed in v0.7.0. Use `max_lock_seconds` and `leader` parameters instead.
+* 🗑️ The `scheduled()` decorator is deprecated and will be removed in v0.7.0. Use `interval()` with `max_lock_seconds` or `leader` instead.
 
 ### Features
 
@@ -11,6 +16,11 @@
 
 * ♻️ Use server-side timestamps and native Lease fields in sync backends.
 * ♻️ Simplify token generation from UUID-based to string concatenation.
+* ♻️ Replace global backend dict with ContextVar for context-local storage.
+
+### Internal
+
+* 💚 Fix flaky integration test timeout in CI.
 
 ### Docs
 
