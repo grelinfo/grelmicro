@@ -3,8 +3,15 @@
 import pytest
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync._backends import loaded_backends
-from grelmicro.sync.errors import SyncSettingsValidationError
+from grelmicro.sync._backends import (
+    get_sync_backend,
+    reset_sync_backend,
+    set_sync_backend,
+)
+from grelmicro.sync.errors import (
+    BackendNotLoadedError,
+    SyncSettingsValidationError,
+)
 from grelmicro.sync.sqlite import SQLiteSyncBackend
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
@@ -74,28 +81,32 @@ def test_sqlite_env_var_settings_validation_error() -> None:
 def test_sync_backend_auto_register() -> None:
     """Test Synchronization Backend Auto Register."""
     # Arrange
-    loaded_backends.pop("lock", None)
+    token = set_sync_backend(None)
 
     # Act
-    SQLiteSyncBackend(path=":memory:")
+    backend = SQLiteSyncBackend(path=":memory:")
 
     # Assert
-    assert "lock" in loaded_backends
+    assert get_sync_backend() is backend
 
     # Cleanup
-    loaded_backends.pop("lock", None)
+    reset_sync_backend(token)
 
 
 def test_sync_backend_auto_register_false() -> None:
     """Test Synchronization Backend Auto Register Disabled."""
     # Arrange
-    loaded_backends.pop("lock", None)
+    token = set_sync_backend(None)
 
     # Act
     SQLiteSyncBackend(path=":memory:", auto_register=False)
 
     # Assert
-    assert "lock" not in loaded_backends
+    with pytest.raises(BackendNotLoadedError):
+        get_sync_backend()
+
+    # Cleanup
+    reset_sync_backend(token)
 
 
 def test_sync_backend_custom_table_name() -> None:
