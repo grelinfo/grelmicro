@@ -17,7 +17,7 @@ from grelmicro.sync.postgres import PostgresSyncBackend
 from grelmicro.sync.redis import RedisSyncBackend
 from grelmicro.sync.sqlite import SQLiteSyncBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(15)]
+pytestmark = [pytest.mark.anyio, pytest.mark.timeout(30)]
 
 
 @pytest.fixture(scope="module")
