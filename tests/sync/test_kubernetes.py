@@ -1,6 +1,7 @@
 """Tests for Kubernetes Backend."""
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,7 +14,6 @@ from grelmicro.errors import OutOfContextError
 from grelmicro.sync._backends import loaded_backends
 from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.kubernetes import (
-    _ANNOTATION_EXPIRE_AT,
     _MAX_NAME_LENGTH,
     KubernetesSyncBackend,
     _get_expire_at,
@@ -35,18 +35,28 @@ def _make_api_error(code: int) -> ApiError:
 def _make_lease(
     name: str = "test",
     holder: str = TOKEN,
-    expire_at: float = 9999999999.0,
+    *,
+    expired: bool = False,
     resource_version: str = "1",
 ) -> Lease:
     """Create a Lease for testing."""
+    if expired:
+        renew_time = datetime.min.replace(tzinfo=UTC)
+        duration_seconds = 1
+    else:
+        renew_time = datetime.now(tz=UTC)
+        duration_seconds = 999999
     return Lease(
         metadata=ObjectMeta(
             name=name,
             namespace="default",
             resourceVersion=resource_version,
-            annotations={_ANNOTATION_EXPIRE_AT: str(expire_at)},
         ),
-        spec=LeaseSpec(holderIdentity=holder),
+        spec=LeaseSpec(
+            holderIdentity=holder,
+            leaseDurationSeconds=duration_seconds,
+            renewTime=renew_time,
+        ),
     )
 
 
@@ -191,27 +201,42 @@ def test_sanitize_lease_name_empty() -> None:
     [
         (
             Lease(
-                metadata=ObjectMeta(
-                    name="test",
-                    annotations={_ANNOTATION_EXPIRE_AT: "not-a-number"},
-                ),
-                spec=LeaseSpec(),
+                metadata=ObjectMeta(name="test"),
+                spec=LeaseSpec(leaseDurationSeconds=1),
             ),
             None,
         ),
         (
             Lease(
                 metadata=ObjectMeta(name="test"),
-                spec=LeaseSpec(),
+                spec=LeaseSpec(renewTime=datetime.now(tz=UTC)),
             ),
             None,
         ),
     ],
-    ids=["malformed-annotation", "missing-annotation"],
+    ids=["missing-renewTime", "missing-leaseDurationSeconds"],
 )
-def test_get_expire_at_edge_cases(lease: Lease, expected: float | None) -> None:
+def test_get_expire_at_edge_cases(
+    lease: Lease, expected: datetime | None
+) -> None:
     """Test _get_expire_at edge cases."""
     assert _get_expire_at(lease) == expected
+
+
+def test_get_expire_at_computes_correctly() -> None:
+    """Test _get_expire_at computes renewTime + leaseDurationSeconds."""
+    # Arrange
+    renew_time = datetime(2024, 1, 1, tzinfo=UTC)
+    lease = Lease(
+        metadata=ObjectMeta(name="test"),
+        spec=LeaseSpec(renewTime=renew_time, leaseDurationSeconds=60),
+    )
+
+    # Act
+    result = _get_expire_at(lease)
+
+    # Assert
+    assert result == renew_time + timedelta(seconds=60)
 
 
 # --- __aenter__ / __aexit__ ---
@@ -254,7 +279,7 @@ async def test_acquire_replaces_expired_lease() -> None:
     """Test acquire replaces an expired lease."""
     # Arrange
     backend = _make_mocked_backend(
-        get=AsyncMock(return_value=_make_lease(expire_at=0)),
+        get=AsyncMock(return_value=_make_lease(expired=True)),
         replace=AsyncMock(),
     )
 
@@ -454,7 +479,7 @@ async def test_acquire_conflict_on_replace() -> None:
     """Test acquire returns False on 409 Conflict during REPLACE."""
     # Arrange
     backend = _make_mocked_backend(
-        get=AsyncMock(return_value=_make_lease(expire_at=0)),
+        get=AsyncMock(return_value=_make_lease(expired=True)),
         replace=AsyncMock(side_effect=_make_api_error(409)),
     )
 
@@ -469,7 +494,7 @@ async def test_acquire_raises_on_replace_non_409() -> None:
     """Test acquire re-raises non-409 API errors during REPLACE."""
     # Arrange
     backend = _make_mocked_backend(
-        get=AsyncMock(return_value=_make_lease(expire_at=0)),
+        get=AsyncMock(return_value=_make_lease(expired=True)),
         replace=AsyncMock(side_effect=_make_api_error(500)),
     )
 
@@ -525,7 +550,7 @@ async def test_aexit_cleanup_delete_errors(
     """Test __aexit__ error handling during cleanup delete."""
     # Arrange
     backend = KubernetesSyncBackend(namespace="default")
-    expired_lease = _make_lease(expire_at=0)
+    expired_lease = _make_lease(expired=True)
     mock_client = AsyncMock()
     mock_client.list = MagicMock(return_value=_async_iter([expired_lease]))
     mock_client.delete = AsyncMock(side_effect=delete_side_effect)

@@ -1,7 +1,7 @@
 """SQLite Synchronization Backend."""
 
+from math import ceil
 from pathlib import Path
-from time import time
 from types import TracebackType
 from typing import Annotated, Self
 
@@ -43,39 +43,39 @@ class SQLiteSyncBackend(SyncBackend):
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     name TEXT PRIMARY KEY,
                     token TEXT NOT NULL,
-                    expire_at REAL NOT NULL
+                    expire_at TEXT NOT NULL
                 );
                 """
 
     _SQL_ACQUIRE_OR_EXTEND = """
                 INSERT INTO {table_name} (name, token, expire_at)
-                VALUES (?, ?, ?)
+                VALUES (?, ?, datetime('now', '+' || ? || ' seconds'))
                 ON CONFLICT (name) DO UPDATE
                 SET token = EXCLUDED.token, expire_at = EXCLUDED.expire_at
                 WHERE {table_name}.token = EXCLUDED.token
-                   OR {table_name}.expire_at < ?
+                   OR {table_name}.expire_at < datetime('now')
                 RETURNING 1;
                 """
 
     _SQL_RELEASE = """
             DELETE FROM {table_name}
-            WHERE name = ? AND token = ? AND expire_at >= ?
+            WHERE name = ? AND token = ? AND expire_at >= datetime('now')
             RETURNING 1;
             """
 
     _SQL_RELEASE_ALL_EXPIRED = """
         DELETE FROM {table_name}
-        WHERE expire_at < ?;
+        WHERE expire_at < datetime('now');
         """
 
     _SQL_LOCKED = """
         SELECT 1 FROM {table_name}
-        WHERE name = ? AND expire_at >= ?;
+        WHERE name = ? AND expire_at >= datetime('now');
         """
 
     _SQL_OWNED = """
         SELECT 1 FROM {table_name}
-        WHERE name = ? AND token = ? AND expire_at >= ?;
+        WHERE name = ? AND token = ? AND expire_at >= datetime('now');
         """
 
     def __init__(
@@ -138,7 +138,6 @@ class SQLiteSyncBackend(SyncBackend):
                 self._SQL_RELEASE_ALL_EXPIRED.format(
                     table_name=self._table_name
                 ),
-                (time(),),
             )
             await self._conn.commit()
             await self._conn.close()
@@ -149,9 +148,8 @@ class SQLiteSyncBackend(SyncBackend):
         if not self._conn:
             raise OutOfContextError(self, "acquire")
 
-        now = time()
         async with self._conn.execute(
-            self._acquire_sql, (name, token, now + duration, now)
+            self._acquire_sql, (name, token, ceil(duration))
         ) as cursor:
             result = await cursor.fetchone()
         await self._conn.commit()
@@ -163,7 +161,7 @@ class SQLiteSyncBackend(SyncBackend):
             raise OutOfContextError(self, "release")
 
         async with self._conn.execute(
-            self._release_sql, (name, token, time())
+            self._release_sql, (name, token)
         ) as cursor:
             result = await cursor.fetchone()
         await self._conn.commit()
@@ -176,7 +174,7 @@ class SQLiteSyncBackend(SyncBackend):
 
         async with self._conn.execute(
             self._SQL_LOCKED.format(table_name=self._table_name),
-            (name, time()),
+            (name,),
         ) as cursor:
             result = await cursor.fetchone()
         return result is not None
@@ -188,7 +186,7 @@ class SQLiteSyncBackend(SyncBackend):
 
         async with self._conn.execute(
             self._SQL_OWNED.format(table_name=self._table_name),
-            (name, token, time()),
+            (name, token),
         ) as cursor:
             result = await cursor.fetchone()
         return result is not None

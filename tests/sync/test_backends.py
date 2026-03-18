@@ -213,11 +213,11 @@ async def test_acquire_expired(backend: SyncBackend) -> None:
     # Arrange
     name = "test_acquire_expired"
     token = uuid4().hex
-    duration = 0.01
+    duration = 1
 
     # Act
     result = await backend.acquire(name=name, token=token, duration=duration)
-    await sleep(duration * 2)
+    await sleep(duration + 1.5)
     result2 = await backend.acquire(name=name, token=token, duration=duration)
 
     # Assert
@@ -231,11 +231,11 @@ async def test_acquire_already_acquired_expired(backend: SyncBackend) -> None:
     name = "test_acquire_already_acquired_expired" + uuid4().hex
     token1 = uuid4().hex
     token2 = uuid4().hex
-    duration = 0.01
+    duration = 1
 
     # Act
     result = await backend.acquire(name=name, token=token1, duration=duration)
-    await sleep(duration * 2)
+    await sleep(duration + 1.5)
     result2 = await backend.acquire(name=name, token=token2, duration=duration)
 
     # Assert
@@ -296,11 +296,11 @@ async def test_release_acquired_expired(backend: SyncBackend) -> None:
     # Arrange
     name = "test_release_acquired_expired" + uuid4().hex
     token = uuid4().hex
-    duration = 0.01
+    duration = 1
 
     # Act
     result1 = await backend.acquire(name=name, token=token, duration=duration)
-    await sleep(duration * 2)
+    await sleep(duration + 1.5)
     result2 = await backend.release(name=name, token=token)
 
     # Assert
@@ -313,11 +313,11 @@ async def test_release_not_acquired_expired(backend: SyncBackend) -> None:
     # Arrange
     name = "test_release_not_acquired_expired" + uuid4().hex
     token = uuid4().hex
-    duration = 0.01
+    duration = 1
 
     # Act
     result1 = await backend.acquire(name=name, token=token, duration=duration)
-    await sleep(duration * 2)
+    await sleep(duration + 1.5)
     result2 = await backend.release(name=name, token=token)
 
     # Assert

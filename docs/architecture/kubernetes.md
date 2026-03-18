@@ -11,19 +11,8 @@ The backend uses **Lease** resources from the `coordination.k8s.io/v1` API group
 | Lease Field | Lock Concept |
 |---|---|
 | `holderIdentity` | Lock token |
-| `leaseDurationSeconds` | `ceil(duration)` (informational) |
+| `leaseDurationSeconds` | `ceil(duration)` |
 | `acquireTime` / `renewTime` | Set on acquire/extend |
-| Annotation `grelmicro/expire-at` | Precise Unix timestamp (source of truth) |
-
-## Sub-second Duration Handling
-
-Kubernetes `leaseDurationSeconds` is an integer field, but grelmicro primitives accept `float` durations. While real-world lock durations are typically seconds to minutes, sub-second durations (e.g., `duration=0.01`) are essential for fast test execution. To support this, the precise expiry is stored as a **Unix timestamp annotation** (`grelmicro/expire-at`). The `leaseDurationSeconds` field is set to `ceil(duration)` for informational purposes only.
-
-## Timestamp Strategy
-
-Like the [SQLite backend](sqlite.md), the Kubernetes backend uses **Python-side wall-clock timestamps** (`time.time()`). The annotation stores the precise expiry as a float string (e.g., `"1710000000.123456"`).
-
-The same trade-offs apply: `time.time()` can drift with NTP corrections, but this is acceptable for lock durations typically measured in seconds to minutes.
 
 ## Optimistic Concurrency
 
@@ -31,8 +20,8 @@ The backend uses Kubernetes **resourceVersion** for optimistic concurrency contr
 
 - **Acquire**: GET the Lease. If 404 → CREATE. If expired or same token → REPLACE (with resourceVersion). If held by another → return `False`. On 409 Conflict → return `False`.
 - **Release**: GET the Lease. If token matches and not expired → DELETE. Otherwise `False`.
-- **Locked**: GET the Lease. Check `expire_at >= now()`.
-- **Owned**: GET the Lease. Check `holderIdentity == token` and `expire_at >= now()`.
+- **Locked**: GET the Lease. Check `renewTime + leaseDurationSeconds >= now`.
+- **Owned**: GET the Lease. Check `holderIdentity == token` and `renewTime + leaseDurationSeconds >= now`.
 
 The REPLACE operation includes the `resourceVersion` from the GET, so the API server rejects the update with a 409 Conflict if another client modified the Lease in between. This provides the same atomicity guarantees as database transactions.
 
@@ -63,7 +52,3 @@ This prepends `myapp-` to every lease name before sanitization, ensuring differe
 ## Client Library
 
 The backend uses [lightkube](https://lightkube.readthedocs.io/) as the Kubernetes async client. lightkube is lightweight, async-native (built on httpx), and provides strong typing for Kubernetes resources.
-
-## Lock Cleanup
-
-On exit (`__aexit__`), the backend lists all Lease resources labeled `app.kubernetes.io/managed-by: grelmicro` in the configured namespace and deletes each expired lease individually. Unlike the SQL backends, the Kubernetes API does not support bulk conditional deletion, so leases are cleaned up one at a time. `NOT_FOUND` errors are silently ignored to handle concurrent deletions.

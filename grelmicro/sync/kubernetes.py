@@ -1,10 +1,9 @@
 """Kubernetes Synchronization Backend."""
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from math import ceil
-from time import time
 from types import TracebackType
 from typing import Annotated, Self
 
@@ -21,7 +20,6 @@ from grelmicro.sync._backends import loaded_backends
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
-_ANNOTATION_EXPIRE_AT = "grelmicro/expire-at"
 _LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 _LABEL_MANAGED_BY_VALUE = "grelmicro"
 _INVALID_CHARS = re.compile(r"[^a-z0-9-]")
@@ -133,7 +131,7 @@ class KubernetesSyncBackend(SyncBackend):
         """Exit the lock backend."""
         if self._client:
             # Clean up expired leases managed by grelmicro
-            now = time()
+            now = datetime.now(tz=UTC)
             async for lease in self._client.list(
                 Lease,
                 namespace=self._namespace,
@@ -161,8 +159,7 @@ class KubernetesSyncBackend(SyncBackend):
             raise OutOfContextError(self, "acquire")
 
         lease_name = _sanitize_lease_name(f"{self._prefix}{name}")
-        now = time()
-        expire_at = now + duration
+        now = datetime.now(tz=UTC)
 
         try:
             lease = await self._client.get(
@@ -172,9 +169,7 @@ class KubernetesSyncBackend(SyncBackend):
             if e.status.code != HTTPStatus.NOT_FOUND:
                 raise
             # Lease does not exist, create it
-            return await self._create_lease(
-                lease_name, token, duration, expire_at
-            )
+            return await self._create_lease(lease_name, token, duration)
 
         # Lease exists - check if we can acquire
         current_expire_at = _get_expire_at(lease)
@@ -189,7 +184,7 @@ class KubernetesSyncBackend(SyncBackend):
             return False
 
         # Expired or same token -> replace
-        return await self._replace_lease(lease, token, duration, expire_at)
+        return await self._replace_lease(lease, token, duration)
 
     async def release(self, *, name: str, token: str) -> bool:
         """Release the lock."""
@@ -197,7 +192,7 @@ class KubernetesSyncBackend(SyncBackend):
             raise OutOfContextError(self, "release")
 
         lease_name = _sanitize_lease_name(f"{self._prefix}{name}")
-        now = time()
+        now = datetime.now(tz=UTC)
 
         try:
             lease = await self._client.get(
@@ -246,7 +241,7 @@ class KubernetesSyncBackend(SyncBackend):
             raise
 
         expire_at = _get_expire_at(lease)
-        return expire_at is not None and expire_at >= time()
+        return expire_at is not None and expire_at >= datetime.now(tz=UTC)
 
     async def owned(self, *, name: str, token: str) -> bool:
         """Check if the lock is owned."""
@@ -269,7 +264,7 @@ class KubernetesSyncBackend(SyncBackend):
         return (
             current_holder == token
             and expire_at is not None
-            and expire_at >= time()
+            and expire_at >= datetime.now(tz=UTC)
         )
 
     async def _create_lease(
@@ -277,7 +272,6 @@ class KubernetesSyncBackend(SyncBackend):
         lease_name: str,
         token: str,
         duration: float,
-        expire_at: float,
     ) -> bool:
         """Create a new Lease resource."""
         assert self._client  # noqa: S101
@@ -289,9 +283,6 @@ class KubernetesSyncBackend(SyncBackend):
                 namespace=self._namespace,
                 labels={
                     _LABEL_MANAGED_BY: _LABEL_MANAGED_BY_VALUE,
-                },
-                annotations={
-                    _ANNOTATION_EXPIRE_AT: str(expire_at),
                 },
             ),
             spec=LeaseSpec(
@@ -316,7 +307,6 @@ class KubernetesSyncBackend(SyncBackend):
         existing_lease: Lease,
         token: str,
         duration: float,
-        expire_at: float,
     ) -> bool:
         """Replace an existing Lease resource using optimistic concurrency."""
         assert self._client  # noqa: S101
@@ -331,9 +321,6 @@ class KubernetesSyncBackend(SyncBackend):
                 resourceVersion=existing_lease.metadata.resourceVersion,
                 labels={
                     _LABEL_MANAGED_BY: _LABEL_MANAGED_BY_VALUE,
-                },
-                annotations={
-                    _ANNOTATION_EXPIRE_AT: str(expire_at),
                 },
             ),
             spec=LeaseSpec(
@@ -354,15 +341,14 @@ class KubernetesSyncBackend(SyncBackend):
         return True
 
 
-def _get_expire_at(lease: Lease) -> float | None:
-    """Get the expire_at timestamp from a Lease annotation."""
+def _get_expire_at(lease: Lease) -> datetime | None:
+    """Get the expire_at timestamp from Lease spec fields."""
     if (
-        lease.metadata
-        and lease.metadata.annotations
-        and _ANNOTATION_EXPIRE_AT in lease.metadata.annotations
+        lease.spec
+        and lease.spec.renewTime
+        and lease.spec.leaseDurationSeconds is not None
     ):
-        try:
-            return float(lease.metadata.annotations[_ANNOTATION_EXPIRE_AT])
-        except (ValueError, TypeError):
-            return None
+        return lease.spec.renewTime + timedelta(
+            seconds=lease.spec.leaseDurationSeconds
+        )
     return None

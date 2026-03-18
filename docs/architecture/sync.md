@@ -59,8 +59,7 @@ Expired locks are never actively removed during normal operation. Instead, all b
 
 If the process crashes without exiting the context manager, expired locks remain in storage but are harmless — they will be filtered out by all subsequent operations and cleaned up on the next graceful shutdown.
 
-For backend-specific cleanup details, see:
+### Backend-specific cleanup
 
-- [SQLite Backend — Lock Cleanup](sqlite.md#lock-cleanup)
-- [PostgreSQL Backend — Lock Cleanup](postgres.md#lock-cleanup)
-- [Kubernetes Backend — Lock Cleanup](kubernetes.md#lock-cleanup)
+- **SQLite / PostgreSQL**: A single bulk `DELETE ... WHERE expire_at < now` removes all stale rows before closing the connection.
+- **Kubernetes**: Lists all Lease resources labeled `app.kubernetes.io/managed-by: grelmicro` and deletes each expired lease individually. The Kubernetes API does not support bulk conditional deletion. `NOT_FOUND` errors are silently ignored to handle concurrent deletions.
