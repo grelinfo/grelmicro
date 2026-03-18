@@ -7,6 +7,11 @@
 * ✨ Add Kubernetes sync backend using Lease resources (`pip install grelmicro[kubernetes]`).
 * ✨ Add SQLite sync backend for home lab and local testing (`pip install grelmicro[sqlite]`).
 
+### Refactors
+
+* ♻️ Use server-side timestamps and native Lease fields in sync backends.
+* ♻️ Simplify token generation from UUID-based to string concatenation.
+
 ### Docs
 
 * 📝 Add [Kubernetes Backend Architecture](architecture/kubernetes.md) page.

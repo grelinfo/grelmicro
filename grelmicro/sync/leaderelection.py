@@ -21,7 +21,7 @@ from pydantic import BaseModel, model_validator
 from typing_extensions import Doc
 
 from grelmicro.sync._backends import get_sync_backend
-from grelmicro.sync._utils import generate_worker_id
+from grelmicro.sync._tokens import generate_worker_id
 from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
 from grelmicro.task.abc import Task
 

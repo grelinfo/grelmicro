@@ -1,30 +1,31 @@
-"""Tests for Synchronization Utilities."""
+"""Tests for Synchronization Tokens."""
 
-from uuid import UUID, uuid1
+from threading import get_ident
+from uuid import uuid1
 
 import pytest
+from anyio import get_current_task
 
-from grelmicro.sync._utils import (
+from grelmicro.sync._tokens import (
     generate_task_token,
     generate_thread_token,
     generate_worker_id,
-    generate_worker_namespace,
 )
 
 pytestmark = pytest.mark.anyio
 
-UUID_V1 = 1
-UUID_V3 = 3
+WORKER_ID_LENGTH = 8
 
 
 def test_generate_worker_id() -> None:
-    """Test generate_worker_id returns a UUIDv1."""
+    """Test generate_worker_id returns an 8-character hex string."""
     # Act
     worker_id = generate_worker_id()
 
     # Assert
-    assert isinstance(worker_id, UUID)
-    assert worker_id.version == UUID_V1
+    assert isinstance(worker_id, str)
+    assert len(worker_id) == WORKER_ID_LENGTH
+    int(worker_id, 16)  # valid hex
 
 
 def test_generate_worker_id_unique() -> None:
@@ -37,25 +38,8 @@ def test_generate_worker_id_unique() -> None:
     assert id1 != id2
 
 
-def test_generate_worker_namespace() -> None:
-    """Test generate_worker_namespace returns a UUIDv3."""
-    # Act
-    ns = generate_worker_namespace("my-worker")
-
-    # Assert
-    assert isinstance(ns, UUID)
-    assert ns.version == UUID_V3
-
-
-def test_generate_worker_namespace_deterministic() -> None:
-    """Test generate_worker_namespace is deterministic."""
-    # Act / Assert
-    assert generate_worker_namespace("a") == generate_worker_namespace("a")
-    assert generate_worker_namespace("a") != generate_worker_namespace("b")
-
-
 async def test_generate_task_token_with_uuid() -> None:
-    """Test generate_task_token with a UUID worker namespace."""
+    """Test generate_task_token with a UUID worker."""
     # Arrange
     worker = uuid1()
 
@@ -63,8 +47,8 @@ async def test_generate_task_token_with_uuid() -> None:
     token = generate_task_token(worker)
 
     # Assert
-    parsed = UUID(token)
-    assert parsed.version == UUID_V3
+    task_id = get_current_task().id
+    assert token == f"{worker}:task:{task_id}"
 
 
 async def test_generate_task_token_with_string() -> None:
@@ -73,8 +57,8 @@ async def test_generate_task_token_with_string() -> None:
     token = generate_task_token("my-worker")
 
     # Assert
-    parsed = UUID(token)
-    assert parsed.version == UUID_V3
+    task_id = get_current_task().id
+    assert token == f"my-worker:task:{task_id}"
 
 
 async def test_generate_task_token_deterministic() -> None:
@@ -84,7 +68,7 @@ async def test_generate_task_token_deterministic() -> None:
 
 
 def test_generate_thread_token_with_uuid() -> None:
-    """Test generate_thread_token with a UUID worker namespace."""
+    """Test generate_thread_token with a UUID worker."""
     # Arrange
     worker = uuid1()
 
@@ -92,8 +76,8 @@ def test_generate_thread_token_with_uuid() -> None:
     token = generate_thread_token(worker)
 
     # Assert
-    parsed = UUID(token)
-    assert parsed.version == UUID_V3
+    thread_id = get_ident()
+    assert token == f"{worker}:thread:{thread_id}"
 
 
 def test_generate_thread_token_with_string() -> None:
@@ -102,8 +86,8 @@ def test_generate_thread_token_with_string() -> None:
     token = generate_thread_token("my-worker")
 
     # Assert
-    parsed = UUID(token)
-    assert parsed.version == UUID_V3
+    thread_id = get_ident()
+    assert token == f"my-worker:thread:{thread_id}"
 
 
 def test_generate_thread_token_deterministic() -> None:
