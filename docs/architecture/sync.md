@@ -12,7 +12,7 @@ UUIDv1 is based on the host MAC address, current timestamp, and a random 14-bit 
 - **Multiple instances** within the same process: Each `Lock(...)` or `TaskLock(...)` call generates its own `uuid1()`, producing a different worker identity.
 
 !!! warning "Pre-fork servers"
-    If the ASGI server uses a pre-fork model (forking after the application is loaded), worker identities generated before the fork will be duplicated across child processes. Uvicorn does **not** pre-fork — it spawns workers via `subprocess.Popen`, so each worker imports the application independently. If using a pre-fork server, pass an explicit `worker` identity to avoid collisions.
+    If the ASGI server uses a pre-fork model (forking after the application is loaded), worker identities generated before the fork will be duplicated across child processes. Uvicorn does **not** pre-fork. It spawns workers via `subprocess.Popen`, so each worker imports the application independently. If using a pre-fork server, pass an explicit `worker` identity to avoid collisions.
 
 !!! info "Why UUIDv1 over UUIDv4?"
     `uuid1()` is ~2.5x faster than `uuid4()` because it derives values from the MAC address and timestamp rather than reading from the OS random number generator (`os.urandom`). Since the worker identity only requires uniqueness (not unpredictability), UUIDv1 is the better choice.
@@ -49,3 +49,5 @@ This prevents accidental collisions between different primitive types sharing th
 
 !!! warning "Breaking change"
     Prior versions used the `name` parameter directly as the backend key without any prefix. After upgrading, existing locks stored in backends (Redis, PostgreSQL) will no longer match. Ensure all running instances are upgraded together so they use the same key format.
+
+For details on the SQLite backend's timestamp strategy, see [SQLite Backend](sqlite.md).

@@ -15,6 +15,7 @@ from grelmicro.sync.errors import BackendNotLoadedError
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.postgres import PostgresSyncBackend
 from grelmicro.sync.redis import RedisSyncBackend
+from grelmicro.sync.sqlite import SQLiteSyncBackend
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(15)]
 
@@ -44,6 +45,7 @@ def clean_registry() -> Generator[None, None, None]:
 @pytest.fixture(
     params=[
         "memory",
+        "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("postgres", marks=[pytest.mark.integration]),
     ],
@@ -73,7 +75,7 @@ def container(
         monkeypatch.setenv("POSTGRES_PASSWORD", "test")
         with PostgresContainer() as container:
             yield container
-    elif backend_name == "memory":
+    elif backend_name in ("memory", "sqlite"):
         yield None
 
 
@@ -94,6 +96,9 @@ async def backend(
             yield backend
     elif backend_name == "memory":
         async with MemorySyncBackend() as backend:
+            yield backend
+    elif backend_name == "sqlite":
+        async with SQLiteSyncBackend(":memory:") as backend:
             yield backend
 
 
@@ -322,6 +327,7 @@ async def test_owned_another(backend: SyncBackend) -> None:
         lambda: PostgresSyncBackend(
             "postgresql://user:password@localhost:5432/db"
         ),
+        lambda: SQLiteSyncBackend(":memory:"),
     ],
 )
 @pytest.mark.usefixtures("clean_registry")
@@ -355,6 +361,7 @@ def test_get_sync_backend_not_loaded() -> None:
         lambda: PostgresSyncBackend(
             "postgresql://user:password@localhost:5432/db", auto_register=False
         ),
+        lambda: SQLiteSyncBackend(":memory:", auto_register=False),
     ],
 )
 @pytest.mark.usefixtures("clean_registry")

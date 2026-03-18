@@ -31,13 +31,26 @@ You can initialize a backend like this:
     --8<-- "sync/postgres.py"
     ```
 
-=== "Memory (For Testing Only)"
+=== "SQLite"
+    ```python
+    --8<-- "sync/sqlite.py"
+    ```
+
+=== "Memory"
     ```python
     --8<-- "sync/memory.py"
     ```
 
 !!! warning
     Please make sure to use a proper way to store connection URLs, such as environment variables (not like the example above).
+
+| | Redis | PostgreSQL | SQLite | Memory |
+|---|---|---|---|---|
+| **Use case** | Production | Production | Home lab / Local testing | Testing only |
+| **Multi-node** | Yes | Yes | No | No |
+| **Persistence** | Yes | Yes | Yes | No |
+| **Extra infrastructure** | Required | None if already in stack | None | None |
+| **Lock performance** | Best | Good | Good | Best |
 
 !!! tip
     Feel free to create your own backend and contribute it. In the `sync.abc` module, you can find the protocol for creating new backends.

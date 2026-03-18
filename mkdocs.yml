@@ -39,6 +39,7 @@ nav:
 - Architecture:
     - architecture/index.md
     - architecture/sync.md
+    - architecture/sqlite.md
 - changelog.md
 
 markdown_extensions:
