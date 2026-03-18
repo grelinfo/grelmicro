@@ -1,5 +1,7 @@
 """Test Synchronization Backends."""
 
+import tempfile
+import time as time_module
 from collections.abc import AsyncGenerator, Callable, Generator
 from uuid import uuid4
 
@@ -12,12 +14,37 @@ from testcontainers.redis import RedisContainer
 from grelmicro.sync._backends import get_sync_backend, loaded_backends
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import BackendNotLoadedError
+from grelmicro.sync.kubernetes import KubernetesSyncBackend
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.postgres import PostgresSyncBackend
 from grelmicro.sync.redis import RedisSyncBackend
 from grelmicro.sync.sqlite import SQLiteSyncBackend
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(30)]
+
+
+def _wait_for_k3s(
+    container: DockerContainer,
+    timeout: float = 60,
+) -> None:
+    """Wait for k3s to be ready."""
+    start = time_module.time()
+    while time_module.time() - start < timeout:
+        exit_code, _ = container.exec("kubectl get --raw /readyz")
+        if exit_code == 0:
+            return
+        time_module.sleep(1)
+    msg = "k3s did not become ready"
+    raise TimeoutError(msg)
+
+
+def _extract_kubeconfig(container: DockerContainer) -> str:
+    """Extract kubeconfig from k3s container."""
+    exit_code, output = container.exec("cat /etc/rancher/k3s/k3s.yaml")
+    if exit_code != 0:
+        msg = "Failed to extract kubeconfig"
+        raise RuntimeError(msg)
+    return output.decode()
 
 
 @pytest.fixture(scope="module")
@@ -48,6 +75,7 @@ def clean_registry() -> Generator[None, None, None]:
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("postgres", marks=[pytest.mark.integration]),
+        pytest.param("kubernetes", marks=[pytest.mark.integration]),
     ],
     scope="module",
 )
@@ -75,6 +103,33 @@ def container(
         monkeypatch.setenv("POSTGRES_PASSWORD", "test")
         with PostgresContainer() as container:
             yield container
+    elif backend_name == "kubernetes":
+        with (
+            DockerContainer("rancher/k3s:v1.31.4-k3s1")
+            .with_command(
+                "server --disable=traefik,metrics-server --tls-san=127.0.0.1"
+            )
+            .with_kwargs(
+                privileged=True,
+                tmpfs={"/run": "", "/var/run": ""},
+            )
+            .with_exposed_ports(6443) as container
+        ):
+            _wait_for_k3s(container)
+            kubeconfig_content = _extract_kubeconfig(container)
+            port = container.get_exposed_port(6443)
+            kubeconfig_content = kubeconfig_content.replace(
+                "https://127.0.0.1:6443",
+                f"https://127.0.0.1:{port}",
+            )
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False
+            ) as f:
+                f.write(kubeconfig_content)
+                kubeconfig_path = f.name
+            monkeypatch.setenv("KUBECONFIG", kubeconfig_path)
+            monkeypatch.setenv("KUBE_NAMESPACE", "default")
+            yield container
     elif backend_name in ("memory", "sqlite"):
         yield None
 
@@ -99,6 +154,9 @@ async def backend(
             yield backend
     elif backend_name == "sqlite":
         async with SQLiteSyncBackend(":memory:") as backend:
+            yield backend
+    elif backend_name == "kubernetes" and container:
+        async with KubernetesSyncBackend(namespace="default") as backend:
             yield backend
 
 
@@ -328,6 +386,7 @@ async def test_owned_another(backend: SyncBackend) -> None:
             "postgresql://user:password@localhost:5432/db"
         ),
         lambda: SQLiteSyncBackend(":memory:"),
+        lambda: KubernetesSyncBackend(namespace="default"),
     ],
 )
 @pytest.mark.usefixtures("clean_registry")
@@ -362,6 +421,7 @@ def test_get_sync_backend_not_loaded() -> None:
             "postgresql://user:password@localhost:5432/db", auto_register=False
         ),
         lambda: SQLiteSyncBackend(":memory:", auto_register=False),
+        lambda: KubernetesSyncBackend(namespace="default", auto_register=False),
     ],
 )
 @pytest.mark.usefixtures("clean_registry")

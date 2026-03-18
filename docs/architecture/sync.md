@@ -50,4 +50,17 @@ This prevents accidental collisions between different primitive types sharing th
 !!! warning "Breaking change"
     Prior versions used the `name` parameter directly as the backend key without any prefix. After upgrading, existing locks stored in backends (Redis, PostgreSQL) will no longer match. Ensure all running instances are upgraded together so they use the same key format.
 
-For details on the SQLite backend's timestamp strategy, see [SQLite Backend](sqlite.md).
+## Lock Cleanup
+
+Expired locks are never actively removed during normal operation. Instead, all backends use a **lazy filtering** strategy combined with **cleanup on exit**:
+
+1. **Lazy filtering**: Every `locked()`, `owned()`, and `acquire()` call includes an expiry check (`expire_at >= now`), so expired locks are simply ignored without requiring deletion.
+2. **Cleanup on exit**: When the backend context manager exits (`__aexit__`), all expired locks are deleted in bulk. This keeps storage clean across graceful restarts.
+
+If the process crashes without exiting the context manager, expired locks remain in storage but are harmless — they will be filtered out by all subsequent operations and cleaned up on the next graceful shutdown.
+
+For backend-specific cleanup details, see:
+
+- [SQLite Backend — Lock Cleanup](sqlite.md#lock-cleanup)
+- [PostgreSQL Backend — Lock Cleanup](postgres.md#lock-cleanup)
+- [Kubernetes Backend — Lock Cleanup](kubernetes.md#lock-cleanup)

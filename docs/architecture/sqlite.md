@@ -33,3 +33,13 @@ The SQLite backend uses **Python-side wall-clock timestamps** (`time.time()`) st
 The backend enables [Write-Ahead Logging (WAL)](https://www.sqlite.org/wal.html) on connection with `PRAGMA journal_mode=WAL`. Without WAL, SQLite uses a rollback journal where writers block readers and readers block writers. WAL allows concurrent reads and writes, which is important for async lock operations where multiple tasks may check or acquire locks simultaneously.
 
 WAL mode is persistent per database file. Once enabled, it remains active for all subsequent connections until explicitly changed.
+
+## Lock Cleanup
+
+On exit (`__aexit__`), the backend runs a single bulk query to delete all expired locks:
+
+```sql
+DELETE FROM {table_name} WHERE expire_at < ?;
+```
+
+The current `time.time()` value is passed as the parameter. This removes all stale rows in one operation before closing the database connection.

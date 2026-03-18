@@ -62,6 +62,9 @@ redis = [
 sqlite = [
     "aiosqlite>=0.20.0",
 ]
+kubernetes = [
+    "lightkube>=0.15.0",
+]
 opentelemetry = [
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
@@ -94,6 +97,7 @@ dev = [
     "opentelemetry-sdk>=1.20.0",
     "structlog>=24.1.0",
     "aiosqlite>=0.20.0",
+    "lightkube>=0.15.0",
 ]
 docs = [
     "mkdocs-material>=9.5.44",

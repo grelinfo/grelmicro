@@ -23,7 +23,7 @@ ______________________________________________________________________
 
 grelmicro provides essential features for building robust distributed systems, including:
 
-- **Backends**: Technology-agnostic design supporting Redis, PostgreSQL, and in-memory backends for testing.
+- **Backends**: Technology-agnostic design supporting Redis, PostgreSQL, SQLite, and in-memory backends for testing.
 - **Logging**: Easy-to-configure logging with support for both text or JSON structured format with configurable timezone.
 - **Resilience Patterns**: Implements common resilience patterns like retries and circuit breakers.
 - **Synchronization Primitives**: Includes leader election and distributed lock mechanisms.
@@ -48,7 +48,7 @@ The `resilience` package provides higher-order functions (decorators) that imple
 
 The `sync` package provides synchronization primitives for distributed systems.
 
-The primitives are technology agnostic, supporting multiple backends like Redis, PostgreSQL, and in-memory for testing.
+The primitives are technology agnostic, supporting multiple backends like Redis, PostgreSQL, SQLite, and in-memory for testing.
 
 The available primitives are:
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add Kubernetes sync backend using Lease resources (`pip install grelmicro[kubernetes]`).
+* ✨ Add SQLite sync backend for home lab and local testing (`pip install grelmicro[sqlite]`).
+
+### Docs
+
+* 📝 Add [Kubernetes Backend Architecture](architecture/kubernetes.md) page.
+* 📝 Add [SQLite Backend Architecture](architecture/sqlite.md) page.
+* 📝 Add backend comparison matrix to [Synchronization](sync.md#backend) guide.
+
 ## 0.5.0 - 2026-03-17
 
 ### Breaking Changes

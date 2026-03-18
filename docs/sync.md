@@ -31,6 +31,11 @@ You can initialize a backend like this:
     --8<-- "sync/postgres.py"
     ```
 
+=== "Kubernetes"
+    ```python
+    --8<-- "sync/kubernetes.py"
+    ```
+
 === "SQLite"
     ```python
     --8<-- "sync/sqlite.py"
@@ -44,13 +49,13 @@ You can initialize a backend like this:
 !!! warning
     Please make sure to use a proper way to store connection URLs, such as environment variables (not like the example above).
 
-| | Redis | PostgreSQL | SQLite | Memory |
-|---|---|---|---|---|
-| **Use case** | Production | Production | Home lab / Local testing | Testing only |
-| **Multi-node** | Yes | Yes | No | No |
-| **Persistence** | Yes | Yes | Yes | No |
-| **Extra infrastructure** | Required | None if already in stack | None | None |
-| **Lock performance** | Best | Good | Good | Best |
+| | Redis | PostgreSQL | Kubernetes | SQLite | Memory |
+|---|---|---|---|---|---|
+| **Use case** | Production | Production | Production (K8s-native) | Home lab / Local testing | Testing only |
+| **Multi-node** | Yes | Yes | Yes | No | No |
+| **Persistence** | Yes | Yes | Yes (etcd-backed) | Yes | No |
+| **Extra infrastructure** | Required | None if already in stack | None (uses existing K8s API) | None | None |
+| **Lock performance** | Best | Good | Moderate | Good | Best |
 
 !!! tip
     Feel free to create your own backend and contribute it. In the `sync.abc` module, you can find the protocol for creating new backends.
