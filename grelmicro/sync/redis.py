@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings
 from redis.asyncio.client import Redis
 from typing_extensions import Doc
 
-from grelmicro.sync._backends import reset_sync_backend, set_sync_backend
+from grelmicro.sync._backends import loaded_backends
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
@@ -110,7 +110,8 @@ class RedisSyncBackend(SyncBackend):
         self._lua_acquire = self._redis.register_script(
             self._LUA_ACQUIRE_OR_EXTEND
         )
-        self._register_token = set_sync_backend(self) if auto_register else None
+        if auto_register:
+            loaded_backends["lock"] = self
 
     async def __aenter__(self) -> Self:
         """Open the lock backend."""
@@ -124,8 +125,6 @@ class RedisSyncBackend(SyncBackend):
     ) -> None:
         """Close the lock backend."""
         await self._redis.aclose()
-        if self._register_token is not None:
-            reset_sync_backend(self._register_token)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire the lock."""

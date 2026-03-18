@@ -11,11 +11,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
-from grelmicro.sync._backends import (
-    get_sync_backend,
-    reset_sync_backend,
-    set_sync_backend,
-)
+from grelmicro.sync._backends import get_sync_backend, loaded_backends
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import BackendNotLoadedError
 from grelmicro.sync.kubernetes import KubernetesSyncBackend
@@ -38,16 +34,16 @@ def _wait_for_k3s(
         if exit_code == 0:
             return
         time_module.sleep(1)
-    msg = "k3s did not become ready"  # pragma: no cover
-    raise TimeoutError(msg)  # pragma: no cover
+    msg = "k3s did not become ready"
+    raise TimeoutError(msg)
 
 
 def _extract_kubeconfig(container: DockerContainer) -> str:
     """Extract kubeconfig from k3s container."""
     exit_code, output = container.exec("cat /etc/rancher/k3s/k3s.yaml")
     if exit_code != 0:
-        msg = "Failed to extract kubeconfig"  # pragma: no cover
-        raise RuntimeError(msg)  # pragma: no cover
+        msg = "Failed to extract kubeconfig"
+        raise RuntimeError(msg)
     return output.decode()
 
 
@@ -68,9 +64,9 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch, None, None]:
 @pytest.fixture
 def clean_registry() -> Generator[None, None, None]:
     """Make sure the registry is clean."""
-    token = set_sync_backend(None)
+    loaded_backends.pop("lock", None)
     yield
-    reset_sync_backend(token)
+    loaded_backends.pop("lock", None)
 
 
 @pytest.fixture(

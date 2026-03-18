@@ -55,14 +55,14 @@ repos:
   - id: pytest-unit
     name: pytest-unit
     description: "Run 'pytest' for unit testing"
-    entry: uv run pytest -m "not integration" --cov
+    entry: uv run pytest -m "not integration"
     language: system
     pass_filenames: false
 
   - id: pytest-integration
     name: pytest-integration
     description: "Run 'pytest' for integration testing"
-    entry: uv run pytest -m "integration" --cov --cov-append
+    entry: uv run pytest -m "integration" --cov-append
     language: system
     pass_filenames: false
 
