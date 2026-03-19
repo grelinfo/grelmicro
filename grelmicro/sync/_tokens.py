@@ -1,10 +1,13 @@
 """Synchronization Tokens."""
 
+from itertools import count
 from secrets import token_hex
 from threading import get_ident
 from uuid import UUID
 
 from anyio import get_current_task
+
+_guard_counter = count()
 
 
 def generate_worker_id() -> str:
@@ -12,13 +15,18 @@ def generate_worker_id() -> str:
     return token_hex(4)
 
 
-def generate_task_token(worker: UUID | str) -> str:
+def generate_task_token(worker: UUID | str, nonce: str = "") -> str:
     """Generate a task token from the worker identity and the async task ID."""
     task_id = get_current_task().id
-    return f"{worker}:task:{task_id}"
+    return f"{worker}:task:{task_id}{nonce}"
 
 
-def generate_thread_token(worker: UUID | str) -> str:
+def generate_token_nonce() -> str:
+    """Generate a unique token nonce suffix (e.g., ':0', ':1')."""
+    return f":{next(_guard_counter)}"
+
+
+def generate_thread_token(worker: UUID | str, nonce: str = "") -> str:
     """Generate a thread token from the worker identity and the current thread ID."""
     thread_id = get_ident()
-    return f"{worker}:thread:{thread_id}"
+    return f"{worker}:thread:{thread_id}{nonce}"

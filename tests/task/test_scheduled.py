@@ -492,6 +492,41 @@ async def test_interval_task_with_lock_sequential_executions(
         tg.cancel_scope.cancel()
 
 
+async def test_interval_task_same_worker_blocked_by_min_lock_seconds(
+    backend: SyncBackend,
+) -> None:
+    """Test same worker cannot re-acquire before min_lock_seconds expires.
+
+    Bug: The deterministic token (worker:task:id) allowed the same worker to
+    bypass min_lock_seconds because the backend treats same-token acquire as
+    reentrant (current_token == token → success).
+    """
+    # Arrange — task completes instantly, min_lock_seconds keeps the lock held
+    samples.execution_count = 0
+    min_lock = 1.0  # hold lock for at least 1 second after completion
+    task = IntervalTask(
+        seconds=0.1,  # try to re-execute every 0.1s
+        function=samples.count_execution,
+        name="min-lock-test",
+        max_lock_seconds=10,
+        min_lock_seconds=min_lock,
+        backend=backend,
+        worker="worker_1",
+    )
+
+    # Act — run for 0.5s (5 interval ticks, but min_lock_seconds=1s)
+    async with create_task_group() as tg:
+        await tg.start(task)
+        await sleep(0.5)
+        tg.cancel_scope.cancel()
+
+    # Assert — should execute only once because min_lock_seconds > total runtime
+    assert samples.execution_count == 1, (
+        f"Expected 1 execution (min_lock_seconds={min_lock}s blocks re-acquire), "
+        f"got {samples.execution_count}"
+    )
+
+
 async def test_interval_task_with_leader_executes(
     backend: SyncBackend,
 ) -> None:

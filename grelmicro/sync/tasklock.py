@@ -19,12 +19,14 @@ from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._tokens import (
     generate_task_token,
     generate_thread_token,
+    generate_token_nonce,
     generate_worker_id,
 )
 from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
 from grelmicro.sync.errors import (
     LockAcquireError,
     LockLockedCheckError,
+    LockNotOwnedError,
     LockReentrantError,
     LockReleaseError,
 )
@@ -152,6 +154,7 @@ class TaskLock(Synchronization):
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend = backend or get_sync_backend()
         self._acquired_at: float | None = None
+        self._token_nonce = generate_token_nonce()
         self._from_thread: ThreadTaskLockAdapter | None = None
 
     async def __aenter__(self) -> Self:
@@ -165,12 +168,11 @@ class TaskLock(Synchronization):
         if self._acquired_at is not None:
             raise LockReentrantError(name=self._config.name)
 
-        token = generate_task_token(self._config.worker)
+        token = generate_task_token(self._config.worker, self._token_nonce)
         if not await self.do_acquire(token):
             msg = f"Task lock not acquired: name={self._config.name}, token={token}"
             raise WouldBlock(msg)
 
-        self.mark_acquired()
         return self
 
     async def __aexit__(
@@ -187,7 +189,7 @@ class TaskLock(Synchronization):
         Raises:
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
-        token = generate_task_token(self._config.worker)
+        token = generate_task_token(self._config.worker, self._token_nonce)
         await self.do_exit(token)
 
     @property
@@ -225,13 +227,16 @@ class TaskLock(Synchronization):
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
         try:
-            return await self._backend.acquire(
+            acquired = await self._backend.acquire(
                 name=self._lock_name,
                 token=token,
                 duration=self._config.max_lock_seconds,
             )
         except Exception as exc:
             raise LockAcquireError(name=self._config.name, token=token) from exc
+        if acquired:
+            self._acquired_at = monotonic()
+        return acquired
 
     async def do_release(self, token: str) -> bool:
         """Release the lock.
@@ -271,39 +276,59 @@ class TaskLock(Synchronization):
         except Exception as exc:
             raise LockReleaseError(name=self._config.name, token=token) from exc
 
+    async def do_thread_enter(self) -> None:
+        """Acquire the lock from a worker thread.
+
+        Runs entirely on the event loop so the reentrant check, token
+        generation, and backend acquire are atomic with respect to other
+        threads.
+
+        Raises:
+            WouldBlock: If the lock is already held by another worker.
+            LockAcquireError: If the lock cannot be acquired due to a backend error.
+            LockReentrantError: If the lock is already acquired (nested usage is not supported).
+        """
+        if self._acquired_at is not None:
+            raise LockReentrantError(name=self._config.name)
+
+        token = generate_thread_token(self._config.worker, self._token_nonce)
+        if not await self.do_acquire(token):
+            msg = f"Task lock not acquired: name={self._config.name}, token={token}"
+            raise WouldBlock(msg)
+
+    async def do_thread_exit(self) -> None:
+        """Release or extend the lock from a worker thread.
+
+        Runs entirely on the event loop so the token generation and backend
+        release are atomic with respect to other threads.
+
+        Raises:
+            LockReleaseError: If the lock cannot be released due to a backend error.
+        """
+        token = generate_thread_token(self._config.worker, self._token_nonce)
+        await self.do_exit(token)
+
     async def do_exit(self, token: str) -> None:
         """Handle exit logic: release or re-acquire based on elapsed time."""
-        elapsed = monotonic() - self._acquired_at  # type: ignore[operator]
+        if self._acquired_at is None:
+            raise LockNotOwnedError(name=self._config.name, token=token)
+
+        elapsed = monotonic() - self._acquired_at
+        self._acquired_at = None
+        self._token_nonce = generate_token_nonce()
 
         if elapsed >= self._config.min_lock_seconds:
             # Task took longer than min_lock_seconds, release immediately
             released = await self.do_release(token)
             if not released:
-                logger.warning(
-                    "Task lock expired before release"
-                    " (elapsed: %.1fs, max_lock_seconds: %.1fs): %s",
-                    elapsed,
-                    self._config.max_lock_seconds,
-                    self._config.name,
-                )
+                raise LockNotOwnedError(name=self._config.name, token=token)
         else:
-            # Re-acquire with remaining duration to keep lock held
+            # Re-acquire with remaining duration so the lock is held
+            # until min_lock_seconds.
             remaining = self._config.min_lock_seconds - elapsed
             re_acquired = await self.do_reacquire(token, remaining)
             if not re_acquired:
-                logger.warning(
-                    "Task lock lost before re-acquire"
-                    " (elapsed: %.1fs, min_lock_seconds: %.1fs): %s",
-                    elapsed,
-                    self._config.min_lock_seconds,
-                    self._config.name,
-                )
-
-        self._acquired_at = None
-
-    def mark_acquired(self) -> None:
-        """Record the acquisition timestamp."""
-        self._acquired_at = monotonic()
+                raise LockNotOwnedError(name=self._config.name, token=token)
 
 
 class ThreadTaskLockAdapter:
@@ -321,18 +346,7 @@ class ThreadTaskLockAdapter:
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
-        if self._task_lock._acquired_at is not None:  # noqa: SLF001
-            raise LockReentrantError(name=self._task_lock.config.name)
-
-        token = generate_thread_token(self._task_lock.config.worker)
-        if not from_thread.run(self._task_lock.do_acquire, token):
-            msg = (
-                f"Task lock not acquired:"
-                f" name={self._task_lock.config.name}, token={token}"
-            )
-            raise WouldBlock(msg)
-
-        self._task_lock.mark_acquired()
+        from_thread.run(self._task_lock.do_thread_enter)
         return self
 
     def __exit__(
@@ -346,8 +360,7 @@ class ThreadTaskLockAdapter:
         Raises:
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
-        token = generate_thread_token(self._task_lock.config.worker)
-        from_thread.run(self._task_lock.do_exit, token)
+        from_thread.run(self._task_lock.do_thread_exit)
 
     def locked(self) -> bool:
         """Return True if the lock is currently held."""

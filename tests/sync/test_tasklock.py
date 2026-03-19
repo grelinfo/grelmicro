@@ -12,6 +12,7 @@ from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
     LockLockedCheckError,
+    LockNotOwnedError,
     LockReentrantError,
     LockReleaseError,
 )
@@ -257,7 +258,7 @@ async def test_tasklock_stays_locked_when_elapsed_less_than_at_least(
 
 
 async def test_tasklock_auto_expires(backend: SyncBackend) -> None:
-    """Test lock auto-expires after max_lock_seconds."""
+    """Test lock auto-expires after max_lock_seconds and raises on release."""
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
@@ -266,10 +267,11 @@ async def test_tasklock_auto_expires(backend: SyncBackend) -> None:
         max_lock_seconds=0.05,
     )
 
-    async with task_lock:
-        locked_inside = await backend.locked(name=BACKEND_LOCK_NAME)
-        assert locked_inside is True
-        await sleep(0.1)
+    with pytest.raises(LockNotOwnedError):  # noqa: PT012
+        async with task_lock:
+            locked_inside = await backend.locked(name=BACKEND_LOCK_NAME)
+            assert locked_inside is True
+            await sleep(0.1)
 
     # Lock should have expired by now
     locked_after = await backend.locked(name=BACKEND_LOCK_NAME)
@@ -303,12 +305,10 @@ async def test_tasklock_same_worker_reacquire(backend: SyncBackend) -> None:
 # --- Warning on expired lock ---
 
 
-async def test_tasklock_release_expired_warning(
-    backend: SyncBackend, caplog: pytest.LogCaptureFixture
+async def test_tasklock_release_expired_raises(
+    backend: SyncBackend,
 ) -> None:
-    """Test TaskLock logs warning when lock expired before release."""
-    # Arrange
-    caplog.set_level("WARNING")
+    """Test TaskLock raises LockNotOwnedError when lock expired before release."""
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
@@ -317,16 +317,9 @@ async def test_tasklock_release_expired_warning(
         max_lock_seconds=0.05,
     )
 
-    # Act
-    async with task_lock:
-        await sleep(0.1)  # Wait for lock to expire
-
-    # Assert
-    assert any(
-        "Task lock expired before release" in record.message
-        for record in caplog.records
-        if record.levelname == "WARNING"
-    )
+    with pytest.raises(LockNotOwnedError):
+        async with task_lock:
+            await sleep(0.1)  # Wait for lock to expire
 
 
 # --- Backend errors ---
@@ -421,14 +414,53 @@ async def test_tasklock_reacquire_backend_error(
             pass
 
 
-async def test_tasklock_reacquire_lost_warning(
+async def test_tasklock_state_cleaned_up_after_failed_reacquire(
+    backend: SyncBackend, mocker: MockerFixture
+) -> None:
+    """Test TaskLock clears state even when re-acquire fails with an exception.
+
+    do_exit() must clear _acquired_at and rotate the nonce before calling
+    the backend. This ensures the lock instance is always left in a clean
+    state, regardless of backend errors. The TTL (max_lock_seconds) acts
+    as deadlock protection for the backend-side lock.
+    """
+    min_lock_seconds = 10
+    max_lock_seconds = 60
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=min_lock_seconds,
+        max_lock_seconds=max_lock_seconds,
+    )
+
+    original_acquire = backend.acquire
+
+    async def fail_on_reacquire(
+        *, name: str, token: str, duration: float
+    ) -> bool:
+        # Let initial acquire succeed, fail on re-acquire (shorter duration)
+        if duration < max_lock_seconds:
+            msg = "Transient backend error"
+            raise Exception(msg)  # noqa: TRY002
+        return await original_acquire(name=name, token=token, duration=duration)
+
+    mocker.patch.object(backend, "acquire", side_effect=fail_on_reacquire)
+
+    # First usage: acquire succeeds, re-acquire in exit fails
+    with pytest.raises(LockReleaseError):
+        async with task_lock:
+            pass
+
+    # State is cleaned up despite the error
+    assert task_lock._acquired_at is None
+
+
+async def test_tasklock_reacquire_lost_raises(
     backend: SyncBackend,
     mocker: MockerFixture,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test TaskLock logs warning when re-acquire returns False (lock lost)."""
-    # Arrange
-    caplog.set_level("WARNING")
+    """Test TaskLock raises LockNotOwnedError when re-acquire returns False."""
     min_lock_seconds = 10
     max_lock_seconds = 60
     task_lock = TaskLock(
@@ -451,16 +483,9 @@ async def test_tasklock_reacquire_lost_warning(
 
     mocker.patch.object(backend, "acquire", side_effect=reject_reacquire)
 
-    # Act
-    async with task_lock:
-        pass
-
-    # Assert
-    assert any(
-        "Task lock lost before re-acquire" in record.message
-        for record in caplog.records
-        if record.levelname == "WARNING"
-    )
+    with pytest.raises(LockNotOwnedError):
+        async with task_lock:
+            pass
 
 
 # --- from_thread ---
@@ -624,11 +649,10 @@ async def test_tasklock_from_thread_reacquire_backend_error(
     await to_thread.run_sync(sync)
 
 
-async def test_tasklock_from_thread_release_expired_warning(
-    backend: SyncBackend, caplog: pytest.LogCaptureFixture
+async def test_tasklock_from_thread_release_expired_raises(
+    backend: SyncBackend,
 ) -> None:
-    """Test TaskLock from thread logs warning when lock expired before release."""
-    caplog.set_level("WARNING")
+    """Test TaskLock from thread raises LockNotOwnedError when lock expired."""
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
@@ -638,13 +662,8 @@ async def test_tasklock_from_thread_release_expired_warning(
     )
 
     def sync() -> None:
-        with task_lock.from_thread:
-            time.sleep(0.1)  # Wait for lock to expire
+        with pytest.raises(LockNotOwnedError):  # noqa: SIM117
+            with task_lock.from_thread:
+                time.sleep(0.1)  # Wait for lock to expire
 
     await to_thread.run_sync(sync)
-
-    assert any(
-        "Task lock expired before release" in record.message
-        for record in caplog.records
-        if record.levelname == "WARNING"
-    )

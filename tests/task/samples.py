@@ -16,6 +16,7 @@ condition = Condition()
 e2e_event_1: Event = Event()
 e2e_event_2: Event = Event()
 e2e_counter: dict[str, int] = {"worker_1": 0, "worker_2": 0}
+execution_count: int = 0
 
 
 def test1() -> None:
@@ -58,6 +59,12 @@ async def worker_1_hold() -> None:
     e2e_counter["worker_1"] += 1
     e2e_event_1.set()
     await sleep(10)
+
+
+async def count_execution() -> None:
+    """Increment execution counter."""
+    global execution_count  # noqa: PLW0603
+    execution_count += 1
 
 
 async def noop() -> None:

@@ -13,6 +13,7 @@ from anyio.abc import TaskStatus
 from fast_depends import inject
 
 from grelmicro.sync.abc import SyncBackend, Synchronization
+from grelmicro.sync.errors import LockNotOwnedError
 from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.lock import Lock
 from grelmicro.sync.tasklock import TaskLock
@@ -168,6 +169,12 @@ class IntervalTask(Task):
                     await self._run_with_sync(self._sync_primitives)
                 except WouldBlock as exc:
                     logger.debug("Task skipped: %s (%s)", self.name, exc)
+                except LockNotOwnedError:
+                    logger.warning(
+                        "Task took too long and lock expired: %s."
+                        " Consider increasing max_lock_seconds.",
+                        self.name,
+                    )
                 except Exception:
                     logger.exception(
                         "Task synchronization error: %s", self.name
