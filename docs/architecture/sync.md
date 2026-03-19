@@ -29,7 +29,7 @@ Lock tokens identify **who** holds a lock. They are derived deterministically fr
 This design provides the following guarantees:
 
 - **Mutual exclusion**: Different async tasks or threads produce different tokens for the same lock, ensuring only one caller holds the lock at a time.
-- **Re-entrancy**: The same async task (or thread) always produces the same deterministic token, allowing it to re-acquire the lock to extend the lease.
+- **Idempotent**: The same async task (or thread) always produces the same deterministic token, so the backend accepts a re-acquire and extends the lease.
 - **Isolation**: Different lock instances have different worker identities, so their tokens never collide even when used from the same task or thread.
 
 ## Lock Name and Backend Key

@@ -38,6 +38,7 @@ class BaseLock(Synchronization, Protocol):
         """Acquire the lock.
 
         Raises:
+            LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
         ...
@@ -66,6 +67,7 @@ class BaseLock(Synchronization, Protocol):
         """Acquire the lock.
 
         Raises:
+            LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
 
         """
@@ -76,6 +78,7 @@ class BaseLock(Synchronization, Protocol):
         Acquire the lock, without blocking.
 
         Raises:
+            LockReentrantError: If the lock is already acquired (nested usage is not supported).
             WouldBlock: If the lock cannot be acquired without blocking.
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
 

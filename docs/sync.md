@@ -102,7 +102,8 @@ The lock supports the following features:
 
 - **Async**: The lock must be acquired and released asynchronously.
 - **Distributed**: The lock must be distributed across multiple workers.
-- **Reentrant**: The lock must allow the same token to acquire it multiple times to extend the lease.
+- **Non-reentrant**: Nested acquire from the same task or thread raises `LockReentrantError`. Use separate instances if you need independent locks.
+- **Idempotent backend**: The backend allows the same token to re-acquire the lock, extending the lease. Use `do_acquire` directly if you need to extend the lease explicitly.
 - **Expiring**: The lock must have a timeout to auto-release after an interval to prevent deadlocks.
 - **Non-blocking**: Lock operations must not block the async event loop.
 - **Vendor-agnostic**: Must support multiple backends (Redis, Postgres, ConfigMap, etc.).

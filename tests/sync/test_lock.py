@@ -13,6 +13,7 @@ from grelmicro.sync.errors import (
     LockLockedCheckError,
     LockNotOwnedError,
     LockOwnedCheckError,
+    LockReentrantError,
     LockReleaseError,
 )
 from grelmicro.sync.lock import Lock
@@ -517,3 +518,146 @@ async def test_lock_locked_backend_error(
     # Act / Assert
     with pytest.raises(LockLockedCheckError):
         await lock.locked()
+
+
+# --- Non-reentrant (nested usage rejected) tests ---
+
+
+async def test_lock_reentrant_context_manager(lock: Lock) -> None:
+    """Test Lock nested context manager raises LockReentrantError."""
+    async with lock:
+        with pytest.raises(LockReentrantError):
+            async with lock:
+                pass
+
+
+async def test_lock_reentrant_acquire(lock: Lock) -> None:
+    """Test Lock nested acquire raises LockReentrantError."""
+    await lock.acquire()
+    with pytest.raises(LockReentrantError):
+        await lock.acquire()
+
+
+async def test_lock_reentrant_acquire_nowait(lock: Lock) -> None:
+    """Test Lock nested acquire_nowait raises LockReentrantError."""
+    await lock.acquire_nowait()
+    with pytest.raises(LockReentrantError):
+        await lock.acquire_nowait()
+
+
+async def test_lock_reentrant_acquire_then_acquire_nowait(lock: Lock) -> None:
+    """Test Lock acquire then acquire_nowait raises LockReentrantError."""
+    await lock.acquire()
+    with pytest.raises(LockReentrantError):
+        await lock.acquire_nowait()
+
+
+async def test_lock_reentrant_acquire_nowait_then_acquire(lock: Lock) -> None:
+    """Test Lock acquire_nowait then acquire raises LockReentrantError."""
+    await lock.acquire_nowait()
+    with pytest.raises(LockReentrantError):
+        await lock.acquire()
+
+
+async def test_lock_reacquire_after_release(lock: Lock) -> None:
+    """Test Lock can be acquired again after release."""
+    await lock.acquire()
+    await lock.release()
+    await lock.acquire()
+    assert await lock.locked() is True
+
+
+async def test_lock_reacquire_after_context_manager(lock: Lock) -> None:
+    """Test Lock can be acquired again after context manager exit."""
+    async with lock:
+        pass
+    async with lock:
+        assert await lock.locked() is True
+
+
+async def test_lock_reentrant_from_thread(lock: Lock) -> None:
+    """Test Lock nested from_thread raises LockReentrantError."""
+
+    def sync() -> None:
+        with (
+            lock.from_thread,
+            pytest.raises(LockReentrantError),
+            lock.from_thread,
+        ):
+            pass
+
+    await to_thread.run_sync(sync)
+
+
+async def test_lock_reentrant_from_thread_acquire(lock: Lock) -> None:
+    """Test Lock nested from_thread acquire raises LockReentrantError."""
+
+    def sync() -> None:
+        lock.from_thread.acquire()
+        with pytest.raises(LockReentrantError):
+            lock.from_thread.acquire()
+
+    await to_thread.run_sync(sync)
+
+
+async def test_lock_reentrant_from_thread_acquire_nowait(lock: Lock) -> None:
+    """Test Lock nested from_thread acquire_nowait raises LockReentrantError."""
+
+    def sync() -> None:
+        lock.from_thread.acquire_nowait()
+        with pytest.raises(LockReentrantError):
+            lock.from_thread.acquire_nowait()
+
+    await to_thread.run_sync(sync)
+
+
+async def test_lock_reentrant_from_thread_acquire_then_acquire_nowait(
+    lock: Lock,
+) -> None:
+    """Test Lock from_thread acquire then acquire_nowait raises LockReentrantError."""
+
+    def sync() -> None:
+        lock.from_thread.acquire()
+        with pytest.raises(LockReentrantError):
+            lock.from_thread.acquire_nowait()
+
+    await to_thread.run_sync(sync)
+
+
+async def test_lock_reentrant_from_thread_acquire_nowait_then_acquire(
+    lock: Lock,
+) -> None:
+    """Test Lock from_thread acquire_nowait then acquire raises LockReentrantError."""
+
+    def sync() -> None:
+        lock.from_thread.acquire_nowait()
+        with pytest.raises(LockReentrantError):
+            lock.from_thread.acquire()
+
+    await to_thread.run_sync(sync)
+
+
+async def test_lock_from_thread_reacquire_after_release(lock: Lock) -> None:
+    """Test Lock from_thread can be acquired again after release."""
+
+    def sync() -> None:
+        lock.from_thread.acquire()
+        lock.from_thread.release()
+        lock.from_thread.acquire()
+        assert lock.from_thread.locked() is True
+
+    await to_thread.run_sync(sync)
+
+
+async def test_lock_from_thread_reacquire_after_context_manager(
+    lock: Lock,
+) -> None:
+    """Test Lock from_thread can be acquired again after context manager exit."""
+
+    def sync() -> None:
+        with lock.from_thread:
+            pass
+        with lock.from_thread:
+            assert lock.from_thread.locked() is True
+
+    await to_thread.run_sync(sync)
