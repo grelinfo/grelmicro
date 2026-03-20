@@ -1,0 +1,141 @@
+"""TTL Cache."""
+
+from time import monotonic
+from typing import Any
+
+
+class TTLCache:
+    """Synchronous in-memory cache with per-entry TTL expiry.
+
+    A dict-like cache where each entry expires after a configurable
+    time-to-live (TTL). Expiry is checked lazily on access. When the
+    cache is full, the oldest expired entry is evicted first, then the
+    oldest entry (FIFO).
+
+    Overwriting an existing key resets its FIFO eviction order.
+
+    Not thread-safe — the caller is responsible for synchronization.
+
+    Args:
+        maxsize: Maximum number of entries. ``0`` means unlimited.
+        ttl: Default TTL in seconds for all entries.
+
+    Raises:
+        ValueError: If maxsize is negative or ttl is not positive.
+    """
+
+    def __init__(self, maxsize: int, ttl: float) -> None:  # noqa: D107
+        if maxsize < 0:
+            msg = "maxsize must be non-negative"
+            raise ValueError(msg)
+        if ttl <= 0:
+            msg = "ttl must be positive"
+            raise ValueError(msg)
+        self._maxsize = maxsize
+        self._ttl = ttl
+        # Stores: key -> (value, expiry_time)
+        self._data: dict[str, tuple[Any, float]] = {}
+
+    def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
+        """Get a value by key.
+
+        Returns the default if the key is missing or expired.
+
+        Args:
+            key: The cache key.
+            default: Value to return if key is not found.
+
+        Returns:
+            The cached value or the default.
+        """
+        entry = self._data.get(key)
+        if entry is None:
+            return default
+        value, expiry = entry
+        if monotonic() >= expiry:
+            del self._data[key]
+            return default
+        return value
+
+    def set(
+        self,
+        key: str,
+        value: Any,  # noqa: ANN401
+        ttl: float | None = None,
+    ) -> None:
+        """Set a value with an optional per-entry TTL override.
+
+        If the cache is full, the oldest expired entry is evicted
+        first. If no expired entries exist, the oldest entry (FIFO)
+        is evicted.
+
+        Args:
+            key: The cache key.
+            value: The value to cache.
+            ttl: Optional TTL override in seconds.
+
+        Raises:
+            ValueError: If ttl is not positive.
+        """
+        if ttl is not None and ttl <= 0:
+            msg = "ttl must be positive"
+            raise ValueError(msg)
+        # If key already exists, remove it so reinsertion goes to end
+        if key in self._data:
+            del self._data[key]
+        elif self._maxsize > 0 and len(self._data) >= self._maxsize:
+            self._evict()
+        entry_ttl = ttl if ttl is not None else self._ttl
+        self._data[key] = (value, monotonic() + entry_ttl)
+
+    def delete(self, key: str) -> None:
+        """Delete a key from the cache.
+
+        No-op if the key does not exist.
+
+        Args:
+            key: The cache key to delete.
+        """
+        self._data.pop(key, None)
+
+    def clear(self) -> None:
+        """Remove all entries from the cache."""
+        self._data.clear()
+
+    def __contains__(self, key: str) -> bool:
+        """Check if a key exists and is not expired."""
+        entry = self._data.get(key)
+        if entry is None:
+            return False
+        _, expiry = entry
+        if monotonic() >= expiry:
+            del self._data[key]
+            return False
+        return True
+
+    def __len__(self) -> int:
+        """Return the number of entries, including expired ones.
+
+        Expired entries are not purged eagerly to avoid a full scan.
+        """
+        return len(self._data)
+
+    def _evict(self) -> None:
+        """Evict one entry to make room for a new one.
+
+        Strategy: remove the oldest expired entry first. If none are
+        expired, remove the oldest entry (FIFO). Scans entries in
+        insertion order — O(n) in the worst case.
+        """
+        now = monotonic()
+        oldest_expired_key: str | None = None
+        for k, (_, expiry) in self._data.items():
+            if now >= expiry:
+                oldest_expired_key = k
+                break
+        if oldest_expired_key is not None:
+            del self._data[oldest_expired_key]
+        else:
+            # Remove the first (oldest) entry — FIFO
+            first_key = next(iter(self._data))
+            del self._data[first_key]

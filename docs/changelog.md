@@ -16,6 +16,7 @@
 
 * ♻️ Use server-side timestamps and native Lease fields in sync backends.
 * ♻️ Simplify token generation from UUID-based to string concatenation.
+* ♻️ Replace global backend dict with ContextVar for context-local storage.
 
 ### Internal
 
