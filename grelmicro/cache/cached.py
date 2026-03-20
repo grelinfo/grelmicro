@@ -23,12 +23,17 @@ def cached(
     | None = None,
     serializer: Callable[[Any], bytes] | None = None,
     deserializer: Callable[[bytes], Any] | None = None,
+    skip: Callable[[Any], bool] | None = None,
+    typed: bool = False,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Cache decorator for sync and async functions.
 
     Automatically detects whether the decorated function is sync or
     async and wraps it accordingly. Cached values are stored in the
     provided ``TTLCache`` instance.
+
+    The decorated function exposes ``cache_info()`` and
+    ``cache_clear()`` helpers (matching ``functools.lru_cache``).
 
     Does not provide stampede / thundering-herd protection: when a
     cache entry expires, concurrent callers may all execute the
@@ -42,6 +47,10 @@ def cached(
             provided, values are serialized before storing.
         deserializer: Optional deserializer for cached values. When
             provided, values are deserialized after retrieval.
+        skip: Optional predicate receiving the function result.
+            When it returns ``True`` the result is **not** cached.
+        typed: If ``True``, arguments of different types are cached
+            separately (e.g. ``3`` vs ``3.0``).
 
     Returns:
         A decorator that caches function results.
@@ -63,14 +72,17 @@ def cached(
                 *args: P.args,
                 **kwargs: P.kwargs,
             ) -> R:
-                key = _make_key(func, args, kwargs, key_maker)
+                key = _make_key(func, args, kwargs, key_maker, typed=typed)
                 result = cache.get(key, _SENTINEL)
                 if result is not _SENTINEL:
                     return _deserialize(result, deserializer)
                 result = await func(*args, **kwargs)
-                cache.set(key, _serialize(result, serializer))
+                if skip is None or not skip(result):
+                    cache.set(key, _serialize(result, serializer))
                 return result
 
+            async_wrapper.cache_info = cache.cache_info  # type: ignore[attr-defined]
+            async_wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
             return async_wrapper  # type: ignore[return-value]
 
         @functools.wraps(func)
@@ -78,14 +90,17 @@ def cached(
             *args: P.args,
             **kwargs: P.kwargs,
         ) -> R:
-            key = _make_key(func, args, kwargs, key_maker)
+            key = _make_key(func, args, kwargs, key_maker, typed=typed)
             result = cache.get(key, _SENTINEL)
             if result is not _SENTINEL:
                 return _deserialize(result, deserializer)
             result = func(*args, **kwargs)
-            cache.set(key, _serialize(result, serializer))
+            if skip is None or not skip(result):
+                cache.set(key, _serialize(result, serializer))
             return result
 
+        sync_wrapper.cache_info = cache.cache_info  # type: ignore[attr-defined]
+        sync_wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
         return sync_wrapper
 
     return decorator
@@ -99,10 +114,12 @@ def _make_key(
         [Callable[..., Any], tuple[Any, ...], dict[str, Any]], str
     ]
     | None,
+    *,
+    typed: bool,
 ) -> str:
     if key_maker is not None:
         return key_maker(func, args, kwargs)
-    return make_cache_key(func, args, kwargs)
+    return make_cache_key(func, args, kwargs, typed=typed)
 
 
 def _serialize(

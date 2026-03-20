@@ -5,9 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
-from grelmicro.cache.ttl import TTLCache
+from grelmicro.cache.ttl import CacheInfo, TTLCache
 
 EXPECTED_EVICTION_LEN = 2
+EXPECTED_HITS_2 = 2
 EXPECTED_OVERWRITE_VALUE = 10
 EXPECTED_UNLIMITED_LEN = 1000
 
@@ -375,3 +376,91 @@ class TestContains:
 
         # Act / Assert
         assert "key" not in cache
+
+
+class TestCacheInfo:
+    """Test TTLCache cache_info statistics."""
+
+    def test_initial_stats(self) -> None:
+        """Test that fresh cache has zero stats."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+
+        # Act
+        info = cache.cache_info()
+
+        # Assert
+        assert info == CacheInfo(
+            hits=0, misses=0, maxsize=10, currsize=0, evictions=0
+        )
+
+    def test_hits_and_misses(self) -> None:
+        """Test that hits and misses are tracked correctly."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        cache.set("key", "value")
+
+        # Act
+        cache.get("key")  # hit
+        cache.get("key")  # hit
+        cache.get("missing")  # miss
+
+        # Assert
+        info = cache.cache_info()
+        assert info.hits == EXPECTED_HITS_2
+        assert info.misses == 1
+        assert info.currsize == 1
+
+    def test_expired_entry_counts_as_miss(self) -> None:
+        """Test that accessing an expired entry counts as a miss."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=5)
+        now = monotonic()
+
+        with patch(
+            "grelmicro.cache.ttl.monotonic",
+            return_value=now,
+        ):
+            cache.set("key", "value")
+
+        # Act — hit before expiry
+        with patch(
+            "grelmicro.cache.ttl.monotonic",
+            return_value=now + 4,
+        ):
+            cache.get("key")
+
+        # Act — miss after expiry
+        with patch(
+            "grelmicro.cache.ttl.monotonic",
+            return_value=now + 5,
+        ):
+            cache.get("key")
+
+        # Assert
+        info = cache.cache_info()
+        assert info.hits == 1
+        assert info.misses == 1
+
+    def test_evictions_tracked(self) -> None:
+        """Test that evictions are counted."""
+        # Arrange
+        cache = TTLCache(maxsize=2, ttl=60)
+        cache.set("a", 1)
+        cache.set("b", 2)
+
+        # Act — triggers eviction
+        cache.set("c", 3)
+
+        # Assert
+        assert cache.cache_info().evictions == 1
+
+    def test_cache_info_is_frozen(self) -> None:
+        """Test that CacheInfo is immutable."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        info = cache.cache_info()
+
+        # Act / Assert
+        with pytest.raises(AttributeError):
+            info.hits = 99  # type: ignore[misc]

@@ -11,6 +11,8 @@ pytestmark = [pytest.mark.anyio]
 
 EXPECTED_DOUBLE_5 = 10
 EXPECTED_CALL_COUNT_2 = 2
+EXPECTED_MISSES_2 = 2
+EXPECTED_CURRSIZE_2 = 2
 
 
 class TestSyncCached:
@@ -240,6 +242,223 @@ class TestSerializerValidation:
             match="serializer and deserializer must be provided together",
         ):
             cached(cache, deserializer=json.loads)
+
+
+class TestSkip:
+    """Test cached decorator with skip condition."""
+
+    def test_skip_none_results(self) -> None:
+        """Test that None results are not cached when skip is set."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, skip=lambda r: r is None)
+        def maybe_fetch(*, found: bool) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            return "data" if found else None
+
+        # Act
+        maybe_fetch(found=False)  # returns None, not cached
+        maybe_fetch(found=False)  # still calls function
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    def test_skip_does_not_affect_valid_results(self) -> None:
+        """Test that valid results are still cached with skip."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, skip=lambda r: r is None)
+        def maybe_fetch(*, found: bool) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            return "data" if found else None
+
+        # Act
+        maybe_fetch(found=True)  # cached
+        maybe_fetch(found=True)  # cache hit
+
+        # Assert
+        assert call_count == 1
+
+    async def test_skip_async(self) -> None:
+        """Test skip condition with async functions."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, skip=lambda r: r is None)
+        async def maybe_fetch(*, found: bool) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            return "data" if found else None
+
+        # Act
+        await maybe_fetch(found=False)
+        await maybe_fetch(found=False)
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+
+class TestTyped:
+    """Test cached decorator with typed key generation."""
+
+    def test_typed_distinguishes_int_and_float(self) -> None:
+        """Test that typed=True caches 3 and 3.0 separately."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, typed=True)
+        def compute(x: float) -> str:
+            nonlocal call_count
+            call_count += 1
+            return type(x).__name__
+
+        # Act
+        compute(3)
+        compute(3.0)
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    def test_typed_distinguishes_same_repr(self) -> None:
+        """Test typed=True distinguishes args with same repr."""
+
+        # Arrange — two types with identical repr
+        class A:
+            def __repr__(self) -> str:
+                return "X"
+
+        class B:
+            def __repr__(self) -> str:
+                return "X"
+
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, typed=True)
+        def identity(x: object) -> str:
+            nonlocal call_count
+            call_count += 1
+            return type(x).__name__
+
+        # Act — same repr, different types
+        identity(A())
+        identity(B())
+
+        # Assert — typed ensures separate cache entries
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    async def test_typed_async(self) -> None:
+        """Test typed key generation with async functions."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, typed=True)
+        async def compute(x: float) -> str:
+            nonlocal call_count
+            call_count += 1
+            return type(x).__name__
+
+        # Act
+        await compute(3)
+        await compute(3.0)
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+
+class TestCacheControlMethods:
+    """Test cache_info() and cache_clear() on decorated functions."""
+
+    def test_cache_info(self) -> None:
+        """Test that cache_info() returns statistics."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            return x * 2
+
+        # Act
+        compute(1)  # miss
+        compute(1)  # hit
+        compute(2)  # miss
+        info = compute.cache_info()  # type: ignore[attr-defined]
+
+        # Assert
+        assert info.hits == 1
+        assert info.misses == EXPECTED_MISSES_2
+        assert info.currsize == EXPECTED_CURRSIZE_2
+
+    def test_cache_clear(self) -> None:
+        """Test that cache_clear() empties the cache."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        compute(1)
+        assert call_count == 1
+
+        # Act
+        compute.cache_clear()  # type: ignore[attr-defined]
+        compute(1)
+
+        # Assert — recomputed after clear
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    async def test_cache_info_async(self) -> None:
+        """Test cache_info() on async decorated function."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+
+        @cached(cache)
+        async def fetch(x: int) -> int:
+            return x
+
+        # Act
+        await fetch(1)  # miss
+        await fetch(1)  # hit
+        info = fetch.cache_info()  # type: ignore[attr-defined]
+
+        # Assert
+        assert info.hits == 1
+        assert info.misses == 1
+
+    async def test_cache_clear_async(self) -> None:
+        """Test cache_clear() on async decorated function."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache)
+        async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x
+
+        await fetch(1)
+        assert call_count == 1
+
+        # Act
+        fetch.cache_clear()  # type: ignore[attr-defined]
+        await fetch(1)
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
 
 
 class TestFunctionMetadata:

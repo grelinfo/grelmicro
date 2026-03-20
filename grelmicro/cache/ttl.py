@@ -1,7 +1,27 @@
 """TTL Cache."""
 
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class CacheInfo:
+    """Cache statistics snapshot.
+
+    Attributes:
+        hits: Number of cache hits.
+        misses: Number of cache misses.
+        maxsize: Maximum number of entries (``0`` means unlimited).
+        currsize: Current number of stored entries (may include expired).
+        evictions: Number of entries evicted to make room.
+    """
+
+    hits: int
+    misses: int
+    maxsize: int
+    currsize: int
+    evictions: int
 
 
 class TTLCache:
@@ -35,6 +55,9 @@ class TTLCache:
         self._ttl = ttl
         # Stores: key -> (value, expiry_time)
         self._data: dict[str, tuple[Any, float]] = {}
+        self._hits = 0
+        self._misses = 0
+        self._evictions = 0
 
     def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
         """Get a value by key.
@@ -50,11 +73,14 @@ class TTLCache:
         """
         entry = self._data.get(key)
         if entry is None:
+            self._misses += 1
             return default
         value, expiry = entry
         if monotonic() >= expiry:
             del self._data[key]
+            self._misses += 1
             return default
+        self._hits += 1
         return value
 
     def set(
@@ -102,6 +128,16 @@ class TTLCache:
         """Remove all entries from the cache."""
         self._data.clear()
 
+    def cache_info(self) -> CacheInfo:
+        """Return a snapshot of cache statistics."""
+        return CacheInfo(
+            hits=self._hits,
+            misses=self._misses,
+            maxsize=self._maxsize,
+            currsize=len(self._data),
+            evictions=self._evictions,
+        )
+
     def __contains__(self, key: str) -> bool:
         """Check if a key exists and is not expired."""
         entry = self._data.get(key)
@@ -139,3 +175,4 @@ class TTLCache:
             # Remove the first (oldest) entry — FIFO
             first_key = next(iter(self._data))
             del self._data[first_key]
+        self._evictions += 1
