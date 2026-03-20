@@ -9,6 +9,7 @@
 
 ### Features
 
+* ✨ Add in-memory [TTL cache](cache.md) with LRU eviction and `@cached` decorator.
 * ✨ Add Kubernetes sync backend using Lease resources (`pip install grelmicro[kubernetes]`).
 * ✨ Add SQLite sync backend for home lab and local testing (`pip install grelmicro[sqlite]`).
 

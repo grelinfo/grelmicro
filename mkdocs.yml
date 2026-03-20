@@ -32,6 +32,7 @@ validation:
 nav:
 - Grelmicro: index.md
 - User Guide:
+    - cache.md
     - logging.md
     - resilience.md
     - sync.md
