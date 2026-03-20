@@ -1,6 +1,8 @@
 """Test Cached Decorator."""
 
+import asyncio
 import json
+import threading
 
 import pytest
 
@@ -487,3 +489,71 @@ class TestFunctionMetadata:
 
         # Assert
         assert my_async_function.__name__ == "my_async_function"
+
+
+class TestLock:
+    """Test cached decorator with lock for stampede protection."""
+
+    def test_lock_prevents_duplicate_computation(self) -> None:
+        """Test that lock prevents redundant computation."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, lock=threading.Lock())
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act
+        compute(5)
+        compute(5)
+
+        # Assert
+        assert call_count == 1
+
+    async def test_async_lock_prevents_duplicate_computation(
+        self,
+    ) -> None:
+        """Test that async lock prevents redundant computation."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+        barrier = asyncio.Event()
+
+        @cached(cache, lock=asyncio.Lock())
+        async def slow_fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            await barrier.wait()
+            return x * 2
+
+        # Act — launch two concurrent calls
+        task1 = asyncio.create_task(slow_fetch(5))
+        task2 = asyncio.create_task(slow_fetch(5))
+        await asyncio.sleep(0)  # let tasks start
+        barrier.set()
+        await task1
+        await task2
+
+        # Assert — only one actual computation
+        assert call_count == 1
+
+    async def test_async_lock_cache_hit_skips_lock(self) -> None:
+        """Test that cache hit doesn't acquire the lock."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+
+        @cached(cache, lock=asyncio.Lock())
+        async def fetch(x: int) -> int:
+            return x
+
+        # Act — first call populates cache
+        await fetch(1)
+        # Second call should hit cache without lock
+        result = await fetch(1)
+
+        # Assert
+        assert result == 1
+        assert cache.cache_info().hits == 1

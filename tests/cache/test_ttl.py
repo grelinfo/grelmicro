@@ -273,8 +273,8 @@ class TestEviction:
             assert cache.get("a") is None
             assert cache.get("c") is not None
 
-    def test_evict_oldest_fifo_when_none_expired(self) -> None:
-        """Test FIFO eviction when no entries are expired."""
+    def test_evict_lru_when_none_expired(self) -> None:
+        """Test LRU eviction when no entries are expired."""
         # Arrange
         cache = TTLCache(maxsize=2, ttl=60)
         cache.set("a", 1)
@@ -283,24 +283,42 @@ class TestEviction:
         # Act
         cache.set("c", 3)
 
-        # Assert — "a" evicted (oldest FIFO)
+        # Assert — "a" evicted (least recently used)
         assert cache.get("a") is None
         assert cache.get("b") is not None
         assert cache.get("c") is not None
 
-    def test_overwrite_resets_fifo_order(self) -> None:
-        """Test that overwriting a key moves it to end of FIFO."""
+    def test_get_promotes_to_mru(self) -> None:
+        """Test that get() promotes entry to most-recently-used."""
         # Arrange
         cache = TTLCache(maxsize=3, ttl=60)
         cache.set("a", 1)
         cache.set("b", 2)
         cache.set("c", 3)
 
-        # Act — overwrite "a", making "b" the oldest
+        # Act — access "a" to promote it, making "b" the LRU
+        cache.get("a")
+        cache.set("d", 4)
+
+        # Assert — "b" evicted (LRU), "a" kept
+        assert cache.get("b") is None
+        assert cache.get("a") is not None
+        assert cache.get("c") is not None
+        assert cache.get("d") is not None
+
+    def test_overwrite_promotes_to_mru(self) -> None:
+        """Test that overwriting a key promotes it to MRU."""
+        # Arrange
+        cache = TTLCache(maxsize=3, ttl=60)
+        cache.set("a", 1)
+        cache.set("b", 2)
+        cache.set("c", 3)
+
+        # Act — overwrite "a", making "b" the LRU
         cache.set("a", EXPECTED_OVERWRITE_VALUE)
         cache.set("d", 4)
 
-        # Assert — "b" evicted (oldest FIFO), "a" kept
+        # Assert — "b" evicted (LRU), "a" kept
         assert cache.get("b") is None
         assert cache.get("a") == EXPECTED_OVERWRITE_VALUE
         assert cache.get("c") is not None

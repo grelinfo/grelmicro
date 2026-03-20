@@ -18,26 +18,10 @@ Added `skip` parameter to `@cached` to conditionally skip caching based on the r
 
 Added `typed` parameter to `@cached` and `make_cache_key` to distinguish argument types in cache keys.
 
-## Medium Value, Medium Effort
-
 ### 5. LRU Eviction Policy
 
-Current eviction is FIFO. LRU (Least Recently Used) is the industry default (`functools`, `cachetools`). Options:
-
-- Replace FIFO with LRU as the default.
-- Offer both via a policy parameter.
-
-LRU requires updating entry order on every `get()` hit, adding a small overhead.
+Replaced FIFO eviction with LRU (Least Recently Used). Accessing a key via `get()` promotes it to most-recently-used. Eviction removes the LRU entry first (after expired entries).
 
 ### 6. Stampede Protection
 
-Add optional `lock` parameter to `@cached` so only one caller recomputes on cache miss while others wait for the result.
-
-```python
-lock = asyncio.Lock()
-
-@cached(cache, lock=lock)
-async def fetch_expensive(key: str) -> dict: ...
-```
-
-Critical for expensive async calls under high concurrency. Pattern from `cachetools` (uses `threading.Condition`).
+Added optional `lock` parameter to `@cached`. Uses double-checked locking: first check without lock, then re-check after acquiring lock. Supports `asyncio.Lock()` for async and `threading.Lock()` for sync functions.

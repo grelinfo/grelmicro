@@ -25,14 +25,14 @@ class CacheInfo:
 
 
 class TTLCache:
-    """Synchronous in-memory cache with per-entry TTL expiry.
+    """Synchronous in-memory cache with per-entry TTL and LRU eviction.
 
     A dict-like cache where each entry expires after a configurable
     time-to-live (TTL). Expiry is checked lazily on access. When the
     cache is full, the oldest expired entry is evicted first, then the
-    oldest entry (FIFO).
+    least recently used entry (LRU).
 
-    Overwriting an existing key resets its FIFO eviction order.
+    Accessing or overwriting a key promotes it to most-recently-used.
 
     Not thread-safe — the caller is responsible for synchronization.
 
@@ -63,6 +63,7 @@ class TTLCache:
         """Get a value by key.
 
         Returns the default if the key is missing or expired.
+        A successful hit promotes the key to most-recently-used.
 
         Args:
             key: The cache key.
@@ -80,6 +81,9 @@ class TTLCache:
             del self._data[key]
             self._misses += 1
             return default
+        # Move to end (most recently used) via delete + reinsert
+        del self._data[key]
+        self._data[key] = entry
         self._hits += 1
         return value
 
@@ -92,8 +96,8 @@ class TTLCache:
         """Set a value with an optional per-entry TTL override.
 
         If the cache is full, the oldest expired entry is evicted
-        first. If no expired entries exist, the oldest entry (FIFO)
-        is evicted.
+        first. If no expired entries exist, the least recently used
+        entry is evicted.
 
         Args:
             key: The cache key.
@@ -160,8 +164,9 @@ class TTLCache:
         """Evict one entry to make room for a new one.
 
         Strategy: remove the oldest expired entry first. If none are
-        expired, remove the oldest entry (FIFO). Scans entries in
-        insertion order — O(n) in the worst case.
+        expired, remove the least recently used entry (LRU — first
+        in insertion order). Scans entries in order — O(n) in the
+        worst case.
         """
         now = monotonic()
         oldest_expired_key: str | None = None
@@ -172,7 +177,7 @@ class TTLCache:
         if oldest_expired_key is not None:
             del self._data[oldest_expired_key]
         else:
-            # Remove the first (oldest) entry — FIFO
+            # Remove the first (LRU) entry
             first_key = next(iter(self._data))
             del self._data[first_key]
         self._evictions += 1
