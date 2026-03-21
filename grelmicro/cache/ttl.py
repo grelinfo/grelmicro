@@ -2,7 +2,9 @@
 
 from dataclasses import dataclass
 from time import monotonic
-from typing import Any
+from typing import Annotated, Any
+
+from typing_extensions import Doc
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,15 +38,30 @@ class TTLCache:
 
     Not thread-safe — the caller is responsible for synchronization.
 
-    Args:
-        maxsize: Maximum number of entries. ``0`` means unlimited.
-        ttl: Default TTL in seconds for all entries.
-
     Raises:
         ValueError: If maxsize is negative or ttl is not positive.
     """
 
-    def __init__(self, maxsize: int, ttl: float) -> None:  # noqa: D107
+    def __init__(
+        self,
+        maxsize: Annotated[
+            int,
+            Doc(
+                """
+                Maximum number of entries. ``0`` means unlimited.
+                """,
+            ),
+        ],
+        ttl: Annotated[
+            float,
+            Doc(
+                """
+                Default TTL in seconds for all entries.
+                """,
+            ),
+        ],
+    ) -> None:
+        """Initialize the cache."""
         if maxsize < 0:
             msg = "maxsize must be non-negative"
             raise ValueError(msg)
@@ -59,15 +76,29 @@ class TTLCache:
         self._misses = 0
         self._evictions = 0
 
-    def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
+    def get(
+        self,
+        key: Annotated[
+            str,
+            Doc(
+                """
+                The cache key.
+                """,
+            ),
+        ],
+        default: Annotated[  # noqa: ANN401
+            Any,
+            Doc(
+                """
+                Value to return if key is not found.
+                """,
+            ),
+        ] = None,
+    ) -> Any:  # noqa: ANN401
         """Get a value by key.
 
         Returns the default if the key is missing or expired.
         A successful hit promotes the key to most-recently-used.
-
-        Args:
-            key: The cache key.
-            default: Value to return if key is not found.
 
         Returns:
             The cached value or the default.
@@ -89,20 +120,36 @@ class TTLCache:
 
     def set(
         self,
-        key: str,
-        value: Any,  # noqa: ANN401
-        ttl: float | None = None,
+        key: Annotated[
+            str,
+            Doc(
+                """
+                The cache key.
+                """,
+            ),
+        ],
+        value: Annotated[  # noqa: ANN401
+            Any,
+            Doc(
+                """
+                The value to cache.
+                """,
+            ),
+        ],
+        ttl: Annotated[
+            float | None,
+            Doc(
+                """
+                Optional TTL override in seconds.
+                """,
+            ),
+        ] = None,
     ) -> None:
         """Set a value with an optional per-entry TTL override.
 
         If the cache is full, the oldest expired entry is evicted
         first. If no expired entries exist, the least recently used
         entry is evicted.
-
-        Args:
-            key: The cache key.
-            value: The value to cache.
-            ttl: Optional TTL override in seconds.
 
         Raises:
             ValueError: If ttl is not positive.
@@ -118,13 +165,20 @@ class TTLCache:
         entry_ttl = ttl if ttl is not None else self._ttl
         self._data[key] = (value, monotonic() + entry_ttl)
 
-    def delete(self, key: str) -> None:
+    def delete(
+        self,
+        key: Annotated[
+            str,
+            Doc(
+                """
+                The cache key to delete.
+                """,
+            ),
+        ],
+    ) -> None:
         """Delete a key from the cache.
 
         No-op if the key does not exist.
-
-        Args:
-            key: The cache key to delete.
         """
         self._data.pop(key, None)
 

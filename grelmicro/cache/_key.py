@@ -2,15 +2,45 @@
 
 import hashlib
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
+
+from typing_extensions import Doc
 
 
 def make_cache_key(
-    func: Callable[..., Any],
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
+    func: Annotated[
+        Callable[..., Any],
+        Doc(
+            """
+            The function to generate a cache key for.
+            """,
+        ),
+    ],
+    args: Annotated[
+        tuple[Any, ...],
+        Doc(
+            """
+            Positional arguments passed to the function.
+            """,
+        ),
+    ],
+    kwargs: Annotated[
+        dict[str, Any],
+        Doc(
+            """
+            Keyword arguments passed to the function.
+            """,
+        ),
+    ],
     *,
-    typed: bool = False,
+    typed: Annotated[
+        bool,
+        Doc(
+            """
+            If True, include argument types in the key.
+            """,
+        ),
+    ] = False,
 ) -> str:
     """Generate cache key from function identity and arguments.
 
@@ -25,12 +55,6 @@ def make_cache_key(
         Keys rely on ``repr()`` which is deterministic within a single
         process but may vary across Python versions or for objects
         whose ``__repr__`` includes memory addresses.
-
-    Args:
-        func: The function to generate a cache key for.
-        args: Positional arguments passed to the function.
-        kwargs: Keyword arguments passed to the function.
-        typed: If True, include argument types in the key.
 
     Returns:
         A deterministic cache key string.

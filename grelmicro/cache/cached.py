@@ -4,10 +4,12 @@ import asyncio
 import functools
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
-from typing import Any, ParamSpec, TypeVar
+from typing import Annotated, Any, ParamSpec, TypeVar
+
+from typing_extensions import Doc
 
 from grelmicro.cache._key import make_cache_key
-from grelmicro.cache.ttl import TTLCache
+from grelmicro.cache._protocol import Cache
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -16,47 +18,83 @@ _SENTINEL = object()
 
 
 def cached(
-    cache: TTLCache,
+    cache: Annotated[
+        Cache,
+        Doc(
+            """
+            The cache instance to store results in.
+            """,
+        ),
+    ],
     *,
-    key_maker: Callable[
-        [Callable[..., Any], tuple[Any, ...], dict[str, Any]], str
-    ]
-    | None = None,
-    serializer: Callable[[Any], bytes] | None = None,
-    deserializer: Callable[[bytes], Any] | None = None,
-    skip: Callable[[Any], bool] | None = None,
-    typed: bool = False,
-    lock: AbstractContextManager[Any]
-    | AbstractAsyncContextManager[Any]
-    | None = None,
+    key_maker: Annotated[
+        Callable[[Callable[..., Any], tuple[Any, ...], dict[str, Any]], str]
+        | None,
+        Doc(
+            """
+            Optional custom key generation function. Receives
+            ``(func, args, kwargs)`` and must return a string key.
+            """,
+        ),
+    ] = None,
+    serializer: Annotated[
+        Callable[[Any], bytes] | None,
+        Doc(
+            """
+            Optional serializer for cached values. When provided,
+            values are serialized before storing.
+            """,
+        ),
+    ] = None,
+    deserializer: Annotated[
+        Callable[[bytes], Any] | None,
+        Doc(
+            """
+            Optional deserializer for cached values. When provided,
+            values are deserialized after retrieval.
+            """,
+        ),
+    ] = None,
+    skip: Annotated[
+        Callable[[Any], bool] | None,
+        Doc(
+            """
+            Optional predicate receiving the function result. When
+            it returns ``True`` the result is **not** cached.
+            """,
+        ),
+    ] = None,
+    typed: Annotated[
+        bool,
+        Doc(
+            """
+            If ``True``, arguments of different types are cached
+            separately (e.g. ``3`` vs ``3.0``).
+            """,
+        ),
+    ] = False,
+    lock: Annotated[
+        AbstractContextManager[Any] | AbstractAsyncContextManager[Any] | None,
+        Doc(
+            """
+            Optional context manager for stampede protection. When
+            provided, only one caller recomputes on cache miss while
+            others wait. The lock is **global** (not per-key), so a
+            miss on one key blocks all other misses until resolved.
+            Use ``asyncio.Lock()`` for async functions or
+            ``threading.Lock()`` for sync functions.
+            """,
+        ),
+    ] = None,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Cache decorator for sync and async functions.
 
     Automatically detects whether the decorated function is sync or
     async and wraps it accordingly. Cached values are stored in the
-    provided ``TTLCache`` instance.
+    provided ``Cache`` instance.
 
     The decorated function exposes ``cache_info()`` and
     ``cache_clear()`` helpers (matching ``functools.lru_cache``).
-
-    Args:
-        cache: The cache instance to store results in.
-        key_maker: Optional custom key generation function. Receives
-            ``(func, args, kwargs)`` and must return a string key.
-        serializer: Optional serializer for cached values. When
-            provided, values are serialized before storing.
-        deserializer: Optional deserializer for cached values. When
-            provided, values are deserialized after retrieval.
-        skip: Optional predicate receiving the function result.
-            When it returns ``True`` the result is **not** cached.
-        typed: If ``True``, arguments of different types are cached
-            separately (e.g. ``3`` vs ``3.0``).
-        lock: Optional context manager for stampede protection.
-            When provided, only one caller recomputes on cache miss
-            while others wait. The lock is **global** (not per-key),
-            so a miss on one key blocks all other misses until
-            resolved. Use ``asyncio.Lock()`` for async functions or
-            ``threading.Lock()`` for sync functions.
 
     Returns:
         A decorator that caches function results.
@@ -102,7 +140,7 @@ def cached(
 
 def _build_async_wrapper(
     func: Any,  # noqa: ANN401
-    cache: TTLCache,
+    cache: Cache,
     key_maker: Any,  # noqa: ANN401
     serializer: Any,  # noqa: ANN401
     deserializer: Any,  # noqa: ANN401
@@ -148,7 +186,7 @@ def _build_async_wrapper(
 
 def _build_sync_wrapper(
     func: Any,  # noqa: ANN401
-    cache: TTLCache,
+    cache: Cache,
     key_maker: Any,  # noqa: ANN401
     serializer: Any,  # noqa: ANN401
     deserializer: Any,  # noqa: ANN401
@@ -196,7 +234,7 @@ async def _compute_and_cache_async(
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-    cache: TTLCache,
+    cache: Cache,
     key: str,
     serializer: Callable[[Any], bytes] | None,
     skip: Callable[[Any], bool] | None,
@@ -212,7 +250,7 @@ def _compute_and_cache(
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-    cache: TTLCache,
+    cache: Cache,
     key: str,
     serializer: Callable[[Any], bytes] | None,
     skip: Callable[[Any], bool] | None,
