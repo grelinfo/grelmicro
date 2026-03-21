@@ -288,6 +288,22 @@ class TestEviction:
         assert cache.get("b") is not None
         assert cache.get("c") is not None
 
+    def test_contains_does_not_promote_to_mru(self) -> None:
+        """Test that __contains__ does not affect LRU order."""
+        # Arrange
+        cache = TTLCache(maxsize=3, ttl=60)
+        cache.set("a", 1)
+        cache.set("b", 2)
+        cache.set("c", 3)
+
+        # Act — check "a" via __contains__ (should NOT promote)
+        assert "a" in cache
+        cache.set("d", 4)
+
+        # Assert — "a" still evicted (LRU), not "b"
+        assert cache.get("a") is None
+        assert cache.get("b") is not None
+
     def test_get_promotes_to_mru(self) -> None:
         """Test that get() promotes entry to most-recently-used."""
         # Arrange

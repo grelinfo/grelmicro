@@ -53,8 +53,10 @@ def cached(
             separately (e.g. ``3`` vs ``3.0``).
         lock: Optional context manager for stampede protection.
             When provided, only one caller recomputes on cache miss
-            while others wait. Use ``asyncio.Lock()`` for async
-            functions or ``threading.Lock()`` for sync functions.
+            while others wait. The lock is **global** (not per-key),
+            so a miss on one key blocks all other misses until
+            resolved. Use ``asyncio.Lock()`` for async functions or
+            ``threading.Lock()`` for sync functions.
 
     Returns:
         A decorator that caches function results.

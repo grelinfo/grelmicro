@@ -53,7 +53,10 @@ Decorated functions expose `cache_info()` and `cache_clear()` methods matching t
 | `deserializer` | `Callable` | `None` | Deserializer for cached values. Must be paired with `serializer`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
-| `lock` | context manager | `None` | Lock for stampede protection (`asyncio.Lock()` or `threading.Lock()`). |
+| `lock` | context manager | `None` | Global lock for stampede protection (`asyncio.Lock()` or `threading.Lock()`). |
+
+!!! note
+    The `lock` parameter uses a **global lock** (not per-key). A cache miss on one key blocks all other concurrent misses until resolved. This is simple and effective for most use cases.
 
 !!! warning
     **Thread Safety:** `TTLCache` is not thread-safe. The caller is responsible for synchronization when accessing the cache from multiple threads.

@@ -143,7 +143,11 @@ class TTLCache:
         )
 
     def __contains__(self, key: str) -> bool:
-        """Check if a key exists and is not expired."""
+        """Check if a key exists and is not expired.
+
+        Does not promote the key in LRU order or update
+        hit/miss statistics. Use ``get()`` for that.
+        """
         entry = self._data.get(key)
         if entry is None:
             return False
