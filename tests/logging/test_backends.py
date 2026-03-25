@@ -47,15 +47,25 @@ def reset_structlog() -> Generator[None, None, None]:
 
 @pytest.fixture
 def reset_stdlib() -> Generator[None, None, None]:
-    """Reset stdlib logging configuration."""
+    """Reset stdlib logging configuration (root and child loggers)."""
     root = logging.getLogger()
     old_handlers = root.handlers.copy()
     old_level = root.level
+    # Capture child logger state
+    manager = root.manager
+    old_logger_levels = {
+        name: logger.level
+        for name, logger in manager.loggerDict.items()
+        if isinstance(logger, logging.Logger)
+    }
     root.handlers.clear()
     yield
     root.handlers.clear()
     root.handlers.extend(old_handlers)
     root.setLevel(old_level)
+    # Restore child logger levels
+    for name, level in old_logger_levels.items():
+        logging.getLogger(name).setLevel(level)
 
 
 @pytest.fixture

@@ -2,12 +2,7 @@
 
 from datetime import UTC, datetime
 
-from grelmicro.resilience.circuitbreaker import (
-    CircuitBreaker,
-    CircuitBreakerMetrics,
-    CircuitBreakerState,
-    ErrorDetails,
-)
+import grelmicro.resilience as resilience_mod
 from grelmicro.resilience.errors import CircuitBreakerError
 
 
@@ -31,10 +26,12 @@ def test_circuit_breaker_error() -> None:
 
 
 def test_resilience_module_exports() -> None:
-    """Test resilience module exports all expected symbols."""
-    # Assert
-    assert CircuitBreaker is not None
-    assert CircuitBreakerError is not None
-    assert CircuitBreakerMetrics is not None
-    assert CircuitBreakerState is not None
-    assert ErrorDetails is not None
+    """Test resilience module __all__ contains expected symbols."""
+    expected = {
+        "CircuitBreaker",
+        "CircuitBreakerError",
+        "CircuitBreakerMetrics",
+        "CircuitBreakerState",
+        "ErrorDetails",
+    }
+    assert set(resilience_mod.__all__) == expected

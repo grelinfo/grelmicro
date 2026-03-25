@@ -3,6 +3,7 @@
 import asyncio
 import json
 import threading
+import time
 
 import pytest
 
@@ -539,6 +540,44 @@ class TestLock:
 
         # Assert — only one actual computation
         assert call_count == 1
+
+    def test_sync_lock_concurrent_stampede(self) -> None:
+        """Test that sync lock prevents duplicate computation under thread contention."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+        started = threading.Event()
+
+        @cached(cache, lock=threading.Lock())
+        def slow_compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            started.set()
+            time.sleep(0.1)
+            return x * 2
+
+        # Act — launch two threads hitting the same key concurrently
+        results: list[int] = []
+        errors: list[Exception] = []
+
+        def worker() -> None:
+            try:
+                results.append(slow_compute(5))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        started.wait(timeout=2)
+        t2.start()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+
+        # Assert — only one computation, both get the same result
+        assert not errors
+        assert call_count == 1
+        assert results == [10, 10]
 
     async def test_async_lock_cache_hit_skips_lock(self) -> None:
         """Test that cache hit doesn't acquire the lock."""

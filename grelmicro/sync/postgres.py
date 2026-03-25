@@ -1,5 +1,6 @@
 """PostgreSQL Synchronization Backend."""
 
+import re
 from types import TracebackType
 from typing import Annotated, Self
 
@@ -129,8 +130,8 @@ class PostgresSyncBackend(SyncBackend):
         ] = "locks",
     ) -> None:
         """Initialize the lock backend."""
-        if not table_name.isidentifier():
-            msg = f"Table name '{table_name}' is not a valid identifier"
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
+            msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise ValueError(msg)
 
         self._url = url or _get_postgres_url()

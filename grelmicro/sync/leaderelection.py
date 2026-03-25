@@ -244,7 +244,8 @@ class LeaderElection(Synchronization, Task):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> bool | None:
-        """Exit the context manager."""
+        """Exit the context manager (no-op)."""
+        return None
 
     @property
     def name(self) -> str:
@@ -425,3 +426,4 @@ class _LeaderGuard(Synchronization):
         exc_tb: TracebackType | None,
     ) -> bool | None:
         """Exit the guard (no-op)."""
+        return None

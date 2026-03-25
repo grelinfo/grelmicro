@@ -24,7 +24,7 @@ def test_sync_backend_table_name_invalid(table_name: str) -> None:
     """Test Synchronization Backend Table Name Invalid."""
     # Act / Assert
     with pytest.raises(
-        ValueError, match=r"Table name '.*' is not a valid identifier"
+        ValueError, match=r"Table name '.*' is not a valid SQL identifier"
     ):
         SQLiteSyncBackend(path=":memory:", table_name=table_name)
 

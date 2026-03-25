@@ -12,6 +12,9 @@ The available primitives are:
 
 The synchronization primitives can be used in combination with the `TaskManager` and `TaskRouter` to control task execution in a distributed system (see more in [Task Scheduler](task.md)).
 
+!!! warning "Thread Safety"
+    All synchronization primitives (`Lock`, `TaskLock`, `LeaderElection`) are designed for use within a single async event loop and are **not thread-safe**. Sync access from worker threads is supported via `from_thread` adapters, which dispatch operations to the event loop. Do not share instances across multiple event loops or threads without the adapter.
+
 ## Backend
 
 You must load a synchronization backend before using synchronization primitives.

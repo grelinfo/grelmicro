@@ -1,5 +1,6 @@
 """SQLite Synchronization Backend."""
 
+import re
 from math import ceil
 from pathlib import Path
 from types import TracebackType
@@ -100,8 +101,8 @@ class SQLiteSyncBackend(SyncBackend):
         ] = "locks",
     ) -> None:
         """Initialize the lock backend."""
-        if not table_name.isidentifier():
-            msg = f"Table name '{table_name}' is not a valid identifier"
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
+            msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise ValueError(msg)
 
         self._path = str(path) if path is not None else _get_sqlite_path()

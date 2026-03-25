@@ -60,3 +60,6 @@ Decorated functions expose `cache_info()` and `cache_clear()` methods matching t
 
 !!! warning
     **Thread Safety:** `TTLCache` is not thread-safe. The caller is responsible for synchronization when accessing the cache from multiple threads.
+
+!!! warning
+    **Cache Key Stability:** Cache keys are derived from `repr()` of function arguments. Keys are stable within a single process but may vary across Python versions. Objects with default `__repr__` (e.g., custom class instances) include memory addresses, which means cache misses will always occur — use a custom `key_maker` for such objects.
