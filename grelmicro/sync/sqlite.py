@@ -110,6 +110,8 @@ class SQLiteSyncBackend(SyncBackend):
             table_name=table_name
         )
         self._release_sql = self._SQL_RELEASE.format(table_name=table_name)
+        self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
+        self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
         self._conn: aiosqlite.Connection | None = None
         if auto_register:
             loaded_backends["lock"] = self
@@ -172,10 +174,7 @@ class SQLiteSyncBackend(SyncBackend):
         if not self._conn:
             raise OutOfContextError(self, "locked")
 
-        async with self._conn.execute(
-            self._SQL_LOCKED.format(table_name=self._table_name),
-            (name,),
-        ) as cursor:
+        async with self._conn.execute(self._locked_sql, (name,)) as cursor:
             result = await cursor.fetchone()
         return result is not None
 
@@ -184,9 +183,6 @@ class SQLiteSyncBackend(SyncBackend):
         if not self._conn:
             raise OutOfContextError(self, "owned")
 
-        async with self._conn.execute(
-            self._SQL_OWNED.format(table_name=self._table_name),
-            (name, token),
-        ) as cursor:
+        async with self._conn.execute(self._owned_sql, (name, token)) as cursor:
             result = await cursor.fetchone()
         return result is not None

@@ -6,6 +6,7 @@ from typing import Annotated, Self
 from uuid import UUID
 
 from anyio import WouldBlock, from_thread, get_current_task, sleep
+from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro.sync._backends import get_sync_backend
@@ -24,6 +25,8 @@ from grelmicro.sync.errors import (
     LockReleaseError,
 )
 
+_MIN_RETRY_INTERVAL: float = 0.001
+
 
 class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):
     """Lock Config."""
@@ -41,9 +44,18 @@ class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):
         Doc(
             """
             The interval in seconds between attempts to acquire the lock.
+
+            Must be >= 0.001 to prevent flooding the lock backend.
             """,
         ),
     ]
+
+    @model_validator(mode="after")
+    def _validate(self) -> Self:
+        if self.retry_interval < _MIN_RETRY_INTERVAL:
+            msg = f"retry_interval must be >= {_MIN_RETRY_INTERVAL}"
+            raise ValueError(msg)
+        return self
 
 
 class Lock(BaseLock):

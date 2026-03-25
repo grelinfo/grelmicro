@@ -218,8 +218,8 @@ class TestExpiryCleansUp:
         # Assert — entry was purged from internal storage
         assert len(cache) == 0
 
-    def test_contains_removes_expired_entry(self) -> None:
-        """Test that __contains__ lazily removes expired entries."""
+    def test_contains_does_not_remove_expired_entry(self) -> None:
+        """Test that __contains__ does not purge expired entries (lazy cleanup via get/set only)."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=5)
         now = monotonic()
@@ -235,10 +235,11 @@ class TestExpiryCleansUp:
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 5,
         ):
-            _ = "key" in cache
+            result = "key" in cache
 
-        # Assert — entry was purged from internal storage
-        assert len(cache) == 0
+        # Assert — entry is expired but not purged (consistent with __len__)
+        assert result is False
+        assert len(cache) == 1
 
 
 class TestEviction:

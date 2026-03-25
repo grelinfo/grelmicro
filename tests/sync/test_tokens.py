@@ -15,7 +15,7 @@ from grelmicro.sync._tokens import (
 
 pytestmark = pytest.mark.anyio
 
-WORKER_ID_LENGTH = 8
+WORKER_ID_LENGTH = 16
 
 
 def test_generate_worker_id() -> None:

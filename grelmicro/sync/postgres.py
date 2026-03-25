@@ -139,6 +139,8 @@ class PostgresSyncBackend(SyncBackend):
             table_name=table_name
         )
         self._release_sql = self._SQL_RELEASE.format(table_name=table_name)
+        self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
+        self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
         self._pool: Pool | None = None
         if auto_register:
             loaded_backends["lock"] = self
@@ -188,10 +190,7 @@ class PostgresSyncBackend(SyncBackend):
         if not self._pool:
             raise OutOfContextError(self, "locked")
         return bool(
-            await self._pool.fetchval(
-                self._SQL_LOCKED.format(table_name=self._table_name),
-                name,
-            ),
+            await self._pool.fetchval(self._locked_sql, name),
         )
 
     async def owned(self, *, name: str, token: str) -> bool:
@@ -199,9 +198,5 @@ class PostgresSyncBackend(SyncBackend):
         if not self._pool:
             raise OutOfContextError(self, "owned")
         return bool(
-            await self._pool.fetchval(
-                self._SQL_OWNED.format(table_name=self._table_name),
-                name,
-                token,
-            ),
+            await self._pool.fetchval(self._owned_sql, name, token),
         )

@@ -22,9 +22,8 @@ except ImportError as exc:  # pragma: no cover
 if TYPE_CHECKING:
     from loguru import FormatFunction, Record
 
-# Module-level json_dumps function, set during configure_logging
-# Default to stdlib json for direct function usage (e.g., tests)
 _json_dumps: Callable[[Mapping[str, Any]], str] = _stdlib_json_dumps
+
 
 JSON_FORMAT = "{extra[serialized]}"
 TEXT_FORMAT = (
@@ -43,11 +42,13 @@ class _LoguruPatcher:
         enable_localtime: bool = False,
         enable_json: bool = False,
         enable_otel: bool = False,
+        json_dumps: Callable[[Mapping[str, Any]], str] | None = None,
     ) -> None:
         self.timezone: tzinfo = timezone or UTC
         self.enable_localtime = enable_localtime
         self.enable_json = enable_json
         self.enable_otel = enable_otel
+        self.json_dumps = json_dumps
 
     def __call__(self, record: "Record") -> None:
         if self.enable_otel:
@@ -55,11 +56,19 @@ class _LoguruPatcher:
         if self.enable_localtime:
             _localtime_patcher(record, timezone=self.timezone)
         if self.enable_json:
-            _json_patcher(record, timezone=self.timezone)
+            _json_patcher(
+                record, timezone=self.timezone, json_dumps=self.json_dumps
+            )
 
 
-def _json_patcher(record: "Record", *, timezone: tzinfo | None = None) -> None:
+def _json_patcher(
+    record: "Record",
+    *,
+    timezone: tzinfo | None = None,
+    json_dumps: Callable[[Mapping[str, Any]], str] | None = None,
+) -> None:
     """Patch the record with JSON serialization."""
+    serializer = json_dumps or _json_dumps
     json_record = JSONRecordDict(
         time=record["time"].astimezone(timezone or UTC).isoformat(),
         level=record["level"].name,
@@ -92,7 +101,7 @@ def _json_patcher(record: "Record", *, timezone: tzinfo | None = None) -> None:
     if ctx:
         json_record["ctx"] = ctx
 
-    record["extra"]["serialized"] = _json_dumps(json_record)
+    record["extra"]["serialized"] = serializer(json_record)
 
 
 def _localtime_patcher(
@@ -143,9 +152,7 @@ def configure_logging() -> None:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
         LoggingSettingsValidationError: If environment variables are invalid.
     """
-    global _json_dumps  # noqa: PLW0603
     settings, timezone, _, json_dumps = load_settings()
-    _json_dumps = json_dumps
 
     logger = loguru.logger
     log_format: str | FormatFunction = settings.LOG_FORMAT
@@ -172,6 +179,7 @@ def configure_logging() -> None:
             enable_localtime=needs_localtime,
             enable_json=needs_json,
             enable_otel=settings.LOG_OTEL_ENABLED,
+            json_dumps=json_dumps,
         )
         logger.configure(patcher=patcher)
     else:

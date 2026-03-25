@@ -11,8 +11,8 @@ _guard_counter = count()
 
 
 def generate_worker_id() -> str:
-    """Generate a unique worker identity (8 random hex chars, 32 bits)."""
-    return token_hex(4)
+    """Generate a unique worker identity (16 random hex chars, 64 bits)."""
+    return token_hex(8)
 
 
 def generate_task_token(worker: UUID | str, nonce: str = "") -> str:
@@ -22,7 +22,11 @@ def generate_task_token(worker: UUID | str, nonce: str = "") -> str:
 
 
 def generate_token_nonce() -> str:
-    """Generate a unique token nonce suffix (e.g., ':0', ':1')."""
+    """Generate a unique token nonce suffix (e.g., ':0', ':1').
+
+    Thread-safe: ``next()`` on ``itertools.count`` is a single C-level
+    operation protected by the GIL.
+    """
     return f":{next(_guard_counter)}"
 
 

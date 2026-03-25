@@ -312,6 +312,7 @@ def _reset_e2e_state() -> None:
     samples.e2e_event_1 = Event()
     samples.e2e_event_2 = Event()
     samples.e2e_counter = {"worker_1": 0, "worker_2": 0}
+    samples.execution_count = 0
 
 
 async def test_interval_task_with_lock_two_workers(

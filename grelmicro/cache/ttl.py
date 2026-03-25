@@ -199,22 +199,21 @@ class TTLCache:
     def __contains__(self, key: str) -> bool:
         """Check if a key exists and is not expired.
 
-        Does not promote the key in LRU order or update
-        hit/miss statistics. Use ``get()`` for that.
+        Does not promote the key in LRU order, update hit/miss
+        statistics, or purge expired entries. Use ``get()`` for that.
         """
         entry = self._data.get(key)
         if entry is None:
             return False
         _, expiry = entry
-        if monotonic() >= expiry:
-            del self._data[key]
-            return False
-        return True
+        return monotonic() < expiry
 
     def __len__(self) -> int:
         """Return the number of entries, including expired ones.
 
-        Expired entries are not purged eagerly to avoid a full scan.
+        Neither ``__len__`` nor ``__contains__`` purge expired entries
+        eagerly, so both reflect raw storage size consistently.
+        Expired entries are cleaned up lazily by ``get()`` and ``set()``.
         """
         return len(self._data)
 
