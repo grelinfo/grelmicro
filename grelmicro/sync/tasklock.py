@@ -233,7 +233,7 @@ class TaskLock(Synchronization):
                 duration=self._config.max_lock_seconds,
             )
         except Exception as exc:
-            raise LockAcquireError(name=self._config.name, token=token) from exc
+            raise LockAcquireError(name=self._config.name) from exc
         if acquired:
             self._acquired_at = monotonic()
         return acquired
@@ -254,7 +254,7 @@ class TaskLock(Synchronization):
                 name=self._lock_name, token=token
             )
         except Exception as exc:
-            raise LockReleaseError(name=self._config.name, token=token) from exc
+            raise LockReleaseError(name=self._config.name) from exc
 
     async def do_reacquire(self, token: str, duration: float) -> bool:
         """Re-acquire the lock with a specific duration.
@@ -274,7 +274,7 @@ class TaskLock(Synchronization):
                 duration=duration,
             )
         except Exception as exc:
-            raise LockReleaseError(name=self._config.name, token=token) from exc
+            raise LockReleaseError(name=self._config.name) from exc
 
     async def do_thread_enter(self) -> None:
         """Acquire the lock from a worker thread.
@@ -311,7 +311,7 @@ class TaskLock(Synchronization):
     async def do_exit(self, token: str) -> None:
         """Handle exit logic: release or re-acquire based on elapsed time."""
         if self._acquired_at is None:
-            raise LockNotOwnedError(name=self._config.name, token=token)
+            raise LockNotOwnedError(name=self._config.name)
 
         elapsed = monotonic() - self._acquired_at
         self._acquired_at = None
@@ -321,14 +321,14 @@ class TaskLock(Synchronization):
             # Task took longer than min_lock_seconds, release immediately
             released = await self.do_release(token)
             if not released:
-                raise LockNotOwnedError(name=self._config.name, token=token)
+                raise LockNotOwnedError(name=self._config.name)
         else:
             # Re-acquire with remaining duration so the lock is held
             # until min_lock_seconds.
             remaining = self._config.min_lock_seconds - elapsed
             re_acquired = await self.do_reacquire(token, remaining)
             if not re_acquired:
-                raise LockNotOwnedError(name=self._config.name, token=token)
+                raise LockNotOwnedError(name=self._config.name)
 
 
 class ThreadTaskLockAdapter:

@@ -353,8 +353,9 @@ async def test_interval_task_with_lock_two_workers(
 async def test_interval_task_min_lock_seconds(backend: SyncBackend) -> None:
     """Test min_lock_seconds prevents re-execution on another worker."""
     # Arrange
+    min_lock = 0.5
     task_1 = IntervalTask(
-        seconds=0.5,
+        seconds=min_lock,
         function=samples.set_event_1,
         name="e2e_task",
         max_lock_seconds=10,
@@ -362,7 +363,7 @@ async def test_interval_task_min_lock_seconds(backend: SyncBackend) -> None:
         worker="worker_1",
     )
     task_2 = IntervalTask(
-        seconds=0.5,
+        seconds=min_lock,
         function=samples.set_event_2,
         name="e2e_task",
         max_lock_seconds=10,
@@ -378,9 +379,9 @@ async def test_interval_task_min_lock_seconds(backend: SyncBackend) -> None:
             tg_worker_1.cancel_scope.cancel()
 
         await tg.start(task_2)
-        await sleep(0.2)
+        await sleep(min_lock * 0.4)
         worker_2_blocked = not samples.e2e_event_2.is_set()
-        await sleep(0.5)
+        await sleep(min_lock * 1.5)
         worker_2_ran = samples.e2e_event_2.is_set()
         tg.cancel_scope.cancel()
 
@@ -392,11 +393,12 @@ async def test_interval_task_min_lock_seconds(backend: SyncBackend) -> None:
 async def test_interval_task_max_lock_seconds(backend: SyncBackend) -> None:
     """Test max_lock_seconds auto-expires when task takes too long."""
     # Arrange
+    max_lock = 0.2
     task_1 = IntervalTask(
         seconds=SECONDS,
         function=samples.worker_1_hold,
         name="e2e_task",
-        max_lock_seconds=0.2,
+        max_lock_seconds=max_lock,
         backend=backend,
         worker="worker_1",
     )
@@ -404,7 +406,7 @@ async def test_interval_task_max_lock_seconds(backend: SyncBackend) -> None:
         seconds=SECONDS,
         function=samples.set_event_2,
         name="e2e_task",
-        max_lock_seconds=0.2,
+        max_lock_seconds=max_lock,
         backend=backend,
         worker="worker_2",
     )
@@ -414,9 +416,9 @@ async def test_interval_task_max_lock_seconds(backend: SyncBackend) -> None:
         await tg.start(task_1)
         await samples.e2e_event_1.wait()
         await tg.start(task_2)
-        await sleep(0.05)
+        await sleep(max_lock * 0.25)
         worker_2_blocked = not samples.e2e_event_2.is_set()
-        await sleep(0.3)
+        await sleep(max_lock * 1.5)
         worker_2_ran = samples.e2e_event_2.is_set()
         tg.cancel_scope.cancel()
 
@@ -515,10 +517,10 @@ async def test_interval_task_same_worker_blocked_by_min_lock_seconds(
         worker="worker_1",
     )
 
-    # Act — run for 0.5s (5 interval ticks, but min_lock_seconds=1s)
+    # Act — run for half of min_lock (interval ticks, but min_lock blocks re-acquire)
     async with create_task_group() as tg:
         await tg.start(task)
-        await sleep(0.5)
+        await sleep(min_lock * 0.5)
         tg.cancel_scope.cancel()
 
     # Assert — should execute only once because min_lock_seconds > total runtime

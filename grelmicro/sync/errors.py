@@ -68,9 +68,9 @@ class LockAcquireError(SyncBackendError):
     This error is raised when an error on backend side occurs during lock acquisition.
     """
 
-    def __init__(self, *, name: str, token: str) -> None:
+    def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(f"Failed to acquire lock: name={name}, token={token}")
+        super().__init__(f"Failed to acquire lock: name={name}")
 
 
 class LockReleaseError(SyncBackendError):
@@ -79,12 +79,10 @@ class LockReleaseError(SyncBackendError):
     This error is raised when an error on backend side occurs during lock release.
     """
 
-    def __init__(
-        self, *, name: str, token: str, reason: str | None = None
-    ) -> None:
+    def __init__(self, *, name: str, reason: str | None = None) -> None:
         """Initialize the error."""
         super().__init__(
-            f"Failed to release lock: name={name}, token={token}"
+            f"Failed to release lock: name={name}"
             + (f", reason={reason}" if reason else ""),
         )
 
@@ -96,9 +94,9 @@ class LockNotOwnedError(LockReleaseError):
     the token is different or the lock is already expired.
     """
 
-    def __init__(self, *, name: str, token: str) -> None:
+    def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(name=name, token=token, reason="lock not owned")
+        super().__init__(name=name, reason="lock not owned")
 
 
 class SyncSettingsValidationError(SyncError, SettingsValidationError):

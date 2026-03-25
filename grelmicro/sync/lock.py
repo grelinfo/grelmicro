@@ -214,7 +214,7 @@ class Lock(BaseLock):
         self._held_by_tasks.discard(get_current_task().id)
         token = generate_task_token(self._config.worker)
         if not await self.do_release(token):
-            raise LockNotOwnedError(name=self._config.name, token=token)
+            raise LockNotOwnedError(name=self._config.name)
 
     async def locked(self) -> bool:
         """Check if the lock is acquired.
@@ -253,7 +253,7 @@ class Lock(BaseLock):
                 duration=self._config.lease_duration,
             )
         except Exception as exc:
-            raise LockAcquireError(name=self._config.name, token=token) from exc
+            raise LockAcquireError(name=self._config.name) from exc
 
     async def do_release(self, token: str) -> bool:
         """Release the lock.
@@ -269,7 +269,7 @@ class Lock(BaseLock):
         try:
             return await self.backend.release(name=self._lock_name, token=token)
         except Exception as exc:
-            raise LockReleaseError(name=self._config.name, token=token) from exc
+            raise LockReleaseError(name=self._config.name) from exc
 
     async def do_owned(self, token: str) -> bool:
         """Check if the lock is owned by the current token.
@@ -340,7 +340,7 @@ class Lock(BaseLock):
         self._held_by_threads.discard(thread_id)
         token = self._thread_token(thread_id)
         if not await self.do_release(token):
-            raise LockNotOwnedError(name=self._config.name, token=token)
+            raise LockNotOwnedError(name=self._config.name)
 
 
 class ThreadLockAdapter:

@@ -272,18 +272,19 @@ async def test_interval_task_with_tasklock_min_lock_seconds(
 ) -> None:
     """Test min_lock_seconds prevents re-execution on another worker."""
     # Arrange
+    min_lock = 0.5
     lock_1 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_1",
-        min_lock_seconds=0.5,
+        min_lock_seconds=min_lock,
         max_lock_seconds=10,
     )
     lock_2 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_2",
-        min_lock_seconds=0.5,
+        min_lock_seconds=min_lock,
         max_lock_seconds=10,
     )
     task_1 = IntervalTask(
@@ -307,9 +308,9 @@ async def test_interval_task_with_tasklock_min_lock_seconds(
             tg_worker_1.cancel_scope.cancel()
 
         await tg.start(task_2)
-        await sleep(0.2)
+        await sleep(min_lock * 0.4)
         worker_2_blocked = not samples.e2e_event_2.is_set()
-        await sleep(0.5)
+        await sleep(min_lock * 1.5)
         worker_2_ran = samples.e2e_event_2.is_set()
         tg.cancel_scope.cancel()
 
@@ -323,19 +324,20 @@ async def test_interval_task_with_tasklock_max_lock_seconds(
 ) -> None:
     """Test max_lock_seconds auto-expires when task takes too long."""
     # Arrange
+    max_lock = 0.2
     lock_1 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_1",
         min_lock_seconds=0.01,
-        max_lock_seconds=0.2,
+        max_lock_seconds=max_lock,
     )
     lock_2 = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker="worker_2",
         min_lock_seconds=0.01,
-        max_lock_seconds=0.2,
+        max_lock_seconds=max_lock,
     )
     task_1 = IntervalTask(
         seconds=INTERVAL,
@@ -355,9 +357,9 @@ async def test_interval_task_with_tasklock_max_lock_seconds(
         await tg.start(task_1)
         await samples.e2e_event_1.wait()
         await tg.start(task_2)
-        await sleep(0.05)
+        await sleep(max_lock * 0.25)
         worker_2_blocked = not samples.e2e_event_2.is_set()
-        await sleep(0.3)
+        await sleep(max_lock * 1.5)
         worker_2_ran = samples.e2e_event_2.is_set()
         tg.cancel_scope.cancel()
 
