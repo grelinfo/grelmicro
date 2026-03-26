@@ -1,6 +1,20 @@
 """grelmicro Synchronization Primitive Errors."""
 
+from grelmicro._backends import BackendNotLoadedError
 from grelmicro.errors import SettingsValidationError
+
+__all__ = [
+    "BackendNotLoadedError",
+    "LockAcquireError",
+    "LockLockedCheckError",
+    "LockNotOwnedError",
+    "LockOwnedCheckError",
+    "LockReentrantError",
+    "LockReleaseError",
+    "SyncBackendError",
+    "SyncError",
+    "SyncSettingsValidationError",
+]
 
 
 class SyncError(Exception):
@@ -28,16 +42,6 @@ class LockReentrantError(SyncError):
 
 class SyncBackendError(SyncError):
     """Synchronization Backend Error."""
-
-
-class BackendNotLoadedError(SyncBackendError):
-    """Backend Not Loaded Error."""
-
-    def __init__(self, backend_name: str) -> None:
-        """Initialize the error."""
-        super().__init__(
-            f"Could not load backend {backend_name}, try initializing one first"
-        )
 
 
 class LockLockedCheckError(SyncBackendError):

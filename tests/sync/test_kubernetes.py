@@ -11,7 +11,7 @@ from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.coordination_v1 import Lease
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync._backends import loaded_backends
+from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.kubernetes import (
     _MAX_NAME_LENGTH,
@@ -132,28 +132,28 @@ def test_kubernetes_env_var_settings_validation_error() -> None:
 def test_sync_backend_auto_register() -> None:
     """Test Synchronization Backend Auto Register."""
     # Arrange
-    loaded_backends.pop("lock", None)
+    sync_backend_registry.reset()
 
     # Act
     KubernetesSyncBackend(namespace="default")
 
     # Assert
-    assert "lock" in loaded_backends
+    assert sync_backend_registry.is_loaded
 
     # Cleanup
-    loaded_backends.pop("lock", None)
+    sync_backend_registry.reset()
 
 
 def test_sync_backend_auto_register_false() -> None:
     """Test Synchronization Backend Auto Register Disabled."""
     # Arrange
-    loaded_backends.pop("lock", None)
+    sync_backend_registry.reset()
 
     # Act
     KubernetesSyncBackend(namespace="default", auto_register=False)
 
     # Assert
-    assert "lock" not in loaded_backends
+    assert not sync_backend_registry.is_loaded
 
 
 def test_sync_backend_prefix() -> None:

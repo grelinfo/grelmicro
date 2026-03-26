@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync._backends import loaded_backends
+from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
@@ -115,7 +115,7 @@ class SQLiteSyncBackend(SyncBackend):
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
         self._conn: aiosqlite.Connection | None = None
         if auto_register:
-            loaded_backends["lock"] = self
+            sync_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
         """Enter the lock backend."""

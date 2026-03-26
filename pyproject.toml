@@ -164,6 +164,9 @@ testpaths = "tests"
 [tool.coverage.paths]
 source = ["src/", "tests/"]
 
+[tool.coverage.run]
+omit = ["tests/**/test_*_backends.py"]
+
 [tool.coverage.report]
 sort = "-Cover"
 skip_covered = true

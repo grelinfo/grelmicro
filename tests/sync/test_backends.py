@@ -11,7 +11,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
-from grelmicro.sync._backends import get_sync_backend, loaded_backends
+from grelmicro.sync._backends import get_sync_backend, sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import BackendNotLoadedError
 from grelmicro.sync.kubernetes import KubernetesSyncBackend
@@ -64,9 +64,9 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch, None, None]:
 @pytest.fixture
 def clean_registry() -> Generator[None, None, None]:
     """Make sure the registry is clean."""
-    loaded_backends.pop("lock", None)
+    sync_backend_registry.reset()
     yield
-    loaded_backends.pop("lock", None)
+    sync_backend_registry.reset()
 
 
 @pytest.fixture(

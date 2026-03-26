@@ -16,7 +16,7 @@ from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync._backends import loaded_backends
+from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
@@ -112,7 +112,7 @@ class KubernetesSyncBackend(SyncBackend):
         self._kubeconfig = kubeconfig
         self._client: AsyncClient | None = None
         if auto_register:
-            loaded_backends["lock"] = self
+            sync_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
         """Enter the lock backend."""

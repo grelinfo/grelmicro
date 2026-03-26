@@ -45,7 +45,9 @@ nav:
     - reference/task.md
 - Architecture:
     - architecture/index.md
+    - architecture/backends.md
     - architecture/sync.md
+    - architecture/kubernetes.md
     - architecture/sqlite.md
 - changelog.md
 

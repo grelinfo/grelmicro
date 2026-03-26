@@ -1,8 +1,9 @@
 # Cache
 
-The `cache` package provides an in-memory TTL cache with an LRU eviction policy and a `@cached` decorator for sync and async functions.
+The `cache` package provides cache backends and a `@cached` decorator for sync and async functions. Backends are swappable: use the in-memory `TTLCache` for single-process applications, or `RedisCache` for distributed caching.
 
 - **[TTLCache](#ttlcache)**: In-memory cache with per-entry TTL and LRU eviction.
+- **[RedisCache](#redis-cache)**: Distributed cache backed by Redis.
 - **[@cached](#cached-decorator)**: Decorator that caches function results automatically.
 
 ## TTLCache
@@ -56,7 +57,7 @@ Decorated functions expose `cache_info()` and `cache_clear()` methods matching t
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `cache` | `TTLCache` | required | The cache instance to store results in. |
+| `cache` | `Cache` or `AsyncCache` | required | The cache instance to store results in (e.g. `TTLCache` or `RedisCache`). |
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. |
 | `serializer` | `Callable` | `None` | Serializer for cached values. Must be paired with `deserializer`. |
 | `deserializer` | `Callable` | `None` | Deserializer for cached values. Must be paired with `serializer`. |
@@ -69,3 +70,60 @@ Decorated functions expose `cache_info()` and `cache_clear()` methods matching t
 
 !!! warning
     **Cache Key Stability:** Cache keys are derived from `repr()` of function arguments. Keys are stable within a single process but may vary across Python versions. Objects with default `__repr__` (e.g., custom class instances) include memory addresses, which means cache misses will always occur. Use a custom `key_maker` for such objects.
+
+## Redis Cache
+
+`RedisCache` is an async cache backend that stores entries in Redis with a configurable TTL. Use it for distributed caching across multiple processes or services.
+
+### Installation
+
+```bash
+pip install grelmicro[redis]
+```
+
+### Usage
+
+```python
+--8<-- "cache/redis_basic.py"
+```
+
+`RedisCache` must be used as an async context manager. The connection is closed when the context exits.
+
+### Configuration
+
+The Redis URL can be passed directly or read from environment variables:
+
+| Environment Variable | Description | Default |
+|---|---|---|
+| `REDIS_URL` | Full Redis URL (e.g. `redis://localhost:6379/0`) | |
+| `REDIS_HOST` | Redis hostname | |
+| `REDIS_PORT` | Redis port | `6379` |
+| `REDIS_DB` | Redis database number | `0` |
+| `REDIS_PASSWORD` | Redis password | |
+
+Set either `REDIS_URL` or `REDIS_HOST` (not both).
+
+### Key Prefix
+
+Use the `prefix` parameter to isolate cache keys from other data in the same Redis instance:
+
+```python
+cache = RedisCache(prefix="myapp:", ttl=300)
+```
+
+All keys are stored as `{prefix}{key}`. The `clear()` method only removes keys matching the prefix.
+
+### Serialization
+
+Redis stores bytes. When using `RedisCache` with `@cached`, you must provide `serializer` and `deserializer` to convert values to and from bytes.
+
+### Differences from TTLCache
+
+| Feature | TTLCache | RedisCache |
+|---|---|---|
+| Storage | In-memory (process-local) | Redis (distributed) |
+| Function type | Sync and async | Async only |
+| `maxsize` | Configurable | Managed by Redis eviction policy |
+| Serialization | Optional | Required (Redis stores bytes) |
+| `cache_info().currsize` | Exact count | Always 0 (counting prefixed keys is expensive) |
+| `cache_clear()` | Sync | Async (must be awaited) |

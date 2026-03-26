@@ -6,7 +6,7 @@ from typing import Annotated, Self
 
 from typing_extensions import Doc
 
-from grelmicro.sync._backends import loaded_backends
+from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 
 
@@ -30,7 +30,7 @@ class MemorySyncBackend(SyncBackend):
         """Initialize the lock backend."""
         self._locks: dict[str, tuple[str | None, float]] = {}
         if auto_register:
-            loaded_backends["lock"] = self
+            sync_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
         """Enter the lock backend."""

@@ -10,7 +10,7 @@ from typing import Annotated, Any, ParamSpec, TypeVar
 from typing_extensions import Doc
 
 from grelmicro.cache._key import make_cache_key
-from grelmicro.cache._protocol import Cache
+from grelmicro.cache._protocol import AsyncCache, Cache
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -23,12 +23,28 @@ _LockType = (
 )
 
 
+def _is_async_cache(cache: object) -> bool:
+    """Check if a cache implements the AsyncCache protocol.
+
+    Uses both ``isinstance`` and a coroutine-function check on ``get``
+    to avoid false positives from sync ``Cache`` implementations
+    (``runtime_checkable`` Protocol does not distinguish sync from async).
+    """
+    return isinstance(cache, AsyncCache) and asyncio.iscoroutinefunction(
+        cache.get
+    )
+
+
 def cached(
     cache: Annotated[
-        Cache,
+        Cache | AsyncCache,
         Doc(
             """
             The cache instance to store results in.
+
+            Supports both synchronous (``Cache``) and asynchronous
+            (``AsyncCache``) backends. Async backends can only be
+            used with async decorated functions.
             """,
         ),
     ],
@@ -105,29 +121,53 @@ def cached(
 
     Automatically detects whether the decorated function is sync or
     async and wraps it accordingly. Cached values are stored in the
-    provided ``Cache`` instance.
+    provided ``Cache`` or ``AsyncCache`` instance.
 
     The decorated function exposes ``cache_info()`` and
     ``cache_clear()`` helpers (matching ``functools.lru_cache``).
+    When using an ``AsyncCache``, ``cache_clear()`` is a coroutine.
 
     Returns:
         A decorator that caches function results.
 
     Raises:
         ValueError: If only one of serializer/deserializer is given.
+        TypeError: If a sync function is decorated with an AsyncCache.
     """
     if (serializer is None) != (deserializer is None):
         msg = "serializer and deserializer must be provided together"
         raise ValueError(msg)
 
+    use_async_cache = _is_async_cache(cache)
+
     def decorator(
         func: Callable[P, R],
     ) -> Callable[P, R]:
-        is_async = asyncio.iscoroutinefunction(func)
+        is_async_func = asyncio.iscoroutinefunction(func)
         per_key = lock is True
         global_lock = _resolve_global_lock(lock)
 
-        if is_async:
+        if use_async_cache and not is_async_func:
+            msg = (
+                "Sync functions cannot use an AsyncCache backend. "
+                "Use a sync Cache (e.g. TTLCache) or make the "
+                "function async."
+            )
+            raise TypeError(msg)
+
+        if use_async_cache:
+            wrapper = _build_async_wrapper_async_cache(
+                func,
+                cache,  # type: ignore[arg-type]
+                key_maker,
+                serializer,
+                deserializer,
+                skip,
+                typed=typed,
+                global_lock=global_lock,
+                per_key=per_key,
+            )
+        elif is_async_func:
             wrapper = _build_async_wrapper(
                 func,
                 cache,
@@ -171,9 +211,12 @@ def _resolve_global_lock(
     return lock
 
 
+# --- Async function + sync Cache ---
+
+
 def _build_async_wrapper(
     func: Any,  # noqa: ANN401
-    cache: Cache,
+    cache: Any,  # noqa: ANN401
     key_maker: Any,  # noqa: ANN401
     serializer: Any,  # noqa: ANN401
     deserializer: Any,  # noqa: ANN401
@@ -183,7 +226,7 @@ def _build_async_wrapper(
     global_lock: Any,  # noqa: ANN401
     per_key: bool,
 ) -> Any:  # noqa: ANN401
-    """Build async wrapper for cached decorator."""
+    """Build async wrapper for cached decorator with sync cache."""
     key_locks: dict[str, asyncio.Lock] = {}
     key_locks_guard = asyncio.Lock()
 
@@ -226,9 +269,102 @@ def _build_async_wrapper(
     return async_wrapper
 
 
+async def _compute_and_cache_async(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    cache: Any,  # noqa: ANN401
+    key: str,
+    serializer: Callable[[Any], bytes] | None,
+    skip: Callable[[Any], bool] | None,
+) -> Any:  # noqa: ANN401
+    """Execute async function and store result in sync cache."""
+    result = await func(*args, **kwargs)
+    if skip is None or not skip(result):
+        cache.set(key, _serialize(result, serializer))
+    return result
+
+
+# --- Async function + AsyncCache ---
+
+
+def _build_async_wrapper_async_cache(
+    func: Any,  # noqa: ANN401
+    cache: AsyncCache,
+    key_maker: Any,  # noqa: ANN401
+    serializer: Any,  # noqa: ANN401
+    deserializer: Any,  # noqa: ANN401
+    skip: Any,  # noqa: ANN401
+    *,
+    typed: bool,
+    global_lock: Any,  # noqa: ANN401
+    per_key: bool,
+) -> Any:  # noqa: ANN401
+    """Build async wrapper for cached decorator with async cache."""
+    key_locks: dict[str, asyncio.Lock] = {}
+    key_locks_guard = asyncio.Lock()
+
+    @functools.wraps(func)
+    async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        result = await cache.get(key, _SENTINEL)
+        if result is not _SENTINEL:
+            return _deserialize(result, deserializer)
+
+        if per_key:
+            async with key_locks_guard:
+                lock = key_locks.setdefault(key, asyncio.Lock())
+        else:
+            lock = global_lock
+        if lock is not None:
+            async with lock:
+                result = await cache.get(key, _SENTINEL)
+                if result is not _SENTINEL:
+                    return _deserialize(result, deserializer)
+                return await _compute_and_cache_async_backend(
+                    func,
+                    args,
+                    kwargs,
+                    cache,
+                    key,
+                    serializer,
+                    skip,
+                )
+        return await _compute_and_cache_async_backend(
+            func,
+            args,
+            kwargs,
+            cache,
+            key,
+            serializer,
+            skip,
+        )
+
+    return async_wrapper
+
+
+async def _compute_and_cache_async_backend(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    cache: Any,  # noqa: ANN401
+    key: str,
+    serializer: Callable[[Any], bytes] | None,
+    skip: Callable[[Any], bool] | None,
+) -> Any:  # noqa: ANN401
+    """Execute async function and store result in async cache."""
+    result = await func(*args, **kwargs)
+    if skip is None or not skip(result):
+        await cache.set(key, _serialize(result, serializer))
+    return result
+
+
+# --- Sync function + sync Cache ---
+
+
 def _build_sync_wrapper(
     func: Any,  # noqa: ANN401
-    cache: Cache,
+    cache: Any,  # noqa: ANN401
     key_maker: Any,  # noqa: ANN401
     serializer: Any,  # noqa: ANN401
     deserializer: Any,  # noqa: ANN401
@@ -282,27 +418,11 @@ def _build_sync_wrapper(
     return sync_wrapper
 
 
-async def _compute_and_cache_async(
-    func: Callable[..., Any],
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-    cache: Cache,
-    key: str,
-    serializer: Callable[[Any], bytes] | None,
-    skip: Callable[[Any], bool] | None,
-) -> Any:  # noqa: ANN401
-    """Execute async function and store result in cache."""
-    result = await func(*args, **kwargs)
-    if skip is None or not skip(result):
-        cache.set(key, _serialize(result, serializer))
-    return result
-
-
 def _compute_and_cache(
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-    cache: Cache,
+    cache: Any,  # noqa: ANN401
     key: str,
     serializer: Callable[[Any], bytes] | None,
     skip: Callable[[Any], bool] | None,
@@ -312,6 +432,9 @@ def _compute_and_cache(
     if skip is None or not skip(result):
         cache.set(key, _serialize(result, serializer))
     return result
+
+
+# --- Shared helpers ---
 
 
 def _make_key(
