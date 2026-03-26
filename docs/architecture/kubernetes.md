@@ -4,7 +4,7 @@ This page documents the internal design of the Kubernetes [Synchronization Backe
 
 ## Lease Resources
 
-The backend uses **Lease** resources from the `coordination.k8s.io/v1` API group. Leases are the idiomatic Kubernetes resource for coordination — they are used by kube-scheduler and client-go leader election. Unlike ConfigMaps, Leases have a dedicated schema for holder identity, duration, and timestamps.
+The backend uses **Lease** resources from the `coordination.k8s.io/v1` API group. Leases are the idiomatic Kubernetes resource for coordination: they are used by kube-scheduler and client-go leader election. Unlike ConfigMaps, Leases have a dedicated schema for holder identity, duration, and timestamps.
 
 ### Field Mapping
 
@@ -41,7 +41,7 @@ The sanitization strategy replaces invalid characters with hyphens, collapses co
 
 ## Multi-App Isolation
 
-When multiple applications share the same Kubernetes namespace, use the `prefix` parameter to avoid lease name collisions — similar to Redis's `prefix` parameter. For example:
+When multiple applications share the same Kubernetes namespace, use the `prefix` parameter to avoid lease name collisions (similar to Redis's `prefix` parameter). For example:
 
 ```python
 backend = KubernetesSyncBackend(namespace="default", prefix="myapp-")

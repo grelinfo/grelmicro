@@ -333,7 +333,7 @@ class TestTyped:
     def test_typed_distinguishes_same_repr(self) -> None:
         """Test typed=True distinguishes args with same repr."""
 
-        # Arrange — two types with identical repr
+        # Arrange: two types with identical repr
         class A:
             def __repr__(self) -> str:
                 return "X"
@@ -351,11 +351,11 @@ class TestTyped:
             call_count += 1
             return type(x).__name__
 
-        # Act — same repr, different types
+        # Act: same repr, different types
         identity(A())
         identity(B())
 
-        # Assert — typed ensures separate cache entries
+        # Assert: typed ensures separate cache entries
         assert call_count == EXPECTED_CALL_COUNT_2
 
     async def test_typed_async(self) -> None:
@@ -420,7 +420,7 @@ class TestCacheControlMethods:
         compute.cache_clear()  # type: ignore[attr-defined]
         compute(1)
 
-        # Assert — recomputed after clear
+        # Assert: recomputed after clear
         assert call_count == EXPECTED_CALL_COUNT_2
 
     async def test_cache_info_async(self) -> None:
@@ -530,7 +530,7 @@ class TestLock:
             await barrier.wait()
             return x * 2
 
-        # Act — launch two concurrent calls
+        # Act: launch two concurrent calls
         task1 = asyncio.create_task(slow_fetch(5))
         task2 = asyncio.create_task(slow_fetch(5))
         await asyncio.sleep(0)  # let tasks start
@@ -538,7 +538,7 @@ class TestLock:
         await task1
         await task2
 
-        # Assert — only one actual computation
+        # Assert: only one actual computation
         assert call_count == 1
 
     def test_sync_lock_concurrent_stampede(self) -> None:
@@ -556,7 +556,7 @@ class TestLock:
             time.sleep(0.1)
             return x * 2
 
-        # Act — launch two threads hitting the same key concurrently
+        # Act: launch two threads hitting the same key concurrently
         results: list[int] = []
         errors: list[Exception] = []
 
@@ -574,7 +574,7 @@ class TestLock:
         t1.join(timeout=5)
         t2.join(timeout=5)
 
-        # Assert — only one computation, both get the same result
+        # Assert: only one computation, both get the same result
         assert not errors
         assert call_count == 1
         assert results == [10, 10]
@@ -588,7 +588,7 @@ class TestLock:
         async def fetch(x: int) -> int:
             return x
 
-        # Act — first call populates cache
+        # Act: first call populates cache
         await fetch(1)
         # Second call should hit cache without lock
         result = await fetch(1)
@@ -596,3 +596,107 @@ class TestLock:
         # Assert
         assert result == 1
         assert cache.cache_info().hits == 1
+
+    async def test_lock_true_async(self) -> None:
+        """Test lock=True auto-creates asyncio.Lock for async functions."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+        barrier = asyncio.Event()
+
+        @cached(cache, lock=True)
+        async def slow_fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            await barrier.wait()
+            return x * 2
+
+        # Act: launch two concurrent calls
+        task1 = asyncio.create_task(slow_fetch(5))
+        task2 = asyncio.create_task(slow_fetch(5))
+        await asyncio.sleep(0)
+        barrier.set()
+        await task1
+        await task2
+
+        # Assert: only one actual computation
+        assert call_count == 1
+
+    def test_lock_true_sync(self) -> None:
+        """Test lock=True auto-creates threading.Lock for sync functions."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, lock=True)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act
+        compute(5)
+        compute(5)
+
+        # Assert
+        assert call_count == 1
+
+    def test_lock_false_disables_protection(self) -> None:
+        """Test lock=False behaves like lock=None."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        call_count = 0
+
+        @cached(cache, lock=False)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act
+        compute(5)
+        compute(5)
+
+        # Assert
+        assert call_count == 1
+        assert cache.cache_info().hits == 1
+
+    async def test_lock_true_per_key(self) -> None:
+        """Test lock=True uses per-key locks: different keys don't block each other."""
+        # Arrange
+        cache = TTLCache(maxsize=10, ttl=60)
+        order: list[str] = []
+        barrier_a = asyncio.Event()
+        barrier_b = asyncio.Event()
+
+        @cached(cache, lock=True)
+        async def fetch(key: str) -> str:
+            if key == "a":
+                order.append("a:start")
+                await barrier_a.wait()
+                order.append("a:end")
+            else:
+                order.append("b:start")
+                await barrier_b.wait()
+                order.append("b:end")
+            return key
+
+        # Act: launch calls with different keys
+        task_a = asyncio.create_task(fetch("a"))
+        await asyncio.sleep(0)
+        task_b = asyncio.create_task(fetch("b"))
+        await asyncio.sleep(0)
+
+        # Both should have started (per-key, not blocking each other)
+        assert "a:start" in order
+        assert "b:start" in order
+
+        barrier_b.set()
+        await task_b
+        # "b" finishes while "a" is still blocked
+        assert "b:end" in order
+        assert "a:end" not in order
+
+        barrier_a.set()
+        await task_a
+        assert "a:end" in order

@@ -10,6 +10,6 @@ async def get_user(user_id: int) -> dict:
 
 
 async def main() -> None:
-    user = await get_user(1)  # cache miss — calls function
-    user = await get_user(1)  # cache hit — returns cached result
+    user = await get_user(1)  # cache miss: calls function
+    user = await get_user(1)  # cache hit: returns cached result
     print(user)

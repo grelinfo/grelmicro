@@ -114,14 +114,14 @@ class TestGetSet:
         ):
             cache.set("key", "value", ttl=10)
 
-        # Assert — not expired at now + 9
+        # Assert: not expired at now + 9
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 9,
         ):
             assert cache.get("key") == "value"
 
-        # Assert — expired at now + 10
+        # Assert: expired at now + 10
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 10,
@@ -156,7 +156,7 @@ class TestExpiry:
         ):
             cache.set("key", "value")
 
-        # Act — access after TTL
+        # Act: access after TTL
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 5,
@@ -178,14 +178,14 @@ class TestExpiry:
         ):
             cache.set("key", "value")
 
-        # Act / Assert — before expiry
+        # Act / Assert: before expiry
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 4,
         ):
             assert "key" in cache
 
-        # Act / Assert — at expiry
+        # Act / Assert: at expiry
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 5,
@@ -208,14 +208,14 @@ class TestExpiryCleansUp:
         ):
             cache.set("key", "value")
 
-        # Act — access after TTL
+        # Act: access after TTL
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 5,
         ):
             cache.get("key")
 
-        # Assert — entry was purged from internal storage
+        # Assert: entry was purged from internal storage
         assert len(cache) == 0
 
     def test_contains_does_not_remove_expired_entry(self) -> None:
@@ -230,14 +230,14 @@ class TestExpiryCleansUp:
         ):
             cache.set("key", "value")
 
-        # Act — check after TTL
+        # Act: check after TTL
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 5,
         ):
             result = "key" in cache
 
-        # Assert — entry is expired but not purged (consistent with __len__)
+        # Assert: entry is expired but not purged (consistent with __len__)
         assert result is False
         assert len(cache) == 1
 
@@ -258,14 +258,14 @@ class TestEviction:
             cache.set("a", 1)
             cache.set("b", 2)
 
-        # Act — insert new entry after "a" has expired
+        # Act: insert new entry after "a" has expired
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 5,
         ):
             cache.set("c", 3)
 
-        # Assert — "a" was evicted (expired), "b" and "c" kept
+        # Assert: "a" was evicted (expired), "b" and "c" kept
         assert len(cache) == EXPECTED_EVICTION_LEN
         with patch(
             "grelmicro.cache.ttl.monotonic",
@@ -284,7 +284,7 @@ class TestEviction:
         # Act
         cache.set("c", 3)
 
-        # Assert — "a" evicted (least recently used)
+        # Assert: "a" evicted (least recently used)
         assert cache.get("a") is None
         assert cache.get("b") is not None
         assert cache.get("c") is not None
@@ -297,11 +297,11 @@ class TestEviction:
         cache.set("b", 2)
         cache.set("c", 3)
 
-        # Act — check "a" via __contains__ (should NOT promote)
+        # Act: check "a" via __contains__ (should NOT promote)
         assert "a" in cache
         cache.set("d", 4)
 
-        # Assert — "a" still evicted (LRU), not "b"
+        # Assert: "a" still evicted (LRU), not "b"
         assert cache.get("a") is None
         assert cache.get("b") is not None
 
@@ -313,11 +313,11 @@ class TestEviction:
         cache.set("b", 2)
         cache.set("c", 3)
 
-        # Act — access "a" to promote it, making "b" the LRU
+        # Act: access "a" to promote it, making "b" the LRU
         cache.get("a")
         cache.set("d", 4)
 
-        # Assert — "b" evicted (LRU), "a" kept
+        # Assert: "b" evicted (LRU), "a" kept
         assert cache.get("b") is None
         assert cache.get("a") is not None
         assert cache.get("c") is not None
@@ -331,11 +331,11 @@ class TestEviction:
         cache.set("b", 2)
         cache.set("c", 3)
 
-        # Act — overwrite "a", making "b" the LRU
+        # Act: overwrite "a", making "b" the LRU
         cache.set("a", EXPECTED_OVERWRITE_VALUE)
         cache.set("d", 4)
 
-        # Assert — "b" evicted (LRU), "a" kept
+        # Assert: "b" evicted (LRU), "a" kept
         assert cache.get("b") is None
         assert cache.get("a") == EXPECTED_OVERWRITE_VALUE
         assert cache.get("c") is not None
@@ -375,7 +375,7 @@ class TestDeleteClear:
         # Arrange
         cache = TTLCache(maxsize=10, ttl=60)
 
-        # Act / Assert — no exception raised
+        # Act / Assert: no exception raised
         cache.delete("missing")
 
     def test_clear(self) -> None:
@@ -458,14 +458,14 @@ class TestCacheInfo:
         ):
             cache.set("key", "value")
 
-        # Act — hit before expiry
+        # Act: hit before expiry
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 4,
         ):
             cache.get("key")
 
-        # Act — miss after expiry
+        # Act: miss after expiry
         with patch(
             "grelmicro.cache.ttl.monotonic",
             return_value=now + 5,
@@ -484,7 +484,7 @@ class TestCacheInfo:
         cache.set("a", 1)
         cache.set("b", 2)
 
-        # Act — triggers eviction
+        # Act: triggers eviction
         cache.set("c", 3)
 
         # Assert

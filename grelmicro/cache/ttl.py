@@ -36,7 +36,7 @@ class TTLCache:
 
     Accessing or overwriting a key promotes it to most-recently-used.
 
-    Not thread-safe — the caller is responsible for synchronization.
+    Not thread-safe: the caller is responsible for synchronization.
 
     Raises:
         ValueError: If maxsize is negative or ttl is not positive.
@@ -221,8 +221,8 @@ class TTLCache:
         """Evict one entry to make room for a new one.
 
         Strategy: remove the oldest expired entry first. If none are
-        expired, remove the least recently used entry (LRU — first
-        in insertion order). Scans entries in order — O(n) in the
+        expired, remove the least recently used entry (LRU, first
+        in insertion order). Scans entries in order, O(n) in the
         worst case.
         """
         now = monotonic()

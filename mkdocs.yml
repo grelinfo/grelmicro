@@ -37,11 +37,31 @@ nav:
     - resilience.md
     - sync.md
     - task.md
+- API Reference:
+    - reference/cache.md
+    - reference/logging.md
+    - reference/resilience.md
+    - reference/sync.md
+    - reference/task.md
 - Architecture:
     - architecture/index.md
     - architecture/sync.md
     - architecture/sqlite.md
 - changelog.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: false
+            members_order: source
+            merge_init_into_class: true
+            show_signature_annotations: true
+            separate_signature: true
 
 markdown_extensions:
   - admonition

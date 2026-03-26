@@ -2,6 +2,7 @@
 
 import asyncio
 import functools
+import threading
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from typing import Annotated, Any, ParamSpec, TypeVar
@@ -15,6 +16,11 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 _SENTINEL = object()
+
+# Lock parameter: True auto-creates, or pass your own.
+_LockType = (
+    bool | AbstractContextManager[Any] | AbstractAsyncContextManager[Any] | None
+)
 
 
 def cached(
@@ -74,15 +80,23 @@ def cached(
         ),
     ] = False,
     lock: Annotated[
-        AbstractContextManager[Any] | AbstractAsyncContextManager[Any] | None,
+        _LockType,
         Doc(
             """
-            Optional context manager for stampede protection. When
-            provided, only one caller recomputes on cache miss while
-            others wait. The lock is **global** (not per-key), so a
-            miss on one key blocks all other misses until resolved.
-            Use ``asyncio.Lock()`` for async functions or
-            ``threading.Lock()`` for sync functions.
+            Enable stampede protection. When a cache miss occurs,
+            only one caller executes the function while all others
+            block until the result is available.
+
+            Set to ``True`` to enable with **per-key** locking:
+            concurrent misses on different keys proceed in parallel,
+            only callers hitting the same key are serialized.
+            The appropriate lock type is auto-created
+            (``asyncio.Lock`` for async, ``threading.Lock`` for
+            sync).
+
+            You can also pass a custom context manager instance
+            for **global** locking (a single lock shared across
+            all keys).
             """,
         ),
     ] = None,
@@ -109,7 +123,11 @@ def cached(
     def decorator(
         func: Callable[P, R],
     ) -> Callable[P, R]:
-        if asyncio.iscoroutinefunction(func):
+        is_async = asyncio.iscoroutinefunction(func)
+        per_key = lock is True
+        global_lock = _resolve_global_lock(lock)
+
+        if is_async:
             wrapper = _build_async_wrapper(
                 func,
                 cache,
@@ -118,7 +136,8 @@ def cached(
                 deserializer,
                 skip,
                 typed=typed,
-                lock=lock,
+                global_lock=global_lock,
+                per_key=per_key,
             )
         else:
             wrapper = _build_sync_wrapper(
@@ -129,13 +148,27 @@ def cached(
                 deserializer,
                 skip,
                 typed=typed,
-                lock=lock,
+                global_lock=global_lock,
+                per_key=per_key,
             )
         wrapper.cache_info = cache.cache_info
         wrapper.cache_clear = cache.clear
         return wrapper
 
     return decorator
+
+
+def _resolve_global_lock(
+    lock: _LockType,
+) -> AbstractContextManager[Any] | AbstractAsyncContextManager[Any] | None:
+    """Resolve the lock parameter to a global lock instance.
+
+    Returns None for ``True`` (per-key locks are handled in wrappers),
+    ``False``, and ``None``. Returns the custom instance as-is.
+    """
+    if lock is True or lock is False or lock is None:
+        return None
+    return lock
 
 
 def _build_async_wrapper(
@@ -147,9 +180,12 @@ def _build_async_wrapper(
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    lock: Any,  # noqa: ANN401
+    global_lock: Any,  # noqa: ANN401
+    per_key: bool,
 ) -> Any:  # noqa: ANN401
     """Build async wrapper for cached decorator."""
+    key_locks: dict[str, asyncio.Lock] = {}
+    key_locks_guard = asyncio.Lock()
 
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -157,6 +193,12 @@ def _build_async_wrapper(
         result = cache.get(key, _SENTINEL)
         if result is not _SENTINEL:
             return _deserialize(result, deserializer)
+
+        if per_key:
+            async with key_locks_guard:
+                lock = key_locks.setdefault(key, asyncio.Lock())
+        else:
+            lock = global_lock
         if lock is not None:
             async with lock:
                 result = cache.get(key, _SENTINEL)
@@ -193,9 +235,12 @@ def _build_sync_wrapper(
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    lock: Any,  # noqa: ANN401
+    global_lock: Any,  # noqa: ANN401
+    per_key: bool,
 ) -> Any:  # noqa: ANN401
     """Build sync wrapper for cached decorator."""
+    key_locks: dict[str, threading.Lock] = {}
+    key_locks_guard = threading.Lock()
 
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -203,6 +248,13 @@ def _build_sync_wrapper(
         result = cache.get(key, _SENTINEL)
         if result is not _SENTINEL:
             return _deserialize(result, deserializer)
+
+        if per_key:
+            with key_locks_guard:
+                lock = key_locks.setdefault(key, threading.Lock())
+        else:
+            lock = global_lock
+
         if lock is not None:
             with lock:
                 result = cache.get(key, _SENTINEL)
