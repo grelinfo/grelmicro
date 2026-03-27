@@ -2,6 +2,10 @@
 
 Grelmicro uses a shared backend registry pattern to make infrastructure backends (Redis, PostgreSQL, SQLite, etc.) swappable without changing application code.
 
+## Why Async
+
+All backends use **async** methods because they perform network or disk I/O (Redis, PostgreSQL, SQLite, Kubernetes API). Async avoids blocking the event loop, which is critical in microservice applications handling many concurrent requests. Even backends with low-latency I/O (like SQLite) use async to maintain a consistent interface and allow the event loop to schedule other work during I/O waits.
+
 ## Design
 
 The `BackendRegistry[T]` is a generic, typed container that holds a single default backend instance. Each module maintains its own registry:
@@ -9,7 +13,7 @@ The `BackendRegistry[T]` is a generic, typed container that holds a single defau
 | Module | Registry | Protocol | Backends |
 |---|---|---|---|
 | `sync` | `sync_backend_registry` | `SyncBackend` | Redis, PostgreSQL, SQLite, Kubernetes, Memory |
-| `cache` | `cache_backend_registry` | `AsyncCache` | Redis |
+| `cache` | `cache_backend_registry` | `CacheBackend` | Redis |
 
 ## Registration
 

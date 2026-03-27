@@ -4,7 +4,7 @@
     options:
       show_submodules: true
       members:
-        - AsyncCache
+        - CacheBackend
         - Cache
         - CacheError
         - CacheInfo

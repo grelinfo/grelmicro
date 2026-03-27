@@ -81,7 +81,7 @@ class TestSyncCached:
         assert call_count == EXPECTED_CALL_COUNT_2
 
 
-class TestAsyncCached:
+class TestCacheBackend:
     """Test cached decorator with async functions."""
 
     async def test_caches_result(self) -> None:

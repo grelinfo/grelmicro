@@ -57,7 +57,7 @@ Decorated functions expose `cache_info()` and `cache_clear()` methods matching t
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `cache` | `Cache` or `AsyncCache` | required | The cache instance to store results in (e.g. `TTLCache` or `RedisCache`). |
+| `cache` | `Cache` or `CacheBackend` | required | The cache instance to store results in (e.g. `TTLCache` or `RedisCache`). |
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. |
 | `serializer` | `Callable` | `None` | Serializer for cached values. Must be paired with `deserializer`. |
 | `deserializer` | `Callable` | `None` | Deserializer for cached values. Must be paired with `serializer`. |

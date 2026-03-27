@@ -9,10 +9,10 @@ from grelmicro.cache.ttl import CacheInfo
 
 @runtime_checkable
 class Cache(Protocol):
-    """Protocol for synchronous cache backends used by the ``@cached`` decorator.
+    """Protocol for simple in-process caches (e.g. ``TTLCache``).
 
-    Any object that implements ``get``, ``set``, ``clear``, and
-    ``cache_info`` can be used as a cache backend.
+    Sync methods for caches that do not perform I/O.
+    Can be used with both sync and async decorated functions.
     """
 
     def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
@@ -33,13 +33,10 @@ class Cache(Protocol):
 
 
 @runtime_checkable
-class AsyncCache(Protocol):
-    """Protocol for asynchronous cache backends used by the ``@cached`` decorator.
+class CacheBackend(Protocol):
+    """Protocol for cache backends that perform I/O (e.g. ``RedisCache``).
 
-    Any object that implements async ``get``, ``set``, ``clear``, and
-    sync ``cache_info`` can be used as an async cache backend.
-
-    Async cache backends can only be used with async decorated functions.
+    Can only be used with async decorated functions.
     """
 
     async def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401

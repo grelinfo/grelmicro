@@ -1,4 +1,4 @@
-"""Test Cached Decorator with AsyncCache backend."""
+"""Test Cached Decorator with CacheBackend backend."""
 
 import asyncio
 import json
@@ -19,8 +19,8 @@ EXPECTED_MISSES_2 = 2
 EXPECTED_CURRSIZE_2 = 2
 
 
-class MockAsyncCache:
-    """In-memory async cache implementing the AsyncCache protocol."""
+class MockCacheBackend:
+    """In-memory async cache implementing the CacheBackend protocol."""
 
     def __init__(self) -> None:
         """Initialize the cache."""
@@ -55,13 +55,13 @@ class MockAsyncCache:
         )
 
 
-class TestAsyncCachedBasic:
-    """Test @cached with AsyncCache on async functions: basic caching behavior."""
+class TestCacheBackendBasic:
+    """Test @cached with CacheBackend on async functions: basic caching behavior."""
 
     async def test_caches_result(self) -> None:
         """Test that repeated calls return the cached result without recomputing."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
 
         @cached(cache)
@@ -82,7 +82,7 @@ class TestAsyncCachedBasic:
     async def test_different_args_produce_different_keys(self) -> None:
         """Test that different arguments result in separate cache entries."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
 
         @cached(cache)
@@ -101,7 +101,7 @@ class TestAsyncCachedBasic:
     async def test_kwargs_are_part_of_key(self) -> None:
         """Test that kwargs are included in the cache key."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
 
         @cached(cache)
@@ -118,13 +118,13 @@ class TestAsyncCachedBasic:
         assert call_count == EXPECTED_CALL_COUNT_2
 
 
-class TestAsyncCachedSerializer:
-    """Test @cached with AsyncCache and serializer/deserializer round-trip."""
+class TestCacheBackendSerializer:
+    """Test @cached with CacheBackend and serializer/deserializer round-trip."""
 
     async def test_serializer_deserializer_round_trip(self) -> None:
         """Test that values are serialized before storing and deserialized on retrieval."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         @cached(
             cache,
@@ -145,7 +145,7 @@ class TestAsyncCachedSerializer:
     async def test_serialized_value_stored_in_cache(self) -> None:
         """Test that the raw stored value is in serialized form."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         @cached(
             cache,
@@ -163,13 +163,13 @@ class TestAsyncCachedSerializer:
         assert isinstance(stored_values[0], bytes)
 
 
-class TestAsyncCachedSkip:
-    """Test @cached with AsyncCache and a skip predicate."""
+class TestCacheBackendSkip:
+    """Test @cached with CacheBackend and a skip predicate."""
 
     async def test_skip_none_results_not_cached(self) -> None:
         """Test that results matching the skip predicate are not stored in cache."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
 
         @cached(cache, skip=lambda r: r is None)
@@ -188,7 +188,7 @@ class TestAsyncCachedSkip:
     async def test_skip_does_not_affect_valid_results(self) -> None:
         """Test that results not matching skip predicate are cached normally."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
 
         @cached(cache, skip=lambda r: r is None)
@@ -205,13 +205,13 @@ class TestAsyncCachedSkip:
         assert call_count == EXPECTED_CALL_COUNT_1
 
 
-class TestAsyncCachedTyped:
-    """Test @cached with AsyncCache and typed=True key generation."""
+class TestCacheBackendTyped:
+    """Test @cached with CacheBackend and typed=True key generation."""
 
     async def test_typed_distinguishes_int_and_float(self) -> None:
         """Test that typed=True caches 3 and 3.0 as separate entries."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
 
         @cached(cache, typed=True)
@@ -239,7 +239,7 @@ class TestAsyncCachedTyped:
             def __repr__(self) -> str:
                 return "X"
 
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
 
         @cached(cache, typed=True)
@@ -256,13 +256,13 @@ class TestAsyncCachedTyped:
         assert call_count == EXPECTED_CALL_COUNT_2
 
 
-class TestAsyncCachedCacheControl:
-    """Test cache_info() and cache_clear() when using AsyncCache backend."""
+class TestCacheBackendCacheControl:
+    """Test cache_info() and cache_clear() when using CacheBackend backend."""
 
     async def test_cache_info_tracks_hits_and_misses(self) -> None:
         """Test that cache_info() returns accurate hit/miss statistics."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         @cached(cache)
         async def fetch(x: int) -> int:
@@ -280,21 +280,21 @@ class TestAsyncCachedCacheControl:
         assert info.currsize == EXPECTED_CURRSIZE_2
 
     async def test_cache_clear_is_coroutine(self) -> None:
-        """Test that cache_clear() on an AsyncCache-backed function is a coroutine."""
+        """Test that cache_clear() on a CacheBackend-backed function is a coroutine."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         @cached(cache)
         async def fetch(x: int) -> int:
             return x
 
-        # Assert: cache_clear is async when backend is AsyncCache
+        # Assert: cache_clear is async when backend is CacheBackend
         assert asyncio.iscoroutinefunction(fetch.cache_clear)  # type: ignore[attr-defined]
 
     async def test_cache_clear_empties_the_cache(self) -> None:
         """Test that awaiting cache_clear() causes subsequent calls to recompute."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
 
         @cached(cache)
@@ -316,7 +316,7 @@ class TestAsyncCachedCacheControl:
     async def test_cache_info_currsize_resets_after_clear(self) -> None:
         """Test that currsize reported by cache_info drops to zero after clear."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         @cached(cache)
         async def fetch(x: int) -> int:
@@ -333,13 +333,13 @@ class TestAsyncCachedCacheControl:
         assert fetch.cache_info().currsize == 0  # type: ignore[attr-defined]
 
 
-class TestAsyncCachedFunctionMetadata:
+class TestCacheBackendFunctionMetadata:
     """Test that @cached preserves decorated function metadata."""
 
     async def test_preserves_name(self) -> None:
         """Test that the async wrapper preserves __name__."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         @cached(cache)
         async def my_async_function() -> None:
@@ -351,7 +351,7 @@ class TestAsyncCachedFunctionMetadata:
     async def test_preserves_doc(self) -> None:
         """Test that the async wrapper preserves __doc__."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         @cached(cache)
         async def documented() -> None:
@@ -361,13 +361,13 @@ class TestAsyncCachedFunctionMetadata:
         assert documented.__doc__ == "Return nothing."
 
 
-class TestAsyncCachedLock:
-    """Test @cached with AsyncCache and lock-based stampede protection."""
+class TestCacheBackendLock:
+    """Test @cached with CacheBackend and lock-based stampede protection."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
         """Test that lock=True ensures only one coroutine computes on concurrent miss."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
         barrier = asyncio.Event()
 
@@ -396,7 +396,7 @@ class TestAsyncCachedLock:
     ) -> None:
         """Test that lock=True uses per-key locks: different keys run in parallel."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         order: list[str] = []
         barrier_a = asyncio.Event()
         barrier_b = asyncio.Event()
@@ -439,7 +439,7 @@ class TestAsyncCachedLock:
     ) -> None:
         """Test that a custom asyncio.Lock provides global stampede protection."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
         call_count = 0
         barrier = asyncio.Event()
 
@@ -464,7 +464,7 @@ class TestAsyncCachedLock:
     async def test_lock_true_cache_hit_does_not_acquire_lock(self) -> None:
         """Test that a cache hit returns immediately without touching the lock."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         @cached(cache, lock=True)
         async def fetch(x: int) -> int:
@@ -481,18 +481,18 @@ class TestAsyncCachedLock:
         assert cache.cache_info().hits == EXPECTED_HITS_1
 
 
-class TestAsyncCachedSyncFunctionError:
-    """Test that decorating a sync function with AsyncCache raises TypeError."""
+class TestCacheBackendSyncFunctionError:
+    """Test that decorating a sync function with CacheBackend raises TypeError."""
 
     def test_sync_function_with_async_cache_raises_type_error(self) -> None:
-        """Test that using AsyncCache with a sync function is rejected at decoration time."""
+        """Test that using CacheBackend with a sync function is rejected at decoration time."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         # Act / Assert
         with pytest.raises(
             TypeError,
-            match="Sync functions cannot use an AsyncCache backend",
+            match="Sync functions cannot use a CacheBackend backend",
         ):
 
             @cached(cache)
@@ -502,7 +502,7 @@ class TestAsyncCachedSyncFunctionError:
     def test_error_message_mentions_async(self) -> None:
         """Test that the TypeError message guides the user toward async solutions."""
         # Arrange
-        cache = MockAsyncCache()
+        cache = MockCacheBackend()
 
         # Act
         with pytest.raises(TypeError) as exc_info:

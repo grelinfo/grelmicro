@@ -60,7 +60,7 @@ _CLEAR_BATCH_SIZE = 1000
 class RedisCache:
     """Redis-backed async cache.
 
-    Implements the ``AsyncCache`` protocol. Each entry is stored with
+    Implements the ``CacheBackend`` protocol. Each entry is stored with
     a TTL handled natively by Redis. Keys are prefixed for isolation.
 
     Must be used as an async context manager to manage the connection

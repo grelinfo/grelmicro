@@ -10,7 +10,7 @@ from typing import Annotated, Any, ParamSpec, TypeVar
 from typing_extensions import Doc
 
 from grelmicro.cache._key import make_cache_key
-from grelmicro.cache._protocol import AsyncCache, Cache
+from grelmicro.cache._protocol import Cache, CacheBackend
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -24,26 +24,26 @@ _LockType = (
 
 
 def _is_async_cache(cache: object) -> bool:
-    """Check if a cache implements the AsyncCache protocol.
+    """Check if a cache implements the CacheBackend protocol.
 
     Uses both ``isinstance`` and a coroutine-function check on ``get``
     to avoid false positives from sync ``Cache`` implementations
     (``runtime_checkable`` Protocol does not distinguish sync from async).
     """
-    return isinstance(cache, AsyncCache) and asyncio.iscoroutinefunction(
+    return isinstance(cache, CacheBackend) and asyncio.iscoroutinefunction(
         cache.get
     )
 
 
 def cached(
     cache: Annotated[
-        Cache | AsyncCache,
+        Cache | CacheBackend,
         Doc(
             """
             The cache instance to store results in.
 
             Supports both synchronous (``Cache``) and asynchronous
-            (``AsyncCache``) backends. Async backends can only be
+            (``CacheBackend``) backends. Async backends can only be
             used with async decorated functions.
             """,
         ),
@@ -121,18 +121,18 @@ def cached(
 
     Automatically detects whether the decorated function is sync or
     async and wraps it accordingly. Cached values are stored in the
-    provided ``Cache`` or ``AsyncCache`` instance.
+    provided ``Cache`` or ``CacheBackend`` instance.
 
     The decorated function exposes ``cache_info()`` and
     ``cache_clear()`` helpers (matching ``functools.lru_cache``).
-    When using an ``AsyncCache``, ``cache_clear()`` is a coroutine.
+    When using an ``CacheBackend``, ``cache_clear()`` is a coroutine.
 
     Returns:
         A decorator that caches function results.
 
     Raises:
         ValueError: If only one of serializer/deserializer is given.
-        TypeError: If a sync function is decorated with an AsyncCache.
+        TypeError: If a sync function is decorated with a CacheBackend.
     """
     if (serializer is None) != (deserializer is None):
         msg = "serializer and deserializer must be provided together"
@@ -149,7 +149,7 @@ def cached(
 
         if use_async_cache and not is_async_func:
             msg = (
-                "Sync functions cannot use an AsyncCache backend. "
+                "Sync functions cannot use a CacheBackend backend. "
                 "Use a sync Cache (e.g. TTLCache) or make the "
                 "function async."
             )
@@ -285,12 +285,12 @@ async def _compute_and_cache_async(
     return result
 
 
-# --- Async function + AsyncCache ---
+# --- Async function + CacheBackend ---
 
 
 def _build_async_wrapper_async_cache(
     func: Any,  # noqa: ANN401
-    cache: AsyncCache,
+    cache: CacheBackend,
     key_maker: Any,  # noqa: ANN401
     serializer: Any,  # noqa: ANN401
     deserializer: Any,  # noqa: ANN401

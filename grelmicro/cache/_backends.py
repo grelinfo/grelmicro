@@ -1,14 +1,14 @@
 """Cache Backend Registry."""
 
 from grelmicro._backends import BackendRegistry
-from grelmicro.cache._protocol import AsyncCache
+from grelmicro.cache._protocol import CacheBackend
 
-cache_backend_registry: BackendRegistry[AsyncCache] = BackendRegistry(
+cache_backend_registry: BackendRegistry[CacheBackend] = BackendRegistry(
     name="cache"
 )
 
 
-def get_cache_backend() -> AsyncCache:
+def get_cache_backend() -> CacheBackend:
     """Get the default cache backend.
 
     Raises:
