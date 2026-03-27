@@ -661,3 +661,9 @@ async def test_lock_from_thread_reacquire_after_context_manager(
             assert lock.from_thread.locked() is True
 
     await to_thread.run_sync(sync)
+
+
+async def test_lock_retry_interval_too_small(backend: SyncBackend) -> None:
+    """Test Lock rejects retry_interval below minimum."""
+    with pytest.raises(ValueError, match="retry_interval must be"):
+        Lock(name="test", backend=backend, retry_interval=0.0001)

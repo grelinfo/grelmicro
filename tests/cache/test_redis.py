@@ -247,6 +247,27 @@ class TestRedisCacheAsyncMethods:
 
         mock_redis.delete.assert_awaited_once_with(b"p:a", b"p:b")
 
+    async def test_clear_large_batch(self) -> None:
+        """Test clear deletes in batches when keys exceed batch size."""
+        cache = RedisCache(url=URL, ttl=60, prefix="p:", auto_register=False)
+        mock_redis = MagicMock()
+        mock_redis.delete = AsyncMock()
+
+        keys = [f"p:key{i}".encode() for i in range(1500)]
+
+        async def mock_scan_iter(*, match: str) -> AsyncIterator[bytes]:  # noqa: ARG001
+            for key in keys:
+                yield key
+
+        mock_redis.scan_iter = mock_scan_iter
+        cache._redis = mock_redis
+
+        await cache.clear()
+
+        # First batch of 1000 + remaining 500
+        expected_calls = 2
+        assert mock_redis.delete.await_count == expected_calls
+
     async def test_context_manager(self) -> None:
         """Test async context manager calls aclose on exit."""
         cache = RedisCache(url=URL, ttl=60, auto_register=False)

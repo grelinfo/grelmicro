@@ -667,3 +667,31 @@ async def test_tasklock_from_thread_release_expired_raises(
                 time.sleep(0.1)  # Wait for lock to expire
 
     await to_thread.run_sync(sync)
+
+
+async def test_task_lock_config_property(backend: SyncBackend) -> None:
+    """Test TaskLock config property returns the config."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    expected_min = 1
+    expected_max = 10
+    config = task_lock.config
+    assert config.name == LOCK_NAME
+    assert config.min_lock_seconds == expected_min
+    assert config.max_lock_seconds == expected_max
+
+
+async def test_task_lock_exit_without_acquire(backend: SyncBackend) -> None:
+    """Test TaskLock exit without acquire raises LockNotOwnedError."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    with pytest.raises(LockNotOwnedError):
+        await task_lock.__aexit__(None, None, None)

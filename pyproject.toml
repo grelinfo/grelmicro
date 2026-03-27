@@ -161,11 +161,8 @@ markers = """
 
 testpaths = "tests"
 
-[tool.coverage.paths]
-source = ["src/", "tests/"]
-
 [tool.coverage.run]
-omit = ["tests/**/test_*_backends.py"]
+source = ["grelmicro"]
 
 [tool.coverage.report]
 sort = "-Cover"
