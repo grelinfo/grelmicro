@@ -1,5 +1,5 @@
-site_name: Grelmicro
-site_description: Grelmicro is a lightweight framework/toolkit which is ideal for building async microservices in Python.
+site_name: grelmicro
+site_description: grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes, workers, or services.
 site_url: https://grelinfo.github.io/grelmicro
 theme:
   name: material
@@ -30,7 +30,7 @@ validation:
   unrecognized_links: warn
 
 nav:
-- Grelmicro: index.md
+- grelmicro: index.md
 - User Guide:
     - cache.md
     - logging.md

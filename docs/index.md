@@ -19,7 +19,7 @@ ______________________________________________________________________
 
 ## Vision
 
-Grelmicro is for any Python application that needs to coordinate work across multiple processes: microservices, modular monoliths, multi-worker deployments, or traditional applications scaling beyond a single process.
+grelmicro is for any Python application that needs to coordinate work across multiple processes: microservices, modular monoliths, multi-worker deployments, or traditional applications scaling beyond a single process.
 
 - **Easy to use.** Simple decorators and context managers that do the right thing out of the box. No boilerplate, no complex configuration.
 
@@ -33,11 +33,29 @@ The long-term goal is to grow grelmicro into an enterprise-grade toolkit, and ev
 
 ## Overview
 
-- **[Cache](https://grelinfo.github.io/grelmicro/cache/)**: In-memory and Redis-backed caching with `@cached` decorator, per-key stampede protection, and swappable backends.
-- **[Sync](https://grelinfo.github.io/grelmicro/sync/)**: Distributed locks, leader election, and task locks across Redis, PostgreSQL, SQLite, Kubernetes, and in-memory backends.
-- **[Task](https://grelinfo.github.io/grelmicro/task/)**: Periodic task execution with distributed locking for at-most-once semantics across workers.
-- **[Resilience](https://grelinfo.github.io/grelmicro/resilience/)**: Circuit breaker for fault tolerance when calling unreliable services.
-- **[Logging](https://grelinfo.github.io/grelmicro/logging/)**: 12-factor-compliant logging with JSON/text formatting and timezone support.
+### [Cache](cache.md)
+
+The `cache` module provides a `@cached` decorator with in-memory (`TTLCache`) and distributed (`RedisCache`) backends. Features include per-key stampede protection, serialization support, and swappable backends via the `CacheBackend` protocol.
+
+### [Synchronization Primitives](sync.md)
+
+The `sync` module provides distributed coordination primitives, technology-agnostic across Redis, PostgreSQL, SQLite, Kubernetes, and in-memory backends.
+
+- **Lock**: Distributed lock for synchronizing access to shared resources.
+- **Task Lock**: Distributed lock for scheduled tasks with minimum and maximum hold times.
+- **Leader Election**: Single-leader election for running tasks only once in a cluster.
+
+### [Task Scheduler](task.md)
+
+The `task` module provides periodic task execution with optional distributed locking for at-most-once semantics across workers. Not a replacement for Celery or APScheduler: it is lightweight, easy to use, and built for coordination.
+
+### [Resilience](resilience.md)
+
+The `resilience` module provides a **Circuit Breaker** that automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.
+
+### [Logging](logging.md)
+
+The `logging` module provides 12-factor-compliant logging with JSON/text formatting, configurable timezone, and environment variable configuration (`LOG_LEVEL`, `LOG_FORMAT`, `LOG_TIMEZONE`).
 
 ## Installation
 

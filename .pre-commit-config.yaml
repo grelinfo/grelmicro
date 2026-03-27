@@ -29,8 +29,8 @@ repos:
 
   - id: readme-to-docs
     name: readme-to-docs
-    description: "Copy README.md to docs/index.md"
-    entry: cp README.md docs/index.md
+    description: "Copy README.md to docs/index.md with relative links"
+    entry: bash -c "sed 's|(docs/|(|g' README.md > docs/index.md"
     language: system
     pass_filenames: false
     files: '(^README\.md$|^docs/index\.md$)'

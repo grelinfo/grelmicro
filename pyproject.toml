@@ -1,7 +1,7 @@
 [project]
 name = "grelmicro"
 version = "0.0.0.dev0"
-description = "Grelmicro is a toolkit or lightweight framework for building async microservices in Python"
+description = "grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes"
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
 readme = "README.md"

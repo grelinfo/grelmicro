@@ -1,6 +1,6 @@
 # Backend Registry
 
-Grelmicro uses a shared backend registry pattern to make infrastructure backends (Redis, PostgreSQL, SQLite, etc.) swappable without changing application code.
+grelmicro uses a shared backend registry pattern to make infrastructure backends (Redis, PostgreSQL, SQLite, etc.) swappable without changing application code.
 
 ## Why Async
 
