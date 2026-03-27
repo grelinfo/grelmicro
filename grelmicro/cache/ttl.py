@@ -35,6 +35,7 @@ class CacheInfo:
 
 
 _SENTINEL = object()
+_CACHE_PREFIX = "cache"
 
 
 class TTLCache:
@@ -159,7 +160,7 @@ class TTLCache:
         Returns:
             The cached value, or None if not found and no default given.
         """
-        raw = await self._get_backend().get(key=key)
+        raw = await self._get_backend().get(key=f"{_CACHE_PREFIX}:{key}")
         if raw is None:
             self._misses += 1
             return None if default is _SENTINEL else default
@@ -195,7 +196,9 @@ class TTLCache:
             while len(self._keys) >= self._maxsize:
                 await self._evict()
 
-        await self._get_backend().set(key=key, value=raw, ttl=entry_ttl)
+        await self._get_backend().set(
+            key=f"{_CACHE_PREFIX}:{key}", value=raw, ttl=entry_ttl
+        )
 
         if self._maxsize > 0:
             self._promote(key)
@@ -205,7 +208,7 @@ class TTLCache:
 
         No-op if the key does not exist.
         """
-        await self._get_backend().delete(key=key)
+        await self._get_backend().delete(key=f"{_CACHE_PREFIX}:{key}")
         if key in self._keys:
             self._keys.remove(key)
 
@@ -235,5 +238,5 @@ class TTLCache:
         if not self._keys:  # pragma: no cover
             return
         lru_key = self._keys.pop(0)
-        await self._get_backend().delete(key=lru_key)
+        await self._get_backend().delete(key=f"{_CACHE_PREFIX}:{lru_key}")
         self._evictions += 1

@@ -50,7 +50,6 @@ Issues = "https://github.com/grelinfo/grelmicro/issues"
 
 [project.optional-dependencies]
 standard = [
-    "loguru>=0.7.2",
     "orjson>=3.10.11",
 ]
 postgres = [

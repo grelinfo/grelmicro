@@ -27,7 +27,7 @@ grelmicro is for any Python application that needs to coordinate work across mul
 
 - **Backend-agnostic.** Every feature is defined by a protocol, not tied to a specific technology. Swap Redis for PostgreSQL, or use the in-memory backend for tests, without changing application code.
 
-- **Lightweight.** A toolkit, not a framework. Pick the modules you need, ignore the rest. No mandatory configuration, no magic.
+- **Lightweight.** A toolkit, not a framework. Pick the modules you need, ignore the rest. Minimal configuration: just register a backend and start using it.
 
 The long-term goal is to grow grelmicro into an enterprise-grade toolkit, and eventually rewrite performance-critical components in Rust for better throughput and safety.
 
@@ -70,11 +70,14 @@ pip install grelmicro
 Create a file `main.py` with:
 
 ```python
+import json
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from grelmicro.cache import TTLCache, cached
+from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.logging import configure_logging
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.sync import LeaderElection, Lock
@@ -86,19 +89,37 @@ logger = logging.getLogger(__name__)
 # === grelmicro ===
 task = TaskManager()
 sync_backend = RedisSyncBackend("redis://localhost:6379/0")
+cache_backend = RedisCacheBackend("redis://localhost:6379/0", prefix="myapp:")
 leader_election = LeaderElection("leader-election")
 task.add_task(leader_election)
+
+cache = TTLCache(
+    ttl=300,
+    serializer=lambda v: json.dumps(v).encode(),
+    deserializer=json.loads,
+)
 
 
 # === FastAPI ===
 @asynccontextmanager
 async def lifespan(app):
     configure_logging()
-    async with sync_backend, task:
+    async with sync_backend, cache_backend, task:
         yield
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+# --- Cache: avoid redundant database queries ---
+@cached(cache)
+async def get_user(user_id: int) -> dict:
+    return {"id": user_id, "name": "Alice"}
+
+
+@app.get("/users/{user_id}")
+async def read_user(user_id: int):
+    return await get_user(user_id)
 
 
 # --- Circuit Breaker: protect calls to an unreliable service ---
@@ -147,7 +168,6 @@ grelmicro depends on Pydantic v2+, AnyIO v4+, and FastDepends.
 
 When you install grelmicro with `pip install grelmicro[standard]` it comes with:
 
-- `loguru`: A Python logging library.
 - `orjson`: A fast, correct JSON library for Python.
 
 ### `redis` Dependencies

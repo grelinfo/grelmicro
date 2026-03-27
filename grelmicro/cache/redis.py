@@ -82,7 +82,8 @@ class RedisCacheBackend:
         prefix: Annotated[
             str,
             Doc("""
-                Prefix prepended to all Redis keys for isolation.
+                Prefix prepended to all Redis keys to avoid
+                conflicts with other keys.
 
                 By default no prefix is added.
                 """),

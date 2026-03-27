@@ -1,12 +1,18 @@
 # Cache
 
-The `cache` module provides a `TTLCache` with swappable backends and a `@cached` decorator for caching function results.
+The `cache` module provides caching with swappable backends and a `@cached` decorator for caching function results.
 
-Choose the backend that fits your use case: `MemoryCacheBackend` for fast in-memory caching within a single process, or `RedisCacheBackend` for shared caching across multiple processes.
+The cache is technology-agnostic, supporting multiple backends (see more in the Backend section).
+
+- **[TTLCache](#ttlcache)**: Cache with per-entry TTL, optional maxsize with LRU eviction, and serialization.
+- **[@cached](#cached-decorator)**: Decorator that caches function results automatically with stampede protection.
 
 ## Backend
 
-You must load a cache backend before using `TTLCache`. The backend handles raw key-value storage while `TTLCache` manages TTL, eviction, serialization, and statistics.
+You must load a cache backend before using `TTLCache`.
+
+!!! note
+    Although grelmicro uses AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
 
 === "Memory"
     ```python

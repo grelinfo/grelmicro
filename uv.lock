@@ -483,7 +483,6 @@ sqlite = [
     { name = "aiosqlite" },
 ]
 standard = [
-    { name = "loguru" },
     { name = "orjson" },
 ]
 structlog = [
@@ -531,7 +530,6 @@ requires-dist = [
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30.0" },
     { name = "fast-depends", specifier = ">=2.0.0" },
     { name = "lightkube", marker = "extra == 'kubernetes'", specifier = ">=0.15.0" },
-    { name = "loguru", marker = "extra == 'standard'", specifier = ">=0.7.2" },
     { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
     { name = "orjson", marker = "extra == 'standard'", specifier = ">=3.10.11" },

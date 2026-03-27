@@ -3,7 +3,7 @@ import json
 from grelmicro.cache import TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
 
-backend = RedisCacheBackend(prefix="myapp:")
+backend = RedisCacheBackend(prefix="myapp:")  # app-level isolation
 
 cache = TTLCache(
     ttl=300,
