@@ -1,8 +1,6 @@
 # grelmicro
 
-grelmicro is a lightweight framework/toolkit which is ideal for building async microservices in Python.
-
-It is the perfect companion for building cloud-native applications with FastAPI and FastStream, providing essential tools for running in distributed and containerized environments.
+grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes, workers, or services.
 
 [![PyPI - Version](https://img.shields.io/pypi/v/grelmicro)](https://pypi.org/project/grelmicro/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/grelmicro)](https://pypi.org/project/grelmicro/)
@@ -19,56 +17,27 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## Vision
+
+Grelmicro is for any Python application that needs to coordinate work across multiple processes: microservices, modular monoliths, multi-worker deployments, or traditional applications scaling beyond a single process.
+
+- **Easy to use.** Simple decorators and context managers that do the right thing out of the box. No boilerplate, no complex configuration.
+
+- **Async by default.** All I/O operations use `async`/`await`. Async is the natural fit for applications that spend most of their time waiting on network and disk, and it integrates cleanly with FastAPI and FastStream.
+
+- **Backend-agnostic.** Every feature is defined by a protocol, not tied to a specific technology. Swap Redis for PostgreSQL, or use the in-memory backend for tests, without changing application code.
+
+- **Lightweight.** A toolkit, not a framework. Pick the modules you need, ignore the rest. No mandatory configuration, no magic.
+
+The long-term goal is to grow grelmicro into an enterprise-grade toolkit, and eventually rewrite performance-critical components in Rust for better throughput and safety.
+
 ## Overview
 
-grelmicro provides essential features for building robust distributed systems, including:
-
-- **Backends**: Technology-agnostic design supporting Redis, PostgreSQL, SQLite, and in-memory backends for testing.
-- **Logging**: Easy-to-configure logging with support for both text or JSON structured format with configurable timezone.
-- **Resilience Patterns**: Implements common resilience patterns like retries and circuit breakers.
-- **Synchronization Primitives**: Includes leader election and distributed lock mechanisms.
-- **Task Scheduler**: A simple and efficient task scheduler for running periodic tasks.
-
-These features address common challenges in microservices and distributed, containerized systems while maintaining ease of use.
-
-### [Logging](https://grelinfo.github.io/grelmicro/logging/)
-
-The `logging` package provides a simple and easy-to-configure logging system.
-
-The logging feature adheres to the 12-factor app methodology, directing logs to `stdout`. It supports JSON and TEXT formatting with configurable timezone support and allows log level configuration via environment variables (`LOG_LEVEL`, `LOG_FORMAT`, `LOG_TIMEZONE`).
-
-### [Resilience Patterns](https://grelinfo.github.io/grelmicro/resilience/)
-
-The `resilience` package provides higher-order functions (decorators) that implement resilience patterns to improve fault tolerance and reliability in distributed systems.
-
-
-- **Circuit Breaker**: Automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.
-
-### [Synchronization Primitives](https://grelinfo.github.io/grelmicro/sync/)
-
-The `sync` package provides synchronization primitives for distributed systems.
-
-The primitives are technology agnostic, supporting multiple backends like Redis, PostgreSQL, SQLite, and in-memory for testing.
-
-The available primitives are:
-
-- **Task Lock**: A distributed lock for scheduled tasks with minimum and maximum hold times. Best used via the [`interval()` decorator with `max_lock_seconds`](https://grelinfo.github.io/grelmicro/task/#distributed-lock) which configures it automatically.
-- **Leader Election**: A single worker is elected as the leader for performing tasks only once in a cluster.
-- **Lock**: A distributed lock that can be used to synchronize access to shared resources.
-
-### [Task Scheduler](https://grelinfo.github.io/grelmicro/task/)
-
-The `task` package provides a simple task scheduler that can be used to run tasks periodically.
-
-> **Note**: This is not a replacement for bigger tools like Celery, taskiq, or APScheduler. It is just lightweight, easy to use, and safe for running tasks in a distributed system with synchronization.
-
-The key features are:
-
-- **Fast & Easy**: Offers simple decorators to define and schedule tasks effortlessly.
-- **Interval Task**: Allows tasks to run at specified intervals.
-- **Synchronization**: Controls concurrency using synchronization primitives to manage simultaneous task execution (see the `sync` package).
-- **Dependency Injection**: Use [FastDepends](https://lancetnik.github.io/FastDepends/) library to inject dependencies into tasks.
-- **Error Handling**: Catches and logs errors, ensuring that task execution errors do not stop the scheduling.
+- **[Cache](https://grelinfo.github.io/grelmicro/cache/)**: In-memory and Redis-backed caching with `@cached` decorator, per-key stampede protection, and swappable backends.
+- **[Sync](https://grelinfo.github.io/grelmicro/sync/)**: Distributed locks, leader election, and task locks across Redis, PostgreSQL, SQLite, Kubernetes, and in-memory backends.
+- **[Task](https://grelinfo.github.io/grelmicro/task/)**: Periodic task execution with distributed locking for at-most-once semantics across workers.
+- **[Resilience](https://grelinfo.github.io/grelmicro/resilience/)**: Circuit breaker for fault tolerance when calling unreliable services.
+- **[Logging](https://grelinfo.github.io/grelmicro/logging/)**: 12-factor-compliant logging with JSON/text formatting and timezone support.
 
 ## Installation
 
@@ -76,11 +45,11 @@ The key features are:
 pip install grelmicro
 ```
 
-## Examples
+## Example
 
 ### FastAPI Integration
 
-- Create a file `main.py` with:
+Create a file `main.py` with:
 
 ```python
 import logging
