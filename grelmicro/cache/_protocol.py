@@ -1,56 +1,45 @@
-"""Cache Protocol."""
+"""Cache Backend Protocol."""
 
-from typing import Any
-
-from typing_extensions import Protocol, runtime_checkable
-
-from grelmicro.cache.ttl import CacheInfo
+from types import TracebackType
+from typing import Protocol, Self
 
 
-@runtime_checkable
-class Cache(Protocol):
-    """Protocol for simple in-process caches (e.g. ``TTLCache``).
-
-    Sync methods for caches that do not perform I/O.
-    Can be used with both sync and async decorated functions.
-    """
-
-    def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
-        """Get a value by key."""
-        ...
-
-    def set(self, key: str, value: Any) -> None:  # noqa: ANN401
-        """Set a value."""
-        ...
-
-    def clear(self) -> None:
-        """Remove all entries."""
-        ...
-
-    def cache_info(self) -> CacheInfo:
-        """Return cache statistics."""
-        ...
-
-
-@runtime_checkable
 class CacheBackend(Protocol):
-    """Protocol for cache backends that perform I/O (e.g. ``RedisCache``).
+    """Protocol for cache storage backends.
 
-    Can only be used with async decorated functions.
+    All methods are async because backends typically perform I/O.
+    Backends are pure key-value stores: TTL, eviction, and statistics
+    are managed by ``TTLCache``.
     """
 
-    async def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
-        """Get a value by key."""
+    async def __aenter__(self) -> Self:
+        """Open the backend connection."""
         ...
 
-    async def set(self, key: str, value: Any) -> None:  # noqa: ANN401
-        """Set a value."""
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the backend connection."""
+        ...
+
+    async def get(self, *, key: str) -> bytes | None:
+        """Get raw bytes by key.
+
+        Returns None if the key is missing or expired.
+        """
+        ...
+
+    async def set(self, *, key: str, value: bytes, ttl: float) -> None:
+        """Store raw bytes with a TTL in seconds."""
+        ...
+
+    async def delete(self, *, key: str) -> None:
+        """Delete a key (no-op if absent)."""
         ...
 
     async def clear(self) -> None:
-        """Remove all entries."""
-        ...
-
-    def cache_info(self) -> CacheInfo:
-        """Return cache statistics."""
+        """Remove all entries managed by this backend."""
         ...

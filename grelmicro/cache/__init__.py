@@ -1,16 +1,17 @@
 """Cache Module."""
 
-from grelmicro.cache._protocol import Cache, CacheBackend
+from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
 from grelmicro.cache.errors import CacheError, CacheSettingsValidationError
+from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.ttl import CacheInfo, TTLCache
 
 __all__ = [
-    "Cache",
     "CacheBackend",
     "CacheError",
     "CacheInfo",
     "CacheSettingsValidationError",
+    "MemoryCacheBackend",
     "TTLCache",
     "cached",
 ]

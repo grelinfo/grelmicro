@@ -35,7 +35,7 @@ The long-term goal is to grow grelmicro into an enterprise-grade toolkit, and ev
 
 ### [Cache](cache.md)
 
-The `cache` module provides a `@cached` decorator with in-memory (`TTLCache`) and distributed (`RedisCache`) backends. Features include per-key stampede protection, serialization support, and swappable backends via the `CacheBackend` protocol.
+The `cache` module provides a `@cached` decorator with per-key stampede protection. Choose the cache that fits your use case: `TTLCache` for fast in-memory caching within a single process, or `RedisCache` for shared caching across multiple processes.
 
 ### [Synchronization Primitives](sync.md)
 

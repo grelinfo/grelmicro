@@ -1,10 +1,18 @@
 """TTL Cache."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from time import monotonic
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
+
+from grelmicro.cache._backends import get_cache_backend
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from grelmicro.cache._protocol import CacheBackend
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,7 +23,7 @@ class CacheInfo:
         hits: Number of cache hits.
         misses: Number of cache misses.
         maxsize: Maximum number of entries (``0`` means unlimited).
-        currsize: Current number of stored entries (may include expired).
+        currsize: Current number of tracked entries.
         evictions: Number of entries evicted to make room.
     """
 
@@ -26,17 +34,18 @@ class CacheInfo:
     evictions: int
 
 
+_SENTINEL = object()
+
+
 class TTLCache:
-    """Synchronous in-memory cache with per-entry TTL and LRU eviction.
+    """Cache with per-entry TTL and optional LRU eviction.
 
-    A dict-like cache where each entry expires after a configurable
-    time-to-live (TTL). Expiry is checked lazily on access. When the
-    cache is full, the oldest expired entry is evicted first, then the
-    least recently used entry (LRU).
+    Delegates storage to a ``CacheBackend`` (in-memory, Redis, etc.).
+    TTLCache handles maxsize enforcement, LRU eviction, serialization,
+    and statistics on top of the backend.
 
-    Accessing or overwriting a key promotes it to most-recently-used.
-
-    Not thread-safe: the caller is responsible for synchronization.
+    When no backend is provided, the registered default is used
+    (see ``MemoryCacheBackend`` or ``RedisCacheBackend``).
 
     Raises:
         ValueError: If maxsize is negative or ttl is not positive.
@@ -49,9 +58,10 @@ class TTLCache:
             Doc(
                 """
                 Maximum number of entries. ``0`` means unlimited.
+                Only enforced locally (not by the backend).
                 """,
             ),
-        ],
+        ] = 0,
         ttl: Annotated[
             float,
             Doc(
@@ -59,7 +69,36 @@ class TTLCache:
                 Default TTL in seconds for all entries.
                 """,
             ),
-        ],
+        ] = 60,
+        *,
+        backend: Annotated[
+            CacheBackend | None,
+            Doc(
+                """
+                The cache storage backend.
+
+                By default, the registered cache backend is used.
+                """,
+            ),
+        ] = None,
+        serializer: Annotated[
+            Callable[[Any], bytes] | None,
+            Doc(
+                """
+                Optional function to serialize values to bytes
+                before storing in the backend.
+                """,
+            ),
+        ] = None,
+        deserializer: Annotated[
+            Callable[[bytes], Any] | None,
+            Doc(
+                """
+                Optional function to deserialize bytes from the
+                backend back into values.
+                """,
+            ),
+        ] = None,
     ) -> None:
         """Initialize the cache."""
         if maxsize < 0:
@@ -68,123 +107,112 @@ class TTLCache:
         if ttl <= 0:
             msg = "ttl must be positive"
             raise ValueError(msg)
+        if (serializer is None) != (deserializer is None):
+            msg = "serializer and deserializer must be provided together"
+            raise ValueError(msg)
+
         self._maxsize = maxsize
         self._ttl = ttl
-        # Stores: key -> (value, expiry_time)
-        self._data: dict[str, tuple[Any, float]] = {}
+        self._backend = backend
+        self._serializer = serializer
+        self._deserializer = deserializer
         self._hits = 0
         self._misses = 0
         self._evictions = 0
+        # LRU tracking (ordered list of keys, most recent at end)
+        self._keys: list[str] = []
 
-    def get(
+    def _get_backend(self) -> CacheBackend:
+        """Resolve the backend (lazy, to allow registration after construction)."""
+        if self._backend is None:
+            self._backend = get_cache_backend()
+        return self._backend
+
+    def _serialize(self, value: Any) -> bytes:  # noqa: ANN401
+        """Serialize a value to bytes for storage."""
+        if self._serializer is not None:
+            return self._serializer(value)
+        if isinstance(value, bytes):
+            return value
+        msg = (
+            f"Cannot store {type(value).__name__} without a serializer. "
+            f"Pass serializer/deserializer to TTLCache or use bytes."
+        )
+        raise TypeError(msg)
+
+    def _deserialize(self, raw: bytes) -> Any:  # noqa: ANN401
+        """Deserialize bytes from storage."""
+        if self._deserializer is not None:
+            return self._deserializer(raw)
+        return raw
+
+    async def get(
         self,
-        key: Annotated[
-            str,
-            Doc(
-                """
-                The cache key.
-                """,
-            ),
-        ],
-        default: Annotated[  # noqa: ANN401
-            Any,
-            Doc(
-                """
-                Value to return if key is not found.
-                """,
-            ),
-        ] = None,
+        key: str,
+        default: Any = _SENTINEL,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         """Get a value by key.
 
         Returns the default if the key is missing or expired.
-        A successful hit promotes the key to most-recently-used.
+        A hit promotes the key in LRU order.
 
         Returns:
-            The cached value or the default.
+            The cached value, or None if not found and no default given.
         """
-        entry = self._data.get(key)
-        if entry is None:
+        raw = await self._get_backend().get(key=key)
+        if raw is None:
             self._misses += 1
-            return default
-        value, expiry = entry
-        if monotonic() >= expiry:
-            del self._data[key]
-            self._misses += 1
-            return default
-        # Move to end (most recently used) via delete + reinsert
-        del self._data[key]
-        self._data[key] = entry
+            return None if default is _SENTINEL else default
         self._hits += 1
-        return value
+        if self._maxsize > 0:
+            self._promote(key)
+        return self._deserialize(raw)
 
-    def set(
+    async def set(
         self,
-        key: Annotated[
-            str,
-            Doc(
-                """
-                The cache key.
-                """,
-            ),
-        ],
-        value: Annotated[  # noqa: ANN401
-            Any,
-            Doc(
-                """
-                The value to cache.
-                """,
-            ),
-        ],
-        ttl: Annotated[
-            float | None,
-            Doc(
-                """
-                Optional TTL override in seconds.
-                """,
-            ),
-        ] = None,
+        key: str,
+        value: Any,  # noqa: ANN401
+        ttl: float | None = None,
     ) -> None:
         """Set a value with an optional per-entry TTL override.
 
-        If the cache is full, the oldest expired entry is evicted
-        first. If no expired entries exist, the least recently used
-        entry is evicted.
+        If the cache is full (maxsize > 0), evicts the least recently
+        used entry before storing.
 
         Raises:
             ValueError: If ttl is not positive.
+            TypeError: If value is not bytes and no serializer is set.
         """
         if ttl is not None and ttl <= 0:
             msg = "ttl must be positive"
             raise ValueError(msg)
-        # If key already exists, remove it so reinsertion goes to end
-        if key in self._data:
-            del self._data[key]
-        elif self._maxsize > 0 and len(self._data) >= self._maxsize:
-            self._evict()
-        entry_ttl = ttl if ttl is not None else self._ttl
-        self._data[key] = (value, monotonic() + entry_ttl)
 
-    def delete(
-        self,
-        key: Annotated[
-            str,
-            Doc(
-                """
-                The cache key to delete.
-                """,
-            ),
-        ],
-    ) -> None:
+        entry_ttl = ttl if ttl is not None else self._ttl
+        raw = self._serialize(value)
+
+        # Evict if at capacity and this is a new key
+        if self._maxsize > 0 and key not in self._keys:
+            while len(self._keys) >= self._maxsize:
+                await self._evict()
+
+        await self._get_backend().set(key=key, value=raw, ttl=entry_ttl)
+
+        if self._maxsize > 0:
+            self._promote(key)
+
+    async def delete(self, key: str) -> None:
         """Delete a key from the cache.
 
         No-op if the key does not exist.
         """
-        self._data.pop(key, None)
+        await self._get_backend().delete(key=key)
+        if key in self._keys:
+            self._keys.remove(key)
 
-    def clear(self) -> None:
+    async def clear(self) -> None:
         """Remove all entries from the cache."""
-        self._data.clear()
+        await self._get_backend().clear()
+        self._keys.clear()
 
     def cache_info(self) -> CacheInfo:
         """Return a snapshot of cache statistics."""
@@ -192,49 +220,20 @@ class TTLCache:
             hits=self._hits,
             misses=self._misses,
             maxsize=self._maxsize,
-            currsize=len(self._data),
+            currsize=len(self._keys),
             evictions=self._evictions,
         )
 
-    def __contains__(self, key: str) -> bool:
-        """Check if a key exists and is not expired.
+    def _promote(self, key: str) -> None:
+        """Move a key to the most-recently-used position."""
+        if key in self._keys:
+            self._keys.remove(key)
+        self._keys.append(key)
 
-        Does not promote the key in LRU order, update hit/miss
-        statistics, or purge expired entries. Use ``get()`` for that.
-        """
-        entry = self._data.get(key)
-        if entry is None:
-            return False
-        _, expiry = entry
-        return monotonic() < expiry
-
-    def __len__(self) -> int:
-        """Return the number of entries, including expired ones.
-
-        Neither ``__len__`` nor ``__contains__`` purge expired entries
-        eagerly, so both reflect raw storage size consistently.
-        Expired entries are cleaned up lazily by ``get()`` and ``set()``.
-        """
-        return len(self._data)
-
-    def _evict(self) -> None:
-        """Evict one entry to make room for a new one.
-
-        Strategy: remove the oldest expired entry first. If none are
-        expired, remove the least recently used entry (LRU, first
-        in insertion order). Scans entries in order, O(n) in the
-        worst case.
-        """
-        now = monotonic()
-        oldest_expired_key: str | None = None
-        for k, (_, expiry) in self._data.items():
-            if now >= expiry:
-                oldest_expired_key = k
-                break
-        if oldest_expired_key is not None:
-            del self._data[oldest_expired_key]
-        else:
-            # Remove the first (LRU) entry
-            first_key = next(iter(self._data))
-            del self._data[first_key]
+    async def _evict(self) -> None:
+        """Evict the least recently used entry (first in key list)."""
+        if not self._keys:  # pragma: no cover
+            return
+        lru_key = self._keys.pop(0)
+        await self._get_backend().delete(key=lru_key)
         self._evictions += 1

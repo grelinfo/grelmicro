@@ -11,7 +11,6 @@ from typing_extensions import Doc
 
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache.errors import CacheSettingsValidationError
-from grelmicro.cache.ttl import CacheInfo
 
 
 class _RedisSettings(BaseSettings):
@@ -57,17 +56,14 @@ def _get_redis_url() -> str:
 _CLEAR_BATCH_SIZE = 1000
 
 
-class RedisCache:
-    """Redis-backed async cache.
+class RedisCacheBackend:
+    """Redis cache storage backend.
 
-    Implements the ``CacheBackend`` protocol. Each entry is stored with
-    a TTL handled natively by Redis. Keys are prefixed for isolation.
+    Pure key-value storage with per-entry TTL handled natively
+    by Redis (SETEX). Keys are prefixed for isolation.
 
-    Must be used as an async context manager to manage the connection
-    lifecycle.
-
-    Raises:
-        ValueError: If ttl is not positive.
+    Must be used as an async context manager to manage the
+    connection lifecycle.
     """
 
     def __init__(
@@ -91,12 +87,6 @@ class RedisCache:
                 By default no prefix is added.
                 """),
         ] = "",
-        ttl: Annotated[
-            float,
-            Doc("""
-                Default TTL in seconds for all entries.
-                """),
-        ],
         auto_register: Annotated[
             bool,
             Doc(
@@ -105,17 +95,10 @@ class RedisCache:
             ),
         ] = True,
     ) -> None:
-        """Initialize the Redis cache."""
-        if ttl <= 0:
-            msg = "ttl must be positive"
-            raise ValueError(msg)
-
+        """Initialize the Redis cache backend."""
         self._url = url or _get_redis_url()
         self._redis: Redis = Redis.from_url(str(self._url))
         self._prefix = prefix
-        self._ttl = ttl
-        self._hits = 0
-        self._misses = 0
         if auto_register:
             cache_backend_registry.set(self)
 
@@ -132,35 +115,26 @@ class RedisCache:
         """Close the cache connection."""
         await self._redis.aclose()
 
-    async def get(
-        self,
-        key: str,
-        default: Any = None,  # noqa: ANN401
-    ) -> Any:  # noqa: ANN401
-        """Get a value by key.
+    async def get(self, *, key: str) -> bytes | None:
+        """Get raw bytes by key.
 
-        Returns the default if the key is missing or expired.
+        Returns None if the key is missing or expired.
         """
-        result = await self._redis.get(f"{self._prefix}{key}")
-        if result is None:
-            self._misses += 1
-            return default
-        self._hits += 1
-        return result
+        return await self._redis.get(f"{self._prefix}{key}")
 
-    async def set(self, key: str, value: Any) -> None:  # noqa: ANN401
-        """Set a value with the configured TTL."""
-        await self._redis.set(f"{self._prefix}{key}", value, ex=self._ttl)
+    async def set(self, *, key: str, value: bytes, ttl: float) -> None:
+        """Store raw bytes with a TTL in seconds."""
+        await self._redis.set(f"{self._prefix}{key}", value, px=int(ttl * 1000))
 
-    async def delete(self, key: str) -> None:
-        """Delete a key from the cache."""
+    async def delete(self, *, key: str) -> None:
+        """Delete a key (no-op if absent)."""
         await self._redis.delete(f"{self._prefix}{key}")
 
     async def clear(self) -> None:
         """Remove all entries matching the configured prefix.
 
         Uses SCAN to iterate keys without blocking Redis, then
-        deletes in batches via pipeline.
+        deletes in batches.
         """
         batch: list[Any] = []
         async for redis_key in self._redis.scan_iter(match=f"{self._prefix}*"):
@@ -170,19 +144,3 @@ class RedisCache:
                 batch = []
         if batch:
             await self._redis.delete(*batch)
-
-    def cache_info(self) -> CacheInfo:
-        """Return a snapshot of cache statistics.
-
-        Counters are tracked locally (not stored in Redis).
-        ``maxsize`` is always 0 (unlimited, managed by Redis).
-        ``currsize`` is always 0 (counting prefixed keys is expensive).
-        ``evictions`` is always 0 (managed by Redis eviction policy).
-        """
-        return CacheInfo(
-            hits=self._hits,
-            misses=self._misses,
-            maxsize=0,
-            currsize=0,
-            evictions=0,
-        )

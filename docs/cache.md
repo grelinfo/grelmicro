@@ -1,31 +1,97 @@
 # Cache
 
-The `cache` package provides cache backends and a `@cached` decorator for sync and async functions. Backends are swappable: use the in-memory `TTLCache` for single-process applications, or `RedisCache` for distributed caching.
+The `cache` module provides a `TTLCache` with swappable backends and a `@cached` decorator for caching function results.
 
-- **[TTLCache](#ttlcache)**: In-memory cache with per-entry TTL and LRU eviction.
-- **[RedisCache](#redis-cache)**: Distributed cache backed by Redis.
-- **[@cached](#cached-decorator)**: Decorator that caches function results automatically.
+Choose the backend that fits your use case: `MemoryCacheBackend` for fast in-memory caching within a single process, or `RedisCacheBackend` for shared caching across multiple processes.
+
+## Backend
+
+You must load a cache backend before using `TTLCache`. The backend handles raw key-value storage while `TTLCache` manages TTL, eviction, serialization, and statistics.
+
+=== "Memory"
+    ```python
+    from grelmicro.cache.memory import MemoryCacheBackend
+
+    backend = MemoryCacheBackend()
+    ```
+
+=== "Redis"
+    ```python
+    from grelmicro.cache.redis import RedisCacheBackend
+
+    backend = RedisCacheBackend("redis://localhost:6379/0", prefix="myapp:")
+    ```
+
+Backends must be used as async context managers:
+
+```python
+async with backend:
+    # cache operations here
+    ...
+```
 
 ## TTLCache
 
-`TTLCache` is a synchronous in-memory cache where each entry expires after a configurable time-to-live (TTL). When the cache is full, expired entries are evicted first, then the least recently used (LRU) entry.
-
-### Usage
+`TTLCache` is the main cache class. It delegates storage to the registered backend and handles TTL, optional maxsize with LRU eviction, serialization, and statistics.
 
 ```python
---8<-- "cache/basic.py"
+from grelmicro.cache import TTLCache
+
+# Uses the registered backend (MemoryCacheBackend or RedisCacheBackend)
+cache = TTLCache(maxsize=100, ttl=300)
+
+# Or pass a backend explicitly
+cache = TTLCache(maxsize=100, ttl=300, backend=my_backend)
+```
+
+All `TTLCache` methods are async:
+
+```python
+await cache.set("key", b"value")
+result = await cache.get("key")
+await cache.delete("key")
+await cache.clear()
+```
+
+### Serialization
+
+Backends store raw bytes. To cache Python objects, provide a `serializer` and `deserializer`:
+
+```python
+import json
+
+cache = TTLCache(
+    ttl=300,
+    serializer=lambda v: json.dumps(v).encode(),
+    deserializer=json.loads,
+)
+
+await cache.set("user", {"id": 1, "name": "Alice"})  # stored as JSON bytes
+user = await cache.get("user")  # returns dict
+```
+
+Without a serializer, only `bytes` values are accepted.
+
+### Per-Entry TTL
+
+Override the default TTL for individual entries:
+
+```python
+await cache.set("session", b"token", ttl=3600)  # 1 hour instead of default
 ```
 
 ## @cached Decorator
 
-The `@cached` decorator automatically caches function results. It detects whether the decorated function is sync or async and wraps it accordingly.
-
-### Skip Condition
-
-Use the `skip` parameter to avoid caching unwanted results (e.g., `None` or error responses):
+The `@cached` decorator automatically caches function results. It works with both sync and async functions.
 
 ```python
---8<-- "cache/skip.py"
+from grelmicro.cache import TTLCache, cached
+
+cache = TTLCache(ttl=300, serializer=..., deserializer=...)
+
+@cached(cache)
+async def get_user(user_id: int) -> dict:
+    return await db.fetch_user(user_id)
 ```
 
 ### Stampede Protection
@@ -33,63 +99,26 @@ Use the `skip` parameter to avoid caching unwanted results (e.g., `None` or erro
 Set `lock=True` to prevent multiple concurrent callers from recomputing the same cache entry on a cache miss. When enabled, only one caller executes the function while all others **block and wait** until the result is available:
 
 ```python
---8<-- "cache/lock.py"
+@cached(cache, lock=True)
+async def get_user(user_id: int) -> dict:
+    return await db.fetch_user(user_id)
 ```
-
-The decorator auto-creates the appropriate lock type based on the decorated function (`asyncio.Lock()` for async, `threading.Lock()` for sync).
 
 Locking is **per-key**: concurrent misses on different keys proceed in parallel. Only callers hitting the same key are serialized, so one slow computation does not block unrelated keys.
 
-**When to use:** your cached function is expensive (database query, API call, heavy computation) and may be called concurrently with the same arguments. Without a lock, all callers that miss the cache would execute the function redundantly.
-
-!!! note
-    You can also pass a custom context manager instance (e.g. `lock=my_lock`) for global locking where a single lock is shared across all keys.
-
-### Statistics and Control
-
-Decorated functions expose `cache_info()` and `cache_clear()` methods matching the `functools.lru_cache` interface:
-
-```python
---8<-- "cache/stats.py"
-```
+**When to use:** your cached function is expensive (database query, API call, heavy computation) and may be called concurrently with the same arguments.
 
 ### Decorator Parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `cache` | `Cache` or `CacheBackend` | required | The cache instance to store results in (e.g. `TTLCache` or `RedisCache`). |
+| `cache` | `TTLCache` | required | The cache instance to store results in. |
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. |
-| `serializer` | `Callable` | `None` | Serializer for cached values. Must be paired with `deserializer`. |
-| `deserializer` | `Callable` | `None` | Deserializer for cached values. Must be paired with `serializer`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
-| `lock` | `bool` or context manager | `None` | Stampede protection. `True` enables per-key locking. See [Stampede Protection](#stampede-protection). |
+| `lock` | `bool` or context manager | `None` | Stampede protection. `True` enables per-key locking. |
 
-!!! warning
-    **Thread Safety:** `TTLCache` is not thread-safe. The caller is responsible for synchronization when accessing the cache from multiple threads.
-
-!!! warning
-    **Cache Key Stability:** Cache keys are derived from `repr()` of function arguments. Keys are stable within a single process but may vary across Python versions. Objects with default `__repr__` (e.g., custom class instances) include memory addresses, which means cache misses will always occur. Use a custom `key_maker` for such objects.
-
-## Redis Cache
-
-`RedisCache` is an async cache backend that stores entries in Redis with a configurable TTL. Use it for distributed caching across multiple processes or services.
-
-### Installation
-
-```bash
-pip install grelmicro[redis]
-```
-
-### Usage
-
-```python
---8<-- "cache/redis_basic.py"
-```
-
-`RedisCache` must be used as an async context manager. The connection is closed when the context exits.
-
-### Configuration
+## Redis Backend Configuration
 
 The Redis URL can be passed directly or read from environment variables:
 
@@ -103,27 +132,7 @@ The Redis URL can be passed directly or read from environment variables:
 
 Set either `REDIS_URL` or `REDIS_HOST` (not both).
 
-### Key Prefix
+Use the `prefix` parameter to isolate cache keys from other data in the same Redis instance.
 
-Use the `prefix` parameter to isolate cache keys from other data in the same Redis instance:
-
-```python
-cache = RedisCache(prefix="myapp:", ttl=300)
-```
-
-All keys are stored as `{prefix}{key}`. The `clear()` method only removes keys matching the prefix.
-
-### Serialization
-
-Redis stores bytes. When using `RedisCache` with `@cached`, you must provide `serializer` and `deserializer` to convert values to and from bytes.
-
-### Differences from TTLCache
-
-| Feature | TTLCache | RedisCache |
-|---|---|---|
-| Storage | In-memory (process-local) | Redis (distributed) |
-| Function type | Sync and async | Async only |
-| `maxsize` | Configurable | Managed by Redis eviction policy |
-| Serialization | Optional | Required (Redis stores bytes) |
-| `cache_info().currsize` | Exact count | Always 0 (counting prefixed keys is expensive) |
-| `cache_clear()` | Sync | Async (must be awaited) |
+!!! warning
+    **Cache Key Stability:** Cache keys are derived from `repr()` of function arguments. Keys are stable within a single process but may vary across Python versions. Objects with default `__repr__` (e.g., custom class instances) include memory addresses, which means cache misses will always occur. Use a custom `key_maker` for such objects.

@@ -5,14 +5,14 @@
       show_submodules: true
       members:
         - CacheBackend
-        - Cache
         - CacheError
         - CacheInfo
         - CacheSettingsValidationError
+        - MemoryCacheBackend
         - TTLCache
         - cached
 
 ::: grelmicro.cache.redis
     options:
       members:
-        - RedisCache
+        - RedisCacheBackend

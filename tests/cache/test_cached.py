@@ -1,93 +1,53 @@
 """Test Cached Decorator."""
 
 import asyncio
-import json
+import pickle
 import threading
 import time
 
+import anyio
+import anyio.to_thread
 import pytest
 
 from grelmicro.cache.cached import cached
+from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.ttl import TTLCache
 
-pytestmark = [pytest.mark.anyio]
+pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 
 EXPECTED_DOUBLE_5 = 10
+EXPECTED_CALL_COUNT_1 = 1
 EXPECTED_CALL_COUNT_2 = 2
+EXPECTED_HITS_1 = 1
+EXPECTED_MISSES_1 = 1
 EXPECTED_MISSES_2 = 2
 EXPECTED_CURRSIZE_2 = 2
 
 
-class TestSyncCached:
-    """Test cached decorator with sync functions."""
-
-    def test_caches_result(self) -> None:
-        """Test that repeated calls return cached result."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(cache)
-        def compute(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            return x * 2
-
-        # Act
-        first = compute(5)
-        second = compute(5)
-
-        # Assert
-        assert first == EXPECTED_DOUBLE_5
-        assert second == EXPECTED_DOUBLE_5
-        assert call_count == 1
-
-    def test_different_args_different_keys(self) -> None:
-        """Test that different arguments produce different keys."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(cache)
-        def compute(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            return x * 2
-
-        # Act
-        compute(1)
-        compute(2)
-
-        # Assert
-        assert call_count == EXPECTED_CALL_COUNT_2
-
-    def test_kwargs_are_part_of_key(self) -> None:
-        """Test that kwargs are included in the cache key."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(cache)
-        def greet(name: str, *, greeting: str = "hi") -> str:
-            nonlocal call_count
-            call_count += 1
-            return f"{greeting} {name}"
-
-        # Act
-        greet("alice", greeting="hello")
-        greet("alice", greeting="hey")
-
-        # Assert
-        assert call_count == EXPECTED_CALL_COUNT_2
+def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
+    """Create a TTLCache with MemoryCacheBackend and pickle serialization."""
+    backend = MemoryCacheBackend(auto_register=False)
+    return TTLCache(
+        maxsize=maxsize,
+        ttl=ttl,
+        backend=backend,
+        serializer=pickle.dumps,
+        deserializer=pickle.loads,
+    )
 
 
-class TestCacheBackend:
-    """Test cached decorator with async functions."""
+# ---------------------------------------------------------------------------
+# Async function tests
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncCachedBasic:
+    """Test @cached decorator with async functions: basic caching behavior."""
 
     async def test_caches_result(self) -> None:
-        """Test that repeated async calls return cached result."""
+        """Repeated async calls return the cached result without recomputing."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
 
         @cached(cache)
@@ -103,12 +63,12 @@ class TestCacheBackend:
         # Assert
         assert first == {"id": 1}
         assert second == {"id": 1}
-        assert call_count == 1
+        assert call_count == EXPECTED_CALL_COUNT_1
 
-    async def test_different_args_different_keys(self) -> None:
-        """Test that different args produce different cache entries."""
+    async def test_different_args_produce_different_keys(self) -> None:
+        """Different arguments result in separate cache entries."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
 
         @cached(cache)
@@ -124,174 +84,52 @@ class TestCacheBackend:
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_2
 
-
-class TestCustomKeyMaker:
-    """Test cached decorator with custom key_maker."""
-
-    def test_custom_key_maker(self) -> None:
-        """Test that custom key_maker is used for cache keys."""
+    async def test_kwargs_are_part_of_key(self) -> None:
+        """Kwargs are included in the cache key."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
 
-        @cached(
-            cache,
-            key_maker=lambda _func, args, _kwargs: str(args[0]),
-        )
-        def compute(x: int) -> int:
+        @cached(cache)
+        async def greet(name: str, *, greeting: str = "hi") -> str:
             nonlocal call_count
             call_count += 1
-            return x * 2
+            return f"{greeting} {name}"
 
         # Act
-        compute(5)
-        compute(5)
+        await greet("alice", greeting="hello")
+        await greet("alice", greeting="hey")
 
-        # Assert
-        assert call_count == 1
+        # Assert: different kwargs means different cache keys
+        assert call_count == EXPECTED_CALL_COUNT_2
 
-    async def test_custom_key_maker_async(self) -> None:
-        """Test that custom key_maker works with async functions."""
+
+class TestAsyncCachedSkip:
+    """Test @cached skip predicate with async functions."""
+
+    async def test_skip_none_results_not_cached(self) -> None:
+        """Results matching skip predicate are not stored in cache."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(
-            cache,
-            key_maker=lambda _func, args, _kwargs: str(args[0]),
-        )
-        async def fetch(user_id: int) -> dict:
-            nonlocal call_count
-            call_count += 1
-            return {"id": user_id}
-
-        # Act
-        await fetch(1)
-        await fetch(1)
-
-        # Assert
-        assert call_count == 1
-
-
-class TestSerializer:
-    """Test cached decorator with serializer/deserializer."""
-
-    def test_with_serializer(self) -> None:
-        """Test that serializer and deserializer are applied."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-
-        @cached(
-            cache,
-            serializer=lambda v: json.dumps(v).encode(),
-            deserializer=json.loads,
-        )
-        def get_data() -> dict:
-            return {"key": "value"}
-
-        # Act
-        first = get_data()
-        second = get_data()
-
-        # Assert
-        assert first == {"key": "value"}
-        assert second == {"key": "value"}
-
-    async def test_with_serializer_async(self) -> None:
-        """Test serializer/deserializer with async functions."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-
-        @cached(
-            cache,
-            serializer=lambda v: json.dumps(v).encode(),
-            deserializer=json.loads,
-        )
-        async def get_data() -> dict:
-            return {"key": "value"}
-
-        # Act
-        first = await get_data()
-        second = await get_data()
-
-        # Assert
-        assert first == {"key": "value"}
-        assert second == {"key": "value"}
-
-
-class TestSerializerValidation:
-    """Test that serializer and deserializer must be paired."""
-
-    def test_serializer_without_deserializer(self) -> None:
-        """Test that providing only serializer raises ValueError."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-
-        # Act / Assert
-        with pytest.raises(
-            ValueError,
-            match="serializer and deserializer must be provided together",
-        ):
-            cached(cache, serializer=lambda v: json.dumps(v).encode())
-
-    def test_deserializer_without_serializer(self) -> None:
-        """Test that providing only deserializer raises ValueError."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-
-        # Act / Assert
-        with pytest.raises(
-            ValueError,
-            match="serializer and deserializer must be provided together",
-        ):
-            cached(cache, deserializer=json.loads)
-
-
-class TestSkip:
-    """Test cached decorator with skip condition."""
-
-    def test_skip_none_results(self) -> None:
-        """Test that None results are not cached when skip is set."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
 
         @cached(cache, skip=lambda r: r is None)
-        def maybe_fetch(*, found: bool) -> str | None:
+        async def maybe_fetch(*, found: bool) -> str | None:
             nonlocal call_count
             call_count += 1
             return "data" if found else None
 
-        # Act
-        maybe_fetch(found=False)  # returns None, not cached
-        maybe_fetch(found=False)  # still calls function
+        # Act: None result not cached, so each call invokes function
+        await maybe_fetch(found=False)
+        await maybe_fetch(found=False)
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_2
 
-    def test_skip_does_not_affect_valid_results(self) -> None:
-        """Test that valid results are still cached with skip."""
+    async def test_skip_does_not_affect_valid_results(self) -> None:
+        """Results not matching skip predicate are cached normally."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(cache, skip=lambda r: r is None)
-        def maybe_fetch(*, found: bool) -> str | None:
-            nonlocal call_count
-            call_count += 1
-            return "data" if found else None
-
-        # Act
-        maybe_fetch(found=True)  # cached
-        maybe_fetch(found=True)  # cache hit
-
-        # Assert
-        assert call_count == 1
-
-    async def test_skip_async(self) -> None:
-        """Test skip condition with async functions."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
 
         @cached(cache, skip=lambda r: r is None)
@@ -301,67 +139,20 @@ class TestSkip:
             return "data" if found else None
 
         # Act
-        await maybe_fetch(found=False)
-        await maybe_fetch(found=False)
+        await maybe_fetch(found=True)
+        await maybe_fetch(found=True)
 
         # Assert
-        assert call_count == EXPECTED_CALL_COUNT_2
+        assert call_count == EXPECTED_CALL_COUNT_1
 
 
-class TestTyped:
-    """Test cached decorator with typed key generation."""
+class TestAsyncCachedTyped:
+    """Test @cached with typed=True key generation on async functions."""
 
-    def test_typed_distinguishes_int_and_float(self) -> None:
-        """Test that typed=True caches 3 and 3.0 separately."""
+    async def test_typed_distinguishes_int_and_float(self) -> None:
+        """typed=True caches 3 and 3.0 as separate entries."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(cache, typed=True)
-        def compute(x: float) -> str:
-            nonlocal call_count
-            call_count += 1
-            return type(x).__name__
-
-        # Act
-        compute(3)
-        compute(3.0)
-
-        # Assert
-        assert call_count == EXPECTED_CALL_COUNT_2
-
-    def test_typed_distinguishes_same_repr(self) -> None:
-        """Test typed=True distinguishes args with same repr."""
-
-        # Arrange: two types with identical repr
-        class A:
-            def __repr__(self) -> str:
-                return "X"
-
-        class B:
-            def __repr__(self) -> str:
-                return "X"
-
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(cache, typed=True)
-        def identity(x: object) -> str:
-            nonlocal call_count
-            call_count += 1
-            return type(x).__name__
-
-        # Act: same repr, different types
-        identity(A())
-        identity(B())
-
-        # Assert: typed ensures separate cache entries
-        assert call_count == EXPECTED_CALL_COUNT_2
-
-    async def test_typed_async(self) -> None:
-        """Test typed key generation with async functions."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
 
         @cached(cache, typed=True)
@@ -377,56 +168,41 @@ class TestTyped:
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_2
 
+    async def test_typed_distinguishes_same_repr(self) -> None:
+        """typed=True separates types that share the same repr."""
 
-class TestCacheControlMethods:
-    """Test cache_info() and cache_clear() on decorated functions."""
+        class A:
+            def __repr__(self) -> str:
+                return "X"
 
-    def test_cache_info(self) -> None:
-        """Test that cache_info() returns statistics."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        class B:
+            def __repr__(self) -> str:
+                return "X"
 
-        @cached(cache)
-        def compute(x: int) -> int:
-            return x * 2
-
-        # Act
-        compute(1)  # miss
-        compute(1)  # hit
-        compute(2)  # miss
-        info = compute.cache_info()  # type: ignore[attr-defined]
-
-        # Assert
-        assert info.hits == 1
-        assert info.misses == EXPECTED_MISSES_2
-        assert info.currsize == EXPECTED_CURRSIZE_2
-
-    def test_cache_clear(self) -> None:
-        """Test that cache_clear() empties the cache."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
 
-        @cached(cache)
-        def compute(x: int) -> int:
+        @cached(cache, typed=True)
+        async def identity(x: object) -> str:
             nonlocal call_count
             call_count += 1
-            return x * 2
-
-        compute(1)
-        assert call_count == 1
+            return type(x).__name__
 
         # Act
-        compute.cache_clear()  # type: ignore[attr-defined]
-        compute(1)
+        await identity(A())
+        await identity(B())
 
-        # Assert: recomputed after clear
+        # Assert: same repr but different types produces two cache entries
         assert call_count == EXPECTED_CALL_COUNT_2
 
-    async def test_cache_info_async(self) -> None:
-        """Test cache_info() on async decorated function."""
+
+class TestAsyncCachedCacheControl:
+    """Test cache_info() and cache_clear() on async decorated functions."""
+
+    async def test_cache_info_tracks_hits_and_misses(self) -> None:
+        """cache_info() returns accurate hit/miss statistics."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
 
         @cached(cache)
         async def fetch(x: int) -> int:
@@ -434,17 +210,31 @@ class TestCacheControlMethods:
 
         # Act
         await fetch(1)  # miss
+        await fetch(2)  # miss
         await fetch(1)  # hit
         info = fetch.cache_info()  # type: ignore[attr-defined]
 
         # Assert
-        assert info.hits == 1
-        assert info.misses == 1
+        assert info.hits == EXPECTED_HITS_1
+        assert info.misses == EXPECTED_MISSES_2
+        assert info.currsize == EXPECTED_CURRSIZE_2
 
-    async def test_cache_clear_async(self) -> None:
-        """Test cache_clear() on async decorated function."""
+    async def test_cache_clear_is_coroutine(self) -> None:
+        """cache_clear() on a TTLCache-backed function is a coroutine."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
+
+        @cached(cache)
+        async def fetch(x: int) -> int:
+            return x
+
+        # Assert
+        assert asyncio.iscoroutinefunction(fetch.cache_clear)  # type: ignore[attr-defined]
+
+    async def test_cache_clear_empties_the_cache(self) -> None:
+        """Awaiting cache_clear() causes subsequent calls to recompute."""
+        # Arrange
+        cache = _make_cache()
         call_count = 0
 
         @cached(cache)
@@ -454,35 +244,42 @@ class TestCacheControlMethods:
             return x
 
         await fetch(1)
-        assert call_count == 1
+        assert call_count == EXPECTED_CALL_COUNT_1
 
         # Act
-        fetch.cache_clear()  # type: ignore[attr-defined]
+        await fetch.cache_clear()  # type: ignore[attr-defined]
         await fetch(1)
 
-        # Assert
+        # Assert: recomputed after clear
         assert call_count == EXPECTED_CALL_COUNT_2
 
-
-class TestFunctionMetadata:
-    """Test that cached preserves function metadata."""
-
-    def test_preserves_name(self) -> None:
-        """Test that the wrapper preserves __name__."""
+    async def test_cache_info_currsize_resets_after_clear(self) -> None:
+        """Currsize drops to zero after clear."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
 
         @cached(cache)
-        def my_function() -> None:
-            pass
+        async def fetch(x: int) -> int:
+            return x
+
+        await fetch(1)
+        await fetch(2)
+        assert fetch.cache_info().currsize == EXPECTED_CURRSIZE_2  # type: ignore[attr-defined]
+
+        # Act
+        await fetch.cache_clear()  # type: ignore[attr-defined]
 
         # Assert
-        assert my_function.__name__ == "my_function"
+        assert fetch.cache_info().currsize == 0  # type: ignore[attr-defined]
 
-    async def test_preserves_name_async(self) -> None:
-        """Test that the async wrapper preserves __name__."""
+
+class TestAsyncCachedFunctionMetadata:
+    """Test that @cached preserves decorated async function metadata."""
+
+    async def test_preserves_name(self) -> None:
+        """The async wrapper preserves __name__."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
 
         @cached(cache)
         async def my_async_function() -> None:
@@ -491,116 +288,69 @@ class TestFunctionMetadata:
         # Assert
         assert my_async_function.__name__ == "my_async_function"
 
-
-class TestLock:
-    """Test cached decorator with lock for stampede protection."""
-
-    def test_lock_prevents_duplicate_computation(self) -> None:
-        """Test that lock prevents redundant computation."""
+    async def test_preserves_doc(self) -> None:
+        """The async wrapper preserves __doc__."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
+        cache = _make_cache()
 
-        @cached(cache, lock=threading.Lock())
-        def compute(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            return x * 2
-
-        # Act
-        compute(5)
-        compute(5)
+        @cached(cache)
+        async def documented() -> None:
+            """Return nothing."""
 
         # Assert
-        assert call_count == 1
+        assert documented.__doc__ == "Return nothing."
 
-    async def test_async_lock_prevents_duplicate_computation(
-        self,
-    ) -> None:
-        """Test that async lock prevents redundant computation."""
+
+class TestAsyncCachedKeyMaker:
+    """Test @cached with custom key_maker on async functions."""
+
+    async def test_custom_key_maker(self) -> None:
+        """Custom key_maker is used for cache keys."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
-        barrier = asyncio.Event()
 
-        @cached(cache, lock=asyncio.Lock())
-        async def slow_fetch(x: int) -> int:
+        @cached(cache, key_maker=lambda _func, args, _kwargs: str(args[0]))
+        async def fetch(user_id: int) -> dict:
             nonlocal call_count
             call_count += 1
-            await barrier.wait()
-            return x * 2
+            return {"id": user_id}
 
-        # Act: launch two concurrent calls
-        task1 = asyncio.create_task(slow_fetch(5))
-        task2 = asyncio.create_task(slow_fetch(5))
-        await asyncio.sleep(0)  # let tasks start
-        barrier.set()
-        await task1
-        await task2
+        # Act
+        await fetch(1)
+        await fetch(1)
 
-        # Assert: only one actual computation
-        assert call_count == 1
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_1
 
-    def test_sync_lock_concurrent_stampede(self) -> None:
-        """Test that sync lock prevents duplicate computation under thread contention."""
+    async def test_custom_key_maker_isolates_entries(self) -> None:
+        """Custom key_maker can collapse different args to the same key."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
-        started = threading.Event()
 
-        @cached(cache, lock=threading.Lock())
-        def slow_compute(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            started.set()
-            time.sleep(0.1)
-            return x * 2
-
-        # Act: launch two threads hitting the same key concurrently
-        results: list[int] = []
-        errors: list[Exception] = []
-
-        def worker() -> None:
-            try:
-                results.append(slow_compute(5))
-            except Exception as exc:  # noqa: BLE001
-                errors.append(exc)
-
-        t1 = threading.Thread(target=worker)
-        t2 = threading.Thread(target=worker)
-        t1.start()
-        started.wait(timeout=2)
-        t2.start()
-        t1.join(timeout=5)
-        t2.join(timeout=5)
-
-        # Assert: only one computation, both get the same result
-        assert not errors
-        assert call_count == 1
-        assert results == [10, 10]
-
-    async def test_async_lock_cache_hit_skips_lock(self) -> None:
-        """Test that cache hit doesn't acquire the lock."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-
-        @cached(cache, lock=asyncio.Lock())
+        # Always return the same key regardless of args
+        @cached(cache, key_maker=lambda _func, _args, _kwargs: "fixed")
         async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
             return x
 
-        # Act: first call populates cache
+        # Act: different args, but key_maker collapses them
         await fetch(1)
-        # Second call should hit cache without lock
-        result = await fetch(1)
+        await fetch(2)
 
-        # Assert
-        assert result == 1
-        assert cache.cache_info().hits == 1
+        # Assert: both map to same key, only one computation
+        assert call_count == EXPECTED_CALL_COUNT_1
 
-    async def test_lock_true_async(self) -> None:
-        """Test lock=True auto-creates asyncio.Lock for async functions."""
+
+class TestAsyncCachedLock:
+    """Test @cached with lock-based stampede protection on async functions."""
+
+    async def test_lock_true_prevents_duplicate_computation(self) -> None:
+        """lock=True ensures only one coroutine computes on concurrent miss."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
@@ -611,60 +361,25 @@ class TestLock:
             await barrier.wait()
             return x * 2
 
-        # Act: launch two concurrent calls
+        # Act: launch two concurrent tasks hitting the same key
         task1 = asyncio.create_task(slow_fetch(5))
         task2 = asyncio.create_task(slow_fetch(5))
-        await asyncio.sleep(0)
+        await asyncio.sleep(0)  # allow both tasks to start
         barrier.set()
-        await task1
-        await task2
+        result1 = await task1
+        result2 = await task2
 
-        # Assert: only one actual computation
-        assert call_count == 1
+        # Assert: only one computation, both tasks receive the same result
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert result1 == EXPECTED_DOUBLE_5
+        assert result2 == EXPECTED_DOUBLE_5
 
-    def test_lock_true_sync(self) -> None:
-        """Test lock=True auto-creates threading.Lock for sync functions."""
+    async def test_lock_true_per_key_allows_parallel_different_keys(
+        self,
+    ) -> None:
+        """lock=True uses per-key locks: different keys run in parallel."""
         # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(cache, lock=True)
-        def compute(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            return x * 2
-
-        # Act
-        compute(5)
-        compute(5)
-
-        # Assert
-        assert call_count == 1
-
-    def test_lock_false_disables_protection(self) -> None:
-        """Test lock=False behaves like lock=None."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
-        call_count = 0
-
-        @cached(cache, lock=False)
-        def compute(x: int) -> int:
-            nonlocal call_count
-            call_count += 1
-            return x * 2
-
-        # Act
-        compute(5)
-        compute(5)
-
-        # Assert
-        assert call_count == 1
-        assert cache.cache_info().hits == 1
-
-    async def test_lock_true_per_key(self) -> None:
-        """Test lock=True uses per-key locks: different keys don't block each other."""
-        # Arrange
-        cache = TTLCache(maxsize=10, ttl=60)
+        cache = _make_cache()
         order: list[str] = []
         barrier_a = asyncio.Event()
         barrier_b = asyncio.Event()
@@ -681,22 +396,424 @@ class TestLock:
                 order.append("b:end")
             return key
 
-        # Act: launch calls with different keys
+        # Act: launch tasks on different keys concurrently
         task_a = asyncio.create_task(fetch("a"))
         await asyncio.sleep(0)
         task_b = asyncio.create_task(fetch("b"))
         await asyncio.sleep(0)
 
-        # Both should have started (per-key, not blocking each other)
+        # Both tasks should have started (independent per-key locks)
         assert "a:start" in order
         assert "b:start" in order
 
+        # Finish "b" while "a" is still blocked
         barrier_b.set()
         await task_b
-        # "b" finishes while "a" is still blocked
         assert "b:end" in order
         assert "a:end" not in order
 
+        # Now finish "a"
         barrier_a.set()
         await task_a
         assert "a:end" in order
+
+    async def test_custom_asyncio_lock_prevents_duplicate_computation(
+        self,
+    ) -> None:
+        """A custom asyncio.Lock provides global stampede protection."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+        barrier = asyncio.Event()
+
+        @cached(cache, lock=asyncio.Lock())
+        async def slow_fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            await barrier.wait()
+            return x * 2
+
+        # Act
+        task1 = asyncio.create_task(slow_fetch(5))
+        task2 = asyncio.create_task(slow_fetch(5))
+        await asyncio.sleep(0)
+        barrier.set()
+        await task1
+        await task2
+
+        # Assert: global lock serializes concurrent same-key misses
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_lock_true_cache_hit_does_not_acquire_lock(self) -> None:
+        """A cache hit returns immediately without touching the lock."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache, lock=True)
+        async def fetch(x: int) -> int:
+            return x
+
+        # Populate the cache
+        await fetch(1)
+
+        # Act: second call is a cache hit, no lock needed
+        result = await fetch(1)
+
+        # Assert
+        assert result == 1
+        assert cache.cache_info().hits == EXPECTED_HITS_1
+
+    async def test_lock_false_disables_protection(self) -> None:
+        """lock=False behaves like lock=None (no protection but still caches)."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, lock=False)
+        async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x
+
+        # Act
+        await fetch(5)
+        await fetch(5)
+
+        # Assert: still caches correctly
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert cache.cache_info().hits == EXPECTED_HITS_1
+
+
+# ---------------------------------------------------------------------------
+# Sync function tests
+# ---------------------------------------------------------------------------
+# Sync decorated functions use anyio.from_thread.run internally to call the
+# async TTLCache. They require a running event loop. The pattern is to call
+# them from a thread launched by anyio.to_thread.run_sync inside an async test.
+
+
+class TestSyncCachedBasic:
+    """Test @cached decorator with sync functions."""
+
+    async def test_caches_result(self) -> None:
+        """Repeated sync calls return the cached result without recomputing."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act: run sync function from a thread (provides the required event loop)
+        async def run() -> tuple[int, int]:
+            first = await anyio.to_thread.run_sync(lambda: compute(5))
+            second = await anyio.to_thread.run_sync(lambda: compute(5))
+            return first, second
+
+        first, second = await run()
+
+        # Assert
+        assert first == EXPECTED_DOUBLE_5
+        assert second == EXPECTED_DOUBLE_5
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_different_args_produce_different_keys(self) -> None:
+        """Different arguments result in separate cache entries."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: compute(1))
+        await anyio.to_thread.run_sync(lambda: compute(2))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    async def test_kwargs_are_part_of_key(self) -> None:
+        """Kwargs are included in the cache key."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache)
+        def greet(name: str, *, greeting: str = "hi") -> str:
+            nonlocal call_count
+            call_count += 1
+            return f"{greeting} {name}"
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: greet("alice", greeting="hello"))
+        await anyio.to_thread.run_sync(lambda: greet("alice", greeting="hey"))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+
+class TestSyncCachedSkip:
+    """Test @cached skip predicate with sync functions."""
+
+    async def test_skip_none_results_not_cached(self) -> None:
+        """Results matching skip predicate are not stored in cache."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, skip=lambda r: r is None)
+        def maybe_fetch(*, found: bool) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            return "data" if found else None
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: maybe_fetch(found=False))
+        await anyio.to_thread.run_sync(lambda: maybe_fetch(found=False))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    async def test_skip_does_not_affect_valid_results(self) -> None:
+        """Results not matching skip predicate are cached normally."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, skip=lambda r: r is None)
+        def maybe_fetch(*, found: bool) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            return "data" if found else None
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: maybe_fetch(found=True))
+        await anyio.to_thread.run_sync(lambda: maybe_fetch(found=True))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+
+class TestSyncCachedTyped:
+    """Test @cached with typed=True on sync functions."""
+
+    async def test_typed_distinguishes_int_and_float(self) -> None:
+        """typed=True caches 3 and 3.0 as separate entries."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, typed=True)
+        def compute(x: float) -> str:
+            nonlocal call_count
+            call_count += 1
+            return type(x).__name__
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: compute(3))
+        await anyio.to_thread.run_sync(lambda: compute(3.0))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+
+class TestSyncCachedCacheControl:
+    """Test cache_info() and cache_clear() on sync decorated functions."""
+
+    async def test_cache_info_tracks_hits_and_misses(self) -> None:
+        """cache_info() returns accurate hit/miss statistics."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            return x * 2
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: compute(1))  # miss
+        await anyio.to_thread.run_sync(lambda: compute(1))  # hit
+        info = compute.cache_info()  # type: ignore[attr-defined]
+
+        # Assert
+        assert info.hits == EXPECTED_HITS_1
+        assert info.misses == EXPECTED_MISSES_1
+
+    async def test_cache_clear_empties_the_cache(self) -> None:
+        """Awaiting cache_clear() causes subsequent sync calls to recompute."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        await anyio.to_thread.run_sync(lambda: compute(1))
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+        # Act: cache_clear is always a coroutine
+        await compute.cache_clear()  # type: ignore[attr-defined]
+        await anyio.to_thread.run_sync(lambda: compute(1))
+
+        # Assert: recomputed after clear
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+
+class TestSyncCachedFunctionMetadata:
+    """Test that @cached preserves decorated sync function metadata."""
+
+    async def test_preserves_name(self) -> None:
+        """The sync wrapper preserves __name__."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache)
+        def my_function() -> None:
+            pass
+
+        # Assert
+        assert my_function.__name__ == "my_function"
+
+    async def test_preserves_doc(self) -> None:
+        """The sync wrapper preserves __doc__."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache)
+        def documented() -> None:
+            """Return nothing."""
+
+        # Assert
+        assert documented.__doc__ == "Return nothing."
+
+
+class TestSyncCachedKeyMaker:
+    """Test @cached with custom key_maker on sync functions."""
+
+    async def test_custom_key_maker(self) -> None:
+        """Custom key_maker is used for cache keys."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, key_maker=lambda _func, args, _kwargs: str(args[0]))
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: compute(5))
+        await anyio.to_thread.run_sync(lambda: compute(5))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+
+class TestSyncCachedLock:
+    """Test @cached with lock-based stampede protection on sync functions."""
+
+    async def test_lock_true_prevents_duplicate_computation(self) -> None:
+        """lock=True with threading.Lock prevents redundant computation."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, lock=True)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: compute(5))
+        await anyio.to_thread.run_sync(lambda: compute(5))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_custom_threading_lock_prevents_stampede(self) -> None:
+        """A custom threading.Lock provides global stampede protection."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+        # started is set the first time slow_compute begins executing
+        started = threading.Event()
+
+        @cached(cache, lock=threading.Lock())
+        def slow_compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            started.set()
+            time.sleep(0.05)
+            return x * 2
+
+        # Act: run two concurrent anyio worker threads, each calling slow_compute.
+        # anyio.to_thread.run_sync keeps threads inside the anyio portal so
+        # from_thread.run works correctly inside slow_compute.
+        async with anyio.create_task_group() as tg:
+            results: list[int] = []
+
+            async def run_one() -> None:
+                result = await anyio.to_thread.run_sync(lambda: slow_compute(5))
+                results.append(result)
+
+            tg.start_soon(run_one)
+            # Give the first task a moment to enter slow_compute before the second starts
+            await asyncio.sleep(0.01)
+            tg.start_soon(run_one)
+
+        # Assert: only one computation, both callers receive the same result
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
+
+    async def test_lock_true_per_key_sync(self) -> None:
+        """lock=True uses per-key threading.Lock: same key serialized, different keys not."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, lock=True)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act: same key, sequential via threads
+        await anyio.to_thread.run_sync(lambda: compute(5))
+        await anyio.to_thread.run_sync(lambda: compute(5))
+
+        # Different key should compute independently
+        await anyio.to_thread.run_sync(lambda: compute(6))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_2  # 5 once, 6 once
+
+    async def test_lock_false_still_caches(self) -> None:
+        """lock=False behaves like lock=None (no protection but still caches)."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, lock=False)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act
+        await anyio.to_thread.run_sync(lambda: compute(5))
+        await anyio.to_thread.run_sync(lambda: compute(5))
+
+        # Assert
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert cache.cache_info().hits == EXPECTED_HITS_1

@@ -1,4 +1,4 @@
-"""Integration Tests for RedisCache Backend."""
+"""Tests for Cache Backends (parametrized across all implementations)."""
 
 import json
 from collections.abc import AsyncGenerator, Generator
@@ -7,18 +7,16 @@ import pytest
 from anyio import sleep
 from testcontainers.redis import RedisContainer
 
+from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
-from grelmicro.cache.redis import RedisCache
+from grelmicro.cache.memory import MemoryCacheBackend
+from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.cache.ttl import TTLCache
 
-pytestmark = [
-    pytest.mark.anyio,
-    pytest.mark.integration,
-    pytest.mark.timeout(30),
-]
+pytestmark = [pytest.mark.anyio, pytest.mark.timeout(30)]
 
-EXPECTED_HITS_1 = 1
-EXPECTED_MISSES_1 = 1
-EXPECTED_MISSES_2 = 2
+
+# --- Fixtures (parametrized across backends) ---
 
 
 @pytest.fixture(scope="module")
@@ -27,180 +25,192 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture(scope="module")
-def container() -> Generator[RedisContainer, None, None]:
-    """Start a Redis testcontainer for the module."""
-    with RedisContainer() as redis_container:
-        yield redis_container
+@pytest.fixture(
+    params=[
+        "memory",
+        pytest.param("redis", marks=[pytest.mark.integration]),
+    ],
+    scope="module",
+)
+def backend_name(request: pytest.FixtureRequest) -> str:
+    """Backend name."""
+    return request.param
 
 
 @pytest.fixture(scope="module")
-async def cache(container: RedisContainer) -> AsyncGenerator[RedisCache, None]:
-    """Create a module-scoped RedisCache connected to the testcontainer."""
-    port = container.get_exposed_port(6379)
-    async with RedisCache(
-        url=f"redis://localhost:{port}/0", prefix="test:", ttl=60
-    ) as redis_cache:
-        yield redis_cache
+def container(
+    backend_name: str,
+) -> Generator[RedisContainer | None, None, None]:
+    """Docker container (only for Redis)."""
+    if backend_name == "redis":
+        with RedisContainer() as redis_container:
+            yield redis_container
+    else:
+        yield None
 
 
-async def test_get_set_roundtrip(cache: RedisCache) -> None:
+@pytest.fixture(scope="module")
+async def backend(
+    backend_name: str, container: RedisContainer | None
+) -> AsyncGenerator[CacheBackend]:
+    """Cache backend instance."""
+    if backend_name == "redis" and container:
+        port = container.get_exposed_port(6379)
+        async with RedisCacheBackend(
+            f"redis://localhost:{port}/0",
+            prefix="test:",
+            auto_register=False,
+        ) as redis_backend:
+            yield redis_backend
+    elif backend_name == "memory":
+        async with MemoryCacheBackend(auto_register=False) as memory_backend:
+            yield memory_backend
+
+
+# --- Shared tests (run against all backends) ---
+
+
+async def test_get_set_roundtrip(backend: CacheBackend) -> None:
     """Test that bytes written with set are returned unchanged by get."""
-    # Arrange
-    key = "roundtrip"
-    value = b"hello world"
+    await backend.set(key="roundtrip", value=b"hello", ttl=60)
 
-    # Act
-    await cache.set(key, value)
-    result = await cache.get(key)
+    result = await backend.get(key="roundtrip")
 
-    # Assert
-    assert result == value
+    assert result == b"hello"
 
 
-async def test_get_miss_returns_default(cache: RedisCache) -> None:
-    """Test that a nonexistent key returns the specified default value."""
-    # Arrange: use a key that was never written
-    key = "key_that_does_not_exist_xyz"
+async def test_get_miss_returns_none(backend: CacheBackend) -> None:
+    """Test that a nonexistent key returns None."""
+    result = await backend.get(key="nonexistent_key_xyz")
 
-    # Act
-    result = await cache.get(key, default=b"fallback")
-
-    # Assert
-    assert result == b"fallback"
-
-
-async def test_get_miss_returns_none_when_no_default(cache: RedisCache) -> None:
-    """Test that a missing key returns None when no default is provided."""
-    # Arrange
-    key = "another_missing_key_abc"
-
-    # Act
-    result = await cache.get(key)
-
-    # Assert
     assert result is None
 
 
-async def test_ttl_expiry() -> None:
+async def test_ttl_expiry(backend: CacheBackend) -> None:
     """Test that a key becomes unavailable after the TTL elapses."""
-    # Arrange: create a separate short-lived cache instance (not module-scoped)
-    # This test creates its own container to avoid disturbing the shared fixture.
-    # We reuse the module container by obtaining a fresh cache with ttl=1.
-    # Because the container fixture is module-scoped, access it via a new fixture
-    # param is not possible here, so we start a dedicated container for this test.
-    with RedisContainer() as ttl_container:
-        port = ttl_container.get_exposed_port(6379)
-        url = f"redis://localhost:{port}/0"
-        async with RedisCache(url=url, prefix="ttl:", ttl=1) as short_cache:
-            key = "expiring_key"
-            await short_cache.set(key, b"soon gone")
+    await backend.set(key="expiring", value=b"temp", ttl=0.5)
 
-            # Verify the key is present immediately
-            result_before = await short_cache.get(key)
-            assert result_before == b"soon gone"
+    assert await backend.get(key="expiring") == b"temp"
 
-            # Act: wait longer than the TTL
-            await sleep(1.5)
+    await sleep(1.0)
 
-            # Assert: the key has expired and the miss default is returned
-            result_after = await short_cache.get(key)
-            assert result_after is None
+    assert await backend.get(key="expiring") is None
 
 
-async def test_clear_with_prefix_isolation() -> None:
-    """Test that clearing one prefixed cache does not affect a differently prefixed one."""
-    # Arrange: two caches with different prefixes sharing the same Redis instance
-    with RedisContainer() as isolation_container:
-        port = isolation_container.get_exposed_port(6379)
+async def test_delete(backend: CacheBackend) -> None:
+    """Test that delete removes a key."""
+    await backend.set(key="to_delete", value=b"bye", ttl=60)
+    assert await backend.get(key="to_delete") == b"bye"
+
+    await backend.delete(key="to_delete")
+
+    assert await backend.get(key="to_delete") is None
+
+
+async def test_delete_missing_key_is_no_op(backend: CacheBackend) -> None:
+    """Test that deleting an absent key does not raise."""
+    await backend.delete(key="never_existed_abc")
+
+
+async def test_clear(backend: CacheBackend) -> None:
+    """Test that clear removes all entries."""
+    await backend.set(key="clear_a", value=b"a", ttl=60)
+    await backend.set(key="clear_b", value=b"b", ttl=60)
+
+    await backend.clear()
+
+    assert await backend.get(key="clear_a") is None
+    assert await backend.get(key="clear_b") is None
+
+
+async def test_overwrite(backend: CacheBackend) -> None:
+    """Test that setting the same key overwrites the previous value."""
+    await backend.set(key="overwrite", value=b"old", ttl=60)
+    await backend.set(key="overwrite", value=b"new", ttl=60)
+
+    result = await backend.get(key="overwrite")
+
+    assert result == b"new"
+
+
+# --- Redis-specific tests ---
+
+
+@pytest.mark.integration
+async def test_redis_prefix_isolation() -> None:
+    """Test that clearing one prefix does not affect another."""
+    with RedisContainer() as container:
+        port = container.get_exposed_port(6379)
         url = f"redis://localhost:{port}/0"
         async with (
-            RedisCache(url=url, prefix="alpha:", ttl=60) as cache_alpha,
-            RedisCache(url=url, prefix="beta:", ttl=60) as cache_beta,
+            RedisCacheBackend(
+                url, prefix="alpha:", auto_register=False
+            ) as alpha,
+            RedisCacheBackend(url, prefix="beta:", auto_register=False) as beta,
         ):
-            await cache_alpha.set("key1", b"alpha_value")
-            await cache_beta.set("key1", b"beta_value")
+            await alpha.set(key="k", value=b"alpha", ttl=60)
+            await beta.set(key="k", value=b"beta", ttl=60)
 
-            # Act: clear only the alpha cache
-            await cache_alpha.clear()
+            await alpha.clear()
 
-            # Assert: alpha key is gone, beta key is unaffected
-            alpha_result = await cache_alpha.get("key1")
-            beta_result = await cache_beta.get("key1")
-
-            assert alpha_result is None
-            assert beta_result == b"beta_value"
+            assert await alpha.get(key="k") is None
+            assert await beta.get(key="k") == b"beta"
 
 
-async def test_cache_info_counters(cache: RedisCache) -> None:
-    """Test that cache_info() counters increment correctly on hits and misses."""
-    # Arrange: record baseline counters before this test
-    info_before = cache.cache_info()
-    hits_before = info_before.hits
-    misses_before = info_before.misses
-
-    key = "counter_test_key"
-    await cache.set(key, b"counter_value")
-
-    # Act: one hit, one miss
-    await cache.get(key)  # hit
-    await cache.get("counter_test_missing_key")  # miss
-
-    info_after = cache.cache_info()
-
-    # Assert: exactly one additional hit and one additional miss
-    assert info_after.hits == hits_before + 1
-    assert info_after.misses == misses_before + 1
+# --- End-to-end: TTLCache + @cached ---
 
 
-async def test_delete(cache: RedisCache) -> None:
-    """Test that delete removes the key so subsequent gets return the default."""
-    # Arrange
-    key = "delete_me"
-    await cache.set(key, b"temporary")
-    result_before = await cache.get(key)
-    assert result_before == b"temporary"
-
-    # Act
-    await cache.delete(key)
-
-    # Assert
-    result_after = await cache.get(key)
-    assert result_after is None
-
-
-async def test_cached_end_to_end() -> None:
-    """Test @cached decorator with RedisCache using JSON serialization round-trip."""
-    # Arrange: dedicated Redis instance to keep this test fully isolated
-    with RedisContainer() as e2e_container:
-        port = e2e_container.get_exposed_port(6379)
+@pytest.mark.integration
+async def test_cached_end_to_end_with_redis() -> None:
+    """Test @cached with TTLCache backed by Redis."""
+    with RedisContainer() as container:
+        port = container.get_exposed_port(6379)
         url = f"redis://localhost:{port}/0"
-        async with RedisCache(url=url, prefix="e2e:", ttl=60) as e2e_cache:
-            call_count = 0
-
-            @cached(
-                e2e_cache,
+        async with RedisCacheBackend(
+            url, prefix="e2e:", auto_register=False
+        ) as redis_backend:
+            cache = TTLCache(
+                ttl=60,
+                backend=redis_backend,
                 serializer=lambda v: json.dumps(v).encode(),
                 deserializer=json.loads,
             )
+            call_count = 0
+
+            @cached(cache)
             async def fetch_user(user_id: int) -> dict:
                 nonlocal call_count
                 call_count += 1
-                return {"id": user_id, "name": f"user_{user_id}"}
+                return {"id": user_id}
 
-            # Act: first call computes, second call should be served from cache
-            first = await fetch_user(42)
-            second = await fetch_user(42)
+            first = await fetch_user(1)
+            second = await fetch_user(1)
 
-            # Assert: function was only invoked once despite two calls
-            assert first == {"id": 42, "name": "user_42"}
-            assert second == {"id": 42, "name": "user_42"}
+            assert first == {"id": 1}
+            assert second == {"id": 1}
             assert call_count == 1
 
-            # Act: different argument produces a new cache entry
-            third = await fetch_user(99)
 
-            # Assert: function invoked a second time for the new key
-            assert third == {"id": 99, "name": "user_99"}
-            expected_calls = 2
-            assert call_count == expected_calls
+async def test_cached_end_to_end_with_memory() -> None:
+    """Test @cached with TTLCache backed by MemoryCacheBackend."""
+    async with MemoryCacheBackend(auto_register=False) as memory_backend:
+        cache = TTLCache(
+            ttl=60,
+            backend=memory_backend,
+            serializer=lambda v: json.dumps(v).encode(),
+            deserializer=json.loads,
+        )
+        call_count = 0
+
+        @cached(cache)
+        async def fetch_user(user_id: int) -> dict:
+            nonlocal call_count
+            call_count += 1
+            return {"id": user_id}
+
+        first = await fetch_user(1)
+        second = await fetch_user(1)
+
+        assert first == {"id": 1}
+        assert second == {"id": 1}
+        assert call_count == 1
