@@ -2,16 +2,18 @@
 
 from datetime import datetime
 
+from grelmicro.errors import GrelmicroError
 
-class ResilienceException(Exception):  # noqa: N818
-    """Base class for all resilience-related exceptions.
 
-    This class serves as the base for all exceptions related to resilience mechanisms
+class ResilienceError(GrelmicroError):
+    """Base class for all resilience-related errors.
+
+    This class serves as the base for all errors related to resilience mechanisms
     such as circuit breakers, retries, etc.
     """
 
 
-class CircuitBreakerError(ResilienceException):
+class CircuitBreakerError(ResilienceError):
     """Circuit breaker error.
 
     Raised when calls are not permitted by the circuit breaker.
