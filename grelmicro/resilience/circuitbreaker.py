@@ -211,8 +211,8 @@ class CircuitBreaker:
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         """Exit the context manager."""
         await self._release_call()
@@ -220,8 +220,8 @@ class CircuitBreaker:
         if not exc_type or issubclass(exc_type, self.ignore_exceptions):
             await self._on_success()
 
-        elif isinstance(exc_val, Exception):
-            await self._on_error(exc_val)
+        elif isinstance(exc_value, Exception):
+            await self._on_error(exc_value)
 
         return None
 
@@ -438,8 +438,8 @@ class _ThreadAdapter:
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         """Exit the context manager, releasing the circuit breaker lock."""
         from_thread.run(self._cb._release_call)  # noqa: SLF001
@@ -447,8 +447,8 @@ class _ThreadAdapter:
         if not exc_type or issubclass(exc_type, self._cb.ignore_exceptions):
             from_thread.run(self._cb._on_success)  # noqa: SLF001
 
-        elif isinstance(exc_val, Exception):
-            from_thread.run(self._cb._on_error, exc_val)  # noqa: SLF001
+        elif isinstance(exc_value, Exception):
+            from_thread.run(self._cb._on_error, exc_value)  # noqa: SLF001
 
         return None
 

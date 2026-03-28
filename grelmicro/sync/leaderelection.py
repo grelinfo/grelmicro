@@ -241,8 +241,8 @@ class LeaderElection(Synchronization, Task):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         """Exit the context manager (no-op)."""
         return None
@@ -422,8 +422,8 @@ class _LeaderGuard(Synchronization):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         """Exit the guard (no-op)."""
         return None

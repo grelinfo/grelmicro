@@ -1,4 +1,4 @@
-"""grelmicro Task Lock.
+"""Task Lock.
 
 A distributed lock for scheduled tasks with two time boundaries:
 - min_lock_seconds: Prevents re-execution on other nodes after task completes.
@@ -178,8 +178,8 @@ class TaskLock(Synchronization):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         """Release or extend the lock based on elapsed time.
 

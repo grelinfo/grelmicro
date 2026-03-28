@@ -1,4 +1,4 @@
-"""grelmicro Lock Base Classes."""
+"""Lock Base Classes."""
 
 from types import TracebackType
 from typing import Annotated, Protocol, Self
@@ -46,8 +46,8 @@ class BaseLock(Synchronization, Protocol):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         """Release the lock.
 

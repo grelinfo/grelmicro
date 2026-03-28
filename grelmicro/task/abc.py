@@ -1,10 +1,9 @@
-"""grelmicro Task Abstract Base Classes and Protocols."""
+"""Task Abstract Base Classes and Protocols."""
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from anyio import TASK_STATUS_IGNORED
 from anyio.abc import TaskStatus
-from typing_extensions import runtime_checkable
 
 
 @runtime_checkable

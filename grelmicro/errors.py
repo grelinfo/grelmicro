@@ -1,4 +1,4 @@
-"""grelmicro Errors."""
+"""Errors."""
 
 from typing import assert_never
 

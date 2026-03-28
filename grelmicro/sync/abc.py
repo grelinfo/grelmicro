@@ -1,4 +1,4 @@
-"""grelmicro Synchronization Abstract Base Classes and Protocols."""
+"""Synchronization Abstract Base Classes and Protocols."""
 
 from types import TracebackType
 from typing import Protocol, Self, runtime_checkable
@@ -9,11 +9,11 @@ from pydantic import PositiveFloat
 class SyncBackend(Protocol):
     """Synchronization Backend Protocol.
 
-    This is the low level API for the distributed lock backend that is platform agnostic.
+    This is the low-level API for the distributed synchronization backend that is platform agnostic.
     """
 
     async def __aenter__(self) -> Self:
-        """Open the lock backend."""
+        """Open the synchronization backend."""
         ...
 
     async def __aexit__(
@@ -22,7 +22,7 @@ class SyncBackend(Protocol):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the lock backend."""
+        """Close the synchronization backend."""
         ...
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
@@ -96,8 +96,8 @@ class Synchronization(Protocol):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         """Exit the synchronization primitive."""
         ...

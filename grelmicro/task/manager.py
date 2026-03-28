@@ -1,4 +1,4 @@
-"""grelmicro Task Manager."""
+"""Task Manager."""
 
 from contextlib import AsyncExitStack
 from logging import getLogger
@@ -65,14 +65,14 @@ class TaskManager(TaskRouter):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> bool | None:
         """Exit the context manager."""
         if not self._task_group or not self._exit_stack:
             raise OutOfContextError(self, "__aexit__")
         self._task_group.cancel_scope.cancel()
-        return await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
+        return await self._exit_stack.__aexit__(exc_type, exc_value, traceback)
 
     async def start(self) -> None:
         """Start all tasks manually."""

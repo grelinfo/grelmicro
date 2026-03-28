@@ -1,4 +1,4 @@
-"""grelmicro Synchronization Backend Registry."""
+"""Synchronization Backend Registry."""
 
 from grelmicro._backends import BackendRegistry
 from grelmicro.sync.abc import SyncBackend

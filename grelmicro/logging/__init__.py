@@ -3,7 +3,10 @@
 from pydantic import ValidationError
 
 from grelmicro.logging.config import LoggingBackendType, LoggingSettings
-from grelmicro.logging.errors import LoggingSettingsValidationError
+from grelmicro.logging.errors import (
+    LoggingError,
+    LoggingSettingsValidationError,
+)
 from grelmicro.logging.types import JSONRecordDict
 
 
@@ -49,4 +52,9 @@ def configure_logging() -> None:
         configure_loguru()
 
 
-__all__ = ["JSONRecordDict", "configure_logging"]
+__all__ = [
+    "JSONRecordDict",
+    "LoggingError",
+    "LoggingSettingsValidationError",
+    "configure_logging",
+]

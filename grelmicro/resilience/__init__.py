@@ -1,4 +1,4 @@
-"""Resilience Patterns."""
+"""Resilience."""
 
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
@@ -6,7 +6,7 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerState,
     ErrorDetails,
 )
-from grelmicro.resilience.errors import CircuitBreakerError
+from grelmicro.resilience.errors import CircuitBreakerError, ResilienceError
 
 __all__ = [
     "CircuitBreaker",
@@ -14,4 +14,5 @@ __all__ = [
     "CircuitBreakerMetrics",
     "CircuitBreakerState",
     "ErrorDetails",
+    "ResilienceError",
 ]

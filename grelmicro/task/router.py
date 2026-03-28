@@ -1,18 +1,15 @@
-"""grelmicro Task Router."""
-
-from __future__ import annotations
+"""Task Router."""
 
 import warnings
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Annotated, Any
+from uuid import UUID
 
 from typing_extensions import Doc
 
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-    from uuid import UUID
-
     from grelmicro.sync.abc import SyncBackend, Synchronization
     from grelmicro.sync.leaderelection import LeaderElection
     from grelmicro.task.abc import Task
@@ -30,7 +27,7 @@ class TaskRouter:
         self,
         *,
         tasks: Annotated[
-            list[Task] | None,
+            list["Task"] | None,
             Doc(
                 """
                 A list of tasks to be scheduled.
@@ -40,17 +37,17 @@ class TaskRouter:
     ) -> None:
         """Initialize the task router."""
         self._started = False
-        self._tasks: list[Task] = tasks or []
+        self._tasks: list[Any] = tasks or []
         self._routers: list[TaskRouter] = []
 
     @property
-    def tasks(self) -> list[Task]:
+    def tasks(self) -> list["Task"]:
         """List of scheduled tasks."""
         return self._tasks + [
             task for router in self._routers for task in router.tasks
         ]
 
-    def add_task(self, task: Task) -> None:
+    def add_task(self, task: "Task") -> None:
         """Add a task to the scheduler."""
         if self._started:
             raise TaskAddOperationError
@@ -107,7 +104,7 @@ class TaskRouter:
             ),
         ] = None,
         leader: Annotated[
-            LeaderElection | None,
+            "LeaderElection | None",
             Doc(
                 """
                 Optional leader election for leader gating.
@@ -118,7 +115,7 @@ class TaskRouter:
             ),
         ] = None,
         backend: Annotated[
-            SyncBackend | None,
+            "SyncBackend | None",
             Doc(
                 """
                 The distributed lock backend.
@@ -140,7 +137,7 @@ class TaskRouter:
             ),
         ] = None,
         sync: Annotated[
-            Synchronization | None,
+            "Synchronization | None",
             Doc(
                 """
                 The synchronization primitive to use for the task.
@@ -238,7 +235,7 @@ class TaskRouter:
             ),
         ] = None,
         leader: Annotated[
-            LeaderElection | None,
+            "LeaderElection | None",
             Doc(
                 """
                 Optional leader election for leader gating.
@@ -248,7 +245,7 @@ class TaskRouter:
             ),
         ] = None,
         backend: Annotated[
-            SyncBackend | None,
+            "SyncBackend | None",
             Doc(
                 """
                 The distributed lock backend.
@@ -317,7 +314,7 @@ class TaskRouter:
 
         return decorator
 
-    def include_router(self, router: TaskRouter) -> None:
+    def include_router(self, router: "TaskRouter") -> None:
         """Include another router in this router."""
         if self._started:
             raise TaskAddOperationError

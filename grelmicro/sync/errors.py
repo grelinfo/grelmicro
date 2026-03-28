@@ -1,4 +1,4 @@
-"""grelmicro Synchronization Primitive Errors."""
+"""Synchronization Errors."""
 
 from grelmicro._backends import BackendNotLoadedError
 from grelmicro.errors import GrelmicroError, SettingsValidationError
@@ -20,7 +20,7 @@ __all__ = [
 class SyncError(GrelmicroError):
     """Synchronization Primitive Error.
 
-    This is the base class for all lock errors.
+    This is the base class for all synchronization errors.
     """
 
 

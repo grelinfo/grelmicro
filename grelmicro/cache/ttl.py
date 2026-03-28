@@ -1,18 +1,13 @@
 """TTL Cache."""
 
-from __future__ import annotations
-
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
 from typing_extensions import Doc
 
 from grelmicro.cache._backends import get_cache_backend
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from grelmicro.cache._protocol import CacheBackend
+from grelmicro.cache._protocol import CacheBackend
 
 
 @dataclass(frozen=True, slots=True)

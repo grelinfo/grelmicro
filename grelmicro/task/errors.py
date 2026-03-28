@@ -1,4 +1,4 @@
-"""grelmicro Task Scheduler Errors."""
+"""Task Errors."""
 
 from grelmicro.errors import GrelmicroError
 
