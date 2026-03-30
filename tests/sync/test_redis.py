@@ -40,8 +40,10 @@ def test_redis_env_var_settings(
 @pytest.mark.parametrize(
     ("environs"),
     [
+        {},
         {"REDIS_URL": "test://:test_password@test_host:1234/0"},
         {"REDIS_PASSWORD": "test_password"},
+        {"REDIS_URL": URL, "REDIS_HOST": "test_host"},
         {
             "REDIS_URL": "test://:test_password@test_host:1234/0",
             "REDIS_PASSWORD": "test_password",
