@@ -1,13 +1,20 @@
 """TTL Cache."""
 
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Annotated, Any
+from __future__ import annotations
 
-from typing_extensions import Doc
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Annotated, Any, Generic
+
+from typing_extensions import Doc, TypeVar
 
 from grelmicro.cache._backends import get_cache_backend
-from grelmicro.cache._protocol import CacheBackend
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from grelmicro.cache._protocol import CacheBackend
+
+T = TypeVar("T", default=Any)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,11 +36,10 @@ class CacheInfo:
     evictions: int
 
 
-_SENTINEL = object()
 _CACHE_PREFIX = "cache"
 
 
-class TTLCache:
+class TTLCache(Generic[T]):
     """Cache with per-entry TTL and optional LRU eviction.
 
     Delegates storage to a ``CacheBackend`` (in-memory, Redis, etc.).
@@ -42,6 +48,11 @@ class TTLCache:
 
     When no backend is provided, the registered default is used
     (see ``MemoryCacheBackend`` or ``RedisCacheBackend``).
+
+    The type parameter ``T`` represents the cached value type.
+    Defaults to ``Any`` when unspecified (``TTLCache()``).
+    Use ``TTLCache[bytes]`` for raw bytes or ``TTLCache[MyModel]``
+    with a serializer/deserializer pair for typed caching.
 
     Raises:
         ValueError: If maxsize is negative or ttl is not positive.
@@ -78,7 +89,7 @@ class TTLCache:
             ),
         ] = None,
         serializer: Annotated[
-            Callable[[Any], bytes] | None,
+            Callable[[T], bytes] | None,
             Doc(
                 """
                 Optional function to serialize values to bytes
@@ -87,7 +98,7 @@ class TTLCache:
             ),
         ] = None,
         deserializer: Annotated[
-            Callable[[bytes], Any] | None,
+            Callable[[bytes], T] | None,
             Doc(
                 """
                 Optional function to deserialize bytes from the
@@ -124,7 +135,7 @@ class TTLCache:
             self._backend = get_cache_backend()
         return self._backend
 
-    def _serialize(self, value: Any) -> bytes:  # noqa: ANN401
+    def _serialize(self, value: T) -> bytes:
         """Serialize a value to bytes for storage."""
         if self._serializer is not None:
             return self._serializer(value)
@@ -136,29 +147,29 @@ class TTLCache:
         )
         raise TypeError(msg)
 
-    def _deserialize(self, raw: bytes) -> Any:  # noqa: ANN401
+    def _deserialize(self, raw: bytes) -> T:
         """Deserialize bytes from storage."""
         if self._deserializer is not None:
             return self._deserializer(raw)
-        return raw
+        return raw  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     async def get(
         self,
-        key: str,
-        default: Any = _SENTINEL,  # noqa: ANN401
-    ) -> Any:  # noqa: ANN401
+        key: Annotated[str, Doc("The cache key.")],
+        default: Annotated[
+            T | None,
+            Doc("Value to return if the key is missing or expired."),
+        ] = None,
+    ) -> T | None:
         """Get a value by key.
 
         Returns the default if the key is missing or expired.
         A hit promotes the key in LRU order.
-
-        Returns:
-            The cached value, or None if not found and no default given.
         """
         raw = await self._get_backend().get(key=f"{_CACHE_PREFIX}:{key}")
         if raw is None:
             self._misses += 1
-            return None if default is _SENTINEL else default
+            return default
         self._hits += 1
         if self._maxsize > 0:
             self._promote(key)
@@ -166,9 +177,17 @@ class TTLCache:
 
     async def set(
         self,
-        key: str,
-        value: Any,  # noqa: ANN401
-        ttl: float | None = None,
+        key: Annotated[str, Doc("The cache key.")],
+        value: Annotated[
+            T,
+            Doc("The value to store. Must be bytes or serializable."),
+        ],
+        ttl: Annotated[
+            float | None,
+            Doc(
+                "Per-entry TTL override in seconds. Uses the default TTL if None."
+            ),
+        ] = None,
     ) -> None:
         """Set a value with an optional per-entry TTL override.
 
@@ -198,7 +217,10 @@ class TTLCache:
         if self._maxsize > 0:
             self._promote(key)
 
-    async def delete(self, key: str) -> None:
+    async def delete(
+        self,
+        key: Annotated[str, Doc("The cache key to delete.")],
+    ) -> None:
         """Delete a key from the cache.
 
         No-op if the key does not exist.

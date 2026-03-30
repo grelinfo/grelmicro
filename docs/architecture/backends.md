@@ -13,7 +13,7 @@ The `BackendRegistry[T]` is a generic, typed container that holds a single defau
 | Module | Registry | Protocol | Backends |
 |---|---|---|---|
 | `sync` | `sync_backend_registry` | `SyncBackend` | Redis, PostgreSQL, SQLite, Kubernetes, Memory |
-| `cache` | `cache_backend_registry` | `CacheBackend` | Redis |
+| `cache` | `cache_backend_registry` | `CacheBackend` | Redis, Memory |
 
 ## Registration
 
@@ -55,6 +55,19 @@ Set `auto_register=False` to create a backend without registering it as the defa
 # Not registered as default
 cache = RedisCache(url="redis://localhost/1", ttl=60, auto_register=False)
 ```
+
+## Connection Pool Isolation
+
+Each backend instance creates its own Redis client and connection pool, even when multiple backends point to the same Redis server. This is an intentional design choice:
+
+- **Failure isolation**: a slow lock Lua script cannot starve cache reads (and vice-versa)
+- **Independent lifecycle**: each backend opens and closes on its own schedule via `async with`
+- **Independent tuning**: pool settings (`max_connections`, timeouts) can be configured per domain
+- **No hidden coupling**: closing the cache backend does not affect sync locks
+
+The overhead is negligible (a few extra TCP connections, created lazily) and this approach follows the Python ecosystem standard (Django, SQLAlchemy, and Celery all use separate connection pools per concern).
+
+Shared Redis configuration (URL resolution from environment variables) is deduplicated in `grelmicro/_redis.py`, but each backend receives its own client instance.
 
 ## Error Handling
 

@@ -3,55 +3,12 @@
 from types import TracebackType
 from typing import Annotated, Any, Self
 
-from pydantic import RedisDsn, ValidationError
-from pydantic_core import Url
-from pydantic_settings import BaseSettings
-from redis.asyncio.client import Redis
+from pydantic import RedisDsn
 from typing_extensions import Doc
 
+from grelmicro._redis import _create_redis_client
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache.errors import CacheSettingsValidationError
-
-
-class _RedisSettings(BaseSettings):
-    """Redis settings from the environment variables."""
-
-    REDIS_HOST: str | None = None
-    REDIS_PORT: int = 6379
-    REDIS_DB: int = 0
-    REDIS_PASSWORD: str | None = None
-    REDIS_URL: RedisDsn | None = None
-
-
-def _get_redis_url() -> str:
-    """Get the Redis URL from the environment variables.
-
-    Raises:
-        CacheSettingsValidationError: If the URL or host is not set.
-    """
-    try:
-        settings = _RedisSettings()
-    except ValidationError as error:
-        raise CacheSettingsValidationError(error) from None
-
-    if settings.REDIS_URL and not settings.REDIS_HOST:
-        return settings.REDIS_URL.unicode_string()
-
-    if settings.REDIS_HOST and not settings.REDIS_URL:
-        return Url.build(
-            scheme="redis",
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            path=str(settings.REDIS_DB),
-            password=settings.REDIS_PASSWORD,
-        ).unicode_string()
-
-    if settings.REDIS_URL and settings.REDIS_HOST:
-        msg = "Set either REDIS_URL or REDIS_HOST, not both"
-    else:
-        msg = "Either REDIS_URL or REDIS_HOST must be set"
-    raise CacheSettingsValidationError(msg)
-
 
 _CLEAR_BATCH_SIZE = 1000
 
@@ -97,8 +54,9 @@ class RedisCacheBackend:
         ] = True,
     ) -> None:
         """Initialize the Redis cache backend."""
-        self._url = url or _get_redis_url()
-        self._redis: Redis = Redis.from_url(str(self._url))
+        self._url, self._redis = _create_redis_client(
+            url, CacheSettingsValidationError
+        )
         self._prefix = prefix
         if auto_register:
             cache_backend_registry.set(self)
