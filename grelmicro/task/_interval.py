@@ -12,7 +12,7 @@ from anyio import TASK_STATUS_IGNORED, WouldBlock, sleep, to_thread
 from anyio.abc import TaskStatus
 from fast_depends import inject
 
-from grelmicro.sync.abc import SyncBackend, Synchronization
+from grelmicro.sync.abc import SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import LockNotOwnedError
 from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.lock import Lock
@@ -46,7 +46,7 @@ class IntervalTask(Task):
         leader: LeaderElection | None = None,
         backend: SyncBackend | None = None,
         worker: str | UUID | None = None,
-        sync: Synchronization | None = None,
+        sync: SyncPrimitive | None = None,
     ) -> None:
         """Initialize the IntervalTask.
 
@@ -99,10 +99,10 @@ class IntervalTask(Task):
             raise ValueError(msg)
 
         # Build the synchronization chain
-        resource_lock: Synchronization | None = (
+        resource_lock: SyncPrimitive | None = (
             sync if isinstance(sync, Lock) else None
         )
-        legacy_sync: Synchronization | None = (
+        legacy_sync: SyncPrimitive | None = (
             sync if sync is not None and not isinstance(sync, Lock) else None
         )
 
@@ -136,7 +136,7 @@ class IntervalTask(Task):
                 min_lock_seconds=resolved_min_lock_seconds,
                 max_lock_seconds=resolved_max_lock_seconds,
             )
-            self._sync_primitives: list[Synchronization] = _build_sync_list(
+            self._sync_primitives: list[SyncPrimitive] = _build_sync_list(
                 leader=leader,
                 task_lock=task_lock,
                 resource_lock=resource_lock,
@@ -184,7 +184,7 @@ class IntervalTask(Task):
             logger.info("Task stopped: %s", self.name)
 
     async def _run_with_sync(
-        self, primitives: list[Synchronization], index: int = 0
+        self, primitives: list[SyncPrimitive], index: int = 0
     ) -> None:
         """Enter sync primitives via recursive nesting, then run the task.
 
@@ -217,8 +217,8 @@ def _build_sync_list(
     *,
     leader: LeaderElection | None,
     task_lock: TaskLock,
-    resource_lock: Synchronization | None = None,
-) -> list[Synchronization]:
+    resource_lock: SyncPrimitive | None = None,
+) -> list[SyncPrimitive]:
     """Build an ordered list of sync primitives.
 
     Acquisition order (outermost to innermost):
@@ -232,7 +232,7 @@ def _build_sync_list(
        Acquired last so the resource is held only during actual execution,
        minimizing contention on the shared resource.
     """
-    primitives: list[Synchronization] = []
+    primitives: list[SyncPrimitive] = []
     if leader is not None:
         primitives.append(leader.guard())
     primitives.append(task_lock)

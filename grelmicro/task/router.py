@@ -10,7 +10,7 @@ from typing_extensions import Doc
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
-    from grelmicro.sync.abc import SyncBackend, Synchronization
+    from grelmicro.sync.abc import SyncBackend, SyncPrimitive
     from grelmicro.sync.leaderelection import LeaderElection
     from grelmicro.task.abc import Task
 
@@ -137,7 +137,7 @@ class TaskRouter:
             ),
         ] = None,
         sync: Annotated[
-            "Synchronization | None",
+            "SyncPrimitive | None",
             Doc(
                 """
                 The synchronization primitive to use for the task.

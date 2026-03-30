@@ -22,7 +22,7 @@ from typing_extensions import Doc
 
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._tokens import generate_worker_id
-from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
+from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
 from grelmicro.task.abc import Task
 
 if TYPE_CHECKING:
@@ -110,7 +110,7 @@ class LeaderElectionConfig(BaseModel):
         return self
 
 
-class LeaderElection(Synchronization, Task):
+class LeaderElection(SyncPrimitive, Task):
     """Leader Election.
 
     The leader election is a synchronization primitive with the worker as scope.
@@ -403,7 +403,7 @@ class LeaderElection(Synchronization, Task):
             )
 
 
-class _LeaderGuard(Synchronization):
+class _LeaderGuard(SyncPrimitive):
     """Non-blocking leader election guard.
 
     Raises ``WouldBlock`` on entry if the worker is not the leader.

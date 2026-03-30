@@ -87,7 +87,7 @@ class SyncBackend(Protocol):
 
 
 @runtime_checkable
-class Synchronization(Protocol):
+class SyncPrimitive(Protocol):
     """Synchronization Primitive Protocol."""
 
     async def __aenter__(self) -> Self:

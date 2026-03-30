@@ -1,5 +1,6 @@
 """Synchronization."""
 
+from grelmicro.sync.abc import SyncPrimitive
 from grelmicro.sync.errors import SyncError, SyncSettingsValidationError
 from grelmicro.sync.kubernetes import KubernetesSyncBackend
 from grelmicro.sync.leaderelection import LeaderElection
@@ -19,6 +20,7 @@ __all__ = [
     "RedisSyncBackend",
     "SQLiteSyncBackend",
     "SyncError",
+    "SyncPrimitive",
     "SyncSettingsValidationError",
     "TaskLock",
 ]

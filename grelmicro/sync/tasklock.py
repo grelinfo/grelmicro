@@ -22,7 +22,7 @@ from grelmicro.sync._tokens import (
     generate_token_nonce,
     generate_worker_id,
 )
-from grelmicro.sync.abc import Seconds, SyncBackend, Synchronization
+from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import (
     LockAcquireError,
     LockLockedCheckError,
@@ -74,7 +74,7 @@ class TaskLockConfig(BaseModel, frozen=True, extra="forbid"):
         return self
 
 
-class TaskLock(Synchronization):
+class TaskLock(SyncPrimitive):
     """Task Lock.
 
     A distributed lock for scheduled tasks. Unlike a regular Lock,

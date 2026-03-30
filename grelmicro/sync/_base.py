@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from typing_extensions import Doc
 
-from grelmicro.sync.abc import Synchronization
+from grelmicro.sync.abc import SyncPrimitive
 
 
 class BaseLockConfig(BaseModel):
@@ -31,7 +31,7 @@ class BaseLockConfig(BaseModel):
     ]
 
 
-class BaseLock(Synchronization, Protocol):
+class BaseLock(SyncPrimitive, Protocol):
     """Base Lock Protocol."""
 
     async def __aenter__(self) -> Self:

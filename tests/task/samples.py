@@ -7,7 +7,7 @@ from anyio import TASK_STATUS_IGNORED, Condition, Event, WouldBlock, sleep
 from anyio.abc import TaskStatus
 from typer import echo
 
-from grelmicro.sync.abc import Synchronization
+from grelmicro.sync.abc import SyncPrimitive
 from grelmicro.task.abc import Task
 
 condition = Condition()
@@ -102,7 +102,7 @@ class EventTask(Task):
         self._event.set()
 
 
-class WouldBlockLock(Synchronization):
+class WouldBlockLock(SyncPrimitive):
     """Lock that always raises WouldBlock."""
 
     async def __aenter__(self) -> Self:
@@ -119,7 +119,7 @@ class WouldBlockLock(Synchronization):
         """Exit the synchronization primitive."""
 
 
-class BadLock(Synchronization):
+class BadLock(SyncPrimitive):
     """Bad Lock."""
 
     async def __aenter__(self) -> Self:
