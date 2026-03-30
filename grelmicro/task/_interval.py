@@ -78,7 +78,7 @@ class IntervalTask(Task):
                 raise ValueError(msg)
             warnings.warn(
                 "The 'sync' parameter on interval() is deprecated "
-                "for TaskLock and LeaderElection and will be removed in v0.7.0. "
+                "for TaskLock and LeaderElection and will be removed in 0.7.0. "
                 "Use max_lock_seconds and leader parameters instead.",
                 DeprecationWarning,
                 stacklevel=2,

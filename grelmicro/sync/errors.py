@@ -1,5 +1,7 @@
 """Synchronization Errors."""
 
+import warnings
+
 from grelmicro._backends import BackendNotLoadedError
 from grelmicro.errors import GrelmicroError, SettingsValidationError
 
@@ -72,8 +74,14 @@ class LockAcquireError(SyncBackendError):
     This error is raised when an error on backend side occurs during lock acquisition.
     """
 
-    def __init__(self, *, name: str) -> None:
+    def __init__(self, *, name: str, token: str | None = None) -> None:
         """Initialize the error."""
+        if token is not None:
+            warnings.warn(
+                "The 'token' parameter is deprecated and will be removed in 0.7.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         super().__init__(f"Failed to acquire lock: name={name}")
 
 
@@ -83,8 +91,16 @@ class LockReleaseError(SyncBackendError):
     This error is raised when an error on backend side occurs during lock release.
     """
 
-    def __init__(self, *, name: str, reason: str | None = None) -> None:
+    def __init__(
+        self, *, name: str, reason: str | None = None, token: str | None = None
+    ) -> None:
         """Initialize the error."""
+        if token is not None:
+            warnings.warn(
+                "The 'token' parameter is deprecated and will be removed in 0.7.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         super().__init__(
             f"Failed to release lock: name={name}"
             + (f", reason={reason}" if reason else ""),
@@ -98,8 +114,14 @@ class LockNotOwnedError(LockReleaseError):
     the token is different or the lock is already expired.
     """
 
-    def __init__(self, *, name: str) -> None:
+    def __init__(self, *, name: str, token: str | None = None) -> None:
         """Initialize the error."""
+        if token is not None:
+            warnings.warn(
+                "The 'token' parameter is deprecated and will be removed in 0.7.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         super().__init__(name=name, reason="lock not owned")
 
 

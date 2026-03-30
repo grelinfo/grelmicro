@@ -1,6 +1,7 @@
 """Test Lock."""
 
 import time
+import warnings
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -667,3 +668,45 @@ async def test_lock_retry_interval_too_small(backend: SyncBackend) -> None:
     """Test Lock rejects retry_interval below minimum."""
     with pytest.raises(ValueError, match="retry_interval must be"):
         Lock(name="test", backend=backend, retry_interval=0.0001)
+
+
+# --- Deprecated token parameter tests ---
+
+
+def test_lock_acquire_error_token_deprecated() -> None:
+    """Test LockAcquireError token parameter emits DeprecationWarning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        error = LockAcquireError(name="test", token="old-token")  # noqa: S106
+        assert "test" in str(error)
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+        assert "token" in str(w[0].message)
+
+
+def test_lock_acquire_error_no_token_no_warning() -> None:
+    """Test LockAcquireError without token emits no warning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        LockAcquireError(name="test")
+        assert len(w) == 0
+
+
+def test_lock_release_error_token_deprecated() -> None:
+    """Test LockReleaseError token parameter emits DeprecationWarning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        error = LockReleaseError(name="test", token="old-token")  # noqa: S106
+        assert "test" in str(error)
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+
+
+def test_lock_not_owned_error_token_deprecated() -> None:
+    """Test LockNotOwnedError token parameter emits DeprecationWarning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        error = LockNotOwnedError(name="test", token="old-token")  # noqa: S106
+        assert "lock not owned" in str(error)
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)

@@ -1,33 +1,47 @@
 # Changelog
 
-## 0.6.0 - 2026-03-18
+## 0.6.0 - 2026-03-30
 
 ### Deprecations
 
-* 🗑️ The `sync` parameter on `interval()` for `TaskLock` and `LeaderElection` is deprecated and will be removed in v0.7.0. Use `max_lock_seconds` and `leader` parameters instead.
-* 🗑️ The `scheduled()` decorator is deprecated and will be removed in v0.7.0. Use `interval()` with `max_lock_seconds` or `leader` instead.
+* 🗑️ `ResilienceException` renamed to `ResilienceError`. The old name still works but emits a `DeprecationWarning`. Will be removed in 0.7.0.
+* 🗑️ The `token` parameter on `LockAcquireError`, `LockReleaseError`, and `LockNotOwnedError` is deprecated. Tokens are no longer included in error messages for security. Will be removed in 0.7.0.
+* 🗑️ The `sync` parameter on `interval()` for `TaskLock` and `LeaderElection` is deprecated. Use `max_lock_seconds` and `leader` parameters instead. Will be removed in 0.7.0.
+* 🗑️ The `scheduled()` decorator is deprecated. Use `interval()` with `max_lock_seconds` or `leader` instead. Will be removed in 0.7.0.
 
 ### Features
 
-* ✨ Add in-memory [TTL cache](cache.md) with LRU eviction and `@cached` decorator.
+* ✨ Add in-memory [TTL cache](cache.md) with LRU eviction, per-key stampede protection, and `@cached` decorator.
+* ✨ Add `RedisCacheBackend` for distributed cache storage.
+* ✨ Add cache statistics via `CacheInfo` (hits, misses, evictions, stampedes).
 * ✨ Add Kubernetes sync backend using Lease resources (`pip install grelmicro[kubernetes]`).
 * ✨ Add SQLite sync backend for home lab and local testing (`pip install grelmicro[sqlite]`).
 
+### Security
+
+* 🔒️ Remove token values from lock error messages to prevent leaking in logs.
+* 🔒️ Upgrade `requests` to 2.33.0 (CVE fix in transitive dependency).
+
 ### Refactors
 
+* ♻️ Unify error hierarchy under `GrelmicroError` base class. All module errors (`SyncError`, `ResilienceError`, `LoggingError`, `TaskError`, `CacheError`) now share a common base.
 * ♻️ Use server-side timestamps and native Lease fields in sync backends.
 * ♻️ Simplify token generation from UUID-based to string concatenation.
-* ♻️ Replace global backend dict with ContextVar for context-local storage.
+* ♻️ Harden TaskLock token nonce and error handling.
 
 ### Internal
 
+* ✅ Achieve 100% library code coverage.
 * 💚 Fix flaky integration test timeout in CI.
+* ⬆️ Bump dependencies and fix ty v0.0.26 type errors.
 
 ### Docs
 
+* 📝 Add [cache module](cache.md) documentation with usage guide and API reference.
 * 📝 Add [Kubernetes Backend Architecture](architecture/kubernetes.md) page.
 * 📝 Add [SQLite Backend Architecture](architecture/sqlite.md) page.
 * 📝 Add backend comparison matrix to [Synchronization](sync.md#backend) guide.
+* 📝 Rewrite README with project vision.
 
 ## 0.5.0 - 2026-03-17
 

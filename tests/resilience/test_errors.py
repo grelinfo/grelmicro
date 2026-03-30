@@ -1,8 +1,12 @@
 """Test Resilience Errors."""
 
+import warnings
 from datetime import UTC, datetime
 
+import pytest
+
 import grelmicro.resilience as resilience_mod
+import grelmicro.resilience.errors as errors_mod
 from grelmicro.resilience.errors import CircuitBreakerError
 
 
@@ -36,3 +40,36 @@ def test_resilience_module_exports() -> None:
         "ResilienceError",
     }
     assert set(resilience_mod.__all__) == expected
+
+
+def test_resilience_exception_deprecated_alias_from_module() -> None:
+    """Test ResilienceException alias emits DeprecationWarning from module."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cls = resilience_mod.ResilienceException
+        assert cls is resilience_mod.ResilienceError
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+        assert "ResilienceException" in str(w[0].message)
+
+
+def test_resilience_exception_deprecated_alias_from_errors() -> None:
+    """Test ResilienceException alias emits DeprecationWarning from errors module."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cls = errors_mod.ResilienceException
+        assert cls is errors_mod.ResilienceError
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+
+
+def test_resilience_module_getattr_unknown() -> None:
+    """Test __getattr__ raises AttributeError for unknown names."""
+    with pytest.raises(AttributeError, match="NoSuchThing"):
+        resilience_mod.NoSuchThing  # noqa: B018
+
+
+def test_resilience_errors_getattr_unknown() -> None:
+    """Test errors __getattr__ raises AttributeError for unknown names."""
+    with pytest.raises(AttributeError, match="NoSuchThing"):
+        errors_mod.NoSuchThing  # noqa: B018
