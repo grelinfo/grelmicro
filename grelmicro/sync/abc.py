@@ -1,5 +1,6 @@
 """Synchronization Abstract Base Classes and Protocols."""
 
+import warnings
 from types import TracebackType
 from typing import Protocol, Self, runtime_checkable
 
@@ -104,3 +105,16 @@ class SyncPrimitive(Protocol):
 
 
 Seconds = PositiveFloat
+
+
+def __getattr__(name: str) -> type:
+    if name == "Synchronization":
+        warnings.warn(
+            "Synchronization is deprecated, use SyncPrimitive instead. "
+            "Will be removed in 0.7.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return SyncPrimitive
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

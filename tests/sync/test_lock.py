@@ -8,6 +8,8 @@ import pytest
 from anyio import WouldBlock, sleep, to_thread
 from pytest_mock import MockerFixture
 
+import grelmicro.sync as sync_mod
+import grelmicro.sync.abc as abc_mod
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
@@ -710,3 +712,39 @@ def test_lock_not_owned_error_token_deprecated() -> None:
         assert "lock not owned" in str(error)
         assert len(w) == 1
         assert issubclass(w[0].category, DeprecationWarning)
+
+
+# --- Deprecated Synchronization alias tests ---
+
+
+def test_synchronization_deprecated_alias_from_abc() -> None:
+    """Test Synchronization alias emits DeprecationWarning from abc module."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cls = abc_mod.Synchronization
+        assert cls is abc_mod.SyncPrimitive
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+        assert "Synchronization" in str(w[0].message)
+
+
+def test_synchronization_deprecated_alias_from_sync() -> None:
+    """Test Synchronization alias emits DeprecationWarning from sync module."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        cls = sync_mod.Synchronization
+        assert cls is sync_mod.SyncPrimitive
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+
+
+def test_sync_abc_getattr_unknown() -> None:
+    """Test abc __getattr__ raises AttributeError for unknown names."""
+    with pytest.raises(AttributeError, match="NoSuchThing"):
+        abc_mod.NoSuchThing  # noqa: B018
+
+
+def test_sync_module_getattr_unknown() -> None:
+    """Test sync __getattr__ raises AttributeError for unknown names."""
+    with pytest.raises(AttributeError, match="NoSuchThing"):
+        sync_mod.NoSuchThing  # noqa: B018
