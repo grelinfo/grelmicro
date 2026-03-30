@@ -18,9 +18,9 @@ import structlog
 from loguru import logger as loguru_logger
 
 if TYPE_CHECKING:
+    import types
     from collections.abc import Callable
 
-    import grelmicro.logging
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -51,7 +51,7 @@ def _reset_logging() -> None:
     structlog.reset_defaults()
 
 
-def _reload_modules() -> grelmicro.logging:  # type: ignore[name-defined]
+def _reload_modules() -> types.ModuleType:
     """Reload grelmicro.logging modules to pick up env changes."""
     import grelmicro.logging as logging_module  # noqa: PLC0415
     import grelmicro.logging._shared as shared_module  # noqa: PLC0415

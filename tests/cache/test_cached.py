@@ -212,7 +212,7 @@ class TestAsyncCachedCacheControl:
         await fetch(1)  # miss
         await fetch(2)  # miss
         await fetch(1)  # hit
-        info = fetch.cache_info()  # type: ignore[attr-defined]
+        info = fetch.cache_info()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
         # Assert
         assert info.hits == EXPECTED_HITS_1
@@ -229,7 +229,7 @@ class TestAsyncCachedCacheControl:
             return x
 
         # Assert
-        assert asyncio.iscoroutinefunction(fetch.cache_clear)  # type: ignore[attr-defined]
+        assert asyncio.iscoroutinefunction(fetch.cache_clear)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
     async def test_cache_clear_empties_the_cache(self) -> None:
         """Awaiting cache_clear() causes subsequent calls to recompute."""
@@ -264,13 +264,13 @@ class TestAsyncCachedCacheControl:
 
         await fetch(1)
         await fetch(2)
-        assert fetch.cache_info().currsize == EXPECTED_CURRSIZE_2  # type: ignore[attr-defined]
+        assert fetch.cache_info().currsize == EXPECTED_CURRSIZE_2  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
         # Act
-        await fetch.cache_clear()  # type: ignore[attr-defined]
+        await fetch.cache_clear()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
         # Assert
-        assert fetch.cache_info().currsize == 0  # type: ignore[attr-defined]
+        assert fetch.cache_info().currsize == 0  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
 
 class TestAsyncCachedFunctionMetadata:
@@ -639,7 +639,7 @@ class TestSyncCachedCacheControl:
         # Act
         await anyio.to_thread.run_sync(lambda: compute(1))  # miss
         await anyio.to_thread.run_sync(lambda: compute(1))  # hit
-        info = compute.cache_info()  # type: ignore[attr-defined]
+        info = compute.cache_info()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
         # Assert
         assert info.hits == EXPECTED_HITS_1

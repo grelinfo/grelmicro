@@ -535,7 +535,7 @@ class TestCacheInfo:
 
         # Act / Assert
         with pytest.raises(AttributeError):
-            info.hits = 99  # type: ignore[misc]
+            info.hits = 99  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
     async def test_currsize_reflects_lru_tracker(
         self, backend: MemoryCacheBackend

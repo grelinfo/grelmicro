@@ -28,7 +28,7 @@ from grelmicro.sync.errors import (
 _MIN_RETRY_INTERVAL: float = 0.001
 
 
-class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):
+class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
     """Lock Config."""
 
     lease_duration: Annotated[

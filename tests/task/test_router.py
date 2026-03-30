@@ -130,7 +130,7 @@ def test_router_interval_name_generation_error() -> None:
         FunctionTypeError,
         match="callable without __module__ or __qualname__ attribute",
     ):
-        router.interval(seconds=10)(object())  # type: ignore[arg-type]
+        router.interval(seconds=10)(object())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_router_interval_with_lock() -> None:

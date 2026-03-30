@@ -37,7 +37,7 @@ def _orjson_dumps(obj: Mapping[str, Any]) -> str:
 
     Note: Only called when orjson is available (validated by load_settings).
     """
-    return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]
+    return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
 
 def has_orjson() -> bool:
