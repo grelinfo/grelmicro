@@ -85,19 +85,12 @@ def _json_patcher(
         if k not in _LOGURU_INTERNAL_KEYS
     }
     # Convert loguru._datetime.datetime subclass to stdlib datetime.
-    # replace() must not be used here: it preserves the subclass type
-    # and orjson rejects it. The positional constructor produces a plain
-    # stdlib datetime.datetime that both serializers accept.
+    # combine() produces a plain datetime.datetime from date + time parts,
+    # which both orjson and stdlib json accept. replace() cannot be used
+    # because it preserves the subclass type that orjson rejects.
     ldt = record["time"]
-    json_record["time"] = datetime(
-        ldt.year,
-        ldt.month,
-        ldt.day,
-        ldt.hour,
-        ldt.minute,
-        ldt.second,
-        ldt.microsecond,
-        tzinfo=ldt.tzinfo,
+    json_record["time"] = datetime.combine(
+        ldt.date(), ldt.time(), tzinfo=ldt.tzinfo
     ).astimezone(tz)
     json_record["level"] = record["level"].name
     json_record["msg"] = record["message"]
