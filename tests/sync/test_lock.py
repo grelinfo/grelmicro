@@ -704,6 +704,14 @@ def test_lock_release_error_token_deprecated() -> None:
         assert issubclass(w[0].category, DeprecationWarning)
 
 
+def test_lock_release_error_no_token_no_warning() -> None:
+    """Test LockReleaseError without token emits no warning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        LockReleaseError(name="test")
+        assert len(w) == 0
+
+
 def test_lock_not_owned_error_token_deprecated() -> None:
     """Test LockNotOwnedError token parameter emits DeprecationWarning."""
     with warnings.catch_warnings(record=True) as w:
@@ -714,11 +722,20 @@ def test_lock_not_owned_error_token_deprecated() -> None:
         assert issubclass(w[0].category, DeprecationWarning)
 
 
+def test_lock_not_owned_error_no_token_no_warning() -> None:
+    """Test LockNotOwnedError without token emits no warning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        LockNotOwnedError(name="test")
+        assert len(w) == 0
+
+
 # --- Deprecated Synchronization alias tests ---
 
 
 def test_synchronization_deprecated_alias_from_abc() -> None:
     """Test Synchronization alias emits DeprecationWarning from abc module."""
+    abc_mod.__dict__.pop("Synchronization", None)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cls = abc_mod.Synchronization
@@ -730,6 +747,7 @@ def test_synchronization_deprecated_alias_from_abc() -> None:
 
 def test_synchronization_deprecated_alias_from_sync() -> None:
     """Test Synchronization alias emits DeprecationWarning from sync module."""
+    sync_mod.__dict__.pop("Synchronization", None)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cls = sync_mod.Synchronization

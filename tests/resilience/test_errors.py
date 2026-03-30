@@ -44,6 +44,7 @@ def test_resilience_module_exports() -> None:
 
 def test_resilience_exception_deprecated_alias_from_module() -> None:
     """Test ResilienceException alias emits DeprecationWarning from module."""
+    resilience_mod.__dict__.pop("ResilienceException", None)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cls = resilience_mod.ResilienceException
@@ -55,6 +56,7 @@ def test_resilience_exception_deprecated_alias_from_module() -> None:
 
 def test_resilience_exception_deprecated_alias_from_errors() -> None:
     """Test ResilienceException alias emits DeprecationWarning from errors module."""
+    errors_mod.__dict__.pop("ResilienceException", None)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cls = errors_mod.ResilienceException

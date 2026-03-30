@@ -36,6 +36,7 @@ def __getattr__(name: str) -> type:
             DeprecationWarning,
             stacklevel=2,
         )
+        globals()["Synchronization"] = SyncPrimitive
         return SyncPrimitive
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
