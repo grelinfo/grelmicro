@@ -73,6 +73,9 @@ def _create_redis_client(
 ) -> tuple[str, Redis[bytes]]:
     """Resolve the Redis URL and create an async Redis client.
 
+    Each call creates a new ``Redis`` instance with its own connection pool.
+    See ``docs/architecture/backends.md`` for the rationale.
+
     Args:
         url: Explicit Redis URL, or None to resolve from environment variables.
         error_class: The domain-specific error class to raise on validation failure.
