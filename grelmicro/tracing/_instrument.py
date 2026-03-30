@@ -76,16 +76,12 @@ def instrument(
             for param_name, value in bound.arguments.items():
                 if param_name in skip or param_name == "self":
                     continue
-                span.set_attribute(
-                    f"arg.{param_name}", str(value)
-                )
+                span.set_attribute(f"arg.{param_name}", str(value))
 
         if inspect.iscoroutinefunction(fn):
 
             @functools.wraps(fn)
-            async def async_wrapper(
-                *args: P.args, **kwargs: P.kwargs
-            ) -> R:
+            async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
                 with tracer.start_as_current_span(
                     name,
                     attributes=attributes or {},

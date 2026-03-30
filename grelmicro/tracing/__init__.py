@@ -52,14 +52,12 @@ def configure_tracing() -> None:
     except ImportError:
         raise DependencyNotFoundError(module="opentelemetry") from None
 
-    resource = Resource.create(
-        {"service.name": settings.OTEL_SERVICE_NAME}
-    )
+    resource = Resource.create({"service.name": settings.OTEL_SERVICE_NAME})
     provider = TracerProvider(resource=resource)
 
     if settings.TRACING_EXPORTER == TracingExporterType.OTLP:
         try:
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415, E501
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
                 OTLPSpanExporter,
             )
         except ImportError:
@@ -67,13 +65,9 @@ def configure_tracing() -> None:
                 module="opentelemetry-exporter-otlp"
             ) from None
 
-        provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter())
-        )
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     elif settings.TRACING_EXPORTER == TracingExporterType.CONSOLE:
-        provider.add_span_processor(
-            BatchSpanProcessor(ConsoleSpanExporter())
-        )
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
 
     trace.set_tracer_provider(provider)
 
