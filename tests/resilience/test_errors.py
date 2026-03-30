@@ -1,5 +1,7 @@
 """Test Resilience Errors."""
 
+import subprocess
+import sys
 import warnings
 from datetime import UTC, datetime
 
@@ -75,3 +77,31 @@ def test_resilience_errors_getattr_unknown() -> None:
     """Test errors __getattr__ raises AttributeError for unknown names."""
     with pytest.raises(AttributeError, match="NoSuchThing"):
         errors_mod.NoSuchThing  # noqa: B018
+
+
+def test_resilience_exception_from_import_single_warning() -> None:
+    """Test 'from grelmicro.resilience import ResilienceException' emits exactly one warning.
+
+    Regression test: CPython's importlib._handle_fromlist calls __getattr__
+    twice internally. The globals() caching prevents duplicate warnings.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-W",
+            "always",
+            "-c",
+            "from grelmicro.resilience import ResilienceException",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    warning_lines = [
+        line
+        for line in result.stderr.splitlines()
+        if "DeprecationWarning" in line
+    ]
+    assert len(warning_lines) == 1, (
+        f"Expected 1 warning, got {len(warning_lines)}: {result.stderr}"
+    )

@@ -1,5 +1,7 @@
 """Test Lock."""
 
+import subprocess
+import sys
 import time
 import warnings
 from collections.abc import AsyncGenerator
@@ -683,7 +685,7 @@ def test_lock_acquire_error_token_deprecated() -> None:
         assert "test" in str(error)
         assert len(w) == 1
         assert issubclass(w[0].category, DeprecationWarning)
-        assert "token" in str(w[0].message)
+        assert "Remove it" in str(w[0].message)
 
 
 def test_lock_acquire_error_no_token_no_warning() -> None:
@@ -766,3 +768,31 @@ def test_sync_module_getattr_unknown() -> None:
     """Test sync __getattr__ raises AttributeError for unknown names."""
     with pytest.raises(AttributeError, match="NoSuchThing"):
         sync_mod.NoSuchThing  # noqa: B018
+
+
+def test_synchronization_from_import_single_warning() -> None:
+    """Test 'from grelmicro.sync import Synchronization' emits exactly one warning.
+
+    Regression test: CPython's importlib._handle_fromlist calls __getattr__
+    twice internally. The globals() caching prevents duplicate warnings.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-W",
+            "always",
+            "-c",
+            "from grelmicro.sync import Synchronization",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    warning_lines = [
+        line
+        for line in result.stderr.splitlines()
+        if "DeprecationWarning" in line
+    ]
+    assert len(warning_lines) == 1, (
+        f"Expected 1 warning, got {len(warning_lines)}: {result.stderr}"
+    )

@@ -5,6 +5,18 @@ import warnings
 from grelmicro._backends import BackendNotLoadedError
 from grelmicro.errors import GrelmicroError, SettingsValidationError
 
+_TOKEN_DEPRECATION_MSG = (
+    "The 'token' parameter is deprecated. "  # noqa: S105
+    "Remove it from your code. Will be removed in 0.7.0."
+)
+
+
+def _warn_deprecated_token(token: str | None) -> None:
+    """Emit a deprecation warning if the token parameter is passed."""
+    if token is not None:
+        warnings.warn(_TOKEN_DEPRECATION_MSG, DeprecationWarning, stacklevel=3)
+
+
 __all__ = [
     "BackendNotLoadedError",
     "LockAcquireError",
@@ -76,12 +88,7 @@ class LockAcquireError(SyncBackendError):
 
     def __init__(self, *, name: str, token: str | None = None) -> None:
         """Initialize the error."""
-        if token is not None:
-            warnings.warn(
-                "The 'token' parameter is deprecated and will be removed in 0.7.0.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+        _warn_deprecated_token(token)
         super().__init__(f"Failed to acquire lock: name={name}")
 
 
@@ -95,12 +102,7 @@ class LockReleaseError(SyncBackendError):
         self, *, name: str, reason: str | None = None, token: str | None = None
     ) -> None:
         """Initialize the error."""
-        if token is not None:
-            warnings.warn(
-                "The 'token' parameter is deprecated and will be removed in 0.7.0.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+        _warn_deprecated_token(token)
         super().__init__(
             f"Failed to release lock: name={name}"
             + (f", reason={reason}" if reason else ""),
@@ -116,12 +118,7 @@ class LockNotOwnedError(LockReleaseError):
 
     def __init__(self, *, name: str, token: str | None = None) -> None:
         """Initialize the error."""
-        if token is not None:
-            warnings.warn(
-                "The 'token' parameter is deprecated and will be removed in 0.7.0.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+        _warn_deprecated_token(token)
         super().__init__(name=name, reason="lock not owned")
 
 
