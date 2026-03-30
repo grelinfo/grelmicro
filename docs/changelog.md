@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.0 - Unreleased
+
+### Breaking Changes
+
+* 💥 **Logging JSON format**: `logger` field renamed to `caller`.
+* 💥 **Logging JSON format**: `thread` field removed.
+* 💥 **Logging JSON format**: `ctx` nested object removed. Extra context fields are now flat at the top level.
+* 💥 **Logging JSON format**: `exception` in `ctx` replaced by structured `error` object at top level with `type`, `message`, and `stack` fields.
+
+#### Migration Guide
+
+| Before (0.6.0) | After (0.7.0) |
+|---|---|
+| `"logger": "api:handle:45"` | `"caller": "api:handle:45"` |
+| `"thread": "MainThread"` | removed |
+| `"ctx": {"user_id": "123"}` | `"user_id": "123"` (flat) |
+| `"ctx": {"exception": "ValueError: ..."}` | `"error": {"type": "ValueError", "message": "...", "stack": "..."}` |
+
+If you parse logs by field name, update your queries:
+
+* Log aggregator filters: `logger:` to `caller:`
+* Nested paths: `ctx.user_id` to `user_id`
+* Nested paths: `ctx.exception` to `error.type`, `error.message`, `error.stack`
+
+Business context fields like `correlation_id`, `request_id`, or `session_id` are not part of the core schema. Pass them as extra context and they will appear as flat top-level fields:
+
+```python
+logger.info("order processed", extra={"correlation_id": "abc-123"})
+# {"time": "...", "level": "INFO", "msg": "order processed", "caller": "...", "correlation_id": "abc-123"}
+```
+
+### Removals
+
+* 🗑️ `Synchronization` protocol removed. Use `SyncPrimitive` instead (deprecated since 0.6.0).
+* 🗑️ `ResilienceException` removed. Use `ResilienceError` instead (deprecated since 0.6.0).
+* 🗑️ The `token` parameter on lock errors removed (deprecated since 0.6.0).
+* 🗑️ The `sync` parameter on `interval()` removed (deprecated since 0.6.0).
+* 🗑️ The `scheduled()` decorator removed (deprecated since 0.6.0).
+
 ## 0.6.0 - 2026-03-30
 
 ### Deprecations

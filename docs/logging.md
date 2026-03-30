@@ -126,7 +126,7 @@ The `LOG_TIMEZONE` setting controls the timezone used for all log timestamps in 
 
 ### Structured Logging
 
-When using JSON format, additional context can be passed to logger methods as keyword arguments. These will be captured in the `ctx` field:
+When using JSON format, additional context can be passed to logger methods as keyword arguments. These appear as flat top-level fields in the JSON output:
 
 ```python
 --8<-- "logging/structured_logging.py"
@@ -134,10 +134,10 @@ When using JSON format, additional context can be passed to logger methods as ke
 
 Output:
 ```json
-{"time":"...","level":"INFO",...,"msg":"User logged in","ctx":{"user_id":123,"ip_address":"192.168.1.1"}}
+{"time":"...","level":"INFO","msg":"User logged in","caller":"...","user_id":123,"ip_address":"192.168.1.1"}
 ```
 
-Exceptions are automatically captured in the `ctx` field when using `logger.exception()` (loguru only):
+Exceptions are automatically captured as structured `ErrorDict` when using `logger.exception()`:
 
 ```python
 --8<-- "logging/exception_logging.py"
@@ -145,7 +145,14 @@ Exceptions are automatically captured in the `ctx` field when using `logger.exce
 
 Output:
 ```json
-{"time":"...","level":"ERROR",...,"msg":"Operation failed","ctx":{"operation":"divide","exception":"ZeroDivisionError: division by zero"}}
+{"time":"...","level":"ERROR","msg":"Operation failed","caller":"...","operation":"divide","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
+```
+
+Business context fields like `correlation_id`, `request_id`, or `session_id` are not part of the core schema. Pass them as extra context:
+
+```python
+logger.info("order processed", extra={"correlation_id": "abc-123"})
+# {"time":"...","level":"INFO","msg":"order processed","caller":"...","correlation_id":"abc-123"}
 ```
 
 ### OpenTelemetry Integration
@@ -162,13 +169,14 @@ Output:
   "time": "2026-01-27T16:00:00.000Z",
   "level": "INFO",
   "msg": "Processing request",
+  "caller": "myapp.service:process_request:42",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "span_id": "00f067aa0ba902b7",
-  "ctx": {"user_id": 123}
+  "user_id": 123
 }
 ```
 
-Trace fields follow the OpenTelemetry standard and are placed at the JSON root level (not in `ctx`) for compatibility with observability platforms like Jaeger, Zipkin, DataDog, and Grafana Tempo.
+Trace fields follow the OpenTelemetry standard and are placed at the JSON root level for compatibility with observability platforms like Jaeger, Zipkin, DataDog, and Grafana Tempo.
 
 To disable: `LOG_OTEL_ENABLED=false`
 
@@ -248,7 +256,7 @@ LOG_TIMEZONE=Europe/Zurich
 
 Output:
 ```json
-{"time":"2024-11-25T15:56:36.066922+01:00","level":"INFO","thread":"MainThread","logger":"__main__:<module>:12","msg":"Application started","ctx":{"version":"1.0.0","environment":"production"}}
+{"time":"2024-11-25T15:56:36.066922+01:00","level":"INFO","msg":"Application started","caller":"__main__:<module>:12","version":"1.0.0","environment":"production"}
 ```
 
 #### TEXT Format
@@ -291,18 +299,26 @@ INFO | Custom format example
 
 ## JSON Record Structure
 
-When using JSON format, log records follow this structure:
+When using JSON format, log records follow this structure. Core fields are always present, extra context fields are merged flat at the top level:
 
 ```python
 class JSONRecordDict:
     time: str              # ISO 8601 timestamp with timezone
     level: str             # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     msg: str               # Log message
-    logger: str | None     # Logger name in format "module:function:line"
-    thread: str            # Thread name
+    caller: str            # Caller info in format "module:function:line"
     trace_id: str          # Optional: OpenTelemetry trace ID (32 hex chars)
     span_id: str           # Optional: OpenTelemetry span ID (16 hex chars)
-    ctx: dict[Any, Any]    # Optional context data (kwargs passed to logger)
+    error: ErrorDict       # Optional: structured error info
+```
+
+The `ErrorDict` structure:
+
+```python
+class ErrorDict:
+    type: str              # Exception class name (e.g., "ValueError")
+    message: str           # Exception message
+    stack: str             # Optional: full traceback string
 ```
 
 Example:
@@ -310,17 +326,22 @@ Example:
 {
   "time": "2024-11-25T15:56:36.066922+01:00",
   "level": "INFO",
-  "thread": "MainThread",
-  "logger": "myapp.service:process_data:42",
   "msg": "Processing complete",
+  "caller": "myapp.service:process_data:42",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "span_id": "00f067aa0ba902b7",
-  "ctx": {
-    "records_processed": 1000,
-    "duration_ms": 234
-  }
+  "records_processed": 1000,
+  "duration_ms": 234
 }
 ```
 
 !!! note
     The `trace_id` and `span_id` fields only appear when OpenTelemetry integration is enabled and an active span exists.
+
+### Design Decisions
+
+**Level casing**: The `level` field uses UPPERCASE (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`), following the majority convention (Go slog, Java Log4j2/Logback, Rust tracing). This is not configurable.
+
+**Field naming**: Core field names (`time`, `level`, `msg`, `caller`, `error`) follow slog/zap conventions and are not configurable. Field renaming is a log pipeline concern (Datadog remapper, Logstash mutate filter, Vector remap).
+
+**Collision protection**: Core fields cannot be overwritten by user-supplied extra context. If an extra key collides with a core field name, the core field value is preserved and the extra is dropped.

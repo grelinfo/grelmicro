@@ -4,25 +4,28 @@ These tests verify that loguru, structlog, and stdlib backends behave
 identically for the public API.
 """
 
+import json
 import logging
 from collections.abc import Generator
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 import pytest_mock
 import structlog
 from loguru import logger as loguru_logger
-from pydantic import TypeAdapter
 
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging import configure_logging
 from grelmicro.logging._shared import get_otel_trace_context, load_settings
-from grelmicro.logging._structlog import _add_logger_info
+from grelmicro.logging._structlog import _add_caller_info
 from grelmicro.logging.errors import LoggingSettingsValidationError
-from grelmicro.logging.types import JSONRecordDict
 
-json_record_type_adapter = TypeAdapter(JSONRecordDict)
+
+def parse_json_log(output: str) -> dict[str, Any]:
+    """Parse JSON log output."""
+    return json.loads(output.strip())
 
 
 # Backend configurations
@@ -78,6 +81,12 @@ def reset_backend(
     _ = reset_loguru, reset_structlog, reset_stdlib
 
 
+_USER_ID = 123
+_USER_ID_2 = 456
+_USER_ID_3 = 789
+_COUNT = 42
+
+
 def log_message(backend: str, msg: str, **kwargs: object) -> None:
     """Log a message using the appropriate backend."""
     if backend == "loguru":
@@ -101,7 +110,7 @@ class TestConfigureLoggingJSON:
         monkeypatch: pytest.MonkeyPatch,
         reset_backend: None,  # noqa: ARG002
     ) -> None:
-        """Test default JSON format produces valid JSONRecordDict."""
+        """Test default JSON format produces valid log record."""
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.delenv("LOG_LEVEL", raising=False)
@@ -110,24 +119,28 @@ class TestConfigureLoggingJSON:
 
         # Act
         configure_logging()
-        log_message(backend, "Test message", user_id=123)
+        log_message(backend, "Test message", user_id=_USER_ID)
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
 
-        # Required fields
+        # Core fields
         assert "time" in log_record
         assert "level" in log_record
-        assert "thread" in log_record
-        assert "logger" in log_record
+        assert "caller" in log_record
         assert "msg" in log_record
 
         # Values
         assert log_record["level"] == "INFO"
         assert log_record["msg"] == "Test message"
-        assert log_record["thread"] == "MainThread"
-        assert log_record["ctx"] == {"user_id": 123}
+
+        # Extra context is flat at top level
+        assert log_record["user_id"] == _USER_ID
+
+        # Removed fields
+        assert "thread" not in log_record
+        assert "logger" not in log_record
+        assert "ctx" not in log_record
 
         # Time should be valid ISO 8601
         assert (
@@ -154,8 +167,7 @@ class TestConfigureLoggingJSON:
         log_message(backend, "JSON format test")
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "JSON format test"
 
     @pytest.mark.parametrize("backend", BACKENDS)
@@ -166,7 +178,7 @@ class TestConfigureLoggingJSON:
         monkeypatch: pytest.MonkeyPatch,
         reset_backend: None,  # noqa: ARG002
     ) -> None:
-        """Test JSON format omits ctx when no context provided."""
+        """Test JSON format with no extra context has only core fields."""
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "json")
@@ -177,8 +189,7 @@ class TestConfigureLoggingJSON:
         log_message(backend, "No context message")
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "No context message"
         assert "ctx" not in log_record
 
@@ -190,7 +201,7 @@ class TestConfigureLoggingJSON:
         monkeypatch: pytest.MonkeyPatch,
         reset_backend: None,  # noqa: ARG002
     ) -> None:
-        """Test JSON format includes context fields in ctx."""
+        """Test JSON format includes context fields flat at top level."""
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "json")
@@ -201,19 +212,16 @@ class TestConfigureLoggingJSON:
         log_message(
             backend,
             "Context message",
-            user_id=123,
+            user_id=_USER_ID,
             action="login",
             ip="192.168.1.1",
         )
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
-        assert log_record["ctx"] == {
-            "user_id": 123,
-            "action": "login",
-            "ip": "192.168.1.1",
-        }
+        log_record = parse_json_log(capsys.readouterr().out)
+        assert log_record["user_id"] == _USER_ID
+        assert log_record["action"] == "login"
+        assert log_record["ip"] == "192.168.1.1"
 
 
 class TestConfigureLoggingLevel:
@@ -256,7 +264,7 @@ class TestConfigureLoggingLevel:
         lines = [line for line in output.strip().split("\n") if line]
         assert len(lines) == 1  # Only warning should be logged
 
-        log_record = json_record_type_adapter.validate_json(lines[0])
+        log_record = parse_json_log(lines[0])
         assert log_record["level"] == "WARNING"
         assert log_record["msg"] == "Warning message"
 
@@ -308,8 +316,7 @@ class TestConfigureLoggingTimezone:
         log_message(backend, "Timezone test")
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
 
         # Should have timezone offset (not Z for UTC)
         time_str = log_record["time"]
@@ -358,18 +365,14 @@ class TestConfigureLoggingOTel:
         log_message(backend, "OTel test", request_id="abc-123")
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
 
         # Trace fields should be at root level
         assert log_record["trace_id"] == trace_context["trace_id"]
         assert log_record["span_id"] == trace_context["span_id"]
         assert log_record["msg"] == "OTel test"
-        assert log_record["ctx"] == {"request_id": "abc-123"}
-
-        # Trace fields should NOT be in ctx
-        assert "trace_id" not in log_record.get("ctx", {})
-        assert "span_id" not in log_record.get("ctx", {})
+        # Extra context is flat at top level
+        assert log_record["request_id"] == "abc-123"
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_otel_disabled(
@@ -400,13 +403,13 @@ class TestConfigureLoggingOTel:
         log_message(backend, "OTel disabled test", request_id="xyz-456")
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
 
         assert "trace_id" not in log_record
         assert "span_id" not in log_record
         assert log_record["msg"] == "OTel disabled test"
-        assert log_record["ctx"] == {"request_id": "xyz-456"}
+        # Extra context is flat at top level
+        assert log_record["request_id"] == "xyz-456"
 
         # Verify get_otel_trace_context was never called
         mock_otel.assert_not_called()
@@ -481,13 +484,12 @@ class TestConfigureLoggingJSONSerializer:
 
         # Act
         configure_logging()
-        log_message(backend, "Stdlib serializer test", count=42)
+        log_message(backend, "Stdlib serializer test", count=_COUNT)
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "Stdlib serializer test"
-        assert log_record["ctx"] == {"count": 42}
+        assert log_record["count"] == _COUNT
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_orjson_serializer(
@@ -506,13 +508,12 @@ class TestConfigureLoggingJSONSerializer:
 
         # Act
         configure_logging()
-        log_message(backend, "Orjson serializer test", count=42)
+        log_message(backend, "Orjson serializer test", count=_COUNT)
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "Orjson serializer test"
-        assert log_record["ctx"] == {"count": 42}
+        assert log_record["count"] == _COUNT
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_orjson_serializer_not_installed(
@@ -597,11 +598,11 @@ class TestGetOtelTraceContext:
         }
 
 
-class TestStructlogLoggerInfo:
-    """Test structlog _add_logger_info processor edge cases."""
+class TestStructlogCallerInfo:
+    """Test structlog _add_caller_info processor edge cases."""
 
     def test_with_stdlib_record(self) -> None:
-        """Test _add_logger_info when stdlib record is present."""
+        """Test _add_caller_info when stdlib record is present."""
         # Arrange
         record = MagicMock()
         record.name = "mymodule"
@@ -610,21 +611,21 @@ class TestStructlogLoggerInfo:
         event_dict = {"_record": record, "event": "test"}
 
         # Act
-        result = _add_logger_info(None, "info", event_dict)
+        result = _add_caller_info(None, "info", event_dict)
 
         # Assert
-        assert result["logger"] == "mymodule:myfunc:42"
+        assert result["caller"] == "mymodule:myfunc:42"
 
     def test_without_callsite_info(self) -> None:
-        """Test _add_logger_info when no callsite info is available."""
+        """Test _add_caller_info when no callsite info is available."""
         # Arrange
         event_dict: dict[str, object] = {"event": "test"}
 
         # Act
-        result = _add_logger_info(None, "info", event_dict)
+        result = _add_caller_info(None, "info", event_dict)
 
         # Assert
-        assert result["logger"] is None
+        assert result["caller"] == "unknown"
 
 
 _TEST_ERROR_MSG = "test error"
@@ -634,33 +635,78 @@ def _raise_value_error() -> None:
     raise ValueError(_TEST_ERROR_MSG)
 
 
-class TestStdlibExceptionFormatting:
-    """Test stdlib _JSONFormatter exception info handling."""
+class TestConfigureLoggingException:
+    """Test exception handling across backends."""
 
-    def test_json_format_with_exception(
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_exception_produces_structured_error(
         self,
+        backend: str,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
         reset_backend: None,  # noqa: ARG002
     ) -> None:
-        """Test JSON format includes exception info in ctx."""
+        """Test all backends produce structured ErrorDict for exceptions."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", "stdlib")
+        monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "json")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
 
         configure_logging()
-        stdlib_logger = logging.getLogger("test_exception")
 
         # Act
         try:
             _raise_value_error()
         except ValueError:
-            stdlib_logger.exception("Something failed")
+            if backend == "loguru":
+                loguru_logger.exception("Something failed")
+            elif backend == "structlog":
+                log = structlog.get_logger()
+                log.exception("Something failed")
+            else:
+                stdlib_logger = logging.getLogger("test_exception")
+                stdlib_logger.exception("Something failed")
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "Something failed"
-        assert "exception" in log_record["ctx"]
-        assert "ValueError: test error" in log_record["ctx"]["exception"]
+        assert log_record["error"]["type"] == "ValueError"
+        assert log_record["error"]["message"] == _TEST_ERROR_MSG
+        assert "stack" in log_record["error"]
+        assert "ValueError: test error" in log_record["error"]["stack"]
+
+
+class TestCoreFieldCollisionProtection:
+    """Test that user extras cannot overwrite core fields."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_user_extras_cannot_overwrite_core_fields(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test core fields are protected from user-supplied extras."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        configure_logging()
+
+        # Act - attempt to overwrite core fields via extras
+        log_message(
+            backend,
+            "Real message",
+            level="FAKE",
+            time="1970-01-01",
+            caller="evil:inject:0",
+        )
+
+        # Assert - core fields should NOT be overwritten
+        log_record = parse_json_log(capsys.readouterr().out)
+        assert log_record["level"] == "INFO"
+        assert log_record["msg"] == "Real message"
+        assert log_record["time"] != "1970-01-01"
+        assert log_record["caller"] != "evil:inject:0"

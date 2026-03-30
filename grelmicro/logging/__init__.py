@@ -7,7 +7,7 @@ from grelmicro.logging.errors import (
     LoggingError,
     LoggingSettingsValidationError,
 )
-from grelmicro.logging.types import JSONRecordDict
+from grelmicro.logging.types import ErrorDict, JSONRecordDict
 
 
 def configure_logging() -> None:
@@ -53,6 +53,7 @@ def configure_logging() -> None:
 
 
 __all__ = [
+    "ErrorDict",
     "JSONRecordDict",
     "LoggingError",
     "LoggingSettingsValidationError",

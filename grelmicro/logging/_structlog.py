@@ -2,7 +2,7 @@
 
 import logging
 import sys
-import threading
+import traceback
 from datetime import UTC, datetime, tzinfo
 
 from grelmicro.logging._shared import (
@@ -10,7 +10,7 @@ from grelmicro.logging._shared import (
     load_settings,
 )
 from grelmicro.logging.config import LoggingSerializerType
-from grelmicro.logging.types import JSONRecordDict
+from grelmicro.logging.types import ErrorDict
 
 try:
     import structlog
@@ -18,6 +18,14 @@ try:
 except ImportError as exc:  # pragma: no cover
     msg = "structlog is required for the structlog logging backend"
     raise ImportError(msg) from exc
+
+_STRUCTLOG_INTERNAL_KEYS = frozenset(
+    {
+        "event",
+        "_record",
+        "exc_info",
+    }
+)
 
 
 def _add_timestamp(
@@ -46,27 +54,17 @@ def _add_level(
     return event_dict
 
 
-def _add_thread_name(
+def _add_caller_info(
     _logger: WrappedLogger,
     _method_name: str,
     event_dict: EventDict,
 ) -> EventDict:
-    """Add thread name to event dict."""
-    event_dict["thread"] = threading.current_thread().name
-    return event_dict
-
-
-def _add_logger_info(
-    _logger: WrappedLogger,
-    _method_name: str,
-    event_dict: EventDict,
-) -> EventDict:
-    """Add logger info in module:function:line format."""
+    """Add caller info in module:function:line format."""
     # structlog doesn't have built-in call site info, so we extract it
     record = event_dict.get("_record")
     if record:
         # If using stdlib integration, we have the record
-        event_dict["logger"] = (
+        event_dict["caller"] = (
             f"{record.name}:{record.funcName}:{record.lineno}"
         )
     else:
@@ -77,9 +75,34 @@ def _add_logger_info(
         func = event_dict.pop("func_name", None)
         lineno = event_dict.pop("lineno", None)
         if module and func and lineno:
-            event_dict["logger"] = f"{module}:{func}:{lineno}"
+            event_dict["caller"] = f"{module}:{func}:{lineno}"
         else:
-            event_dict["logger"] = None
+            event_dict["caller"] = "unknown"
+    return event_dict
+
+
+def _add_error_info(
+    _logger: WrappedLogger,
+    _method_name: str,
+    event_dict: EventDict,
+) -> EventDict:
+    """Convert exc_info to structured ErrorDict."""
+    exc_info = event_dict.pop("exc_info", None)
+    if exc_info is True:
+        import sys as _sys  # noqa: PLC0415
+
+        exc_info = _sys.exc_info()
+    if exc_info and exc_info[0] is not None:
+        exc_type, exc_value, exc_tb = exc_info
+        error = ErrorDict(
+            type=exc_type.__name__,
+            message=str(exc_value),
+        )
+        if exc_tb is not None:
+            error["stack"] = "".join(
+                traceback.format_exception(exc_type, exc_value, exc_tb)
+            )
+        event_dict["error"] = error
     return event_dict
 
 
@@ -100,31 +123,16 @@ def _build_json_record(
     _logger: WrappedLogger,
     _method_name: str,
     event_dict: EventDict,
-) -> JSONRecordDict:
-    """Build and validate JSONRecordDict from event dict."""
-    # Reserved keys that are part of JSONRecordDict structure
-    reserved_keys = {
-        "time",
-        "level",
-        "thread",
-        "logger",
-        "event",
-        "trace_id",
-        "span_id",
-        "_record",
+) -> dict[str, object]:
+    """Build flat JSON record from event dict."""
+    # C-speed dict comprehension for extras, then core fields overwrite
+    json_record: dict[str, object] = {
+        k: v for k, v in event_dict.items() if k not in _STRUCTLOG_INTERNAL_KEYS
     }
-
-    # Extract user context (non-reserved keys)
-    ctx = {k: v for k, v in event_dict.items() if k not in reserved_keys}
-
-    # Build the record with required fields
-    json_record = JSONRecordDict(
-        time=event_dict["time"],
-        level=event_dict["level"],
-        thread=event_dict["thread"],
-        logger=event_dict["logger"],
-        msg=event_dict.get("event", ""),
-    )
+    json_record["time"] = event_dict["time"]
+    json_record["level"] = event_dict["level"]
+    json_record["msg"] = event_dict.get("event", "")
+    json_record["caller"] = event_dict["caller"]
 
     # Add optional trace fields
     if "trace_id" in event_dict:
@@ -132,9 +140,9 @@ def _build_json_record(
     if "span_id" in event_dict:
         json_record["span_id"] = event_dict["span_id"]
 
-    # Add context if present
-    if ctx:
-        json_record["ctx"] = ctx
+    # Add error if present
+    if "error" in event_dict:
+        json_record["error"] = event_dict["error"]
 
     return json_record
 
@@ -173,8 +181,9 @@ def configure_logging() -> None:
         # Add standard fields
         _add_timestamp(timezone),
         _add_level,
-        _add_thread_name,
-        _add_logger_info,
+        _add_caller_info,
+        # Convert exc_info to structured ErrorDict
+        _add_error_info,
     ]
 
     # Add OTel context if enabled

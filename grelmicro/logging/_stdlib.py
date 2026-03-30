@@ -2,7 +2,7 @@
 
 import logging
 import sys
-import threading
+import traceback
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, tzinfo
 from typing import Any
@@ -11,7 +11,34 @@ from grelmicro.logging._shared import (
     get_otel_trace_context,
     load_settings,
 )
-from grelmicro.logging.types import JSONRecordDict
+from grelmicro.logging.types import ErrorDict
+
+_STANDARD_LOG_RECORD_ATTRS = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "created",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "exc_info",
+        "exc_text",
+        "thread",
+        "threadName",
+        "taskName",
+        "message",
+    }
+)
 
 
 class _JSONFormatter(logging.Formatter):
@@ -31,12 +58,21 @@ class _JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record as JSON."""
-        json_record = JSONRecordDict(
-            time=datetime.now(UTC).astimezone(self.timezone).isoformat(),
-            level=record.levelname,
-            thread=threading.current_thread().name,
-            logger=f"{record.name}:{record.funcName}:{record.lineno}",
-            msg=record.getMessage(),
+        # C-speed dict comprehension for extras, then core fields overwrite
+        json_record: dict[str, Any] = {
+            k: v
+            for k, v in record.__dict__.items()
+            if k not in _STANDARD_LOG_RECORD_ATTRS and not callable(v)
+        }
+        json_record["time"] = (
+            datetime.fromtimestamp(record.created, tz=UTC)
+            .astimezone(self.timezone)
+            .isoformat()
+        )
+        json_record["level"] = record.levelname
+        json_record["msg"] = record.getMessage()
+        json_record["caller"] = (
+            f"{record.name}:{record.funcName}:{record.lineno}"
         )
 
         # Add OTel context if enabled
@@ -46,43 +82,18 @@ class _JSONFormatter(logging.Formatter):
                 json_record["trace_id"] = trace_context["trace_id"]
                 json_record["span_id"] = trace_context["span_id"]
 
-        # Extract extra context (excluding standard LogRecord attributes)
-        standard_attrs = {
-            "name",
-            "msg",
-            "args",
-            "created",
-            "filename",
-            "funcName",
-            "levelname",
-            "levelno",
-            "lineno",
-            "module",
-            "msecs",
-            "pathname",
-            "process",
-            "processName",
-            "relativeCreated",
-            "stack_info",
-            "exc_info",
-            "exc_text",
-            "thread",
-            "threadName",
-            "taskName",
-            "message",
-        }
-        ctx = {
-            k: v for k, v in record.__dict__.items() if k not in standard_attrs
-        }
-
         # Handle exception info
         if record.exc_info and record.exc_info[0] is not None:
-            exc_type, exc_value, _ = record.exc_info
-            if exc_type is not None:
-                ctx["exception"] = f"{exc_type.__name__}: {exc_value!s}"
-
-        if ctx:
-            json_record["ctx"] = ctx
+            exc_type, exc_value, exc_tb = record.exc_info
+            error = ErrorDict(
+                type=exc_type.__name__,
+                message=str(exc_value),
+            )
+            if exc_tb is not None:
+                error["stack"] = "".join(
+                    traceback.format_exception(exc_type, exc_value, exc_tb)
+                )
+            json_record["error"] = error
 
         return self.json_dumps(json_record)
 
@@ -97,7 +108,7 @@ class _TextFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record as human-readable text."""
         localtime = (
-            datetime.now(UTC)
+            datetime.fromtimestamp(record.created, tz=UTC)
             .astimezone(self.timezone)
             .strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         )

@@ -1,6 +1,7 @@
 """Loguru Logging Backend."""
 
 import sys
+import traceback as tb_module
 from collections.abc import Callable, Mapping
 from datetime import UTC, tzinfo
 from typing import TYPE_CHECKING, Any
@@ -11,7 +12,7 @@ from grelmicro.logging._shared import (
     load_settings,
 )
 from grelmicro.logging.config import LoggingFormatType
-from grelmicro.logging.types import JSONRecordDict
+from grelmicro.logging.types import ErrorDict
 
 try:
     import loguru
@@ -24,6 +25,12 @@ if TYPE_CHECKING:
 
 _json_dumps: Callable[[Mapping[str, Any]], str] = _stdlib_json_dumps
 
+_LOGURU_INTERNAL_KEYS = frozenset(
+    {
+        "serialized",
+        "localtime",
+    }
+)
 
 JSON_FORMAT = "{extra[serialized]}"
 TEXT_FORMAT = (
@@ -69,21 +76,19 @@ def _json_patcher(
 ) -> None:
     """Patch the record with JSON serialization."""
     serializer = json_dumps or _json_dumps
-    json_record = JSONRecordDict(
-        time=record["time"].astimezone(timezone or UTC).isoformat(),
-        level=record["level"].name,
-        thread=record["thread"].name,
-        logger=f"{record['name']}:{record['function']}:{record['line']}",
-        msg=record["message"],
-    )
 
-    # Reserved keys that should not go into ctx
-    reserved_keys = {
-        "serialized",
-        "localtime",
-        "trace_id",
-        "span_id",
+    # C-speed dict comprehension for extras, then core fields overwrite
+    json_record: dict[str, Any] = {
+        k: v
+        for k, v in record["extra"].items()
+        if k not in _LOGURU_INTERNAL_KEYS
     }
+    json_record["time"] = record["time"].astimezone(timezone or UTC).isoformat()
+    json_record["level"] = record["level"].name
+    json_record["msg"] = record["message"]
+    json_record["caller"] = (
+        f"{record['name']}:{record['function']}:{record['line']}"
+    )
 
     # Extract trace fields to top level
     if "trace_id" in record["extra"]:
@@ -91,15 +96,20 @@ def _json_patcher(
     if "span_id" in record["extra"]:
         json_record["span_id"] = record["extra"]["span_id"]
 
-    # Application context goes in ctx (excluding reserved keys)
-    ctx = {k: v for k, v in record["extra"].items() if k not in reserved_keys}
+    # Handle error
     exception = record["exception"]
-
     if exception and exception.type:
-        ctx["exception"] = f"{exception.type.__name__}: {exception.value!s}"
-
-    if ctx:
-        json_record["ctx"] = ctx
+        error = ErrorDict(
+            type=exception.type.__name__,
+            message=str(exception.value),
+        )
+        if exception.traceback:
+            error["stack"] = "".join(
+                tb_module.format_exception(
+                    exception.type, exception.value, exception.traceback
+                )
+            )
+        json_record["error"] = error
 
     record["extra"]["serialized"] = serializer(json_record)
 
@@ -129,7 +139,7 @@ def _json_formatter(record: "Record", timezone: tzinfo | None = None) -> str:
     """Format log record as JSON.
 
     Note: This is a format function (not a string) to suppress loguru's automatic
-    traceback appending. Exceptions are captured in the `ctx` field instead.
+    traceback appending. Exceptions are captured in the `error` field instead.
     """
     if "serialized" not in record["extra"]:
         _json_patcher(record, timezone=timezone)

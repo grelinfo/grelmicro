@@ -4,16 +4,16 @@ These tests verify loguru-specific internal implementation details
 that are not shared with other backends.
 """
 
+import json
 from collections.abc import Generator
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_mock
 from loguru import logger
-from pydantic import TypeAdapter
 
 from grelmicro.logging._loguru import (
     JSON_FORMAT,
@@ -22,12 +22,19 @@ from grelmicro.logging._loguru import (
     _otel_patcher,
     configure_logging,
 )
-from grelmicro.logging.types import JSONRecordDict
 
 if TYPE_CHECKING:
     from loguru import Record
 
-json_record_type_adapter = TypeAdapter(JSONRecordDict)
+
+_USER_ID = 123
+_USER_ID_2 = 456
+_USER_ID_3 = 789
+
+
+def parse_json_log(output: str) -> dict[str, Any]:
+    """Parse JSON log output."""
+    return json.loads(output.strip())
 
 
 @pytest.fixture(autouse=True)
@@ -53,67 +60,64 @@ def generate_logs() -> int:
 
 
 def assert_logs(logs: str) -> None:
-    """Assert logs follow JSONRecordDict structure."""
+    """Assert logs follow the flat JSON record structure."""
     (
         info,
         warning,
         error,
         exception,
-    ) = (
-        json_record_type_adapter.validate_json(line)
-        for line in logs.splitlines()[0:4]
-    )
+    ) = (parse_json_log(line) for line in logs.splitlines()[0:4])
 
     expected_separator = 3
 
-    assert info["logger"]
-    assert info["logger"].startswith("tests.logging.test_loguru:generate_logs:")
-    assert len(info["logger"].split(":")) == expected_separator
+    assert info["caller"]
+    assert info["caller"].startswith("tests.logging.test_loguru:generate_logs:")
+    assert len(info["caller"].split(":")) == expected_separator
     assert info["time"] == datetime.fromisoformat(info["time"]).isoformat()
     assert info["level"] == "INFO"
     assert info["msg"] == "Hello, World!"
-    assert info["thread"] == "MainThread"
+    assert "thread" not in info
     assert "ctx" not in info
 
-    assert warning["logger"]
-    assert warning["logger"].startswith(
+    assert warning["caller"]
+    assert warning["caller"].startswith(
         "tests.logging.test_loguru:generate_logs:"
     )
-    assert len(warning["logger"].split(":")) == expected_separator
+    assert len(warning["caller"].split(":")) == expected_separator
     assert (
         warning["time"] == datetime.fromisoformat(warning["time"]).isoformat()
     )
     assert warning["level"] == "WARNING"
     assert warning["msg"] == "Hello, World!"
-    assert warning["thread"] == "MainThread"
+    assert "thread" not in warning
     assert "ctx" not in warning
 
-    assert error["logger"]
-    assert error["logger"].startswith(
+    assert error["caller"]
+    assert error["caller"].startswith(
         "tests.logging.test_loguru:generate_logs:"
     )
-    assert len(error["logger"].split(":")) == expected_separator
+    assert len(error["caller"].split(":")) == expected_separator
     assert error["time"] == datetime.fromisoformat(error["time"]).isoformat()
     assert error["level"] == "ERROR"
     assert error["msg"] == "Hello, Alice!"
-    assert error["thread"] == "MainThread"
-    assert error["ctx"] == {"user": "Alice"}
+    assert "thread" not in error
+    # Extra context is flat at top level
+    assert error["user"] == "Alice"
 
-    assert exception["logger"]
-    assert exception["logger"].startswith(
+    assert exception["caller"]
+    assert exception["caller"].startswith(
         "tests.logging.test_loguru:generate_logs:"
     )
-    assert len(exception["logger"].split(":")) == expected_separator
+    assert len(exception["caller"].split(":")) == expected_separator
     assert (
         exception["time"]
         == datetime.fromisoformat(exception["time"]).isoformat()
     )
     assert exception["level"] == "ERROR"
     assert exception["msg"] == "Hello, Bob!"
-    assert exception["thread"] == "MainThread"
-    assert exception["ctx"] == {
-        "exception": "ZeroDivisionError: division by zero",
-    }
+    assert "thread" not in exception
+    assert exception["error"]["type"] == "ZeroDivisionError"
+    assert exception["error"]["message"] == "division by zero"
 
 
 class TestJsonFormatter:
@@ -184,16 +188,15 @@ class TestOtelPatcher:
         # Act
         logger.configure(patcher=_otel_patcher)
         logger.add(sink, format=_json_formatter, level="INFO")
-        logger.info("Test without OpenTelemetry", user_id=123)
+        logger.info("Test without OpenTelemetry", user_id=_USER_ID)
 
         # Assert
-        log_line = sink.getvalue().strip()
-        log_record = json_record_type_adapter.validate_json(log_line)
+        log_record = parse_json_log(sink.getvalue())
 
         assert "trace_id" not in log_record
         assert "span_id" not in log_record
         assert log_record["msg"] == "Test without OpenTelemetry"
-        assert log_record["ctx"] == {"user_id": 123}
+        assert log_record["user_id"] == _USER_ID
 
     def test_otel_patcher_with_invalid_span(
         self,
@@ -210,16 +213,15 @@ class TestOtelPatcher:
         # Act
         logger.configure(patcher=_otel_patcher)
         logger.add(sink, format=_json_formatter, level="INFO")
-        logger.info("Test with invalid span", user_id=456)
+        logger.info("Test with invalid span", user_id=_USER_ID_2)
 
         # Assert
-        log_line = sink.getvalue().strip()
-        log_record = json_record_type_adapter.validate_json(log_line)
+        log_record = parse_json_log(sink.getvalue())
 
         assert "trace_id" not in log_record
         assert "span_id" not in log_record
         assert log_record["msg"] == "Test with invalid span"
-        assert log_record["ctx"] == {"user_id": 456}
+        assert log_record["user_id"] == _USER_ID_2
 
     def test_otel_patcher_with_valid_span(
         self,
@@ -239,16 +241,15 @@ class TestOtelPatcher:
         # Act
         logger.configure(patcher=_otel_patcher)
         logger.add(sink, format=_json_formatter, level="INFO")
-        logger.info("Test with valid span", user_id=789)
+        logger.info("Test with valid span", user_id=_USER_ID_3)
 
         # Assert
-        log_line = sink.getvalue().strip()
-        log_record = json_record_type_adapter.validate_json(log_line)
+        log_record = parse_json_log(sink.getvalue())
 
         assert log_record["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
         assert log_record["span_id"] == "00f067aa0ba902b7"
         assert log_record["msg"] == "Test with valid span"
-        assert log_record["ctx"] == {"user_id": 789}
+        assert log_record["user_id"] == _USER_ID_3
 
 
 class TestLoguruSpecificFeatures:
@@ -327,12 +328,12 @@ class TestLoguruSpecificFeatures:
         # Assert
         assert capsys.readouterr().out.strip() == "INFO: Simple test"
 
-    def test_exception_captured_in_ctx(
+    def test_exception_captured_as_structured(
         self,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Test exception is captured in ctx field for JSON format."""
+        """Test exception is captured as structured ErrorDict."""
         # Arrange
         monkeypatch.setenv("LOG_FORMAT", "json")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
@@ -345,9 +346,7 @@ class TestLoguruSpecificFeatures:
             logger.exception("Division error")
 
         # Assert
-        output = capsys.readouterr().out.strip()
-        log_record = json_record_type_adapter.validate_json(output)
+        log_record = parse_json_log(capsys.readouterr().out)
 
-        assert log_record["ctx"]["exception"] == (
-            "ZeroDivisionError: division by zero"
-        )
+        assert log_record["error"]["type"] == "ZeroDivisionError"
+        assert log_record["error"]["message"] == "division by zero"
