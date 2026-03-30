@@ -7,7 +7,7 @@ identically for the public API.
 import json
 import logging
 from collections.abc import Generator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -18,7 +18,11 @@ from loguru import logger as loguru_logger
 
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging import configure_logging
-from grelmicro.logging._shared import get_otel_trace_context, load_settings
+from grelmicro.logging._shared import (
+    _json_default,
+    get_otel_trace_context,
+    load_settings,
+)
 from grelmicro.logging._structlog import _add_caller_info
 from grelmicro.logging.errors import LoggingSettingsValidationError
 
@@ -490,6 +494,9 @@ class TestConfigureLoggingJSONSerializer:
         log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "Stdlib serializer test"
         assert log_record["count"] == _COUNT
+        # Verify time is valid ISO 8601 string
+        parsed = datetime.fromisoformat(log_record["time"])
+        assert parsed.tzinfo is not None
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_orjson_serializer(
@@ -514,6 +521,9 @@ class TestConfigureLoggingJSONSerializer:
         log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "Orjson serializer test"
         assert log_record["count"] == _COUNT
+        # Verify time is valid ISO 8601 string
+        parsed = datetime.fromisoformat(log_record["time"])
+        assert parsed.tzinfo is not None
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_orjson_serializer_not_installed(
@@ -546,6 +556,24 @@ class TestLoadSettings:
         # Act / Assert
         with pytest.raises(LoggingSettingsValidationError):
             load_settings()
+
+
+class TestJsonDefault:
+    """Test _json_default handler for stdlib json."""
+
+    def test_serializes_datetime(self) -> None:
+        """Test datetime is serialized to ISO 8601."""
+        # Arrange
+        dt = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+
+        # Act / Assert
+        assert _json_default(dt) == "2024-06-01T12:00:00+00:00"
+
+    def test_unsupported_type_raises(self) -> None:
+        """Test non-datetime types raise TypeError."""
+        # Act / Assert
+        with pytest.raises(TypeError, match="not JSON serializable"):
+            _json_default(object())
 
 
 class TestGetOtelTraceContext:

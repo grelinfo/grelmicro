@@ -64,11 +64,9 @@ class _JSONFormatter(logging.Formatter):
             for k, v in record.__dict__.items()
             if k not in _STANDARD_LOG_RECORD_ATTRS and not callable(v)
         }
-        json_record["time"] = (
-            datetime.fromtimestamp(record.created, tz=UTC)
-            .astimezone(self.timezone)
-            .isoformat()
-        )
+        json_record["time"] = datetime.fromtimestamp(
+            record.created, tz=UTC
+        ).astimezone(self.timezone)
         json_record["level"] = record.levelname
         json_record["msg"] = record.getMessage()
         json_record["caller"] = (

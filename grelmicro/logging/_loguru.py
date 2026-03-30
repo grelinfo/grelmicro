@@ -3,7 +3,7 @@
 import sys
 import traceback as tb_module
 from collections.abc import Callable, Mapping
-from datetime import UTC, tzinfo
+from datetime import UTC, datetime, tzinfo
 from typing import TYPE_CHECKING, Any
 
 from grelmicro.logging._shared import (
@@ -76,6 +76,7 @@ def _json_patcher(
 ) -> None:
     """Patch the record with JSON serialization."""
     serializer = json_dumps or _json_dumps
+    tz = timezone or UTC
 
     # C-speed dict comprehension for extras, then core fields overwrite
     json_record: dict[str, Any] = {
@@ -83,7 +84,21 @@ def _json_patcher(
         for k, v in record["extra"].items()
         if k not in _LOGURU_INTERNAL_KEYS
     }
-    json_record["time"] = record["time"].astimezone(timezone or UTC).isoformat()
+    # Convert loguru._datetime.datetime subclass to stdlib datetime.
+    # replace() must not be used here: it preserves the subclass type
+    # and orjson rejects it. The positional constructor produces a plain
+    # stdlib datetime.datetime that both serializers accept.
+    ldt = record["time"]
+    json_record["time"] = datetime(
+        ldt.year,
+        ldt.month,
+        ldt.day,
+        ldt.hour,
+        ldt.minute,
+        ldt.second,
+        ldt.microsecond,
+        tzinfo=ldt.tzinfo,
+    ).astimezone(tz)
     json_record["level"] = record["level"].name
     json_record["msg"] = record["message"]
     json_record["caller"] = (

@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Callable, Mapping
-from datetime import tzinfo
+from datetime import datetime, tzinfo
 from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -27,9 +27,17 @@ except ImportError:  # pragma: no cover
     orjson: Any = None
 
 
+def _json_default(obj: object) -> str:
+    """Handle non-serializable types for stdlib json."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    msg = f"Type is not JSON serializable: {type(obj).__name__}"
+    raise TypeError(msg)
+
+
 def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
     """Serialize object to JSON string using stdlib json."""
-    return json.dumps(obj, separators=(",", ":"))
+    return json.dumps(obj, separators=(",", ":"), default=_json_default)
 
 
 def _orjson_dumps(obj: Mapping[str, Any]) -> str:

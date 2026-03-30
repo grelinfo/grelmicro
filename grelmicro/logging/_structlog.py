@@ -6,6 +6,7 @@ import traceback
 from datetime import UTC, datetime, tzinfo
 
 from grelmicro.logging._shared import (
+    _json_default,
     get_otel_trace_context,
     load_settings,
 )
@@ -31,14 +32,14 @@ _STRUCTLOG_INTERNAL_KEYS = frozenset(
 def _add_timestamp(
     timezone: tzinfo,
 ) -> Processor:
-    """Create a processor that adds ISO 8601 timestamp."""
+    """Create a processor that adds timestamp as a datetime object."""
 
     def processor(
         _logger: WrappedLogger,
         _method_name: str,
         event_dict: EventDict,
     ) -> EventDict:
-        event_dict["time"] = datetime.now(UTC).astimezone(timezone).isoformat()
+        event_dict["time"] = datetime.now(UTC).astimezone(timezone)
         return event_dict
 
     return processor
@@ -197,6 +198,8 @@ def configure_logging() -> None:
         if settings.LOG_JSON_SERIALIZER == LoggingSerializerType.ORJSON:
             import orjson  # noqa: PLC0415
 
+            # orjson natively handles datetime; no default needed.
+            # Non-serializable extras raise orjson.JSONEncodeError (fail loudly).
             processors.append(
                 structlog.processors.JSONRenderer(serializer=orjson.dumps)
             )
@@ -204,7 +207,9 @@ def configure_logging() -> None:
                 file=sys.stdout.buffer
             )
         else:
-            processors.append(structlog.processors.JSONRenderer())
+            processors.append(
+                structlog.processors.JSONRenderer(default=_json_default)
+            )
             logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
     else:
         # TEXT format or custom format - use ConsoleRenderer
