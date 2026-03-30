@@ -68,11 +68,6 @@ opentelemetry = [
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
 ]
-opentelemetry-otlp = [
-    "opentelemetry-api>=1.20.0",
-    "opentelemetry-sdk>=1.20.0",
-    "opentelemetry-exporter-otlp>=1.20.0",
-]
 structlog = [
     "structlog>=24.1.0",
     "orjson>=3.10.11",
