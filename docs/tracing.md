@@ -105,12 +105,9 @@ When OpenTelemetry is installed, `@instrument` and `span()` also create OTel spa
 # Logging only (no OTel dependency needed)
 configure_logging()
 
-# Logging + OTel tracing
-configure_logging()       # structured logs
-configure_tracing()       # OTel spans (coming soon)
-
-# Or both at once
-configure_observability() # logging + tracing (coming soon)
+# Logging + OTel: install opentelemetry and configure your exporter separately.
+# @instrument and span() will automatically create OTel spans when opentelemetry
+# is installed and a TracerProvider is configured.
 ```
 
 ## Works With All Backends

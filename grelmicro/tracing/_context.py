@@ -10,7 +10,9 @@ try:
 except ImportError:  # pragma: no cover
     _otel_trace: Any = None  # type: ignore[no-redef]
 
-# Immutable stack of context dicts, one per active span.
+# Immutable stack of immutable context snapshots, one per active span.
+# Both the tuple and the dicts are replaced (never mutated) to ensure
+# concurrent async tasks sharing a parent context are isolated.
 _context_stack: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
     "grelmicro_tracing_context", default=()
 )
@@ -27,10 +29,10 @@ def _pop_context(token: Token[tuple[dict[str, Any], ...]]) -> None:
 
 
 def _merge_context_into(target: dict[str, Any]) -> None:
-    """Merge all active span context into target dict (lowest priority).
+    """Merge all active span context into target dict.
 
-    Used by logging backends on the hot path. Avoids creating an
-    intermediate dict compared to get_context().
+    Tracing context has lower priority than per-call log extras.
+    Used by logging backends on the hot path.
     """
     for frame in _context_stack.get():
         target.update(frame)
@@ -52,8 +54,9 @@ def get_context() -> dict[str, Any]:
 def add_context(**fields: object) -> None:
     """Add fields to the current span's context.
 
-    Updates both the current logging context and the active OTel span
-    (if tracing is configured). No-op if called outside a span.
+    Creates a new frame snapshot (safe for concurrent async tasks).
+    Updates the active OTel span if tracing is configured.
+    No-op if called outside a span.
 
     Example::
 
@@ -67,7 +70,9 @@ def add_context(**fields: object) -> None:
     if not stack:
         return
 
-    stack[-1].update(fields)
+    # Replace frame (not mutate) for concurrent task isolation
+    new_frame = {**stack[-1], **fields}
+    _context_stack.set((*stack[:-1], new_frame))
 
     if _otel_trace is not None:
         span = _otel_trace.get_current_span()

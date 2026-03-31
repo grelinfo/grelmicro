@@ -7,7 +7,6 @@ consistent log output across all three logging backends.
 import asyncio
 import json
 import logging
-from collections.abc import Generator
 from typing import Any
 
 import pytest
@@ -29,53 +28,6 @@ def parse_json_log(output: str) -> dict[str, Any]:
 def parse_json_logs(output: str) -> list[dict[str, Any]]:
     """Parse multi-line JSON log output."""
     return [json.loads(line) for line in output.strip().splitlines() if line]
-
-
-@pytest.fixture
-def reset_loguru() -> Generator[None, None, None]:
-    """Reset loguru configuration."""
-    loguru_logger.configure(handlers=[])
-    yield
-    loguru_logger.remove()
-
-
-@pytest.fixture
-def reset_structlog() -> Generator[None, None, None]:
-    """Reset structlog configuration."""
-    structlog.reset_defaults()
-    yield
-    structlog.reset_defaults()
-
-
-@pytest.fixture
-def reset_stdlib() -> Generator[None, None, None]:
-    """Reset stdlib logging configuration."""
-    root = logging.getLogger()
-    old_handlers = root.handlers.copy()
-    old_level = root.level
-    manager = root.manager
-    old_logger_levels = {
-        name: logger.level
-        for name, logger in manager.loggerDict.items()
-        if isinstance(logger, logging.Logger)
-    }
-    root.handlers.clear()
-    yield
-    root.handlers.clear()
-    root.handlers.extend(old_handlers)
-    root.setLevel(old_level)
-    for name, level in old_logger_levels.items():
-        logging.getLogger(name).setLevel(level)
-
-
-@pytest.fixture
-def reset_backend(
-    reset_loguru: None,
-    reset_structlog: None,
-    reset_stdlib: None,
-) -> None:
-    """Reset all backends before each test."""
-    _ = reset_loguru, reset_structlog, reset_stdlib
 
 
 def log_message(backend: str, msg: str, **kwargs: object) -> None:
@@ -249,6 +201,29 @@ class TestInstrument:
         log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["order_id"] == "ORD-1"
         assert "self" not in log_record
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_skips_cls(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test @instrument skips 'cls' parameter on classmethod."""
+        _setup_json_logging(monkeypatch, backend)
+
+        class Service:
+            @classmethod
+            @instrument
+            def process(cls, order_id: str) -> None:  # noqa: ARG003
+                log_message(backend, "processing")
+
+        Service.process("ORD-1")
+
+        log_record = parse_json_log(capsys.readouterr().out)
+        assert log_record["order_id"] == "ORD-1"
+        assert "cls" not in log_record
 
 
 class TestSpan:
@@ -441,38 +416,21 @@ class TestContextIsolation:
 
         assert get_context() == {}
 
-    @pytest.fixture
-    def reset_backend(
-        self,
-        reset_loguru: None,
-        reset_structlog: None,
-        reset_stdlib: None,
-    ) -> None:
-        """Reset all backends before each test."""
-        _ = reset_loguru, reset_structlog, reset_stdlib
+    def test_concurrent_task_isolation(self) -> None:
+        """Test add_context in one async task does not affect another."""
+        results: dict[str, str | None] = {}
 
-    @pytest.fixture
-    def reset_loguru(self) -> Generator[None, None, None]:
-        """Reset loguru configuration."""
-        loguru_logger.configure(handlers=[])
-        yield
-        loguru_logger.remove()
+        @instrument
+        async def worker(name: str) -> None:
+            await asyncio.sleep(0)
+            add_context(worker_name=name)
+            await asyncio.sleep(0)
+            results[name] = get_context().get("worker_name")
 
-    @pytest.fixture
-    def reset_structlog(self) -> Generator[None, None, None]:
-        """Reset structlog configuration."""
-        structlog.reset_defaults()
-        yield
-        structlog.reset_defaults()
+        async def run() -> None:
+            await asyncio.gather(worker("A"), worker("B"))
 
-    @pytest.fixture
-    def reset_stdlib(self) -> Generator[None, None, None]:
-        """Reset stdlib logging configuration."""
-        root = logging.getLogger()
-        old_handlers = root.handlers.copy()
-        old_level = root.level
-        root.handlers.clear()
-        yield
-        root.handlers.clear()
-        root.handlers.extend(old_handlers)
-        root.setLevel(old_level)
+        asyncio.run(run())
+
+        assert results["A"] == "A"
+        assert results["B"] == "B"

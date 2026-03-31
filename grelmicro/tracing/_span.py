@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from contextlib import contextmanager, nullcontext
 from typing import TYPE_CHECKING, Any
 
@@ -12,8 +13,10 @@ if TYPE_CHECKING:
 
 try:
     from opentelemetry import trace as _otel_trace
+    from opentelemetry.trace import StatusCode as _StatusCode
 except ImportError:  # pragma: no cover
     _otel_trace: Any = None  # type: ignore[no-redef]
+    _StatusCode: Any = None  # type: ignore[no-redef,misc]
 
 
 @contextmanager
@@ -21,6 +24,7 @@ def span(name: str, **fields: object) -> Generator[None, None, None]:
     """Create a span that enriches both OTel and logging context.
 
     Use for mid-function instrumentation when ``@instrument`` is not enough.
+    When an exception propagates, the OTel span is marked as ERROR.
 
     Example::
 
@@ -45,8 +49,19 @@ def span(name: str, **fields: object) -> Generator[None, None, None]:
         if _otel_trace is not None
         else nullcontext()
     )
-    with otel_cm:
+    with otel_cm as otel_span:
         try:
             yield
+        except BaseException:
+            if (
+                otel_span is not None
+                and hasattr(otel_span, "is_recording")
+                and otel_span.is_recording()
+            ):
+                exc = sys.exc_info()[1]
+                if exc is not None:
+                    otel_span.set_status(_StatusCode.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+                    otel_span.record_exception(exc)
+            raise
         finally:
             _pop_context(token)

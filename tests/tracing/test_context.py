@@ -3,6 +3,7 @@
 import asyncio
 from unittest.mock import MagicMock
 
+import pytest
 import pytest_mock
 
 from grelmicro.tracing._context import (
@@ -12,7 +13,8 @@ from grelmicro.tracing._context import (
     add_context,
     get_context,
 )
-from grelmicro.tracing._instrument import instrument
+from grelmicro.tracing._instrument import _record_exception, instrument
+from grelmicro.tracing._span import span as tracing_span
 
 
 class TestGetContext:
@@ -28,7 +30,6 @@ class TestGetContext:
         try:
             ctx = get_context()
             assert ctx == {"a": 1}
-            # Verify it's a copy (mutation doesn't affect original)
             ctx["b"] = 2
             assert get_context() == {"a": 1}
         finally:
@@ -86,11 +87,21 @@ class TestAddContext:
         assert get_context() == {}
 
     def test_updates_current_frame(self) -> None:
-        """Test add_context updates the current frame."""
+        """Test add_context creates new frame with updated fields."""
         token = _push_context({"a": 1})
         try:
             add_context(b=2)
             assert get_context() == {"a": 1, "b": 2}
+        finally:
+            _pop_context(token)
+
+    def test_does_not_mutate_original_frame(self) -> None:
+        """Test add_context replaces frame, not mutates it."""
+        original = {"a": 1}
+        token = _push_context(original)
+        try:
+            add_context(b=2)
+            assert original == {"a": 1}
         finally:
             _pop_context(token)
 
@@ -134,6 +145,134 @@ class TestAddContext:
             mock_span.set_attribute.assert_not_called()
         finally:
             _pop_context(token)
+
+
+class TestExceptionRecording:
+    """Test exception recording on OTel spans."""
+
+    def test_instrument_sync_records_exception(self) -> None:
+        """Test sync @instrument records exception on OTel span."""
+
+        @instrument
+        def failing(order_id: str) -> None:  # noqa: ARG001
+            msg = "sync boom"
+            raise ValueError(msg)
+
+        with pytest.raises(ValueError, match="sync boom"):
+            failing("ORD-1")
+
+        assert get_context() == {}
+
+    def test_instrument_async_records_exception(self) -> None:
+        """Test async @instrument records exception on OTel span."""
+
+        @instrument
+        async def async_failing(order_id: str) -> None:  # noqa: ARG001
+            msg = "async boom"
+            raise ValueError(msg)
+
+        with pytest.raises(ValueError, match="async boom"):
+            asyncio.run(async_failing("ORD-1"))
+
+        assert get_context() == {}
+
+    def test_span_records_exception(self) -> None:
+        """Test span() records exception on OTel span."""
+
+        def _raise_in_span() -> None:
+            with tracing_span("test", key="value"):
+                msg = "span boom"
+                raise ValueError(msg)
+
+        with pytest.raises(ValueError, match="span boom"):
+            _raise_in_span()
+
+        assert get_context() == {}
+
+    def test_record_exception_helper(self) -> None:
+        """Test _record_exception sets status and records exception."""
+        mock_span = MagicMock()
+        mock_span.is_recording.return_value = True
+
+        try:
+            msg = "test error"
+            raise ValueError(msg)  # noqa: TRY301
+        except ValueError:
+            _record_exception(mock_span)
+
+        mock_span.set_status.assert_called_once()
+        mock_span.record_exception.assert_called_once()
+
+    def test_record_exception_skips_non_recording(self) -> None:
+        """Test _record_exception skips non-recording span."""
+        mock_span = MagicMock()
+        mock_span.is_recording.return_value = False
+
+        try:
+            msg = "test"
+            raise ValueError(msg)  # noqa: TRY301
+        except ValueError:
+            _record_exception(mock_span)
+
+        mock_span.set_status.assert_not_called()
+
+
+class TestExtractFieldsFallback:
+    """Test _extract_fields graceful fallback."""
+
+    def test_bind_failure_returns_empty_context(
+        self,
+        mocker: pytest_mock.MockerFixture,
+    ) -> None:
+        """Test _extract_fields returns {} when sig.bind raises."""
+        mocker.patch(
+            "grelmicro.tracing._instrument.inspect.signature",
+            return_value=MagicMock(
+                bind=MagicMock(side_effect=TypeError("bad bind"))
+            ),
+        )
+
+        @instrument
+        def process(order_id: str) -> str:  # noqa: ARG001
+            return "empty" if not get_context() else "has_context"
+
+        assert process("ORD-1") == "empty"
+
+
+class TestSpanExceptionRecording:
+    """Test exception recording in span() context manager."""
+
+    def test_span_exception_is_recorded(
+        self,
+        mocker: pytest_mock.MockerFixture,
+    ) -> None:
+        """Test span() records exception on OTel span when body raises."""
+        mock_span = MagicMock()
+        mock_span.is_recording.return_value = True
+
+        mock_tracer = MagicMock()
+        mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(
+            return_value=mock_span
+        )
+        mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(
+            return_value=False
+        )
+
+        mocker.patch(
+            "grelmicro.tracing._span._otel_trace.get_tracer",
+            return_value=mock_tracer,
+        )
+
+        def _raise_in_span() -> None:
+            with tracing_span("test", key="val"):
+                msg = "span error"
+                raise ValueError(msg)
+
+        with pytest.raises(ValueError, match="span error"):
+            _raise_in_span()
+
+        mock_span.set_status.assert_called_once()
+        mock_span.record_exception.assert_called_once()
 
 
 class TestInstrumentNoOtel:

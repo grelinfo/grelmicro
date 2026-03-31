@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import sys
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, overload
 
 from grelmicro.tracing._context import _pop_context, _push_context
@@ -13,11 +14,56 @@ if TYPE_CHECKING:
 
 try:
     from opentelemetry import trace
+    from opentelemetry.trace import StatusCode
 except ImportError:  # pragma: no cover
     trace: Any = None  # type: ignore[no-redef]
+    StatusCode: Any = None  # type: ignore[no-redef,misc]
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+_IMPLICIT_PARAMS = frozenset({"self", "cls"})
+
+
+def _record_exception(otel_span: object) -> None:
+    """Record the current exception on an OTel span."""
+    if (  # type: ignore[truthy-function]
+        otel_span is not None
+        and hasattr(otel_span, "is_recording")
+        and otel_span.is_recording()  # ty: ignore[call-non-callable]
+    ):
+        exc = sys.exc_info()[1]
+        if exc is not None:
+            otel_span.set_status(StatusCode.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            otel_span.record_exception(exc)  # ty: ignore[unresolved-attribute]
+
+
+def _make_extract_fields(
+    sig: inspect.Signature,
+    skip_set: set[str],
+    *,
+    skip_all: bool,
+) -> Callable[..., dict[str, Any]]:
+    """Create a field extractor closure for the given signature."""
+
+    def _extract_fields(
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        if skip_all:
+            return {}
+        try:
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+        except (TypeError, ValueError):
+            return {}
+        return {
+            k: v
+            for k, v in bound.arguments.items()
+            if k not in skip_set and k not in _IMPLICIT_PARAMS
+        }
+
+    return _extract_fields
 
 
 @overload
@@ -45,17 +91,13 @@ def instrument(  # type: ignore[return-value]
     Creates an OTel span (if tracing configured) and pushes function
     arguments as context fields into log records. Like Rust's ``#[instrument]``.
 
-    Can be used as a bare decorator or with arguments::
+    When an exception propagates, the OTel span is marked as ERROR and
+    the exception is recorded on the span.
 
-        @instrument
-        async def process(order_id: str, user_id: str):
-            logger.info("started")  # auto-includes order_id, user_id
-
-        @instrument(skip={"password"})
-        def login(username: str, password: str): ...
-
-        @instrument(skip_all=True)
-        def bulk_process(payload: bytes): ...
+    Note:
+        Argument values are stringified (``str()``) when sent to OTel.
+        Use ``skip`` for arguments whose string representation may contain
+        sensitive data.
 
     Args:
         func: The function to instrument (set automatically for bare decorator).
@@ -67,36 +109,28 @@ def instrument(  # type: ignore[return-value]
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
         span_name = name or getattr(fn, "__qualname__", str(fn))
-        sig = inspect.signature(fn)
+        extract = _make_extract_fields(
+            inspect.signature(fn), skip_set, skip_all=skip_all
+        )
         tracer = trace.get_tracer(fn.__module__) if trace is not None else None
-
-        def _extract_fields(
-            args: tuple[Any, ...],
-            kwargs: dict[str, Any],
-        ) -> dict[str, Any]:
-            if skip_all:
-                return {}
-            bound = sig.bind(*args, **kwargs)
-            bound.apply_defaults()
-            return {
-                k: v
-                for k, v in bound.arguments.items()
-                if k not in skip_set and k != "self"
-            }
 
         if inspect.iscoroutinefunction(fn):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-                fields = _extract_fields(args, kwargs)
+                fields = extract(args, kwargs)
                 token = _push_context(fields)
                 try:
                     if tracer is not None:
                         with tracer.start_as_current_span(
                             span_name,
                             attributes={k: str(v) for k, v in fields.items()},
-                        ):
-                            return await fn(*args, **kwargs)  # type: ignore[misc]
+                        ) as otel_span:
+                            try:
+                                return await fn(*args, **kwargs)  # type: ignore[misc]
+                            except BaseException:
+                                _record_exception(otel_span)
+                                raise
                     return await fn(*args, **kwargs)  # type: ignore[misc]
                 finally:
                     _pop_context(token)
@@ -105,15 +139,19 @@ def instrument(  # type: ignore[return-value]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            fields = _extract_fields(args, kwargs)
+            fields = extract(args, kwargs)
             token = _push_context(fields)
             try:
                 if tracer is not None:
                     with tracer.start_as_current_span(
                         span_name,
                         attributes={k: str(v) for k, v in fields.items()},
-                    ):
-                        return fn(*args, **kwargs)
+                    ) as otel_span:
+                        try:
+                            return fn(*args, **kwargs)
+                        except BaseException:
+                            _record_exception(otel_span)
+                            raise
                 return fn(*args, **kwargs)
             finally:
                 _pop_context(token)
