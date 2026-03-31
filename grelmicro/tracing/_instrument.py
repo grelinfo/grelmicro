@@ -7,10 +7,12 @@ import inspect
 import sys
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, overload
 
-from grelmicro.tracing._context import _pop_context, _push_context
+from grelmicro._context import pop_context as _pop_context
+from grelmicro._context import push_context as _push_context
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from collections.abc import Set as AbstractSet
 
 try:
     from opentelemetry import trace
@@ -40,7 +42,7 @@ def _record_exception(otel_span: object) -> None:
 
 def _make_extract_fields(
     sig: inspect.Signature,
-    skip_set: set[str],
+    skip_set: AbstractSet[str],
     *,
     skip_all: bool,
 ) -> Callable[..., dict[str, Any]]:
@@ -74,7 +76,7 @@ def instrument(func: Callable[P, R]) -> Callable[P, R]: ...
 def instrument(
     *,
     name: str | None = None,
-    skip: set[str] | None = None,
+    skip: AbstractSet[str] | None = None,
     skip_all: bool = False,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
@@ -83,7 +85,7 @@ def instrument(  # type: ignore[return-value]
     func: Callable[P, R] | None = None,
     *,
     name: str | None = None,
-    skip: set[str] | None = None,
+    skip: AbstractSet[str] | None = None,
     skip_all: bool = False,
 ) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
     """Instrument a function with span context and logging enrichment.
@@ -102,10 +104,10 @@ def instrument(  # type: ignore[return-value]
     Args:
         func: The function to instrument (set automatically for bare decorator).
         name: Custom span name. Defaults to the function's qualified name.
-        skip: Set of argument names to exclude from context.
+        skip: Argument names to exclude from context (any set-like collection).
         skip_all: If True, do not record any arguments.
     """
-    skip_set = skip or set()
+    skip_set = skip or frozenset()
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
         span_name = name or getattr(fn, "__qualname__", str(fn))

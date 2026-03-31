@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Generic
 
@@ -126,8 +127,8 @@ class TTLCache(Generic[T]):
         self._hits = 0
         self._misses = 0
         self._evictions = 0
-        # LRU tracking (ordered list of keys, most recent at end)
-        self._keys: list[str] = []
+        # LRU tracking (OrderedDict for O(1) move_to_end / popitem)
+        self._keys: OrderedDict[str, None] = OrderedDict()
 
     def _get_backend(self) -> CacheBackend:
         """Resolve the backend (lazy, to allow registration after construction)."""
@@ -226,8 +227,7 @@ class TTLCache(Generic[T]):
         No-op if the key does not exist.
         """
         await self._get_backend().delete(key=f"{_CACHE_PREFIX}:{key}")
-        if key in self._keys:
-            self._keys.remove(key)
+        self._keys.pop(key, None)
 
     async def clear(self) -> None:
         """Remove all entries from the cache."""
@@ -246,14 +246,13 @@ class TTLCache(Generic[T]):
 
     def _promote(self, key: str) -> None:
         """Move a key to the most-recently-used position."""
-        if key in self._keys:
-            self._keys.remove(key)
-        self._keys.append(key)
+        self._keys[key] = None
+        self._keys.move_to_end(key)
 
     async def _evict(self) -> None:
         """Evict the least recently used entry (first in key list)."""
         if not self._keys:  # pragma: no cover
             return
-        lru_key = self._keys.pop(0)
+        lru_key, _ = self._keys.popitem(last=False)
         await self._get_backend().delete(key=f"{_CACHE_PREFIX}:{lru_key}")
         self._evictions += 1

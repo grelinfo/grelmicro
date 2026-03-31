@@ -83,18 +83,6 @@ async def process(order_id: str):
     logger.info("charged")  # includes payment_id and status
 ```
 
-## How It Works
-
-The tracing module uses a `contextvars`-based context stack. Each `@instrument` call or `span()` block pushes a new frame with its fields. Logging backends merge all active frames into the JSON record.
-
-```
-@instrument(order_id="ORD-1")     <- frame 1: {order_id: "ORD-1"}
-  add_context(status="pending")   <- frame 1: {order_id: "ORD-1", status: "pending"}
-  with span("db", table="users")  <- frame 2: {table: "users"}
-    logger.info("query")          <- merged: {order_id, status, table}
-  # frame 2 popped               <- merged: {order_id, status}
-```
-
 ## Configuration
 
 The tracing context enriches log records regardless of how logging is configured. No additional configuration is needed.

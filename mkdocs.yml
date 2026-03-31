@@ -50,6 +50,7 @@ nav:
     - architecture/sync.md
     - architecture/kubernetes.md
     - architecture/sqlite.md
+    - architecture/tracing.md
 - changelog.md
 
 plugins:

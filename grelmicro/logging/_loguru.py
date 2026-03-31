@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, tzinfo
 from typing import TYPE_CHECKING, Any
 
+from grelmicro._context import merge_context_into as _merge_context_into
 from grelmicro.logging._shared import (
     _stdlib_json_dumps,
     get_otel_trace_context,
@@ -13,7 +14,6 @@ from grelmicro.logging._shared import (
 )
 from grelmicro.logging.config import LoggingFormatType
 from grelmicro.logging.types import ErrorDict
-from grelmicro.tracing._context import _merge_context_into
 
 try:
     import loguru

@@ -2,40 +2,25 @@
 
 from __future__ import annotations
 
-from contextvars import ContextVar, Token
 from typing import Any
+
+from grelmicro._context import (
+    context_stack as _context_stack,
+)
+from grelmicro._context import (
+    merge_context_into as _merge_context_into,
+)
+from grelmicro._context import (
+    pop_context as _pop_context,
+)
+from grelmicro._context import (
+    push_context as _push_context,
+)
 
 try:
     from opentelemetry import trace as _otel_trace
 except ImportError:  # pragma: no cover
     _otel_trace: Any = None  # type: ignore[no-redef]
-
-# Immutable stack of immutable context snapshots, one per active span.
-# Both the tuple and the dicts are replaced (never mutated) to ensure
-# concurrent async tasks sharing a parent context are isolated.
-_context_stack: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
-    "grelmicro_tracing_context", default=()
-)
-
-
-def _push_context(fields: dict[str, Any]) -> Token[tuple[dict[str, Any], ...]]:
-    """Push a new context frame onto the stack."""
-    return _context_stack.set((*_context_stack.get(), fields))
-
-
-def _pop_context(token: Token[tuple[dict[str, Any], ...]]) -> None:
-    """Restore the context stack to its previous state."""
-    _context_stack.reset(token)
-
-
-def _merge_context_into(target: dict[str, Any]) -> None:
-    """Merge all active span context into target dict.
-
-    Tracing context has lower priority than per-call log extras.
-    Used by logging backends on the hot path.
-    """
-    for frame in _context_stack.get():
-        target.update(frame)
 
 
 def get_context() -> dict[str, Any]:
@@ -79,3 +64,13 @@ def add_context(**fields: object) -> None:
         if span.is_recording():
             for k, v in fields.items():
                 span.set_attribute(k, str(v))
+
+
+__all__ = [
+    "_context_stack",
+    "_merge_context_into",
+    "_pop_context",
+    "_push_context",
+    "add_context",
+    "get_context",
+]

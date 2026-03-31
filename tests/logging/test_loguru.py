@@ -4,11 +4,10 @@ These tests verify loguru-specific internal implementation details
 that are not shared with other backends.
 """
 
-import json
 from collections.abc import Generator
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -22,6 +21,7 @@ from grelmicro.logging._loguru import (
     _otel_patcher,
     configure_logging,
 )
+from tests.logging.conftest import parse_json_log
 
 if TYPE_CHECKING:
     from loguru import Record
@@ -30,11 +30,6 @@ if TYPE_CHECKING:
 _USER_ID = 123
 _USER_ID_2 = 456
 _USER_ID_3 = 789
-
-
-def parse_json_log(output: str) -> dict[str, Any]:
-    """Parse JSON log output."""
-    return json.loads(output.strip())
 
 
 @pytest.fixture(autouse=True)

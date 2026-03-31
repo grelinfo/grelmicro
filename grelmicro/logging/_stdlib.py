@@ -7,12 +7,12 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, tzinfo
 from typing import Any
 
+from grelmicro._context import merge_context_into as _merge_context_into
 from grelmicro.logging._shared import (
     get_otel_trace_context,
     load_settings,
 )
 from grelmicro.logging.types import ErrorDict
-from grelmicro.tracing._context import _merge_context_into
 
 _STANDARD_LOG_RECORD_ATTRS = frozenset(
     {
@@ -66,7 +66,9 @@ class _JSONFormatter(logging.Formatter):
             {
                 k: v
                 for k, v in record.__dict__.items()
-                if k not in _STANDARD_LOG_RECORD_ATTRS and not callable(v)
+                if k not in _STANDARD_LOG_RECORD_ATTRS
+                and not callable(v)
+                and not k.startswith("_")
             }
         )
         json_record["time"] = datetime.fromtimestamp(

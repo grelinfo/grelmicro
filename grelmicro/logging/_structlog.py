@@ -5,6 +5,7 @@ import sys
 import traceback
 from datetime import UTC, datetime, tzinfo
 
+from grelmicro._context import merge_context_into as _merge_context_into
 from grelmicro.logging._shared import (
     _json_default,
     get_otel_trace_context,
@@ -12,7 +13,6 @@ from grelmicro.logging._shared import (
 )
 from grelmicro.logging.config import LoggingSerializerType
 from grelmicro.logging.types import ErrorDict
-from grelmicro.tracing._context import _merge_context_into
 
 try:
     import structlog
@@ -91,9 +91,7 @@ def _add_error_info(
     """Convert exc_info to structured ErrorDict."""
     exc_info = event_dict.pop("exc_info", None)
     if exc_info is True:
-        import sys as _sys  # noqa: PLC0415
-
-        exc_info = _sys.exc_info()
+        exc_info = sys.exc_info()
     if exc_info and exc_info[0] is not None:
         exc_type, exc_value, exc_tb = exc_info
         error = ErrorDict(

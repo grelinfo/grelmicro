@@ -6,7 +6,8 @@ import sys
 from contextlib import contextmanager, nullcontext
 from typing import TYPE_CHECKING, Any
 
-from grelmicro.tracing._context import _pop_context, _push_context
+from grelmicro._context import pop_context as _pop_context
+from grelmicro._context import push_context as _push_context
 
 if TYPE_CHECKING:
     from collections.abc import Generator

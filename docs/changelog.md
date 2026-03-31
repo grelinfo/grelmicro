@@ -17,11 +17,15 @@
 ### Performance
 
 * ⚡ **Logging**: Up to +23% throughput across all backends.
+* ⚡ Use `OrderedDict` for O(1) LRU operations in `TTLCache`.
 
 ### Refactors
 
 * ♻️ Extract shared Redis config into `grelmicro/_redis.py`.
 * ♻️ Make `TTLCache` generic and add `Doc` annotations.
+* ♻️ Extract context stack into `grelmicro/_context.py` to decouple logging from tracing.
+* ♻️ Filter private (`_`-prefixed) attributes from stdlib JSON log output.
+* ♻️ Widen `@instrument(skip=...)` type from `set[str]` to `AbstractSet[str]`.
 
 ### Removals
 

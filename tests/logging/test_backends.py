@@ -4,11 +4,9 @@ These tests verify that loguru, structlog, and stdlib backends behave
 identically for the public API.
 """
 
-import json
 import logging
 from collections.abc import Generator
 from datetime import UTC, datetime
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -25,12 +23,7 @@ from grelmicro.logging._shared import (
 )
 from grelmicro.logging._structlog import _add_caller_info
 from grelmicro.logging.errors import LoggingSettingsValidationError
-
-
-def parse_json_log(output: str) -> dict[str, Any]:
-    """Parse JSON log output."""
-    return json.loads(output.strip())
-
+from tests.logging.conftest import log_message, parse_json_log
 
 # Backend configurations
 BACKENDS = ["loguru", "structlog", "stdlib"]
@@ -89,18 +82,6 @@ _USER_ID = 123
 _USER_ID_2 = 456
 _USER_ID_3 = 789
 _COUNT = 42
-
-
-def log_message(backend: str, msg: str, **kwargs: object) -> None:
-    """Log a message using the appropriate backend."""
-    if backend == "loguru":
-        loguru_logger.info(msg, **kwargs)
-    elif backend == "structlog":
-        log = structlog.get_logger()
-        log.info(msg, **kwargs)
-    else:
-        stdlib_logger = logging.getLogger(__name__)
-        stdlib_logger.info(msg, extra=kwargs)
 
 
 class TestConfigureLoggingJSON:
