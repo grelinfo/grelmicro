@@ -148,11 +148,16 @@ Output:
 {"time":"...","level":"ERROR","msg":"Operation failed","caller":"...","operation":"divide","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
 ```
 
-Business context fields like `correlation_id`, `request_id`, or `session_id` are not part of the core schema. Pass them as extra context:
+Business context fields like `correlation_id`, `request_id`, or `session_id` are not part of the core schema. Pass them as extra context, or use the [tracing](tracing.md) module's `@instrument` decorator to inject them automatically:
 
 ```python
+# Manual
 logger.info("order processed", extra={"correlation_id": "abc-123"})
-# {"time":"...","level":"INFO","msg":"order processed","caller":"...","correlation_id":"abc-123"}
+
+# Automatic via @instrument (see tracing module)
+@instrument
+async def process_order(order_id: str):
+    logger.info("order processed")  # order_id auto-included
 ```
 
 ### OpenTelemetry Integration

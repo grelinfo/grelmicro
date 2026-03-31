@@ -57,6 +57,10 @@ The `resilience` module provides a **Circuit Breaker** that automatically detect
 
 The `logging` module provides 12-factor-compliant logging with JSON/text formatting, configurable timezone, and environment variable configuration (`LOG_LEVEL`, `LOG_FORMAT`, `LOG_TIMEZONE`).
 
+### [Tracing](tracing.md)
+
+The `tracing` module provides unified instrumentation inspired by Rust's `tracing` crate. The `@instrument` decorator creates OTel spans and enriches log records with structured context automatically.
+
 ## Installation
 
 ```bash

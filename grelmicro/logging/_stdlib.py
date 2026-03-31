@@ -12,6 +12,7 @@ from grelmicro.logging._shared import (
     load_settings,
 )
 from grelmicro.logging.types import ErrorDict
+from grelmicro.tracing._context import _merge_context_into
 
 _STANDARD_LOG_RECORD_ATTRS = frozenset(
     {
@@ -58,12 +59,16 @@ class _JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record as JSON."""
-        # C-speed dict comprehension for extras, then core fields overwrite
-        json_record: dict[str, Any] = {
-            k: v
-            for k, v in record.__dict__.items()
-            if k not in _STANDARD_LOG_RECORD_ATTRS and not callable(v)
-        }
+        # Tracing context first, then log extras, then core fields (core wins)
+        json_record: dict[str, Any] = {}
+        _merge_context_into(json_record)
+        json_record.update(
+            {
+                k: v
+                for k, v in record.__dict__.items()
+                if k not in _STANDARD_LOG_RECORD_ATTRS and not callable(v)
+            }
+        )
         json_record["time"] = datetime.fromtimestamp(
             record.created, tz=UTC
         ).astimezone(self.timezone)

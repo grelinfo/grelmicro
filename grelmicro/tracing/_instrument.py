@@ -1,11 +1,20 @@
 """Instrument decorator inspired by Rust's tracing #[instrument]."""
 
+from __future__ import annotations
+
 import functools
 import inspect
-from collections.abc import Callable
-from typing import Any, ParamSpec, TypeVar, overload
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, overload
 
-from opentelemetry import trace
+from grelmicro.tracing._context import _pop_context, _push_context
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+try:
+    from opentelemetry import trace
+except ImportError:  # pragma: no cover
+    trace: Any = None  # type: ignore[no-redef]
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -18,87 +27,96 @@ def instrument(func: Callable[P, R]) -> Callable[P, R]: ...
 @overload
 def instrument(
     *,
-    span_name: str | None = None,
-    attributes: dict[str, Any] | None = None,
-    record_args: bool = True,
+    name: str | None = None,
     skip: set[str] | None = None,
+    skip_all: bool = False,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
-def instrument(
+def instrument(  # type: ignore[return-value]
     func: Callable[P, R] | None = None,
     *,
-    span_name: str | None = None,
-    attributes: dict[str, Any] | None = None,
-    record_args: bool = True,
+    name: str | None = None,
     skip: set[str] | None = None,
+    skip_all: bool = False,
 ) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
-    """Instrument a function with an OpenTelemetry span.
+    """Instrument a function with span context and logging enrichment.
 
-    Inspired by Rust's tracing `#[instrument]` macro. Automatically creates
-    a span for the function call and optionally records function arguments
-    as span attributes.
+    Creates an OTel span (if tracing configured) and pushes function
+    arguments as context fields into log records. Like Rust's ``#[instrument]``.
 
-    Can be used as a bare decorator or with arguments:
+    Can be used as a bare decorator or with arguments::
 
         @instrument
-        def my_function(x: int, y: str): ...
+        async def process(order_id: str, user_id: str):
+            logger.info("started")  # auto-includes order_id, user_id
 
-        @instrument(span_name="custom", skip={"password"})
+        @instrument(skip={"password"})
         def login(username: str, password: str): ...
 
+        @instrument(skip_all=True)
+        def bulk_process(payload: bytes): ...
+
     Args:
-        func: The function to instrument (set automatically when used
-            as a bare decorator).
-        span_name: Custom span name. Defaults to the function's
-            qualified name.
-        attributes: Additional span attributes to set.
-        record_args: Whether to record function arguments as span
-            attributes. Default: True.
-        skip: Set of argument names to exclude from recording.
+        func: The function to instrument (set automatically for bare decorator).
+        name: Custom span name. Defaults to the function's qualified name.
+        skip: Set of argument names to exclude from context.
+        skip_all: If True, do not record any arguments.
     """
-    skip = skip or set()
+    skip_set = skip or set()
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
-        tracer = trace.get_tracer(fn.__module__)
-        name = span_name or fn.__qualname__
+        span_name = name or getattr(fn, "__qualname__", str(fn))
         sig = inspect.signature(fn)
+        tracer = trace.get_tracer(fn.__module__) if trace is not None else None
 
-        def _record_arguments(
-            span: trace.Span,
+        def _extract_fields(
             args: tuple[Any, ...],
             kwargs: dict[str, Any],
-        ) -> None:
-            if not record_args:
-                return
+        ) -> dict[str, Any]:
+            if skip_all:
+                return {}
             bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
-            for param_name, value in bound.arguments.items():
-                if param_name in skip or param_name == "self":
-                    continue
-                span.set_attribute(f"arg.{param_name}", str(value))
+            return {
+                k: v
+                for k, v in bound.arguments.items()
+                if k not in skip_set and k != "self"
+            }
 
         if inspect.iscoroutinefunction(fn):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-                with tracer.start_as_current_span(
-                    name,
-                    attributes=attributes or {},
-                ) as span:
-                    _record_arguments(span, args, kwargs)
+                fields = _extract_fields(args, kwargs)
+                token = _push_context(fields)
+                try:
+                    if tracer is not None:
+                        with tracer.start_as_current_span(
+                            span_name,
+                            attributes={k: str(v) for k, v in fields.items()},
+                        ):
+                            return await fn(*args, **kwargs)  # type: ignore[misc]
                     return await fn(*args, **kwargs)  # type: ignore[misc]
+                finally:
+                    _pop_context(token)
 
-            return async_wrapper  # type: ignore[return-value]
+            return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            with tracer.start_as_current_span(
-                name,
-                attributes=attributes or {},
-            ) as span:
-                _record_arguments(span, args, kwargs)
+            fields = _extract_fields(args, kwargs)
+            token = _push_context(fields)
+            try:
+                if tracer is not None:
+                    with tracer.start_as_current_span(
+                        span_name,
+                        attributes={k: str(v) for k, v in fields.items()},
+                    ):
+                        return fn(*args, **kwargs)
                 return fn(*args, **kwargs)
+            finally:
+                _pop_context(token)
 
         return sync_wrapper  # type: ignore[return-value]
 

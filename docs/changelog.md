@@ -10,9 +10,18 @@
     * `ctx` removed: extra fields are now flat at the top level
     * `exception` replaced by structured `error` object (`type`, `message`, `stack`)
 
+### Features
+
+* ✨ Add `tracing` module with `@instrument` decorator, `span()` context manager, and `add_context()` for unified logging and OTel instrumentation (inspired by Rust's `tracing` crate).
+
 ### Performance
 
 * ⚡ **Logging**: Up to +23% throughput across all backends.
+
+### Refactors
+
+* ♻️ Extract shared Redis config into `grelmicro/_redis.py`.
+* ♻️ Make `TTLCache` generic and add `Doc` annotations.
 
 ### Removals
 

@@ -12,6 +12,7 @@ from grelmicro.logging._shared import (
 )
 from grelmicro.logging.config import LoggingSerializerType
 from grelmicro.logging.types import ErrorDict
+from grelmicro.tracing._context import _merge_context_into
 
 try:
     import structlog
@@ -126,10 +127,16 @@ def _build_json_record(
     event_dict: EventDict,
 ) -> dict[str, object]:
     """Build flat JSON record from event dict."""
-    # C-speed dict comprehension for extras, then core fields overwrite
-    json_record: dict[str, object] = {
-        k: v for k, v in event_dict.items() if k not in _STRUCTLOG_INTERNAL_KEYS
-    }
+    # Tracing context first, then event extras, then core fields (core wins)
+    json_record: dict[str, object] = {}
+    _merge_context_into(json_record)
+    json_record.update(
+        {
+            k: v
+            for k, v in event_dict.items()
+            if k not in _STRUCTLOG_INTERNAL_KEYS
+        }
+    )
     json_record["time"] = event_dict["time"]
     json_record["level"] = event_dict["level"]
     json_record["msg"] = event_dict.get("event", "")

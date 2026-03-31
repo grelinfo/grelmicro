@@ -34,6 +34,7 @@ nav:
 - User Guide:
     - cache.md
     - logging.md
+    - tracing.md
     - resilience.md
     - sync.md
     - task.md

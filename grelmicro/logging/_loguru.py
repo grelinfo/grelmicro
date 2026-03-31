@@ -13,6 +13,7 @@ from grelmicro.logging._shared import (
 )
 from grelmicro.logging.config import LoggingFormatType
 from grelmicro.logging.types import ErrorDict
+from grelmicro.tracing._context import _merge_context_into
 
 try:
     import loguru
@@ -78,12 +79,16 @@ def _json_patcher(
     serializer = json_dumps or _json_dumps
     tz = timezone or UTC
 
-    # C-speed dict comprehension for extras, then core fields overwrite
-    json_record: dict[str, Any] = {
-        k: v
-        for k, v in record["extra"].items()
-        if k not in _LOGURU_INTERNAL_KEYS
-    }
+    # Tracing context first, then log extras, then core fields (core wins)
+    json_record: dict[str, Any] = {}
+    _merge_context_into(json_record)
+    json_record.update(
+        {
+            k: v
+            for k, v in record["extra"].items()
+            if k not in _LOGURU_INTERNAL_KEYS
+        }
+    )
     # Convert loguru._datetime.datetime subclass to stdlib datetime.
     # combine() produces a plain datetime.datetime from date + time parts,
     # which both orjson and stdlib json accept. replace() cannot be used
