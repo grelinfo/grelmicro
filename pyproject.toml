@@ -97,6 +97,7 @@ dev = [
     "structlog>=24.1.0",
     "aiosqlite>=0.20.0",
     "lightkube>=0.15.0",
+    "uvicorn>=0.29.0",
 ]
 docs = [
     "mkdocs-material>=9.5.44",

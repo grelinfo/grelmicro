@@ -6,3 +6,9 @@
       members:
         - JSONRecordDict
         - configure_logging
+
+::: grelmicro.logging.uvicorn
+    options:
+      members:
+        - UvicornJSONFormatter
+        - UvicornAccessJSONFormatter

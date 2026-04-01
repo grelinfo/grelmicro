@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add Uvicorn JSON formatters (`UvicornJSONFormatter`, `UvicornAccessJSONFormatter`) for structured logging via `dictConfig`.
+
 ## 0.7.0 - 2026-03-31
 
 ### Breaking Changes

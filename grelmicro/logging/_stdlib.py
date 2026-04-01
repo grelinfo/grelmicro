@@ -45,6 +45,8 @@ _STANDARD_LOG_RECORD_ATTRS = frozenset(
 class _JSONFormatter(logging.Formatter):
     """JSON formatter that produces JSONRecordDict output."""
 
+    _ignored_record_attrs: frozenset[str] = _STANDARD_LOG_RECORD_ATTRS
+
     def __init__(
         self,
         timezone: tzinfo,
@@ -66,7 +68,7 @@ class _JSONFormatter(logging.Formatter):
             {
                 k: v
                 for k, v in record.__dict__.items()
-                if k not in _STANDARD_LOG_RECORD_ATTRS
+                if k not in self._ignored_record_attrs
                 and not callable(v)
                 and not k.startswith("_")
             }
