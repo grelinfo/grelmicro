@@ -10,8 +10,11 @@ from grelmicro.logging._shared import (
     _json_default,
     get_otel_trace_context,
     load_settings,
+    logfmt_dumps,
+    render_pretty_lines,
+    render_text_line,
 )
-from grelmicro.logging.config import LoggingSerializerType
+from grelmicro.logging.config import LoggingFormatType, LoggingSerializerType
 from grelmicro.logging.types import ErrorDict
 
 try:
@@ -62,17 +65,12 @@ def _add_caller_info(
     event_dict: EventDict,
 ) -> EventDict:
     """Add caller info in module:function:line format."""
-    # structlog doesn't have built-in call site info, so we extract it
     record = event_dict.get("_record")
     if record:
-        # If using stdlib integration, we have the record
         event_dict["caller"] = (
             f"{record.name}:{record.funcName}:{record.lineno}"
         )
     else:
-        # For native structlog, we need to get the call site info
-        # This is populated by structlog.processors.CallsiteParameterAdder
-        # Keys are: module, func_name, lineno
         module = event_dict.pop("module", None)
         func = event_dict.pop("func_name", None)
         lineno = event_dict.pop("lineno", None)
@@ -119,38 +117,68 @@ def _add_otel_context(
     return event_dict
 
 
-def _build_json_record(
+def _build_flat_record(
     _logger: WrappedLogger,
     _method_name: str,
     event_dict: EventDict,
 ) -> dict[str, object]:
-    """Build flat JSON record from event dict."""
-    # Tracing context first, then event extras, then core fields (core wins)
-    json_record: dict[str, object] = {}
-    _merge_context_into(json_record)
-    json_record.update(
+    """Build flat record from event dict.
+
+    Shared by JSON and logfmt renderers.
+    """
+    flat_record: dict[str, object] = {}
+    _merge_context_into(flat_record)
+    flat_record.update(
         {
             k: v
             for k, v in event_dict.items()
             if k not in _STRUCTLOG_INTERNAL_KEYS
         }
     )
-    json_record["time"] = event_dict["time"]
-    json_record["level"] = event_dict["level"]
-    json_record["msg"] = event_dict.get("event", "")
-    json_record["caller"] = event_dict["caller"]
+    flat_record["time"] = event_dict["time"]
+    flat_record["level"] = event_dict["level"]
+    flat_record["msg"] = event_dict.get("event", "")
+    flat_record["caller"] = event_dict["caller"]
 
-    # Add optional trace fields
-    if "trace_id" in event_dict:
-        json_record["trace_id"] = event_dict["trace_id"]
-    if "span_id" in event_dict:
-        json_record["span_id"] = event_dict["span_id"]
+    return flat_record
 
-    # Add error if present
-    if "error" in event_dict:
-        json_record["error"] = event_dict["error"]
 
-    return json_record
+def _render_logfmt(
+    _logger: WrappedLogger,
+    _method_name: str,
+    event_dict: EventDict,
+) -> str:
+    """Render event dict as logfmt string."""
+    flat_record = _build_flat_record(_logger, _method_name, event_dict)
+    return logfmt_dumps(flat_record)
+
+
+def _make_text_renderer(*, colors: bool) -> Processor:
+    """Create a processor that renders text format."""
+
+    def processor(
+        _logger: WrappedLogger,
+        _method_name: str,
+        event_dict: EventDict,
+    ) -> str:
+        flat = _build_flat_record(_logger, _method_name, event_dict)
+        return render_text_line(flat, colors=colors)
+
+    return processor
+
+
+def _make_pretty_renderer(*, colors: bool) -> Processor:
+    """Create a processor that renders pretty multi-line format."""
+
+    def processor(
+        _logger: WrappedLogger,
+        _method_name: str,
+        event_dict: EventDict,
+    ) -> str:
+        flat = _build_flat_record(_logger, _method_name, event_dict)
+        return render_pretty_lines(flat, colors=colors)
+
+    return processor
 
 
 def configure_logging() -> None:
@@ -160,7 +188,7 @@ def configure_logging() -> None:
 
     Environment Variables:
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
-        LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
+        LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY). Default: AUTO
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
             Default: True if OpenTelemetry is installed, else False.
@@ -169,11 +197,9 @@ def configure_logging() -> None:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
         LoggingSettingsValidationError: If environment variables are invalid.
     """
-    settings, timezone, use_json, _ = load_settings()
+    settings, timezone, resolved_format, _, colors = load_settings()
 
-    # Build processor chain
     processors: list[Processor] = [
-        # Add call site info for native structlog
         structlog.processors.CallsiteParameterAdder(
             [
                 structlog.processors.CallsiteParameter.MODULE,
@@ -182,29 +208,21 @@ def configure_logging() -> None:
             ],
             additional_ignores=["grelmicro.logging"],
         ),
-        # Merge bound context
         structlog.contextvars.merge_contextvars,
-        # Add standard fields
         _add_timestamp(timezone),
         _add_level,
         _add_caller_info,
-        # Convert exc_info to structured ErrorDict
         _add_error_info,
     ]
 
-    # Add OTel context if enabled
     if settings.LOG_OTEL_ENABLED:
         processors.append(_add_otel_context)
 
-    # Format-specific processors
-    if use_json:
-        processors.append(_build_json_record)
-        # Use orjson bytes serialization for better performance when configured
+    if resolved_format == LoggingFormatType.JSON:
+        processors.append(_build_flat_record)
         if settings.LOG_JSON_SERIALIZER == LoggingSerializerType.ORJSON:
             import orjson  # noqa: PLC0415
 
-            # orjson natively handles datetime; no default needed.
-            # Non-serializable extras raise orjson.JSONEncodeError (fail loudly).
             processors.append(
                 structlog.processors.JSONRenderer(serializer=orjson.dumps)
             )
@@ -216,19 +234,18 @@ def configure_logging() -> None:
                 structlog.processors.JSONRenderer(default=_json_default)
             )
             logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
+    elif resolved_format == LoggingFormatType.LOGFMT:
+        processors.append(_render_logfmt)
+        logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
+    elif resolved_format == LoggingFormatType.PRETTY:
+        processors.append(_make_pretty_renderer(colors=colors))
+        logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
     else:
-        # TEXT format or custom format - use ConsoleRenderer
-        processors.append(
-            structlog.dev.ConsoleRenderer(
-                colors=sys.stdout.isatty(),
-            )
-        )
+        processors.append(_make_text_renderer(colors=colors))
         logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
 
-    # Map log level string to logging module integer
     log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
 
-    # Configure structlog
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(log_level),

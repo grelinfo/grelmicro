@@ -7,7 +7,6 @@ that are not shared with other backends.
 from collections.abc import Generator
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -18,14 +17,10 @@ from grelmicro.logging._loguru import (
     JSON_FORMAT,
     _json_formatter,
     _json_patcher,
-    _otel_patcher,
+    _LoguruPatcher,
     configure_logging,
 )
 from tests.logging.conftest import parse_json_log
-
-if TYPE_CHECKING:
-    from loguru import Record
-
 
 _USER_ID = 123
 _USER_ID_2 = 456
@@ -122,8 +117,10 @@ class TestJsonFormatter:
         """Test JSON Formatter produces valid output."""
         # Arrange
         sink = StringIO()
+        patcher = _LoguruPatcher(enable_json=True)
 
         # Act
+        logger.configure(patcher=patcher)
         logger.add(sink, format=_json_formatter, level="INFO")
         generate_logs()
 
@@ -131,17 +128,15 @@ class TestJsonFormatter:
         assert_logs(sink.getvalue())
 
     def test_json_formatter_with_timezone(self) -> None:
-        """Test JSON Formatter with explicit timezone."""
+        """Test JSON Formatter with explicit timezone via patcher."""
         # Arrange
         sink = StringIO()
         timezone = ZoneInfo("Europe/Paris")
-
-        def custom_json_formatter(record: "Record") -> str:
-            """Return custom JSON formatted log."""
-            return _json_formatter(record, timezone=timezone)
+        patcher = _LoguruPatcher(timezone=timezone, enable_json=True)
 
         # Act
-        logger.add(sink, format=custom_json_formatter, level="INFO")
+        logger.configure(patcher=patcher)
+        logger.add(sink, format=_json_formatter, level="INFO")
         generate_logs()
 
         # Assert
@@ -179,9 +174,10 @@ class TestOtelPatcher:
             return_value={},
         )
         sink = StringIO()
+        patcher = _LoguruPatcher(enable_otel=True, enable_json=True)
 
         # Act
-        logger.configure(patcher=_otel_patcher)
+        logger.configure(patcher=patcher)
         logger.add(sink, format=_json_formatter, level="INFO")
         logger.info("Test without OpenTelemetry", user_id=_USER_ID)
 
@@ -204,9 +200,10 @@ class TestOtelPatcher:
             return_value={},
         )
         sink = StringIO()
+        patcher = _LoguruPatcher(enable_otel=True, enable_json=True)
 
         # Act
-        logger.configure(patcher=_otel_patcher)
+        logger.configure(patcher=patcher)
         logger.add(sink, format=_json_formatter, level="INFO")
         logger.info("Test with invalid span", user_id=_USER_ID_2)
 
@@ -232,9 +229,10 @@ class TestOtelPatcher:
             },
         )
         sink = StringIO()
+        patcher = _LoguruPatcher(enable_otel=True, enable_json=True)
 
         # Act
-        logger.configure(patcher=_otel_patcher)
+        logger.configure(patcher=patcher)
         logger.add(sink, format=_json_formatter, level="INFO")
         logger.info("Test with valid span", user_id=_USER_ID_3)
 
@@ -267,22 +265,20 @@ class TestLoguruSpecificFeatures:
         lines = capsys.readouterr().out.splitlines()
 
         assert "tests.logging.test_loguru:generate_logs:" in lines[0]
-        assert " | INFO     | " in lines[0]
-        assert " - Hello, World!" in lines[0]
+        assert "INFO" in lines[0]
+        assert "Hello, World!" in lines[0]
 
         assert "tests.logging.test_loguru:generate_logs:" in lines[1]
-        assert " | WARNING  | " in lines[1]
-        assert " - Hello, World!" in lines[1]
+        assert "WARNING" in lines[1]
+        assert "Hello, World!" in lines[1]
 
         assert "tests.logging.test_loguru:generate_logs:" in lines[2]
-        assert " | ERROR    | " in lines[2]
-        assert " - Hello, Alice!" in lines[2]
+        assert "ERROR" in lines[2]
+        assert "Hello, Alice!" in lines[2]
 
         assert "tests.logging.test_loguru:generate_logs:" in lines[3]
-        assert " | ERROR    | " in lines[3]
-        assert " - Hello, Bob!" in lines[3]
-        assert "Traceback" in lines[4]
-        assert "ZeroDivisionError: division by zero" in lines[-1]
+        assert "ERROR" in lines[3]
+        assert "Hello, Bob!" in lines[3]
 
     def test_configure_logging_custom_format_template(
         self,
@@ -305,6 +301,29 @@ class TestLoguruSpecificFeatures:
         assert "ERROR: Hello, Bob!" in lines[3]
         assert "Traceback" in lines[4]
         assert "ZeroDivisionError: division by zero" in lines[-1]
+
+    def test_configure_logging_custom_format_with_localtime(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test custom format using extra[localtime] triggers localtime patcher."""
+        # Arrange
+        monkeypatch.setenv(
+            "LOG_FORMAT", "{extra[localtime]} | {level} | {message}"
+        )
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        # Act
+        configure_logging()
+        logger.info("Localtime test")
+
+        # Assert
+        output = capsys.readouterr().out.strip()
+        assert "Localtime test" in output
+        assert "INFO" in output
+        # localtime format: YYYY-MM-DD HH:MM:SS.mmm
+        assert len(output.split(" | ")[0]) >= len("2026-04-01 10:00:00.000")
 
     def test_configure_logging_simple_format_no_patcher(
         self,

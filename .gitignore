@@ -21,3 +21,6 @@ site/
 
 # temp files
 tmp/
+
+# AI assistant files
+.claude

@@ -18,8 +18,13 @@ from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging import configure_logging
 from grelmicro.logging._shared import (
     _json_default,
+    _logfmt_format_value,
     get_otel_trace_context,
     load_settings,
+    logfmt_dumps,
+    render_pretty_lines,
+    render_text_line,
+    should_colorize,
 )
 from grelmicro.logging._structlog import _add_caller_info
 from grelmicro.logging.errors import LoggingSettingsValidationError
@@ -719,3 +724,776 @@ class TestCoreFieldCollisionProtection:
         assert log_record["msg"] == "Real message"
         assert log_record["time"] != "1970-01-01"
         assert log_record["caller"] != "evil:inject:0"
+
+
+class TestConfigureLoggingLogfmt:
+    """Test LOGFMT format configuration across backends."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_logfmt_format(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test LOGFMT format produces key=value output."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Logfmt test", user_id=_USER_ID)
+
+        # Assert
+        output = capsys.readouterr().out.strip()
+        assert "level=INFO" in output
+        assert 'msg="Logfmt test"' in output
+        assert f"user_id={_USER_ID}" in output
+        assert "time=" in output
+        assert "caller=" in output
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_logfmt_format_no_extras(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test LOGFMT format with no extra context."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        # Act
+        configure_logging()
+        log_message(backend, "No extras")
+
+        # Assert
+        output = capsys.readouterr().out.strip()
+        assert "level=INFO" in output
+        assert 'msg="No extras"' in output
+        assert "time=" in output
+        assert "caller=" in output
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_logfmt_format_with_special_chars(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test LOGFMT format quotes values with spaces."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Special test", path="/api/hello world")
+
+        # Assert
+        output = capsys.readouterr().out.strip()
+        assert 'path="/api/hello world"' in output
+
+
+class TestConfigureLoggingPretty:
+    """Test PRETTY format configuration across backends."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_pretty_format(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test PRETTY format produces multi-line output."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "pretty")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Pretty test", user_id=_USER_ID)
+
+        # Assert
+        output = capsys.readouterr().out
+        lines = output.strip().splitlines()
+        # Multi-line: header, "at" line, at least one extra field
+        _min_pretty_lines = 3
+        assert len(lines) >= _min_pretty_lines
+        assert "Pretty test" in lines[0]
+        assert "INFO" in lines[0]
+        assert "at " in lines[1]
+        # Extra field on its own line
+        assert any(f"user_id: {_USER_ID}" in line for line in lines)
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_pretty_format_no_extras(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test PRETTY format with no extra context."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "pretty")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        # Act
+        configure_logging()
+        log_message(backend, "No extras pretty")
+
+        # Assert
+        output = capsys.readouterr().out
+        lines = output.strip().splitlines()
+        _min_pretty_lines = 2
+        assert len(lines) >= _min_pretty_lines
+        assert "No extras pretty" in lines[0]
+        assert "at " in lines[1]
+
+
+class TestConfigureLoggingAuto:
+    """Test AUTO format resolution."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_auto_non_tty_resolves_to_json(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test AUTO format resolves to JSON when stdout is not a TTY."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "auto")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        # Act (test runner stdout is not a TTY)
+        configure_logging()
+        log_message(backend, "Auto test")
+
+        # Assert - should produce valid JSON
+        log_record = parse_json_log(capsys.readouterr().out)
+        assert log_record["msg"] == "Auto test"
+        assert log_record["level"] == "INFO"
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_default_format_is_auto(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test default format (no LOG_FORMAT set) behaves as AUTO."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.delenv("LOG_FORMAT", raising=False)
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        # Act (test runner stdout is not a TTY, so AUTO -> JSON)
+        configure_logging()
+        log_message(backend, "Default format test")
+
+        # Assert - should produce valid JSON
+        log_record = parse_json_log(capsys.readouterr().out)
+        assert log_record["msg"] == "Default format test"
+
+
+class TestLogfmtSerializer:
+    """Test logfmt serialization logic."""
+
+    def test_simple_values(self) -> None:
+        """Test logfmt with simple string and numeric values."""
+        record = {
+            "time": "2026-04-01T10:00:00+00:00",
+            "level": "INFO",
+            "msg": "hello",
+            "caller": "mod:fn:1",
+        }
+        result = logfmt_dumps(record)
+        assert "time=2026-04-01T10:00:00+00:00" in result
+        assert "level=INFO" in result
+        assert "msg=hello" in result
+        assert "caller=mod:fn:1" in result
+
+    def test_value_with_spaces_is_quoted(self) -> None:
+        """Test logfmt quotes values containing spaces."""
+        record = {
+            "time": "t",
+            "level": "INFO",
+            "msg": "hello world",
+            "caller": "c",
+        }
+        result = logfmt_dumps(record)
+        assert 'msg="hello world"' in result
+
+    def test_nested_dict_uses_dot_notation(self) -> None:
+        """Test logfmt flattens nested dicts with dot notation."""
+        record = {
+            "time": "t",
+            "level": "ERROR",
+            "msg": "fail",
+            "caller": "c",
+            "error": {"type": "ValueError", "message": "bad input"},
+        }
+        result = logfmt_dumps(record)
+        assert "error.type=ValueError" in result
+        assert 'error.message="bad input"' in result
+
+    def test_none_values_omitted(self) -> None:
+        """Test logfmt omits None values."""
+        record = {
+            "time": "t",
+            "level": "INFO",
+            "msg": "hi",
+            "caller": "c",
+            "extra": None,
+        }
+        result = logfmt_dumps(record)
+        assert "extra" not in result
+
+    def test_none_value(self) -> None:
+        """Test logfmt formats None as empty string."""
+        assert _logfmt_format_value(value=None) == ""
+
+    def test_boolean_values(self) -> None:
+        """Test logfmt formats booleans as lowercase."""
+        assert _logfmt_format_value(value=True) == "true"
+        assert _logfmt_format_value(value=False) == "false"
+
+    def test_empty_string_quoted(self) -> None:
+        """Test logfmt quotes empty strings."""
+        assert _logfmt_format_value("") == '""'
+
+    def test_value_with_quotes_escaped(self) -> None:
+        """Test logfmt escapes quotes in values."""
+        assert _logfmt_format_value('say "hello"') == '"say \\"hello\\""'
+
+    def test_core_fields_come_first(self) -> None:
+        """Test core fields appear before extras in logfmt output."""
+        record = {
+            "extra_field": "val",
+            "time": "t",
+            "level": "INFO",
+            "msg": "m",
+            "caller": "c",
+        }
+        result = logfmt_dumps(record)
+        time_pos = result.index("time=")
+        extra_pos = result.index("extra_field=")
+        assert time_pos < extra_pos
+
+    def test_none_core_field_omitted(self) -> None:
+        """Test logfmt omits None-valued core fields."""
+        record = {
+            "time": "t",
+            "level": "INFO",
+            "msg": "m",
+            "caller": "c",
+            "trace_id": None,
+        }
+        result = logfmt_dumps(record)
+        assert "trace_id" not in result
+
+    def test_nested_dict_in_extras(self) -> None:
+        """Test logfmt flattens nested dicts in extra fields."""
+        record = {
+            "time": "t",
+            "level": "INFO",
+            "msg": "m",
+            "caller": "c",
+            "meta": {"region": "eu", "env": "prod"},
+        }
+        result = logfmt_dumps(record)
+        assert "meta.region=eu" in result
+        assert "meta.env=prod" in result
+
+    def test_deeply_nested_dict(self) -> None:
+        """Test logfmt flattens deeply nested dicts with dot notation."""
+        record = {
+            "time": "t",
+            "level": "INFO",
+            "msg": "m",
+            "caller": "c",
+            "http": {"request": {"method": "GET", "path": "/api"}},
+        }
+        result = logfmt_dumps(record)
+        assert "http.request.method=GET" in result
+        assert "http.request.path=/api" in result
+
+    def test_none_in_nested_dict_omitted(self) -> None:
+        """Test logfmt omits None values inside nested dicts."""
+        record = {
+            "time": "t",
+            "level": "INFO",
+            "msg": "m",
+            "caller": "c",
+            "error": {"type": "ValueError", "stack": None},
+        }
+        result = logfmt_dumps(record)
+        assert "error.type=ValueError" in result
+        assert "stack" not in result
+
+
+class TestShouldColorize:
+    """Test color detection logic."""
+
+    def test_force_color(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test FORCE_COLOR forces colors on."""
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        assert should_colorize() is True
+
+    def test_no_color(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test NO_COLOR disables colors."""
+        monkeypatch.setenv("NO_COLOR", "1")
+        monkeypatch.delenv("FORCE_COLOR", raising=False)
+        assert should_colorize() is False
+
+    def test_force_color_takes_precedence(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test FORCE_COLOR takes precedence over NO_COLOR."""
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        monkeypatch.setenv("NO_COLOR", "1")
+        assert should_colorize() is True
+
+    def test_non_tty_no_colors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test non-TTY stream produces no colors."""
+        monkeypatch.delenv("FORCE_COLOR", raising=False)
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        # Test runner stdout is not a TTY
+        assert should_colorize() is False
+
+
+class TestRenderTextLine:
+    """Test shared text line renderer."""
+
+    def test_basic_render(self) -> None:
+        """Test basic text line rendering without colors."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "caller": "mod:fn:1",
+        }
+        result = render_text_line(record, colors=False)
+        assert "2026-04-01 10:30:00.000" in result
+        assert "INFO" in result
+        assert "mod:fn:1" in result
+        assert "hello" in result
+
+    def test_with_extras(self) -> None:
+        """Test text line includes extras as key=value."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "caller": "mod:fn:1",
+            "user_id": 123,
+        }
+        result = render_text_line(record, colors=False)
+        assert "user_id=123" in result
+
+    def test_with_colors(self) -> None:
+        """Test text line includes ANSI codes when colors enabled."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "caller": "mod:fn:1",
+        }
+        result = render_text_line(record, colors=True)
+        assert "\033[" in result  # ANSI escape codes present
+
+
+class TestRenderPrettyLines:
+    """Test shared pretty renderer."""
+
+    def test_basic_render(self) -> None:
+        """Test basic pretty rendering without colors."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "caller": "mod:fn:1",
+        }
+        result = render_pretty_lines(record, colors=False)
+        lines = result.splitlines()
+        assert "INFO" in lines[0]
+        assert "hello" in lines[0]
+        assert "at mod:fn:1" in lines[1]
+
+    def test_with_extras(self) -> None:
+        """Test pretty rendering includes extras on separate lines."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "caller": "mod:fn:1",
+            "user_id": 123,
+        }
+        result = render_pretty_lines(record, colors=False)
+        assert "user_id: 123" in result
+
+    def test_with_error(self) -> None:
+        """Test pretty rendering includes error fields."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "ERROR",
+            "msg": "fail",
+            "caller": "mod:fn:1",
+            "error": {
+                "type": "ValueError",
+                "message": "bad",
+                "stack": "line1\nline2",
+            },
+        }
+        result = render_pretty_lines(record, colors=False)
+        assert "error.type: ValueError" in result
+        assert "error.message: bad" in result
+        assert "error.stack:" in result
+        assert "line1" in result
+        assert "line2" in result
+
+    def test_with_colors(self) -> None:
+        """Test pretty rendering includes ANSI codes when colors enabled."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "caller": "mod:fn:1",
+            "user_id": 42,
+        }
+        result = render_pretty_lines(record, colors=True)
+        assert "\033[" in result
+        assert "user_id:" in result
+
+    def test_with_trace_context(self) -> None:
+        """Test pretty rendering includes trace_id and span_id."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "caller": "mod:fn:1",
+            "trace_id": "abc123",
+            "span_id": "def456",
+        }
+        result = render_pretty_lines(record, colors=False)
+        assert "trace_id: abc123" in result
+        assert "span_id: def456" in result
+
+    def test_with_error_and_colors(self) -> None:
+        """Test pretty error rendering with ANSI colors."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "ERROR",
+            "msg": "fail",
+            "caller": "mod:fn:1",
+            "error": {
+                "type": "ValueError",
+                "message": "bad",
+                "stack": "line1\nline2",
+            },
+        }
+        result = render_pretty_lines(record, colors=True)
+        assert "\033[31m" in result  # Red for stack lines
+        assert "error.type:" in result
+        assert "error.stack:" in result
+
+
+_NON_JSON_FORMATS = ["text", "logfmt", "pretty"]
+
+
+class TestAllFormatsException:
+    """Test exception handling across logfmt and pretty formats."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    @pytest.mark.parametrize("fmt", ["logfmt", "pretty"])
+    def test_exception_appears_in_output(
+        self,
+        backend: str,
+        fmt: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test all formats include exception info."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", fmt)
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        configure_logging()
+
+        # Act
+        try:
+            _raise_value_error()
+        except ValueError:
+            if backend == "loguru":
+                loguru_logger.exception("Something failed")
+            elif backend == "structlog":
+                log = structlog.get_logger()
+                log.exception("Something failed")
+            else:
+                stdlib_logger = logging.getLogger("test_exc")
+                stdlib_logger.exception("Something failed")
+
+        # Assert
+        output = capsys.readouterr().out
+        assert "Something failed" in output
+
+        if fmt == "logfmt":
+            assert "error.type=ValueError" in output
+            assert f'error.message="{_TEST_ERROR_MSG}"' in output
+        elif fmt == "pretty":
+            assert "error.type: ValueError" in output
+            assert f"error.message: {_TEST_ERROR_MSG}" in output
+            assert "error.stack:" in output
+
+
+class TestAllFormatsTimezone:
+    """Test timezone across all formats and backends."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    @pytest.mark.parametrize("fmt", _NON_JSON_FORMATS)
+    def test_timezone_applied(
+        self,
+        backend: str,
+        fmt: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test all formats respect LOG_TIMEZONE."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", fmt)
+        monkeypatch.setenv("LOG_TIMEZONE", "Europe/Zurich")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Timezone test")
+
+        # Assert
+        output = capsys.readouterr().out
+        assert "Timezone test" in output
+
+        if fmt == "logfmt":
+            # logfmt time has ISO 8601 offset
+            assert "+01:00" in output or "+02:00" in output
+        else:
+            # text/pretty have local time in the output
+            assert "Timezone test" in output
+
+
+class TestAllFormatsCaller:
+    """Test caller info across all formats and backends."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    @pytest.mark.parametrize("fmt", _NON_JSON_FORMATS)
+    def test_caller_present(
+        self,
+        backend: str,
+        fmt: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test all formats include caller info."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", fmt)
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Caller test")
+
+        # Assert
+        output = capsys.readouterr().out
+        # All formats should contain module:function:line pattern
+        assert "log_message:" in output
+
+
+class TestAllFormatsMultipleExtras:
+    """Test multiple extras across all formats and backends."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    @pytest.mark.parametrize("fmt", _NON_JSON_FORMATS)
+    def test_multiple_extras(
+        self,
+        backend: str,
+        fmt: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test all formats include multiple extra context fields."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", fmt)
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        # Act
+        configure_logging()
+        log_message(
+            backend,
+            "Multi extras",
+            user_id=_USER_ID,
+            action="login",
+        )
+
+        # Assert
+        output = capsys.readouterr().out
+        assert "Multi extras" in output
+        assert str(_USER_ID) in output
+        assert "login" in output
+
+
+class TestPrettyFormatStructure:
+    """Test PRETTY format detailed structure across backends."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_pretty_caller_on_at_line(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test PRETTY format has caller on 'at' line."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "pretty")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Structure test")
+
+        # Assert
+        lines = capsys.readouterr().out.strip().splitlines()
+        assert "at " in lines[1]
+        assert "log_message:" in lines[1]
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_pretty_extras_on_separate_lines(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test PRETTY format puts each extra on its own indented line."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "pretty")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Fields test", user_id=_USER_ID, count=_COUNT)
+
+        # Assert
+        lines = capsys.readouterr().out.strip().splitlines()
+        extra_lines = [
+            line
+            for line in lines
+            if line.startswith("    ") and "at " not in line
+        ]
+        assert any(f"user_id: {_USER_ID}" in line for line in extra_lines)
+        assert any(f"count: {_COUNT}" in line for line in extra_lines)
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_pretty_exception_structure(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test PRETTY format renders full error block."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "pretty")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        configure_logging()
+
+        # Act
+        try:
+            _raise_value_error()
+        except ValueError:
+            if backend == "loguru":
+                loguru_logger.exception("Crashed")
+            elif backend == "structlog":
+                log = structlog.get_logger()
+                log.exception("Crashed")
+            else:
+                stdlib_logger = logging.getLogger("test_pretty_exc")
+                stdlib_logger.exception("Crashed")
+
+        # Assert
+        output = capsys.readouterr().out
+        assert "Crashed" in output
+        assert "error.type: ValueError" in output
+        assert f"error.message: {_TEST_ERROR_MSG}" in output
+        assert "error.stack:" in output
+        assert "ValueError: test error" in output
+
+
+class TestTextFormatStructure:
+    """Test TEXT format detailed structure across backends."""
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_text_single_line(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Test TEXT format produces a single line per log."""
+        # Arrange
+        monkeypatch.setenv("LOG_BACKEND", backend)
+        monkeypatch.setenv("LOG_FORMAT", "text")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+
+        # Act
+        configure_logging()
+        log_message(backend, "Single line test", user_id=_USER_ID)
+
+        # Assert
+        lines = capsys.readouterr().out.strip().splitlines()
+        assert len(lines) == 1
+        line = lines[0]
+        assert "INFO" in line
+        assert "Single line test" in line
+        assert f"user_id={_USER_ID}" in line
+        assert "log_message:" in line
+        assert " - " in line

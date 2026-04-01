@@ -11,6 +11,9 @@ from grelmicro.logging._shared import (
     _stdlib_json_dumps,
     get_otel_trace_context,
     load_settings,
+    logfmt_dumps,
+    render_pretty_lines,
+    render_text_line,
 )
 from grelmicro.logging.config import LoggingFormatType
 from grelmicro.logging.types import ErrorDict
@@ -24,92 +27,45 @@ except ImportError as exc:  # pragma: no cover
 if TYPE_CHECKING:
     from loguru import FormatFunction, Record
 
-_json_dumps: Callable[[Mapping[str, Any]], str] = _stdlib_json_dumps
-
 _LOGURU_INTERNAL_KEYS = frozenset(
     {
         "serialized",
         "localtime",
+        "logfmt_serialized",
     }
 )
 
 JSON_FORMAT = "{extra[serialized]}"
-TEXT_FORMAT = (
-    "<green>{extra[localtime]}</green> | <level>{level: <8}</level> | "
-    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - {message}"
-)
+LOGFMT_FORMAT = "{extra[logfmt_serialized]}"
 
 
-class _LoguruPatcher:
-    """Internal patcher for enriching loguru records."""
-
-    def __init__(
-        self,
-        *,
-        timezone: tzinfo | None = None,
-        enable_localtime: bool = False,
-        enable_json: bool = False,
-        enable_otel: bool = False,
-        json_dumps: Callable[[Mapping[str, Any]], str] | None = None,
-    ) -> None:
-        self.timezone: tzinfo = timezone or UTC
-        self.enable_localtime = enable_localtime
-        self.enable_json = enable_json
-        self.enable_otel = enable_otel
-        self.json_dumps = json_dumps
-
-    def __call__(self, record: "Record") -> None:
-        if self.enable_otel:
-            _otel_patcher(record)
-        if self.enable_localtime:
-            _localtime_patcher(record, timezone=self.timezone)
-        if self.enable_json:
-            _json_patcher(
-                record, timezone=self.timezone, json_dumps=self.json_dumps
-            )
-
-
-def _json_patcher(
+def _build_loguru_record(
     record: "Record",
-    *,
-    timezone: tzinfo | None = None,
-    json_dumps: Callable[[Mapping[str, Any]], str] | None = None,
-) -> None:
-    """Patch the record with JSON serialization."""
-    serializer = json_dumps or _json_dumps
-    tz = timezone or UTC
-
-    # Tracing context first, then log extras, then core fields (core wins)
-    json_record: dict[str, Any] = {}
-    _merge_context_into(json_record)
-    json_record.update(
+    timezone: tzinfo,
+) -> dict[str, Any]:
+    """Build a structured record dict from a loguru Record."""
+    # Context fields < log extras < core fields (last wins)
+    log_record: dict[str, Any] = {}
+    _merge_context_into(log_record)
+    log_record.update(
         {
             k: v
             for k, v in record["extra"].items()
             if k not in _LOGURU_INTERNAL_KEYS
         }
     )
-    # Convert loguru._datetime.datetime subclass to stdlib datetime.
-    # combine() produces a plain datetime.datetime from date + time parts,
-    # which both orjson and stdlib json accept. replace() cannot be used
-    # because it preserves the subclass type that orjson rejects.
+    # combine() converts loguru's datetime subclass to stdlib datetime (orjson compat)
     ldt = record["time"]
-    json_record["time"] = datetime.combine(
+    log_record["time"] = datetime.combine(
         ldt.date(), ldt.time(), tzinfo=ldt.tzinfo
-    ).astimezone(tz)
-    json_record["level"] = record["level"].name
-    json_record["msg"] = record["message"]
-    json_record["caller"] = (
+    ).astimezone(timezone)
+    log_record["level"] = record["level"].name
+    log_record["msg"] = record["message"]
+    log_record["caller"] = (
         f"{record['name']}:{record['function']}:{record['line']}"
     )
 
-    # Extract trace fields to top level
-    if "trace_id" in record["extra"]:
-        json_record["trace_id"] = record["extra"]["trace_id"]
-    if "span_id" in record["extra"]:
-        json_record["span_id"] = record["extra"]["span_id"]
-
-    # Handle error
+    # trace_id/span_id already merged via dict.update from record["extra"]
     exception = record["exception"]
     if exception and exception.type:
         error = ErrorDict(
@@ -122,9 +78,72 @@ def _json_patcher(
                     exception.type, exception.value, exception.traceback
                 )
             )
-        json_record["error"] = error
+        log_record["error"] = error
 
-    record["extra"]["serialized"] = serializer(json_record)
+    return log_record
+
+
+class _LoguruPatcher:
+    """Internal patcher for enriching loguru records.
+
+    Args:
+        json_dumps: JSON serializer function. Falls back to ``_stdlib_json_dumps``
+            when ``None`` (the default). Must be provided explicitly when
+            ``enable_json=True`` and a non-stdlib serializer is desired.
+    """
+
+    def __init__(
+        self,
+        *,
+        timezone: tzinfo = UTC,
+        enable_localtime: bool = False,
+        enable_json: bool = False,
+        enable_logfmt: bool = False,
+        enable_otel: bool = False,
+        json_dumps: Callable[[Mapping[str, Any]], str] | None = None,
+    ) -> None:
+        self.timezone = timezone
+        self.enable_localtime = enable_localtime
+        self.enable_json = enable_json
+        self.enable_logfmt = enable_logfmt
+        self.enable_otel = enable_otel
+        self.json_dumps = json_dumps
+
+    def __call__(self, record: "Record") -> None:
+        if self.enable_otel:
+            _otel_patcher(record)
+        if self.enable_localtime:
+            _localtime_patcher(record, timezone=self.timezone)
+        if self.enable_json:
+            _json_patcher(
+                record, timezone=self.timezone, json_dumps=self.json_dumps
+            )
+        if self.enable_logfmt:
+            _logfmt_patcher(record, timezone=self.timezone)
+
+
+def _json_patcher(
+    record: "Record",
+    *,
+    timezone: tzinfo | None = None,
+    json_dumps: Callable[[Mapping[str, Any]], str] | None = None,
+) -> None:
+    """Patch the record with JSON serialization."""
+    serializer = json_dumps or _stdlib_json_dumps
+    tz = timezone or UTC
+    log_record = _build_loguru_record(record, tz)
+    record["extra"]["serialized"] = serializer(log_record)
+
+
+def _logfmt_patcher(
+    record: "Record",
+    *,
+    timezone: tzinfo | None = None,
+) -> None:
+    """Patch the record with logfmt serialization."""
+    tz = timezone or UTC
+    log_record = _build_loguru_record(record, tz)
+    record["extra"]["logfmt_serialized"] = logfmt_dumps(log_record)
 
 
 def _localtime_patcher(
@@ -148,15 +167,53 @@ def _otel_patcher(record: "Record") -> None:
         record["extra"]["span_id"] = trace_context["span_id"]
 
 
-def _json_formatter(record: "Record", timezone: tzinfo | None = None) -> str:
-    """Format log record as JSON.
-
-    Note: This is a format function (not a string) to suppress loguru's automatic
-    traceback appending. Exceptions are captured in the `error` field instead.
-    """
-    if "serialized" not in record["extra"]:
-        _json_patcher(record, timezone=timezone)
+def _json_formatter(record: "Record") -> str:  # noqa: ARG001
+    """Return pre-serialized JSON from patcher. Suppresses loguru's auto-traceback."""
     return JSON_FORMAT + "\n"
+
+
+def _logfmt_formatter(record: "Record") -> str:  # noqa: ARG001
+    """Return pre-serialized logfmt from patcher. Suppresses loguru's auto-traceback."""
+    return LOGFMT_FORMAT + "\n"
+
+
+def _escape_loguru_tags(text: str) -> str:
+    """Escape angle brackets so loguru's colorizer does not interpret them."""
+    return text.replace("<", r"\<")
+
+
+def _make_text_formatter(
+    timezone: tzinfo,
+    *,
+    colors: bool,
+) -> "FormatFunction":
+    """Create a text format function with captured settings."""
+
+    def _formatter(record: "Record") -> str:
+        log_record = _build_loguru_record(record, timezone)
+        return (
+            _escape_loguru_tags(render_text_line(log_record, colors=colors))
+            + "\n"
+        )
+
+    return _formatter
+
+
+def _make_pretty_formatter(
+    timezone: tzinfo,
+    *,
+    colors: bool,
+) -> "FormatFunction":
+    """Create a pretty format function with captured settings."""
+
+    def _formatter(record: "Record") -> str:
+        log_record = _build_loguru_record(record, timezone)
+        return (
+            _escape_loguru_tags(render_pretty_lines(log_record, colors=colors))
+            + "\n"
+        )
+
+    return _formatter
 
 
 def configure_logging() -> None:
@@ -166,7 +223,7 @@ def configure_logging() -> None:
 
     Environment Variables:
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
-        LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
+        LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY). Default: AUTO
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
             Default: True if OpenTelemetry is installed, else False.
@@ -175,38 +232,47 @@ def configure_logging() -> None:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
         LoggingSettingsValidationError: If environment variables are invalid.
     """
-    settings, timezone, _, json_dumps = load_settings()
+    settings, timezone, resolved_format, json_dumps, colors = load_settings()
 
     logger = loguru.logger
-    log_format: str | FormatFunction = settings.LOG_FORMAT
+    log_format: str | FormatFunction = resolved_format
     needs_json = False
+    needs_logfmt = False
     needs_localtime = False
 
-    if (
-        log_format == LoggingFormatType.JSON
-        or log_format.strip() == JSON_FORMAT
+    if log_format == LoggingFormatType.JSON or (
+        isinstance(log_format, str) and log_format.strip() == JSON_FORMAT
     ):
         log_format = _json_formatter
         needs_json = True
+    elif log_format == LoggingFormatType.LOGFMT:
+        log_format = _logfmt_formatter
+        needs_logfmt = True
+    elif log_format == LoggingFormatType.PRETTY:
+        log_format = _make_pretty_formatter(timezone, colors=colors)
     elif log_format == LoggingFormatType.TEXT:
-        log_format = TEXT_FORMAT
-        needs_localtime = True
-
+        log_format = _make_text_formatter(timezone, colors=colors)
     elif isinstance(log_format, str):
         needs_json = "extra[serialized]" in log_format
+        needs_logfmt = "extra[logfmt_serialized]" in log_format
         needs_localtime = "extra[localtime]" in log_format
 
-    if needs_localtime or needs_json or settings.LOG_OTEL_ENABLED:
+    if (
+        needs_localtime
+        or needs_json
+        or needs_logfmt
+        or settings.LOG_OTEL_ENABLED
+    ):
         patcher = _LoguruPatcher(
             timezone=timezone,
             enable_localtime=needs_localtime,
             enable_json=needs_json,
+            enable_logfmt=needs_logfmt,
             enable_otel=settings.LOG_OTEL_ENABLED,
             json_dumps=json_dumps,
         )
         logger.configure(patcher=patcher)
     else:
-        # No patcher needed
         logger.configure()
 
     logger.remove()

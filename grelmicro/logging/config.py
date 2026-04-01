@@ -39,8 +39,11 @@ class LoggingLevelType(_CaseInsensitiveEnum):
 class LoggingFormatType(_CaseInsensitiveEnum):
     """Logging Format Enum."""
 
+    AUTO = "AUTO"
     JSON = "JSON"
+    LOGFMT = "LOGFMT"
     TEXT = "TEXT"
+    PRETTY = "PRETTY"
 
 
 class LoggingBackendType(_CaseInsensitiveEnum):
@@ -69,7 +72,7 @@ class LoggingSettings(BaseSettings):
     Environment Variables:
         LOG_BACKEND: Logging backend (stdlib, loguru, structlog). Default: stdlib
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
-        LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
+        LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY, or custom template). Default: AUTO
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
         LOG_JSON_SERIALIZER: JSON serializer (stdlib, orjson). Default: stdlib
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
@@ -79,7 +82,7 @@ class LoggingSettings(BaseSettings):
     LOG_BACKEND: LoggingBackendType = LoggingBackendType.STDLIB
     LOG_LEVEL: LoggingLevelType = LoggingLevelType.INFO
     LOG_FORMAT: LoggingFormatType | str = Field(
-        LoggingFormatType.JSON, union_mode="left_to_right"
+        LoggingFormatType.AUTO, union_mode="left_to_right"
     )
     LOG_TIMEZONE: LoggingTimeZoneType = LoggingTimeZoneType("UTC")
     LOG_JSON_SERIALIZER: LoggingSerializerType = LoggingSerializerType.STDLIB

@@ -18,8 +18,9 @@ def configure_logging() -> None:
     Environment Variables:
         LOG_BACKEND: Logging backend (stdlib, loguru, structlog). Default: stdlib
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
-        LOG_FORMAT: Log format (JSON, TEXT, or custom template). Default: JSON
+        LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY). Default: AUTO
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
+        LOG_JSON_SERIALIZER: JSON serializer (stdlib, orjson). Default: stdlib
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
             Default: True if OpenTelemetry is installed, else False.
 

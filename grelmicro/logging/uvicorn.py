@@ -25,7 +25,7 @@ class UvicornJSONFormatter(_JSONFormatter):
 
     def __init__(self) -> None:
         """Initialize with settings from environment variables."""
-        settings, timezone, _, json_dumps = load_settings()
+        settings, timezone, _, json_dumps, _ = load_settings()
         super().__init__(
             timezone=timezone,
             json_dumps=json_dumps,

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 - Unreleased
+
+### Breaking Changes
+
+* 💥 **`LOG_FORMAT` default changed from `JSON` to `AUTO`.** In production (non-TTY), behavior is identical (JSON output). In local dev (TTY), output switches to human-readable `TEXT` with colors. Set `LOG_FORMAT=JSON` explicitly to restore the previous default.
+
+### Features
+
+* ✨ Add `AUTO` log format (new default): detects TTY and selects `TEXT` (terminal) or `JSON` (piped/CI).
+* ✨ Add `LOGFMT` log format: key-value pairs following the [logfmt](https://brandur.org/logfmt) convention, 30-40% smaller than JSON.
+* ✨ Add `PRETTY` log format: multi-line indented output with structured error rendering, inspired by Rust [tracing Pretty](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/struct.Pretty.html).
+* ✨ Enhanced `TEXT` format: now includes extra context fields as `key=value` pairs and supports ANSI colors.
+* ✨ Add `NO_COLOR` / `FORCE_COLOR` environment variable support following [no-color.org](https://no-color.org) standard.
+
 ## 0.8.0 - 2026-04-01
 
 ### Breaking Changes
