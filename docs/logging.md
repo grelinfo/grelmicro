@@ -344,7 +344,7 @@ uvicorn app:app --log-config uvicorn_log_config.json
 `UvicornAccessFormatter` additionally parses uvicorn's access log arguments into structured fields: `client_addr`, `method`, `full_path`, `http_version`, `status_code`.
 
 !!! note "Backward Compatibility"
-    The old names `UvicornJSONFormatter` and `UvicornAccessJSONFormatter` are kept as aliases.
+    The old names `UvicornJSONFormatter` and `UvicornAccessJSONFormatter` are kept as deprecated aliases that emit `DeprecationWarning`.
 
 ## Custom Format (Loguru only)
 
