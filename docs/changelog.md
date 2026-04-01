@@ -1,10 +1,14 @@
 # Changelog
 
-## 0.9.0 - 2026-04-01
+## 0.9.1 - 2026-04-01
 
 ### Breaking Changes
 
 * 💥 **`LOG_FORMAT` default changed from `JSON` to `AUTO`.** In production (non-TTY), behavior is identical (JSON output). In local dev (TTY), output switches to human-readable `TEXT` with colors. Set `LOG_FORMAT=JSON` explicitly to restore the previous default.
+
+### Deprecations
+
+* 🗑️ **`UvicornJSONFormatter` and `UvicornAccessJSONFormatter` are deprecated.** Use `UvicornFormatter` and `UvicornAccessFormatter` instead. The new formatters respect `LOG_FORMAT` instead of always producing JSON. Old names kept as aliases.
 
 ### Features
 

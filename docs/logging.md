@@ -325,6 +325,27 @@ To disable: `LOG_OTEL_ENABLED=false`
 !!! warning
     Call `configure_logging` during the lifespan of the FastAPI application. The FastAPI CLI may reset the logging configuration otherwise.
 
+## Uvicorn Integration
+
+Uvicorn has its own logging system separate from your application. To get consistent output between uvicorn and your app, use the format-aware uvicorn formatters via a log config file:
+
+```json
+--8<-- "logging/uvicorn_log_config.json"
+```
+
+Then start uvicorn with:
+
+```bash
+uvicorn app:app --log-config uvicorn_log_config.json
+```
+
+`UvicornFormatter` and `UvicornAccessFormatter` read `LOG_FORMAT` at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.
+
+`UvicornAccessFormatter` additionally parses uvicorn's access log arguments into structured fields: `client_addr`, `method`, `full_path`, `http_version`, `status_code`.
+
+!!! note "Backward Compatibility"
+    The old names `UvicornJSONFormatter` and `UvicornAccessJSONFormatter` are kept as aliases.
+
 ## Custom Format (Loguru only)
 
 You can provide a custom [loguru format template](https://loguru.readthedocs.io/en/stable/api/logger.html#message):

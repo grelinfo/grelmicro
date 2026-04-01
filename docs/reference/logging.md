@@ -10,5 +10,5 @@
 ::: grelmicro.logging.uvicorn
     options:
       members:
-        - UvicornJSONFormatter
-        - UvicornAccessJSONFormatter
+        - UvicornFormatter
+        - UvicornAccessFormatter

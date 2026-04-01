@@ -3,10 +3,10 @@
   "disable_existing_loggers": false,
   "formatters": {
     "default": {
-      "()": "grelmicro.logging.uvicorn.UvicornJSONFormatter"
+      "()": "grelmicro.logging.uvicorn.UvicornFormatter"
     },
     "access": {
-      "()": "grelmicro.logging.uvicorn.UvicornAccessJSONFormatter"
+      "()": "grelmicro.logging.uvicorn.UvicornAccessFormatter"
     }
   },
   "handlers": {

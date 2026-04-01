@@ -1,11 +1,18 @@
-"""Uvicorn-friendly JSON formatters for dictConfig usage."""
+"""Uvicorn-friendly formatters for dictConfig usage."""
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
-from grelmicro.logging._shared import load_settings
-from grelmicro.logging._stdlib import _STANDARD_LOG_RECORD_ATTRS, _JSONFormatter
+from grelmicro.logging._shared import (
+    load_settings,
+    logfmt_dumps,
+    render_pretty_lines,
+    render_text_line,
+)
+from grelmicro.logging._stdlib import _STANDARD_LOG_RECORD_ATTRS, _BaseFormatter
+from grelmicro.logging.config import LoggingFormatType
 
 if TYPE_CHECKING:
     import logging
@@ -18,26 +25,57 @@ _UVICORN_LOG_RECORD_ATTRS = _STANDARD_LOG_RECORD_ATTRS | {
 _MIN_ACCESS_ARGS = 5
 
 
-class UvicornJSONFormatter(_JSONFormatter):
-    """No-arg JSON formatter compatible with ``logging.config.dictConfig``."""
+class _UvicornBaseFormatter(_BaseFormatter):
+    """Base uvicorn formatter that filters uvicorn-specific record attributes."""
 
     _ignored_record_attrs = _UVICORN_LOG_RECORD_ATTRS
 
+
+class UvicornFormatter(_UvicornBaseFormatter):
+    """Format-aware uvicorn formatter compatible with ``logging.config.dictConfig``.
+
+    Reads ``LOG_FORMAT`` and produces the matching output (AUTO, JSON, LOGFMT,
+    TEXT, PRETTY).  No constructor arguments required.
+    """
+
     def __init__(self) -> None:
         """Initialize with settings from environment variables."""
-        settings, timezone, _, json_dumps, _ = load_settings()
+        settings, timezone, resolved_format, json_dumps, colors = (
+            load_settings()
+        )
         super().__init__(
-            timezone=timezone,
-            json_dumps=json_dumps,
-            otel_enabled=settings.LOG_OTEL_ENABLED,
+            timezone=timezone, otel_enabled=settings.LOG_OTEL_ENABLED
         )
 
-
-class UvicornAccessJSONFormatter(UvicornJSONFormatter):
-    """JSON formatter that exposes uvicorn access log components."""
+        match resolved_format:
+            case LoggingFormatType.LOGFMT:
+                self._format_record = logfmt_dumps
+            case LoggingFormatType.PRETTY:
+                self._format_record = lambda r: render_pretty_lines(
+                    r, colors=colors
+                )
+            case LoggingFormatType.TEXT:
+                self._format_record = lambda r: render_text_line(
+                    r, colors=colors
+                )
+            case _:  # JSON and custom strings
+                self._format_record = json_dumps
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format access records and add split request fields."""
+        """Format the log record."""
+        return self._format_record(self._record(record))
+
+
+class UvicornAccessFormatter(UvicornFormatter):
+    """Format-aware uvicorn access log formatter.
+
+    Parses uvicorn's access log tuple arguments into structured fields
+    (``client_addr``, ``method``, ``full_path``, ``http_version``,
+    ``status_code``).
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format access records with split request fields."""
         if (
             isinstance(record.args, tuple)
             and len(record.args) >= _MIN_ACCESS_ARGS
@@ -58,3 +96,29 @@ class UvicornAccessJSONFormatter(UvicornJSONFormatter):
             record.args = (method, full_path, status_code)
 
         return super().format(record)
+
+
+class UvicornJSONFormatter(UvicornFormatter):
+    """Deprecated: use ``UvicornFormatter`` instead."""
+
+    def __init__(self) -> None:
+        """Initialize with deprecation warning."""
+        warnings.warn(
+            "UvicornJSONFormatter is deprecated, use UvicornFormatter instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__()
+
+
+class UvicornAccessJSONFormatter(UvicornAccessFormatter):
+    """Deprecated: use ``UvicornAccessFormatter`` instead."""
+
+    def __init__(self) -> None:
+        """Initialize with deprecation warning."""
+        warnings.warn(
+            "UvicornAccessJSONFormatter is deprecated, use UvicornAccessFormatter instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__()

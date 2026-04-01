@@ -15,7 +15,9 @@ from typing import Any
 import pytest
 
 from grelmicro.logging.uvicorn import (
+    UvicornAccessFormatter,
     UvicornAccessJSONFormatter,
+    UvicornFormatter,
     UvicornJSONFormatter,
 )
 
@@ -25,19 +27,19 @@ def _parse(output: str) -> dict[str, Any]:
 
 
 @pytest.fixture
-def formatter(monkeypatch: pytest.MonkeyPatch) -> UvicornJSONFormatter:
-    """Create a UvicornJSONFormatter with default settings."""
+def formatter(monkeypatch: pytest.MonkeyPatch) -> UvicornFormatter:
+    """Create a UvicornFormatter with default settings."""
     monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-    return UvicornJSONFormatter()
+    return UvicornFormatter()
 
 
 @pytest.fixture
 def access_formatter(
     monkeypatch: pytest.MonkeyPatch,
-) -> UvicornAccessJSONFormatter:
-    """Create a UvicornAccessJSONFormatter with default settings."""
+) -> UvicornAccessFormatter:
+    """Create a UvicornAccessFormatter with default settings."""
     monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-    return UvicornAccessJSONFormatter()
+    return UvicornAccessFormatter()
 
 
 def _make_record(
@@ -64,12 +66,10 @@ def _make_record(
     )
 
 
-class TestUvicornJSONFormatter:
-    """Test UvicornJSONFormatter for regular uvicorn log messages."""
+class TestUvicornFormatter:
+    """Test UvicornFormatter for regular uvicorn log messages."""
 
-    def test_formats_simple_message(
-        self, formatter: UvicornJSONFormatter
-    ) -> None:
+    def test_formats_simple_message(self, formatter: UvicornFormatter) -> None:
         """Test basic message formatting produces valid JSON with core fields."""
         # Arrange
         record = _make_record(
@@ -87,9 +87,7 @@ class TestUvicornJSONFormatter:
         assert "time" in output
         assert "caller" in output
 
-    def test_ignores_color_message(
-        self, formatter: UvicornJSONFormatter
-    ) -> None:
+    def test_ignores_color_message(self, formatter: UvicornFormatter) -> None:
         """Test that uvicorn's color_message attribute is excluded."""
         # Arrange
         record = _make_record(
@@ -106,7 +104,7 @@ class TestUvicornJSONFormatter:
         assert "color_message" not in output
         assert output["msg"] == "Started server"
 
-    def test_ignores_asctime(self, formatter: UvicornJSONFormatter) -> None:
+    def test_ignores_asctime(self, formatter: UvicornFormatter) -> None:
         """Test that asctime attribute is excluded (we use our own time)."""
         # Arrange
         record = _make_record(
@@ -123,11 +121,11 @@ class TestUvicornJSONFormatter:
         assert "asctime" not in output
 
 
-class TestUvicornAccessJSONFormatter:
-    """Test UvicornAccessJSONFormatter for access log messages."""
+class TestUvicornAccessFormatter:
+    """Test UvicornAccessFormatter for access log messages."""
 
     def test_access_log_structured_fields(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test access log extracts structured fields from uvicorn args."""
         # Arrange
@@ -144,7 +142,7 @@ class TestUvicornAccessJSONFormatter:
         assert output["status_code"] == HTTPStatus.OK
 
     def test_access_log_short_msg(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test access log msg is short summary instead of verbose string."""
         # Arrange
@@ -157,7 +155,7 @@ class TestUvicornAccessJSONFormatter:
         assert output["msg"] == "GET /api/v1/users 200"
 
     def test_access_log_with_query_string(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test access log handles paths with query strings."""
         # Arrange
@@ -184,7 +182,7 @@ class TestUvicornAccessJSONFormatter:
         )
 
     def test_access_log_various_status_codes(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test access log handles different HTTP status codes."""
         # Arrange
@@ -207,7 +205,7 @@ class TestUvicornAccessJSONFormatter:
         assert output["msg"] == "POST /api/v1/users 201"
 
     def test_access_log_error_status(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test access log handles error status codes."""
         # Arrange
@@ -229,7 +227,7 @@ class TestUvicornAccessJSONFormatter:
         assert output["msg"] == "DELETE /api/v1/users/42 404"
 
     def test_access_log_http2(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test access log handles HTTP/2."""
         # Arrange
@@ -250,7 +248,7 @@ class TestUvicornAccessJSONFormatter:
         assert output["http_version"] == "2"
 
     def test_fallback_when_args_not_tuple(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test formatter handles non-tuple args gracefully (non-access log)."""
         # Arrange
@@ -269,7 +267,7 @@ class TestUvicornAccessJSONFormatter:
         assert "method" not in output
 
     def test_fallback_when_args_too_short(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test formatter handles tuple args with fewer than 5 elements."""
         # Arrange
@@ -286,7 +284,7 @@ class TestUvicornAccessJSONFormatter:
         assert "client_addr" not in output
 
     def test_fallback_when_args_is_dict(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test formatter handles dict args (%-style named formatting)."""
         # Arrange
@@ -304,7 +302,7 @@ class TestUvicornAccessJSONFormatter:
         assert output["msg"] == "something happened"
 
     def test_access_log_with_extra_args(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test formatter handles tuples with more than 5 elements."""
         # Arrange
@@ -328,7 +326,7 @@ class TestUvicornAccessJSONFormatter:
         assert output["msg"] == "GET /api/v1/health 200"
 
     def test_core_fields_present(
-        self, access_formatter: UvicornAccessJSONFormatter
+        self, access_formatter: UvicornAccessFormatter
     ) -> None:
         """Test access log always includes time, level, and caller."""
         # Arrange
@@ -357,10 +355,10 @@ class TestUvicornAccessJSONFormatter:
                 "disable_existing_loggers": False,
                 "formatters": {
                     "default": {
-                        "()": "grelmicro.logging.uvicorn.UvicornJSONFormatter",
+                        "()": "grelmicro.logging.uvicorn.UvicornFormatter",
                     },
                     "access": {
-                        "()": "grelmicro.logging.uvicorn.UvicornAccessJSONFormatter",
+                        "()": "grelmicro.logging.uvicorn.UvicornAccessFormatter",
                     },
                 },
                 "handlers": {
@@ -418,6 +416,141 @@ class TestUvicornAccessJSONFormatter:
         assert error_record["msg"] == "Application startup complete"
 
 
+class TestUvicornFormatterFormats:
+    """Test UvicornFormatter respects LOG_FORMAT for all formats."""
+
+    @pytest.mark.parametrize("fmt", ["logfmt", "text", "pretty"])
+    def test_uvicorn_formatter_non_json(
+        self,
+        fmt: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test UvicornFormatter produces correct output for non-JSON formats."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", fmt)
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+        formatter = UvicornFormatter()
+        record = _make_record(
+            name="uvicorn.error",
+            msg="Application startup complete",
+            args=None,
+        )
+
+        # Act
+        output = formatter.format(record)
+
+        # Assert
+        assert "Application startup complete" in output
+        assert "INFO" in output
+
+    def test_uvicorn_formatter_logfmt_structure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test UvicornFormatter logfmt has key=value structure."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        formatter = UvicornFormatter()
+        record = _make_record(
+            name="uvicorn.error",
+            msg="Started server",
+            args=None,
+        )
+
+        # Act
+        output = formatter.format(record)
+
+        # Assert
+        assert "level=INFO" in output
+        assert 'msg="Started server"' in output
+        assert "time=" in output
+
+    def test_uvicorn_formatter_text_single_line(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test UvicornFormatter TEXT produces single line."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", "text")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+        formatter = UvicornFormatter()
+        record = _make_record(
+            name="uvicorn.error",
+            msg="Started server",
+            args=None,
+        )
+
+        # Act
+        output = formatter.format(record)
+
+        # Assert
+        assert output.count("\n") == 0
+        assert " - Started server" in output
+
+    def test_uvicorn_formatter_pretty_multi_line(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test UvicornFormatter PRETTY produces multi-line."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", "pretty")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("NO_COLOR", "1")
+        formatter = UvicornFormatter()
+        record = _make_record(
+            name="uvicorn.error",
+            msg="Started server",
+            args=None,
+        )
+
+        # Act
+        output = formatter.format(record)
+
+        # Assert
+        lines = output.splitlines()
+        assert len(lines) >= 2  # noqa: PLR2004
+        assert "Started server" in lines[0]
+        assert "at " in lines[1]
+
+    def test_uvicorn_access_formatter_logfmt(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test UvicornAccessFormatter logfmt includes access fields."""
+        # Arrange
+        monkeypatch.setenv("LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        formatter = UvicornAccessFormatter()
+        record = _make_record()
+
+        # Act
+        output = formatter.format(record)
+
+        # Assert
+        assert "method=GET" in output
+        assert "full_path=/api/v1/users" in output
+        assert "status_code=200" in output
+
+    def test_deprecated_aliases_emit_warning(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test deprecated names emit DeprecationWarning."""
+        # Arrange
+        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+
+        # Act / Assert
+        with pytest.warns(DeprecationWarning, match="UvicornJSONFormatter"):
+            UvicornJSONFormatter()
+        with pytest.warns(
+            DeprecationWarning, match="UvicornAccessJSONFormatter"
+        ):
+            UvicornAccessJSONFormatter()
+
+
 _UVICORN_APP = """\
 async def app(scope, receive, send):
     if scope["type"] == "http":
@@ -454,10 +587,10 @@ class TestUvicornProcess:
                         "disable_existing_loggers": False,
                         "formatters": {
                             "default": {
-                                "()": "grelmicro.logging.uvicorn.UvicornJSONFormatter",
+                                "()": "grelmicro.logging.uvicorn.UvicornFormatter",
                             },
                             "access": {
-                                "()": "grelmicro.logging.uvicorn.UvicornAccessJSONFormatter",
+                                "()": "grelmicro.logging.uvicorn.UvicornAccessFormatter",
                             },
                         },
                         "handlers": {
@@ -564,7 +697,7 @@ class TestUvicornProcess:
             assert "client_addr" in record
             assert "http_version" in record
 
-            # Find a startup log (from UvicornJSONFormatter)
+            # Find a startup log (from UvicornFormatter)
             startup_logs = [
                 r
                 for r in json_lines
