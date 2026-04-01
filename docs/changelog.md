@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0 - Unreleased
+## 0.9.0 - 2026-04-01
 
 ### Breaking Changes
 
