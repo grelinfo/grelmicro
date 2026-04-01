@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking Changes
+
+* 💥 **Backend imports moved to submodules.** Use `from grelmicro.sync.redis import RedisSyncBackend` instead of `from grelmicro.sync import RedisSyncBackend`. Same for all sync, cache, and logging backends. See [Import Strategy](architecture/imports.md).
+
 ### Features
 
 * ✨ Add Uvicorn JSON formatters (`UvicornJSONFormatter`, `UvicornAccessJSONFormatter`) for structured logging via `dictConfig`.

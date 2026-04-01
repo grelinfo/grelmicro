@@ -8,9 +8,13 @@
         - CacheError
         - CacheInfo
         - CacheSettingsValidationError
-        - MemoryCacheBackend
         - TTLCache
         - cached
+
+::: grelmicro.cache.memory
+    options:
+      members:
+        - MemoryCacheBackend
 
 ::: grelmicro.cache.redis
     options:
