@@ -38,7 +38,13 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python: ["3.11", "3.12", "3.13", "3.14"]
+        python:
+          - "3.11"
+          - ${{ github.event_name == 'push' && '3.12' || '' }}
+          - ${{ github.event_name == 'push' && '3.13' || '' }}
+          - ${{ github.event_name == 'push' && '3.14' || '' }}
+        exclude:
+          - python: ""
     steps:
       - name: Checkout
         uses: actions/checkout@v6
