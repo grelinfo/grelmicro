@@ -6,6 +6,10 @@
 
 * ✨ Add `RateLimiter` to the `resilience` module: Redis-backed sliding-window rate limiting using the GCRA algorithm. Includes `RateLimitResult` with fields mapping to IETF rate limit headers, weighted requests via `cost` parameter, and `RateLimitExceededError`.
 
+### Breaking Changes
+
+* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now optional (stripped from uvicorn output).
+
 ### Removals
 
 * 🗑️ Remove deprecated `UvicornJSONFormatter` and `UvicornAccessJSONFormatter`. Use `UvicornFormatter` and `UvicornAccessFormatter` instead (deprecated since 0.9.1).
@@ -49,7 +53,7 @@
 ### Breaking Changes
 
 * 💥 **Logging JSON format redesigned** to follow industry standards (slog, zap, zerolog):
-    * `logger` field now contains the logger name; new `caller` field contains `function:line`
+    * `logger` renamed to `caller`
     * `thread` removed
     * `ctx` removed: extra fields are now flat at the top level
     * `exception` replaced by structured `error` object (`type`, `message`, `stack`)
