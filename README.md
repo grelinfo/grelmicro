@@ -51,7 +51,10 @@ The `task` module provides periodic task execution with optional distributed loc
 
 ### [Resilience](docs/resilience.md)
 
-The `resilience` module provides a **Circuit Breaker** that automatically detects repeated failures and temporarily blocks calls to unstable services, allowing them time to recover.
+The `resilience` module provides patterns to protect services from failures and overload.
+
+- **Circuit Breaker**: Automatically detects repeated failures and temporarily blocks calls to unstable services.
+- **Rate Limiter**: Limits the number of requests per time window using the GCRA algorithm with Redis or in-memory backends.
 
 ### [Logging](docs/logging.md)
 
@@ -78,12 +81,14 @@ import json
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from grelmicro.cache import TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.logging import configure_logging
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
+from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncBackend
 from grelmicro.task import TaskManager
@@ -94,6 +99,7 @@ logger = logging.getLogger(__name__)
 task = TaskManager()
 sync_backend = RedisSyncBackend("redis://localhost:6379/0")
 cache_backend = RedisCacheBackend("redis://localhost:6379/0", prefix="myapp:")
+rate_limit_backend = RedisRateLimiterBackend("redis://localhost:6379/0")
 leader_election = LeaderElection("leader-election")
 task.add_task(leader_election)
 
@@ -108,7 +114,7 @@ cache = TTLCache(
 @asynccontextmanager
 async def lifespan(app):
     configure_logging()
-    async with sync_backend, cache_backend, task:
+    async with sync_backend, cache_backend, rate_limit_backend, task:
         yield
 
 
@@ -134,6 +140,16 @@ cb = CircuitBreaker("my-service")
 async def read_root():
     async with cb:
         return {"Hello": "World"}
+
+
+# --- Rate Limiter: protect endpoints from overload ---
+api_limiter = RateLimiter("api", limit=100, window=60)
+
+
+@app.get("/api")
+async def api_endpoint(request: Request):
+    await api_limiter.acquire_or_raise(key=request.client.host)
+    return {"status": "ok"}
 
 
 # --- Distributed Lock: synchronize access to a shared resource ---
