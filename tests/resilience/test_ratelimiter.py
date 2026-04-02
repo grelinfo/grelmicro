@@ -117,6 +117,27 @@ async def test_acquire_independent_keys(
     assert result.remaining == LIMIT - 1
 
 
+async def test_acquire_evicts_expired_keys(
+    limiter: RateLimiter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test lazy eviction removes expired keys when threshold exceeded."""
+    # Arrange
+    monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 2)
+    async with MemoryRateLimiterBackend() as backend:
+        backend._tats["test:expired1"] = 0.0
+        backend._tats["test:expired2"] = 0.0
+        backend._tats["test:expired3"] = 0.0
+
+        # Act
+        await limiter.acquire(key="user:1")
+
+        # Assert
+        assert "test:expired1" not in backend._tats
+        assert "test:expired2" not in backend._tats
+        assert "test:expired3" not in backend._tats
+
+
 @pytest.mark.usefixtures("_backend")
 async def test_acquire_cost(limiter: RateLimiter) -> None:
     """Test cost parameter consumes multiple tokens."""

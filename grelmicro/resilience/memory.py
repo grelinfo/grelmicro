@@ -10,6 +10,8 @@ from typing_extensions import Doc
 from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience._protocol import RateLimiterBackend, RateLimitResult
 
+_EVICTION_THRESHOLD = 1000
+
 
 class MemoryRateLimiterBackend(RateLimiterBackend):
     """Memory Rate Limiter Backend.
@@ -72,6 +74,11 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
 
         """
         now = monotonic()
+
+        # Lazy eviction: keys with TAT < now behave identically to fresh
+        # keys (max(tat, now) == now), so they can be safely removed.
+        if len(self._tats) > _EVICTION_THRESHOLD:
+            self._tats = {k: v for k, v in self._tats.items() if v >= now}
 
         emission_interval = window / limit
         increment = emission_interval * cost

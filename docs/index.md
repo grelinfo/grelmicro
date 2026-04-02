@@ -81,12 +81,13 @@ import json
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
 from grelmicro.cache import TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.logging import configure_logging
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
+from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter import RateLimiter
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync import LeaderElection, Lock
@@ -148,7 +149,14 @@ api_limiter = RateLimiter("api", limit=100, window=60)
 
 @app.get("/api")
 async def api_endpoint(request: Request):
-    await api_limiter.acquire_or_raise(key=request.client.host)
+    try:
+        await api_limiter.acquire_or_raise(key=request.client.host)
+    except RateLimitExceededError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests",
+            headers={"Retry-After": str(int(exc.retry_after))},
+        )
     return {"status": "ok"}
 
 
