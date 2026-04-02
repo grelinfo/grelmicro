@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING
 
 from grelmicro.logging._shared import (
@@ -96,29 +95,3 @@ class UvicornAccessFormatter(UvicornFormatter):
             record.args = (method, full_path, status_code)
 
         return super().format(record)
-
-
-class UvicornJSONFormatter(UvicornFormatter):
-    """Deprecated: use ``UvicornFormatter`` instead."""
-
-    def __init__(self) -> None:
-        """Initialize with deprecation warning."""
-        warnings.warn(
-            "UvicornJSONFormatter is deprecated, use UvicornFormatter instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__()
-
-
-class UvicornAccessJSONFormatter(UvicornAccessFormatter):
-    """Deprecated: use ``UvicornAccessFormatter`` instead."""
-
-    def __init__(self) -> None:
-        """Initialize with deprecation warning."""
-        warnings.warn(
-            "UvicornAccessJSONFormatter is deprecated, use UvicornAccessFormatter instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__()

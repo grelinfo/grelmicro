@@ -16,9 +16,7 @@ import pytest
 
 from grelmicro.logging.uvicorn import (
     UvicornAccessFormatter,
-    UvicornAccessJSONFormatter,
     UvicornFormatter,
-    UvicornJSONFormatter,
 )
 
 
@@ -533,22 +531,6 @@ class TestUvicornFormatterFormats:
         assert "method=GET" in output
         assert "full_path=/api/v1/users" in output
         assert "status_code=200" in output
-
-    def test_deprecated_aliases_emit_warning(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test deprecated names emit DeprecationWarning."""
-        # Arrange
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-
-        # Act / Assert
-        with pytest.warns(DeprecationWarning, match="UvicornJSONFormatter"):
-            UvicornJSONFormatter()
-        with pytest.warns(
-            DeprecationWarning, match="UvicornAccessJSONFormatter"
-        ):
-            UvicornAccessJSONFormatter()
 
 
 _UVICORN_APP = """\
