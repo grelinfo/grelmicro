@@ -61,8 +61,16 @@ class UvicornFormatter(_UvicornBaseFormatter):
                 self._format_record = json_dumps
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format the log record."""
-        return self._format_record(self._record(record))
+        """Format the log record.
+
+        Strips the ``caller`` field because uvicorn's caller info points
+        to uvicorn internals, which is not useful. The ``logger`` field
+        (e.g., ``uvicorn.error``, ``uvicorn.access``) already identifies
+        the source.
+        """
+        log_record = self._record(record)
+        log_record.pop("caller", None)
+        return self._format_record(log_record)
 
 
 class UvicornAccessFormatter(UvicornFormatter):

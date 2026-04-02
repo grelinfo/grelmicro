@@ -117,6 +117,7 @@ class TestConfigureLoggingJSON:
         # Core fields
         assert "time" in log_record
         assert "level" in log_record
+        assert "logger" in log_record
         assert "caller" in log_record
         assert "msg" in log_record
 
@@ -129,7 +130,6 @@ class TestConfigureLoggingJSON:
 
         # Removed fields
         assert "thread" not in log_record
-        assert "logger" not in log_record
         assert "ctx" not in log_record
 
         # Time should be valid ISO 8601
@@ -628,7 +628,8 @@ class TestStructlogCallerInfo:
         result = _add_caller_info(None, "info", event_dict)
 
         # Assert
-        assert result["caller"] == "mymodule:myfunc:42"
+        assert result["logger"] == "mymodule"
+        assert result["caller"] == "myfunc:42"
 
     def test_without_callsite_info(self) -> None:
         """Test _add_caller_info when no callsite info is available."""
@@ -639,6 +640,7 @@ class TestStructlogCallerInfo:
         result = _add_caller_info(None, "info", event_dict)
 
         # Assert
+        assert result["logger"] == "unknown"
         assert result["caller"] == "unknown"
 
 
@@ -923,13 +925,15 @@ class TestLogfmtSerializer:
             "time": "2026-04-01T10:00:00+00:00",
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
         }
         result = logfmt_dumps(record)
         assert "time=2026-04-01T10:00:00+00:00" in result
         assert "level=INFO" in result
         assert "msg=hello" in result
-        assert "caller=mod:fn:1" in result
+        assert "logger=mod" in result
+        assert "caller=fn:1" in result
 
     def test_value_with_spaces_is_quoted(self) -> None:
         """Test logfmt quotes values containing spaces."""
@@ -937,6 +941,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "hello world",
+            "logger": "l",
             "caller": "c",
         }
         result = logfmt_dumps(record)
@@ -948,6 +953,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "ERROR",
             "msg": "fail",
+            "logger": "l",
             "caller": "c",
             "error": {"type": "ValueError", "message": "bad input"},
         }
@@ -961,6 +967,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "hi",
+            "logger": "l",
             "caller": "c",
             "extra": None,
         }
@@ -991,6 +998,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
         }
         result = logfmt_dumps(record)
@@ -1004,6 +1012,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
             "trace_id": None,
         }
@@ -1016,6 +1025,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
             "meta": {"region": "eu", "env": "prod"},
         }
@@ -1029,6 +1039,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
             "http": {"request": {"method": "GET", "path": "/api"}},
         }
@@ -1042,6 +1053,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
             "error": {"type": "ValueError", "stack": None},
         }
@@ -1090,7 +1102,8 @@ class TestRenderTextLine:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
         }
         result = render_text_line(record, colors=False)
         assert "2026-04-01 10:30:00.000" in result
@@ -1104,7 +1117,8 @@ class TestRenderTextLine:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "user_id": 123,
         }
         result = render_text_line(record, colors=False)
@@ -1116,7 +1130,8 @@ class TestRenderTextLine:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
         }
         result = render_text_line(record, colors=True)
         assert "\033[" in result  # ANSI escape codes present
@@ -1131,7 +1146,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
         }
         result = render_pretty_lines(record, colors=False)
         lines = result.splitlines()
@@ -1145,7 +1161,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "user_id": 123,
         }
         result = render_pretty_lines(record, colors=False)
@@ -1157,7 +1174,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "ERROR",
             "msg": "fail",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "error": {
                 "type": "ValueError",
                 "message": "bad",
@@ -1177,7 +1195,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "user_id": 42,
         }
         result = render_pretty_lines(record, colors=True)
@@ -1190,7 +1209,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "trace_id": "abc123",
             "span_id": "def456",
         }
@@ -1204,7 +1224,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "ERROR",
             "msg": "fail",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "error": {
                 "type": "ValueError",
                 "message": "bad",

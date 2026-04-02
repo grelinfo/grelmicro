@@ -61,9 +61,8 @@ def _build_loguru_record(
     ).astimezone(timezone)
     log_record["level"] = record["level"].name
     log_record["msg"] = record["message"]
-    log_record["caller"] = (
-        f"{record['name']}:{record['function']}:{record['line']}"
-    )
+    log_record["logger"] = record["name"]
+    log_record["caller"] = f"{record['function']}:{record['line']}"
 
     # trace_id/span_id already merged via dict.update from record["extra"]
     exception = record["exception"]

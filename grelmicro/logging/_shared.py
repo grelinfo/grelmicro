@@ -161,6 +161,7 @@ _CORE_KEYS_ORDER = (
     "time",
     "level",
     "msg",
+    "logger",
     "caller",
     "trace_id",
     "span_id",
@@ -243,7 +244,9 @@ def render_text_line(
     """Render a single-line text log from a flat record dict."""
     localtime = record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     level = f"{record['level']:<8}"
-    caller = record["caller"]
+    logger = record["logger"]
+    caller = record.get("caller")
+    source = f"{logger}:{caller}" if caller else logger
     msg = record["msg"]
     extras = format_extras(record, extra_skip)
     extras_suffix = f" {extras}" if extras else ""
@@ -251,10 +254,10 @@ def render_text_line(
     if colors:
         return (
             f"{dim(localtime)} {colorize_level(level)} "
-            f"{colorize_caller(caller)} - {msg}"
+            f"{colorize_caller(source)} - {msg}"
             f"{dim(extras_suffix)}"
         )
-    return f"{localtime} {level} {caller} - {msg}{extras_suffix}"
+    return f"{localtime} {level} {source} - {msg}{extras_suffix}"
 
 
 def _render_pretty_field(key: str, value: object, *, colors: bool) -> str:
@@ -297,19 +300,21 @@ def render_pretty_lines(
     """Render multi-line pretty output from a flat record dict."""
     localtime = record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     level = record["level"]
-    caller = record["caller"]
+    logger = record["logger"]
+    caller = record.get("caller")
+    source = f"{logger}:{caller}" if caller else logger
     msg = record["msg"]
     skip = _CORE_KEYS | extra_skip
 
     if colors:
         lines = [
             f"  {dim(localtime)} {colorize_level(level)} {msg}",
-            f"    at {colorize_caller(caller)}",
+            f"    at {colorize_caller(source)}",
         ]
     else:
         lines = [
             f"  {localtime} {level} {msg}",
-            f"    at {caller}",
+            f"    at {source}",
         ]
 
     for key in ("trace_id", "span_id"):

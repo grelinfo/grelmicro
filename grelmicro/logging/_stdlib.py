@@ -71,7 +71,8 @@ def _build_record(
     ).astimezone(timezone)
     log_record["level"] = record.levelname
     log_record["msg"] = record.getMessage()
-    log_record["caller"] = f"{record.name}:{record.funcName}:{record.lineno}"
+    log_record["logger"] = record.name
+    log_record["caller"] = f"{record.funcName}:{record.lineno}"
 
     if otel_enabled:
         trace_context = get_otel_trace_context()

@@ -58,10 +58,11 @@ def assert_logs(logs: str) -> None:
         exception,
     ) = (parse_json_log(line) for line in logs.splitlines()[0:4])
 
-    expected_separator = 3
+    expected_separator = 2
 
+    assert info["logger"] == "tests.logging.test_loguru"
     assert info["caller"]
-    assert info["caller"].startswith("tests.logging.test_loguru:generate_logs:")
+    assert info["caller"].startswith("generate_logs:")
     assert len(info["caller"].split(":")) == expected_separator
     assert info["time"] == datetime.fromisoformat(info["time"]).isoformat()
     assert info["level"] == "INFO"
@@ -69,10 +70,9 @@ def assert_logs(logs: str) -> None:
     assert "thread" not in info
     assert "ctx" not in info
 
+    assert warning["logger"] == "tests.logging.test_loguru"
     assert warning["caller"]
-    assert warning["caller"].startswith(
-        "tests.logging.test_loguru:generate_logs:"
-    )
+    assert warning["caller"].startswith("generate_logs:")
     assert len(warning["caller"].split(":")) == expected_separator
     assert (
         warning["time"] == datetime.fromisoformat(warning["time"]).isoformat()
@@ -82,10 +82,9 @@ def assert_logs(logs: str) -> None:
     assert "thread" not in warning
     assert "ctx" not in warning
 
+    assert error["logger"] == "tests.logging.test_loguru"
     assert error["caller"]
-    assert error["caller"].startswith(
-        "tests.logging.test_loguru:generate_logs:"
-    )
+    assert error["caller"].startswith("generate_logs:")
     assert len(error["caller"].split(":")) == expected_separator
     assert error["time"] == datetime.fromisoformat(error["time"]).isoformat()
     assert error["level"] == "ERROR"
@@ -94,10 +93,9 @@ def assert_logs(logs: str) -> None:
     # Extra context is flat at top level
     assert error["user"] == "Alice"
 
+    assert exception["logger"] == "tests.logging.test_loguru"
     assert exception["caller"]
-    assert exception["caller"].startswith(
-        "tests.logging.test_loguru:generate_logs:"
-    )
+    assert exception["caller"].startswith("generate_logs:")
     assert len(exception["caller"].split(":")) == expected_separator
     assert (
         exception["time"]

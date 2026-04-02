@@ -67,16 +67,17 @@ def _add_caller_info(
     """Add caller info in module:function:line format."""
     record = event_dict.get("_record")
     if record:
-        event_dict["caller"] = (
-            f"{record.name}:{record.funcName}:{record.lineno}"
-        )
+        event_dict["logger"] = record.name
+        event_dict["caller"] = f"{record.funcName}:{record.lineno}"
     else:
         module = event_dict.pop("module", None)
         func = event_dict.pop("func_name", None)
         lineno = event_dict.pop("lineno", None)
         if module and func and lineno:
-            event_dict["caller"] = f"{module}:{func}:{lineno}"
+            event_dict["logger"] = module
+            event_dict["caller"] = f"{func}:{lineno}"
         else:
+            event_dict["logger"] = "unknown"
             event_dict["caller"] = "unknown"
     return event_dict
 
@@ -138,6 +139,7 @@ def _build_flat_record(
     flat_record["time"] = event_dict["time"]
     flat_record["level"] = event_dict["level"]
     flat_record["msg"] = event_dict.get("event", "")
+    flat_record["logger"] = event_dict["logger"]
     flat_record["caller"] = event_dict["caller"]
 
     return flat_record

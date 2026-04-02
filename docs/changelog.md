@@ -49,7 +49,7 @@
 ### Breaking Changes
 
 * 💥 **Logging JSON format redesigned** to follow industry standards (slog, zap, zerolog):
-    * `logger` renamed to `caller`
+    * `logger` field now contains the logger name; new `caller` field contains `function:line`
     * `thread` removed
     * `ctx` removed: extra fields are now flat at the top level
     * `exception` replaced by structured `error` object (`type`, `message`, `stack`)

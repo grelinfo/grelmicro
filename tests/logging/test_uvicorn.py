@@ -83,7 +83,8 @@ class TestUvicornFormatter:
         assert output["msg"] == "Application startup complete"
         assert output["level"] == "INFO"
         assert "time" in output
-        assert "caller" in output
+        assert "logger" in output
+        assert "caller" not in output
 
     def test_ignores_color_message(self, formatter: UvicornFormatter) -> None:
         """Test that uvicorn's color_message attribute is excluded."""
@@ -326,7 +327,7 @@ class TestUvicornAccessFormatter:
     def test_core_fields_present(
         self, access_formatter: UvicornAccessFormatter
     ) -> None:
-        """Test access log always includes time, level, and caller."""
+        """Test access log always includes time, level, and logger."""
         # Arrange
         record = _make_record()
 
@@ -336,7 +337,8 @@ class TestUvicornAccessFormatter:
         # Assert
         assert "time" in output
         assert output["level"] == "INFO"
-        assert "caller" in output
+        assert "logger" in output
+        assert "caller" not in output
 
     def test_integration_with_logging_config(
         self,
@@ -675,7 +677,8 @@ class TestUvicornProcess:
             assert record["msg"] == "GET /api/v1/health 200"
             assert record["level"] == "INFO"
             assert "time" in record
-            assert "caller" in record
+            assert "logger" in record
+            assert "caller" not in record
             assert "client_addr" in record
             assert "http_version" in record
 
@@ -689,5 +692,6 @@ class TestUvicornProcess:
             assert len(startup_logs) >= 1, (
                 f"No startup log found in: {json_lines}"
             )
-            assert "caller" in startup_logs[0]
+            assert "logger" in startup_logs[0]
+            assert "caller" not in startup_logs[0]
             assert "time" in startup_logs[0]
