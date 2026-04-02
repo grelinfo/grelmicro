@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro.resilience._backends import get_rate_limiter_backend
@@ -18,11 +18,11 @@ class RateLimiterConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("The name of the rate limiter instance."),
     ]
     limit: Annotated[
-        int,
+        PositiveInt,
         Doc("Maximum number of requests per window."),
     ]
     window: Annotated[
-        float,
+        PositiveFloat,
         Doc("Window duration in seconds."),
     ]
 
@@ -44,11 +44,11 @@ class RateLimiter:
         ],
         *,
         limit: Annotated[
-            int,
+            PositiveInt,
             Doc("Maximum number of requests per window."),
         ],
         window: Annotated[
-            float,
+            PositiveFloat,
             Doc("Window duration in seconds."),
         ],
     ) -> None:

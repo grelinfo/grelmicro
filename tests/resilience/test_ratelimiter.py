@@ -3,6 +3,7 @@
 from collections.abc import AsyncGenerator
 
 import pytest
+from pydantic import ValidationError
 
 from grelmicro._backends import BackendNotLoadedError
 from grelmicro.resilience._backends import rate_limiter_backend_registry
@@ -216,6 +217,25 @@ async def test_acquire_without_backend() -> None:
     # Act & Assert
     with pytest.raises(BackendNotLoadedError):
         await limiter.acquire(key="user:1")
+
+
+# --- Validation ---
+
+
+@pytest.mark.parametrize(
+    ("limit", "window"),
+    [
+        (0, WINDOW),
+        (-1, WINDOW),
+        (LIMIT, 0),
+        (LIMIT, -1),
+    ],
+)
+def test_invalid_config(limit: int, window: float) -> None:
+    """Test non-positive limit or window raises ValidationError."""
+    # Act & Assert
+    with pytest.raises(ValidationError):
+        RateLimiter("test", limit=limit, window=window)
 
 
 # --- Error class ---
