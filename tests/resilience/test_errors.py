@@ -39,7 +39,13 @@ def test_resilience_module_exports() -> None:
         "CircuitBreakerMetrics",
         "CircuitBreakerState",
         "ErrorDetails",
+        "RateLimitExceededError",
+        "RateLimitResult",
+        "RateLimiter",
+        "RateLimiterBackend",
+        "RateLimiterConfig",
         "ResilienceError",
+        "ResilienceSettingsValidationError",
     }
     assert set(resilience_mod.__all__) == expected
 
