@@ -2,13 +2,20 @@
 
 import warnings
 
+from grelmicro.resilience._protocol import RateLimiterBackend, RateLimitResult
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     CircuitBreakerMetrics,
     CircuitBreakerState,
     ErrorDetails,
 )
-from grelmicro.resilience.errors import CircuitBreakerError, ResilienceError
+from grelmicro.resilience.errors import (
+    CircuitBreakerError,
+    RateLimitExceededError,
+    ResilienceError,
+    ResilienceSettingsValidationError,
+)
+from grelmicro.resilience.ratelimiter import RateLimiter, RateLimiterConfig
 
 __all__ = [
     "CircuitBreaker",
@@ -16,7 +23,13 @@ __all__ = [
     "CircuitBreakerMetrics",
     "CircuitBreakerState",
     "ErrorDetails",
+    "RateLimitExceededError",
+    "RateLimitResult",
+    "RateLimiter",
+    "RateLimiterBackend",
+    "RateLimiterConfig",
     "ResilienceError",
+    "ResilienceSettingsValidationError",
 ]
 
 

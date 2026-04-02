@@ -3,7 +3,7 @@
 import warnings
 from datetime import datetime
 
-from grelmicro.errors import GrelmicroError
+from grelmicro.errors import GrelmicroError, SettingsValidationError
 
 
 class ResilienceError(GrelmicroError):
@@ -12,6 +12,33 @@ class ResilienceError(GrelmicroError):
     This class serves as the base for all errors related to resilience mechanisms
     such as circuit breakers, retries, etc.
     """
+
+
+class ResilienceSettingsValidationError(
+    ResilienceError, SettingsValidationError
+):
+    """Resilience Settings Validation Error."""
+
+
+class RateLimitExceededError(ResilienceError):
+    """Rate limit exceeded error.
+
+    Raised when a rate limit check fails (too many requests).
+    """
+
+    def __init__(
+        self,
+        *,
+        key: str,
+        retry_after: float,
+    ) -> None:
+        """Initialize the error."""
+        self.key = key
+        self.retry_after = retry_after
+        super().__init__(
+            f"Rate limit exceeded for key '{key}',"
+            f" retry after {retry_after:.1f}s"
+        )
 
 
 class CircuitBreakerError(ResilienceError):

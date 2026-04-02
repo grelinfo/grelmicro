@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add `RateLimiter` to the `resilience` module: Redis-backed sliding-window rate limiting using the GCRA algorithm. Includes `RateLimitResult` with fields mapping to IETF rate limit headers, weighted requests via `cost` parameter, and `RateLimitExceededError`.
+
 ## 0.9.1 - 2026-04-01
 
 ### Deprecations
