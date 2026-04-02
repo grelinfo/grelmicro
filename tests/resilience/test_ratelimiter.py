@@ -238,6 +238,15 @@ def test_invalid_config(limit: int, window: float) -> None:
         RateLimiter("test", limit=limit, window=window)
 
 
+@pytest.mark.parametrize("cost", [0, -1, LIMIT + 1])
+@pytest.mark.usefixtures("_backend")
+async def test_invalid_cost(limiter: RateLimiter, cost: int) -> None:
+    """Test cost outside 1..limit raises ValueError."""
+    # Act & Assert
+    with pytest.raises(ValueError, match="cost must be between"):
+        await limiter.acquire(key="user:1", cost=cost)
+
+
 # --- Error class ---
 
 

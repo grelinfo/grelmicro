@@ -131,6 +131,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         Returns:
             RateLimitResult with allowed, limit, remaining,
             retry_after, and reset_after fields.
+
         """
         # burst=limit so full-window burst is allowed (standard behaviour).
         # rate=limit matches the "limit requests per window" semantics.

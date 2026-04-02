@@ -69,6 +69,7 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         Returns:
             RateLimitResult with allowed, limit, remaining,
             retry_after, and reset_after fields.
+
         """
         now = monotonic()
 

@@ -84,7 +84,13 @@ class RateLimiter:
         Returns:
             RateLimitResult with allowed, limit, remaining,
             retry_after, and reset_after fields.
+
+        Raises:
+            ValueError: If cost is less than 1 or greater than limit.
         """
+        if cost < 1 or cost > self._config.limit:
+            msg = f"cost must be between 1 and {self._config.limit}, got {cost}"
+            raise ValueError(msg)
         backend = get_rate_limiter_backend()
         full_key = f"{self._config.name}:{key}"
         return await backend.acquire(
