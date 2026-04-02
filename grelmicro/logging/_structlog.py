@@ -64,7 +64,7 @@ def _add_caller_info(
     _method_name: str,
     event_dict: EventDict,
 ) -> EventDict:
-    """Add caller info in module:function:line format."""
+    """Add caller information by setting `logger` and `caller` (`function:line`) fields."""
     record = event_dict.get("_record")
     if record:
         event_dict["logger"] = record.name

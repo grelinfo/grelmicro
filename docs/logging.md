@@ -366,18 +366,20 @@ INFO | Custom format example
 
 ## JSON Record Structure
 
-All JSON log records follow this schema. Core fields are always present, extra context fields are merged flat at the top level:
+All JSON log records follow this schema. Required fields are always present, optional fields may be absent. Extra context fields are merged flat at the top level:
 
 ```python
 class JSONRecordDict:
+    # Required
     time: str              # ISO 8601 timestamp with timezone
     level: str             # DEBUG, INFO, WARNING, ERROR, CRITICAL
     msg: str               # Log message
     logger: str            # Logger name (e.g., "myapp.api")
-    caller: str            # Optional: function:line (e.g., "handle:45")
-    trace_id: str          # Optional: OpenTelemetry trace ID (32 hex chars)
-    span_id: str           # Optional: OpenTelemetry span ID (16 hex chars)
-    error: ErrorDict       # Optional: structured error info
+    # Not Required
+    caller: str            # function:line (e.g., "handle:45")
+    trace_id: str          # OpenTelemetry trace ID (32 hex chars)
+    span_id: str           # OpenTelemetry span ID (16 hex chars)
+    error: ErrorDict       # Structured error info
 ```
 
 The `ErrorDict` structure:
