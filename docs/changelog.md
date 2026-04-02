@@ -10,6 +10,10 @@
 
 * 🗑️ Remove deprecated `UvicornJSONFormatter` and `UvicornAccessJSONFormatter`. Use `UvicornFormatter` and `UvicornAccessFormatter` instead (deprecated since 0.9.1).
 
+### CI
+
+* ⚡ Migrate PyPI publishing from API token to OIDC trusted publishing.
+
 ## 0.9.1 - 2026-04-01
 
 ### Deprecations
