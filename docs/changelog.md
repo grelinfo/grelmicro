@@ -1,14 +1,21 @@
 # Changelog
 
+## 0.11.0 - 2026-04-03
+
+### Breaking Changes
+
+* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now opt-in via `LOG_CALLER_ENABLED` (default: `False`), following slog/zap/zerolog/Caddy conventions. Uvicorn formatter never includes `caller`.
+
+### Features
+
+* ✨ Add `LOG_CALLER_ENABLED` setting to opt in to caller info (`function:line`) in log records. Disabled by default for cleaner logs and better performance.
+* ✨ Add `logger` field (logger name, e.g., `myapp.api`) to all log records across all backends and formats.
+
 ## 0.10.0 - 2026-04-02
 
 ### Features
 
 * ✨ Add `RateLimiter` to the `resilience` module: Redis-backed sliding-window rate limiting using the GCRA algorithm. Includes `RateLimitResult` with fields mapping to IETF rate limit headers, weighted requests via `cost` parameter, and `RateLimitExceededError`.
-
-### Breaking Changes
-
-* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now opt-in via `LOG_CALLER_ENABLED` (default: `False`), following slog/zap/zerolog conventions. Uvicorn formatter never includes `caller`.
 
 ### Removals
 
