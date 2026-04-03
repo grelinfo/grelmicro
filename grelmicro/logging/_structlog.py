@@ -59,27 +59,32 @@ def _add_level(
     return event_dict
 
 
-def _add_caller_info(
-    _logger: WrappedLogger,
-    _method_name: str,
-    event_dict: EventDict,
-) -> EventDict:
-    """Add caller information by setting `logger` and `caller` (`function:line`) fields."""
-    record = event_dict.get("_record")
-    if record:
-        event_dict["logger"] = record.name
-        event_dict["caller"] = f"{record.funcName}:{record.lineno}"
-    else:
-        module = event_dict.pop("module", None)
-        func = event_dict.pop("func_name", None)
-        lineno = event_dict.pop("lineno", None)
-        if module and func and lineno:
-            event_dict["logger"] = module
-            event_dict["caller"] = f"{func}:{lineno}"
+def _add_caller_info(*, caller_enabled: bool = False) -> Processor:
+    """Create a processor that adds `logger` and optionally `caller` fields."""
+
+    def processor(
+        _logger: WrappedLogger,
+        _method_name: str,
+        event_dict: EventDict,
+    ) -> EventDict:
+        record = event_dict.get("_record")
+        if record:
+            event_dict["logger"] = record.name
+            if caller_enabled:
+                event_dict["caller"] = f"{record.funcName}:{record.lineno}"
         else:
-            event_dict["logger"] = "unknown"
-            event_dict["caller"] = "unknown"
-    return event_dict
+            module = event_dict.pop("module", None)
+            func = event_dict.pop("func_name", None)
+            lineno = event_dict.pop("lineno", None)
+            if module and func and lineno:
+                event_dict["logger"] = module
+                if caller_enabled:
+                    event_dict["caller"] = f"{func}:{lineno}"
+            else:
+                event_dict["logger"] = "unknown"
+        return event_dict
+
+    return processor
 
 
 def _add_error_info(
@@ -140,7 +145,8 @@ def _build_flat_record(
     flat_record["level"] = event_dict["level"]
     flat_record["msg"] = event_dict.get("event", "")
     flat_record["logger"] = event_dict["logger"]
-    flat_record["caller"] = event_dict["caller"]
+    if "caller" in event_dict:
+        flat_record["caller"] = event_dict["caller"]
 
     return flat_record
 
@@ -192,6 +198,7 @@ def configure_logging() -> None:
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
         LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY). Default: AUTO
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
+        LOG_CALLER_ENABLED: Include caller (function:line) in log records. Default: False
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
             Default: True if OpenTelemetry is installed, else False.
 
@@ -200,20 +207,26 @@ def configure_logging() -> None:
         LoggingSettingsValidationError: If environment variables are invalid.
     """
     settings, timezone, resolved_format, _, colors = load_settings()
+    caller = settings.LOG_CALLER_ENABLED
+
+    callsite_params = [structlog.processors.CallsiteParameter.MODULE]
+    if caller:
+        callsite_params.extend(
+            [
+                structlog.processors.CallsiteParameter.FUNC_NAME,
+                structlog.processors.CallsiteParameter.LINENO,
+            ]
+        )
 
     processors: list[Processor] = [
         structlog.processors.CallsiteParameterAdder(
-            [
-                structlog.processors.CallsiteParameter.MODULE,
-                structlog.processors.CallsiteParameter.FUNC_NAME,
-                structlog.processors.CallsiteParameter.LINENO,
-            ],
+            callsite_params,
             additional_ignores=["grelmicro.logging"],
         ),
         structlog.contextvars.merge_contextvars,
         _add_timestamp(timezone),
         _add_level,
-        _add_caller_info,
+        _add_caller_info(caller_enabled=caller),
         _add_error_info,
     ]
 

@@ -1,4 +1,4 @@
-{"time":"2024-11-25T15:56:36.066922+01:00","level":"INFO","msg":"This is an info message","logger":"__main__","caller":"<module>:7"}
-{"time":"2024-11-25T15:56:36.067063+01:00","level":"WARNING","msg":"This is a warning message with context","logger":"__main__","caller":"<module>:8","user":"Alice"}
-{"time":"2024-11-25T15:56:36.067105+01:00","level":"ERROR","msg":"This is an error message with context","logger":"__main__","caller":"<module>:9","user":"Bob"}
-{"time":"2024-11-25T15:56:36.067134+01:00","level":"ERROR","msg":"This is an exception message with context","logger":"__main__","caller":"<module>:14","user":"Charlie","error":{"type":"ValueError","message":"This is an exception"}}
+{"time":"2024-11-25T15:56:36.066922+01:00","level":"INFO","msg":"This is an info message","logger":"__main__"}
+{"time":"2024-11-25T15:56:36.067063+01:00","level":"WARNING","msg":"This is a warning message with context","logger":"__main__","user":"Alice"}
+{"time":"2024-11-25T15:56:36.067105+01:00","level":"ERROR","msg":"This is an error message with context","logger":"__main__","user":"Bob"}
+{"time":"2024-11-25T15:56:36.067134+01:00","level":"ERROR","msg":"This is an exception message with context","logger":"__main__","user":"Charlie","error":{"type":"ValueError","message":"This is an exception"}}

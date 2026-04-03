@@ -50,6 +50,7 @@ def _build_record(
     record: logging.LogRecord,
     timezone: tzinfo,
     *,
+    caller_enabled: bool,
     otel_enabled: bool,
     ignored_attrs: frozenset[str],
 ) -> dict[str, Any]:
@@ -72,7 +73,8 @@ def _build_record(
     log_record["level"] = record.levelname
     log_record["msg"] = record.getMessage()
     log_record["logger"] = record.name
-    log_record["caller"] = f"{record.funcName}:{record.lineno}"
+    if caller_enabled:
+        log_record["caller"] = f"{record.funcName}:{record.lineno}"
 
     if otel_enabled:
         trace_context = get_otel_trace_context()
@@ -100,15 +102,19 @@ class _BaseFormatter(logging.Formatter):
 
     _ignored_record_attrs: frozenset[str] = _STANDARD_LOG_RECORD_ATTRS
 
-    def __init__(self, timezone: tzinfo, *, otel_enabled: bool) -> None:
+    def __init__(
+        self, timezone: tzinfo, *, caller_enabled: bool, otel_enabled: bool
+    ) -> None:
         super().__init__()
         self.timezone = timezone
+        self.caller_enabled = caller_enabled
         self.otel_enabled = otel_enabled
 
     def _record(self, record: logging.LogRecord) -> dict[str, Any]:
         return _build_record(
             record,
             self.timezone,
+            caller_enabled=self.caller_enabled,
             otel_enabled=self.otel_enabled,
             ignored_attrs=self._ignored_record_attrs,
         )
@@ -122,9 +128,14 @@ class _JSONFormatter(_BaseFormatter):
         timezone: tzinfo,
         json_dumps: Callable[[Mapping[str, Any]], str],
         *,
+        caller_enabled: bool,
         otel_enabled: bool,
     ) -> None:
-        super().__init__(timezone=timezone, otel_enabled=otel_enabled)
+        super().__init__(
+            timezone=timezone,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
+        )
         self.json_dumps = json_dumps
 
     def format(self, record: logging.LogRecord) -> str:
@@ -144,9 +155,18 @@ class _TextFormatter(_BaseFormatter):
     """Text formatter for human-readable single-line output with optional colors."""
 
     def __init__(
-        self, timezone: tzinfo, *, otel_enabled: bool, colors: bool
+        self,
+        timezone: tzinfo,
+        *,
+        caller_enabled: bool,
+        otel_enabled: bool,
+        colors: bool,
     ) -> None:
-        super().__init__(timezone=timezone, otel_enabled=otel_enabled)
+        super().__init__(
+            timezone=timezone,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
+        )
         self.colors = colors
 
     def format(self, record: logging.LogRecord) -> str:
@@ -158,9 +178,18 @@ class _PrettyFormatter(_BaseFormatter):
     """Pretty multi-line formatter for verbose debugging."""
 
     def __init__(
-        self, timezone: tzinfo, *, otel_enabled: bool, colors: bool
+        self,
+        timezone: tzinfo,
+        *,
+        caller_enabled: bool,
+        otel_enabled: bool,
+        colors: bool,
     ) -> None:
-        super().__init__(timezone=timezone, otel_enabled=otel_enabled)
+        super().__init__(
+            timezone=timezone,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
+        )
         self.colors = colors
 
     def format(self, record: logging.LogRecord) -> str:
@@ -177,6 +206,7 @@ def configure_logging() -> None:
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
         LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY). Default: AUTO
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
+        LOG_CALLER_ENABLED: Include caller (function:line) in log records. Default: False
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
             Default: True if OpenTelemetry is installed, else False.
 
@@ -185,6 +215,7 @@ def configure_logging() -> None:
         LoggingSettingsValidationError: If environment variables are invalid.
     """
     settings, timezone, resolved_format, json_dumps, colors = load_settings()
+    caller = settings.LOG_CALLER_ENABLED
     otel = settings.LOG_OTEL_ENABLED
 
     formatter: logging.Formatter
@@ -192,17 +223,26 @@ def configure_logging() -> None:
         formatter = _JSONFormatter(
             timezone=timezone,
             json_dumps=json_dumps,
+            caller_enabled=caller,
             otel_enabled=otel,
         )
     elif resolved_format == LoggingFormatType.LOGFMT:
-        formatter = _LogfmtFormatter(timezone=timezone, otel_enabled=otel)
+        formatter = _LogfmtFormatter(
+            timezone=timezone, caller_enabled=caller, otel_enabled=otel
+        )
     elif resolved_format == LoggingFormatType.PRETTY:
         formatter = _PrettyFormatter(
-            timezone=timezone, otel_enabled=otel, colors=colors
+            timezone=timezone,
+            caller_enabled=caller,
+            otel_enabled=otel,
+            colors=colors,
         )
     else:
         formatter = _TextFormatter(
-            timezone=timezone, otel_enabled=otel, colors=colors
+            timezone=timezone,
+            caller_enabled=caller,
+            otel_enabled=otel,
+            colors=colors,
         )
 
     handler = logging.StreamHandler(sys.stdout)

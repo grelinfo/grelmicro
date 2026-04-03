@@ -15,15 +15,15 @@ logger = logging.getLogger(__name__)
 @instrument
 async def process_order(order_id: str, user_id: str):
     logger.info("started")
-    # {"time":...,"level":"INFO","msg":"started","logger":...,"caller":...,"order_id":"ORD-1","user_id":"USR-1"}
+    # {"time":...,"level":"INFO","msg":"started","logger":...,"order_id":"ORD-1","user_id":"USR-1"}
 
     add_context(payment_status="pending")
     logger.info("payment initiated")
-    # {"time":...,"level":"INFO","msg":"payment initiated","logger":...,"caller":...,"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending"}
+    # {"time":...,"level":"INFO","msg":"payment initiated","logger":...,"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending"}
 
     with span("db_query", table="orders"):
         logger.info("querying")
-        # {"time":...,"level":"INFO","msg":"querying","logger":...,"caller":...,"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending","table":"orders"}
+        # {"time":...,"level":"INFO","msg":"querying","logger":...,"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending","table":"orders"}
 
     logger.info("done")
     # table removed (span exited), payment_status still present

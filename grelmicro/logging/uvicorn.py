@@ -43,7 +43,9 @@ class UvicornFormatter(_UvicornBaseFormatter):
             load_settings()
         )
         super().__init__(
-            timezone=timezone, otel_enabled=settings.LOG_OTEL_ENABLED
+            timezone=timezone,
+            caller_enabled=False,
+            otel_enabled=settings.LOG_OTEL_ENABLED,
         )
 
         match resolved_format:
@@ -63,14 +65,12 @@ class UvicornFormatter(_UvicornBaseFormatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record.
 
-        Strips the ``caller`` field because uvicorn's caller info points
-        to uvicorn internals, which is not useful. The ``logger`` field
-        (e.g., ``uvicorn.error``, ``uvicorn.access``) already identifies
-        the source.
+        ``caller`` is always disabled (``caller_enabled=False``) because
+        uvicorn's caller info points to uvicorn internals, which is not
+        useful. The ``logger`` field (e.g., ``uvicorn.error``,
+        ``uvicorn.access``) already identifies the source.
         """
-        log_record = self._record(record)
-        log_record.pop("caller", None)
-        return self._format_record(log_record)
+        return self._format_record(self._record(record))
 
 
 class UvicornAccessFormatter(UvicornFormatter):

@@ -108,12 +108,12 @@ Detects the output target and selects the best format automatically:
 
 In your terminal:
 ```
-2026-04-01 10:30:00.123 INFO     __main__:<module>:12 - Application started version=1.0.0
+2026-04-01 10:30:00.123 INFO     __main__ - Application started version=1.0.0
 ```
 
 In a container or CI:
 ```json
-{"time":"2026-04-01T08:30:00.123456+00:00","level":"INFO","msg":"Application started","logger":"__main__","caller":"<module>:12","version":"1.0.0"}
+{"time":"2026-04-01T08:30:00.123456+00:00","level":"INFO","msg":"Application started","logger":"__main__","version":"1.0.0"}
 ```
 
 !!! tip "Zero Config"
@@ -133,7 +133,7 @@ LOG_FORMAT=JSON
 
 Output:
 ```json
-{"time":"2026-04-01T10:30:00.123456+02:00","level":"INFO","msg":"Application started","logger":"__main__","caller":"<module>:12","version":"1.0.0","environment":"production"}
+{"time":"2026-04-01T10:30:00.123456+02:00","level":"INFO","msg":"Application started","logger":"__main__","version":"1.0.0","environment":"production"}
 ```
 
 ### LOGFMT
@@ -150,7 +150,7 @@ LOG_FORMAT=LOGFMT
 
 Output:
 ```
-time=2026-04-01T10:30:00.123456+00:00 level=INFO msg="Request handled" logger=__main__ caller=<module>:10 method=GET path=/health status=200
+time=2026-04-01T10:30:00.123456+00:00 level=INFO msg="Request handled" logger=__main__ method=GET path=/health status=200
 ```
 
 Nested dicts use dot notation:
@@ -220,6 +220,7 @@ All configuration is done via environment variables:
 | `LOG_FORMAT` | `AUTO`, `JSON`, `LOGFMT`, `TEXT`, `PRETTY` | `AUTO` |
 | `LOG_TIMEZONE` | IANA timezone (e.g., `UTC`, `Europe/Zurich`) | `UTC` |
 | `LOG_JSON_SERIALIZER` | `stdlib`, `orjson` | `stdlib` |
+| `LOG_CALLER_ENABLED` | `true`, `false` | `false` |
 | `LOG_OTEL_ENABLED` | `true`, `false` | auto-detected |
 | `NO_COLOR` | any value | (unset) |
 | `FORCE_COLOR` | any value | (unset) |
@@ -257,7 +258,7 @@ Extra context fields are passed as keyword arguments and appear as flat top-leve
 
 Output:
 ```json
-{"time":"...","level":"INFO","msg":"User logged in","logger":"...","caller":"...","user_id":123,"ip_address":"192.168.1.1"}
+{"time":"...","level":"INFO","msg":"User logged in","logger":"...","user_id":123,"ip_address":"192.168.1.1"}
 ```
 
 ## Exception Handling
@@ -270,12 +271,12 @@ Exceptions are automatically captured as structured `ErrorDict`:
 
 JSON output:
 ```json
-{"time":"...","level":"ERROR","msg":"Operation failed","logger":"...","caller":"...","operation":"divide","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
+{"time":"...","level":"ERROR","msg":"Operation failed","logger":"...","operation":"divide","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
 ```
 
 LOGFMT output:
 ```
-time=... level=ERROR msg="Operation failed" logger=... caller=... error.type=ZeroDivisionError error.message="division by zero" error.stack="Traceback..."
+time=... level=ERROR msg="Operation failed" logger=... error.type=ZeroDivisionError error.message="division by zero" error.stack="Traceback..."
 ```
 
 PRETTY output:
@@ -306,7 +307,6 @@ Output:
   "level": "INFO",
   "msg": "Processing request",
   "logger": "myapp.service",
-  "caller": "process_request:42",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "span_id": "00f067aa0ba902b7",
   "user_id": 123
@@ -375,8 +375,9 @@ class JSONRecordDict:
     level: str             # DEBUG, INFO, WARNING, ERROR, CRITICAL
     msg: str               # Log message
     logger: str            # Logger name (e.g., "myapp.api")
-    # Not Required
+    # Optional (opt-in via LOG_CALLER_ENABLED=true)
     caller: str            # function:line (e.g., "handle:45")
+    # Optional
     trace_id: str          # OpenTelemetry trace ID (32 hex chars)
     span_id: str           # OpenTelemetry span ID (16 hex chars)
     error: ErrorDict       # Structured error info
@@ -396,6 +397,8 @@ class ErrorDict:
 **Level casing**: UPPERCASE (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`), following Go slog, Java Log4j2, Rust tracing conventions.
 
 **Field naming**: Core field names (`time`, `level`, `msg`, `logger`, `caller`, `error`) follow slog/zap/Caddy conventions. `logger` is the logger name; `caller` is the call site (`function:line`).
+
+**Caller opt-in**: `caller` is disabled by default, following slog/zap/zerolog/Caddy conventions where caller info is opt-in. Enable with `LOG_CALLER_ENABLED=true`. Uvicorn formatters never include `caller` (points to uvicorn internals, not application code).
 
 **Collision protection**: Core fields cannot be overwritten by user-supplied extra context.
 

@@ -105,6 +105,7 @@ class TestConfigureLoggingJSON:
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.delenv("LOG_LEVEL", raising=False)
         monkeypatch.delenv("LOG_FORMAT", raising=False)
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
 
         # Act
@@ -622,26 +623,45 @@ class TestStructlogCallerInfo:
         record.name = "mymodule"
         record.funcName = "myfunc"
         record.lineno = 42
-        event_dict = {"_record": record, "event": "test"}
+        event_dict: dict[str, object] = {"_record": record, "event": "test"}
+        processor = _add_caller_info(caller_enabled=True)
 
         # Act
-        result = _add_caller_info(None, "info", event_dict)
+        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         # Assert
         assert result["logger"] == "mymodule"
         assert result["caller"] == "myfunc:42"
 
+    def test_with_caller_disabled(self) -> None:
+        """Test _add_caller_info sets logger but omits caller when disabled."""
+        # Arrange
+        record = MagicMock()
+        record.name = "mymodule"
+        record.funcName = "myfunc"
+        record.lineno = 42
+        event_dict: dict[str, object] = {"_record": record, "event": "test"}
+        processor = _add_caller_info(caller_enabled=False)
+
+        # Act
+        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+        # Assert
+        assert result["logger"] == "mymodule"
+        assert "caller" not in result
+
     def test_without_callsite_info(self) -> None:
         """Test _add_caller_info when no callsite info is available."""
         # Arrange
         event_dict: dict[str, object] = {"event": "test"}
+        processor = _add_caller_info(caller_enabled=True)
 
         # Act
-        result = _add_caller_info(None, "info", event_dict)
+        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         # Assert
         assert result["logger"] == "unknown"
-        assert result["caller"] == "unknown"
+        assert "caller" not in result
 
 
 _TEST_ERROR_MSG = "test error"
@@ -707,6 +727,7 @@ class TestCoreFieldCollisionProtection:
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
 
         configure_logging()
@@ -755,7 +776,7 @@ class TestConfigureLoggingLogfmt:
         assert 'msg="Logfmt test"' in output
         assert f"user_id={_USER_ID}" in output
         assert "time=" in output
-        assert "caller=" in output
+        assert "logger=" in output
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_logfmt_format_no_extras(
@@ -780,7 +801,7 @@ class TestConfigureLoggingLogfmt:
         assert "level=INFO" in output
         assert 'msg="No extras"' in output
         assert "time=" in output
-        assert "caller=" in output
+        assert "logger=" in output
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_logfmt_format_with_special_chars(
@@ -1006,6 +1027,18 @@ class TestLogfmtSerializer:
         extra_pos = result.index("extra_field=")
         assert time_pos < extra_pos
 
+    def test_missing_caller_omitted(self) -> None:
+        """Test logfmt output is valid when caller is absent."""
+        record = {
+            "time": "t",
+            "level": "INFO",
+            "msg": "m",
+            "logger": "uvicorn.error",
+        }
+        result = logfmt_dumps(record)
+        assert "caller" not in result
+        assert "logger=uvicorn.error" in result
+
     def test_none_core_field_omitted(self) -> None:
         """Test logfmt omits None-valued core fields."""
         record = {
@@ -1124,6 +1157,18 @@ class TestRenderTextLine:
         result = render_text_line(record, colors=False)
         assert "user_id=123" in result
 
+    def test_missing_caller_shows_logger_only(self) -> None:
+        """Test text line uses logger as source when caller is absent."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "logger": "uvicorn.error",
+        }
+        result = render_text_line(record, colors=False)
+        assert "uvicorn.error" in result
+        assert "uvicorn.error:" not in result
+
     def test_with_colors(self) -> None:
         """Test text line includes ANSI codes when colors enabled."""
         record = {
@@ -1154,6 +1199,19 @@ class TestRenderPrettyLines:
         assert "INFO" in lines[0]
         assert "hello" in lines[0]
         assert "at mod:fn:1" in lines[1]
+
+    def test_missing_caller_shows_logger_only(self) -> None:
+        """Test pretty rendering uses logger as source when caller is absent."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "logger": "uvicorn.error",
+        }
+        result = render_pretty_lines(record, colors=False)
+        lines = result.splitlines()
+        assert "at uvicorn.error" in lines[1]
+        assert "at uvicorn.error:" not in lines[1]
 
     def test_with_extras(self) -> None:
         """Test pretty rendering includes extras on separate lines."""
@@ -1343,6 +1401,7 @@ class TestAllFormatsCaller:
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", fmt)
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
@@ -1407,6 +1466,7 @@ class TestPrettyFormatStructure:
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "pretty")
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
@@ -1502,6 +1562,7 @@ class TestTextFormatStructure:
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "text")
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 

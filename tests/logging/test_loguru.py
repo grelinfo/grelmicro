@@ -4,14 +4,21 @@ These tests verify loguru-specific internal implementation details
 that are not shared with other backends.
 """
 
-from collections.abc import Generator
+from __future__ import annotations
+
 from datetime import datetime
 from io import StringIO
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import pytest
-import pytest_mock
 from loguru import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    import pytest_mock
+    from loguru import Record
 
 from grelmicro.logging._loguru import (
     JSON_FORMAT,
@@ -115,7 +122,7 @@ class TestJsonFormatter:
         """Test JSON Formatter produces valid output."""
         # Arrange
         sink = StringIO()
-        patcher = _LoguruPatcher(enable_json=True)
+        patcher = _LoguruPatcher(enable_json=True, enable_caller=True)
 
         # Act
         logger.configure(patcher=patcher)
@@ -130,7 +137,9 @@ class TestJsonFormatter:
         # Arrange
         sink = StringIO()
         timezone = ZoneInfo("Europe/Paris")
-        patcher = _LoguruPatcher(timezone=timezone, enable_json=True)
+        patcher = _LoguruPatcher(
+            timezone=timezone, enable_json=True, enable_caller=True
+        )
 
         # Act
         logger.configure(patcher=patcher)
@@ -149,8 +158,11 @@ class TestJsonPatcher:
         # Arrange
         sink = StringIO()
 
+        def patcher(record: Record) -> None:
+            _json_patcher(record, caller_enabled=True)
+
         # Act
-        logger.configure(patcher=_json_patcher)
+        logger.configure(patcher=patcher)
         logger.add(sink, format=lambda _: JSON_FORMAT + "\n", level="INFO")
         generate_logs()
 
@@ -254,6 +266,7 @@ class TestLoguruSpecificFeatures:
         """Test TEXT format includes traceback for exceptions."""
         # Arrange
         monkeypatch.setenv("LOG_FORMAT", "text")
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
 
         # Act
         configure_logging()

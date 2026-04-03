@@ -75,6 +75,7 @@ class LoggingSettings(BaseSettings):
         LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY, or custom template). Default: AUTO
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
         LOG_JSON_SERIALIZER: JSON serializer (stdlib, orjson). Default: stdlib
+        LOG_CALLER_ENABLED: Include caller (function:line) in log records. Default: False
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
             Default: True if OpenTelemetry is installed, else False.
     """
@@ -86,4 +87,5 @@ class LoggingSettings(BaseSettings):
     )
     LOG_TIMEZONE: LoggingTimeZoneType = LoggingTimeZoneType("UTC")
     LOG_JSON_SERIALIZER: LoggingSerializerType = LoggingSerializerType.STDLIB
+    LOG_CALLER_ENABLED: bool = False
     LOG_OTEL_ENABLED: bool = opentelemetry is not None

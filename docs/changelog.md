@@ -8,7 +8,7 @@
 
 ### Breaking Changes
 
-* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now optional (stripped from uvicorn output).
+* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now opt-in via `LOG_CALLER_ENABLED` (default: `False`), following slog/zap/zerolog conventions. Uvicorn formatter never includes `caller`.
 
 ### Removals
 
