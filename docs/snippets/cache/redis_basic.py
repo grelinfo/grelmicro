@@ -1,14 +1,13 @@
-import json
-
 from grelmicro.cache import TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.json import json_dumps_bytes, json_loads_bytes
 
 backend = RedisCacheBackend(prefix="myapp:")  # app-level isolation
 
 cache = TTLCache(
     ttl=300,
-    serializer=lambda v: json.dumps(v).encode(),
-    deserializer=json.loads,
+    serializer=json_dumps_bytes,
+    deserializer=json_loads_bytes,
 )
 
 

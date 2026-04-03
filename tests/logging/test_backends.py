@@ -14,10 +14,10 @@ import pytest_mock
 import structlog
 from loguru import logger as loguru_logger
 
+from grelmicro._json import json_default
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.logging import configure_logging
 from grelmicro.logging._shared import (
-    _json_default,
     _logfmt_format_value,
     get_otel_trace_context,
     load_settings,
@@ -546,7 +546,7 @@ class TestLoadSettings:
 
 
 class TestJsonDefault:
-    """Test _json_default handler for stdlib json."""
+    """Test json_default handler for stdlib json."""
 
     def test_serializes_datetime(self) -> None:
         """Test datetime is serialized to ISO 8601."""
@@ -554,13 +554,13 @@ class TestJsonDefault:
         dt = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
         # Act / Assert
-        assert _json_default(dt) == "2024-06-01T12:00:00+00:00"
+        assert json_default(dt) == "2024-06-01T12:00:00+00:00"
 
     def test_unsupported_type_raises(self) -> None:
         """Test non-datetime types raise TypeError."""
         # Act / Assert
         with pytest.raises(TypeError, match="not JSON serializable"):
-            _json_default(object())
+            json_default(object())
 
 
 class TestGetOtelTraceContext:
