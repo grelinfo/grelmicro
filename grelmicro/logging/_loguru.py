@@ -42,6 +42,8 @@ LOGFMT_FORMAT = "{extra[logfmt_serialized]}"
 def _build_loguru_record(
     record: "Record",
     timezone: tzinfo,
+    *,
+    caller_enabled: bool = False,
 ) -> dict[str, Any]:
     """Build a structured record dict from a loguru Record."""
     # Context fields < log extras < core fields (last wins)
@@ -61,9 +63,9 @@ def _build_loguru_record(
     ).astimezone(timezone)
     log_record["level"] = record["level"].name
     log_record["msg"] = record["message"]
-    log_record["caller"] = (
-        f"{record['name']}:{record['function']}:{record['line']}"
-    )
+    log_record["logger"] = record["name"]
+    if caller_enabled:
+        log_record["caller"] = f"{record['function']}:{record['line']}"
 
     # trace_id/span_id already merged via dict.update from record["extra"]
     exception = record["exception"]
@@ -99,6 +101,7 @@ class _LoguruPatcher:
         enable_localtime: bool = False,
         enable_json: bool = False,
         enable_logfmt: bool = False,
+        enable_caller: bool = False,
         enable_otel: bool = False,
         json_dumps: Callable[[Mapping[str, Any]], str] | None = None,
     ) -> None:
@@ -106,6 +109,7 @@ class _LoguruPatcher:
         self.enable_localtime = enable_localtime
         self.enable_json = enable_json
         self.enable_logfmt = enable_logfmt
+        self.enable_caller = enable_caller
         self.enable_otel = enable_otel
         self.json_dumps = json_dumps
 
@@ -116,22 +120,30 @@ class _LoguruPatcher:
             _localtime_patcher(record, timezone=self.timezone)
         if self.enable_json:
             _json_patcher(
-                record, timezone=self.timezone, json_dumps=self.json_dumps
+                record,
+                timezone=self.timezone,
+                caller_enabled=self.enable_caller,
+                json_dumps=self.json_dumps,
             )
         if self.enable_logfmt:
-            _logfmt_patcher(record, timezone=self.timezone)
+            _logfmt_patcher(
+                record,
+                timezone=self.timezone,
+                caller_enabled=self.enable_caller,
+            )
 
 
 def _json_patcher(
     record: "Record",
     *,
     timezone: tzinfo | None = None,
+    caller_enabled: bool = False,
     json_dumps: Callable[[Mapping[str, Any]], str] | None = None,
 ) -> None:
     """Patch the record with JSON serialization."""
     serializer = json_dumps or _stdlib_json_dumps
     tz = timezone or UTC
-    log_record = _build_loguru_record(record, tz)
+    log_record = _build_loguru_record(record, tz, caller_enabled=caller_enabled)
     record["extra"]["serialized"] = serializer(log_record)
 
 
@@ -139,10 +151,11 @@ def _logfmt_patcher(
     record: "Record",
     *,
     timezone: tzinfo | None = None,
+    caller_enabled: bool = False,
 ) -> None:
     """Patch the record with logfmt serialization."""
     tz = timezone or UTC
-    log_record = _build_loguru_record(record, tz)
+    log_record = _build_loguru_record(record, tz, caller_enabled=caller_enabled)
     record["extra"]["logfmt_serialized"] = logfmt_dumps(log_record)
 
 
@@ -185,12 +198,15 @@ def _escape_loguru_tags(text: str) -> str:
 def _make_text_formatter(
     timezone: tzinfo,
     *,
+    caller_enabled: bool,
     colors: bool,
 ) -> "FormatFunction":
     """Create a text format function with captured settings."""
 
     def _formatter(record: "Record") -> str:
-        log_record = _build_loguru_record(record, timezone)
+        log_record = _build_loguru_record(
+            record, timezone, caller_enabled=caller_enabled
+        )
         return (
             _escape_loguru_tags(render_text_line(log_record, colors=colors))
             + "\n"
@@ -202,12 +218,15 @@ def _make_text_formatter(
 def _make_pretty_formatter(
     timezone: tzinfo,
     *,
+    caller_enabled: bool,
     colors: bool,
 ) -> "FormatFunction":
     """Create a pretty format function with captured settings."""
 
     def _formatter(record: "Record") -> str:
-        log_record = _build_loguru_record(record, timezone)
+        log_record = _build_loguru_record(
+            record, timezone, caller_enabled=caller_enabled
+        )
         return (
             _escape_loguru_tags(render_pretty_lines(log_record, colors=colors))
             + "\n"
@@ -225,6 +244,7 @@ def configure_logging() -> None:
         LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
         LOG_FORMAT: Log format (AUTO, JSON, LOGFMT, TEXT, PRETTY). Default: AUTO
         LOG_TIMEZONE: IANA timezone for timestamps (e.g., "UTC", "Europe/Zurich"). Default: UTC
+        LOG_CALLER_ENABLED: Include caller (function:line) in log records. Default: False
         LOG_OTEL_ENABLED: Enable OpenTelemetry trace context extraction.
             Default: True if OpenTelemetry is installed, else False.
 
@@ -233,6 +253,7 @@ def configure_logging() -> None:
         LoggingSettingsValidationError: If environment variables are invalid.
     """
     settings, timezone, resolved_format, json_dumps, colors = load_settings()
+    caller = settings.LOG_CALLER_ENABLED
 
     logger = loguru.logger
     log_format: str | FormatFunction = resolved_format
@@ -249,9 +270,13 @@ def configure_logging() -> None:
         log_format = _logfmt_formatter
         needs_logfmt = True
     elif log_format == LoggingFormatType.PRETTY:
-        log_format = _make_pretty_formatter(timezone, colors=colors)
+        log_format = _make_pretty_formatter(
+            timezone, caller_enabled=caller, colors=colors
+        )
     elif log_format == LoggingFormatType.TEXT:
-        log_format = _make_text_formatter(timezone, colors=colors)
+        log_format = _make_text_formatter(
+            timezone, caller_enabled=caller, colors=colors
+        )
     elif isinstance(log_format, str):
         needs_json = "extra[serialized]" in log_format
         needs_logfmt = "extra[logfmt_serialized]" in log_format
@@ -268,6 +293,7 @@ def configure_logging() -> None:
             enable_localtime=needs_localtime,
             enable_json=needs_json,
             enable_logfmt=needs_logfmt,
+            enable_caller=caller,
             enable_otel=settings.LOG_OTEL_ENABLED,
             json_dumps=json_dumps,
         )

@@ -105,6 +105,7 @@ class TestConfigureLoggingJSON:
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.delenv("LOG_LEVEL", raising=False)
         monkeypatch.delenv("LOG_FORMAT", raising=False)
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
 
         # Act
@@ -117,6 +118,7 @@ class TestConfigureLoggingJSON:
         # Core fields
         assert "time" in log_record
         assert "level" in log_record
+        assert "logger" in log_record
         assert "caller" in log_record
         assert "msg" in log_record
 
@@ -129,7 +131,6 @@ class TestConfigureLoggingJSON:
 
         # Removed fields
         assert "thread" not in log_record
-        assert "logger" not in log_record
         assert "ctx" not in log_record
 
         # Time should be valid ISO 8601
@@ -622,24 +623,45 @@ class TestStructlogCallerInfo:
         record.name = "mymodule"
         record.funcName = "myfunc"
         record.lineno = 42
-        event_dict = {"_record": record, "event": "test"}
+        event_dict: dict[str, object] = {"_record": record, "event": "test"}
+        processor = _add_caller_info(caller_enabled=True)
 
         # Act
-        result = _add_caller_info(None, "info", event_dict)
+        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         # Assert
-        assert result["caller"] == "mymodule:myfunc:42"
+        assert result["logger"] == "mymodule"
+        assert result["caller"] == "myfunc:42"
+
+    def test_with_caller_disabled(self) -> None:
+        """Test _add_caller_info sets logger but omits caller when disabled."""
+        # Arrange
+        record = MagicMock()
+        record.name = "mymodule"
+        record.funcName = "myfunc"
+        record.lineno = 42
+        event_dict: dict[str, object] = {"_record": record, "event": "test"}
+        processor = _add_caller_info(caller_enabled=False)
+
+        # Act
+        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+        # Assert
+        assert result["logger"] == "mymodule"
+        assert "caller" not in result
 
     def test_without_callsite_info(self) -> None:
         """Test _add_caller_info when no callsite info is available."""
         # Arrange
         event_dict: dict[str, object] = {"event": "test"}
+        processor = _add_caller_info(caller_enabled=True)
 
         # Act
-        result = _add_caller_info(None, "info", event_dict)
+        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         # Assert
-        assert result["caller"] == "unknown"
+        assert result["logger"] == "unknown"
+        assert "caller" not in result
 
 
 _TEST_ERROR_MSG = "test error"
@@ -705,6 +727,7 @@ class TestCoreFieldCollisionProtection:
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
 
         configure_logging()
@@ -753,7 +776,7 @@ class TestConfigureLoggingLogfmt:
         assert 'msg="Logfmt test"' in output
         assert f"user_id={_USER_ID}" in output
         assert "time=" in output
-        assert "caller=" in output
+        assert "logger=" in output
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_logfmt_format_no_extras(
@@ -778,7 +801,7 @@ class TestConfigureLoggingLogfmt:
         assert "level=INFO" in output
         assert 'msg="No extras"' in output
         assert "time=" in output
-        assert "caller=" in output
+        assert "logger=" in output
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_logfmt_format_with_special_chars(
@@ -923,13 +946,15 @@ class TestLogfmtSerializer:
             "time": "2026-04-01T10:00:00+00:00",
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
         }
         result = logfmt_dumps(record)
         assert "time=2026-04-01T10:00:00+00:00" in result
         assert "level=INFO" in result
         assert "msg=hello" in result
-        assert "caller=mod:fn:1" in result
+        assert "logger=mod" in result
+        assert "caller=fn:1" in result
 
     def test_value_with_spaces_is_quoted(self) -> None:
         """Test logfmt quotes values containing spaces."""
@@ -937,6 +962,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "hello world",
+            "logger": "l",
             "caller": "c",
         }
         result = logfmt_dumps(record)
@@ -948,6 +974,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "ERROR",
             "msg": "fail",
+            "logger": "l",
             "caller": "c",
             "error": {"type": "ValueError", "message": "bad input"},
         }
@@ -961,6 +988,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "hi",
+            "logger": "l",
             "caller": "c",
             "extra": None,
         }
@@ -991,6 +1019,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
         }
         result = logfmt_dumps(record)
@@ -998,12 +1027,25 @@ class TestLogfmtSerializer:
         extra_pos = result.index("extra_field=")
         assert time_pos < extra_pos
 
+    def test_missing_caller_omitted(self) -> None:
+        """Test logfmt output is valid when caller is absent."""
+        record = {
+            "time": "t",
+            "level": "INFO",
+            "msg": "m",
+            "logger": "uvicorn.error",
+        }
+        result = logfmt_dumps(record)
+        assert "caller" not in result
+        assert "logger=uvicorn.error" in result
+
     def test_none_core_field_omitted(self) -> None:
         """Test logfmt omits None-valued core fields."""
         record = {
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
             "trace_id": None,
         }
@@ -1016,6 +1058,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
             "meta": {"region": "eu", "env": "prod"},
         }
@@ -1029,6 +1072,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
             "http": {"request": {"method": "GET", "path": "/api"}},
         }
@@ -1042,6 +1086,7 @@ class TestLogfmtSerializer:
             "time": "t",
             "level": "INFO",
             "msg": "m",
+            "logger": "l",
             "caller": "c",
             "error": {"type": "ValueError", "stack": None},
         }
@@ -1090,7 +1135,8 @@ class TestRenderTextLine:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
         }
         result = render_text_line(record, colors=False)
         assert "2026-04-01 10:30:00.000" in result
@@ -1104,11 +1150,24 @@ class TestRenderTextLine:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "user_id": 123,
         }
         result = render_text_line(record, colors=False)
         assert "user_id=123" in result
+
+    def test_missing_caller_shows_logger_only(self) -> None:
+        """Test text line uses logger as source when caller is absent."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "logger": "uvicorn.error",
+        }
+        result = render_text_line(record, colors=False)
+        assert "uvicorn.error" in result
+        assert "uvicorn.error:" not in result
 
     def test_with_colors(self) -> None:
         """Test text line includes ANSI codes when colors enabled."""
@@ -1116,7 +1175,8 @@ class TestRenderTextLine:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
         }
         result = render_text_line(record, colors=True)
         assert "\033[" in result  # ANSI escape codes present
@@ -1131,7 +1191,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
         }
         result = render_pretty_lines(record, colors=False)
         lines = result.splitlines()
@@ -1139,13 +1200,27 @@ class TestRenderPrettyLines:
         assert "hello" in lines[0]
         assert "at mod:fn:1" in lines[1]
 
+    def test_missing_caller_shows_logger_only(self) -> None:
+        """Test pretty rendering uses logger as source when caller is absent."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "logger": "uvicorn.error",
+        }
+        result = render_pretty_lines(record, colors=False)
+        lines = result.splitlines()
+        assert "at uvicorn.error" in lines[1]
+        assert "at uvicorn.error:" not in lines[1]
+
     def test_with_extras(self) -> None:
         """Test pretty rendering includes extras on separate lines."""
         record = {
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "user_id": 123,
         }
         result = render_pretty_lines(record, colors=False)
@@ -1157,7 +1232,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "ERROR",
             "msg": "fail",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "error": {
                 "type": "ValueError",
                 "message": "bad",
@@ -1177,7 +1253,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "user_id": 42,
         }
         result = render_pretty_lines(record, colors=True)
@@ -1190,7 +1267,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "INFO",
             "msg": "hello",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "trace_id": "abc123",
             "span_id": "def456",
         }
@@ -1204,7 +1282,8 @@ class TestRenderPrettyLines:
             "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
             "level": "ERROR",
             "msg": "fail",
-            "caller": "mod:fn:1",
+            "logger": "mod",
+            "caller": "fn:1",
             "error": {
                 "type": "ValueError",
                 "message": "bad",
@@ -1322,6 +1401,7 @@ class TestAllFormatsCaller:
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", fmt)
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
@@ -1386,6 +1466,7 @@ class TestPrettyFormatStructure:
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "pretty")
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
@@ -1481,6 +1562,7 @@ class TestTextFormatStructure:
         # Arrange
         monkeypatch.setenv("LOG_BACKEND", backend)
         monkeypatch.setenv("LOG_FORMAT", "text")
+        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
         monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 

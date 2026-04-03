@@ -26,14 +26,16 @@ class JSONRecordDict(TypedDict):
     Example::
 
         {"time": "2026-03-30T14:00:00+00:00", "level": "INFO",
-         "msg": "request handled", "caller": "api:handle:45",
+         "msg": "request handled", "logger": "myapp.api",
+         "caller": "handle:45",
          "method": "GET", "status": 200}
     """
 
     time: str
     level: str
     msg: str
-    caller: str
+    logger: str
+    caller: NotRequired[str]
     trace_id: NotRequired[str]
     span_id: NotRequired[str]
     error: NotRequired[ErrorDict]
