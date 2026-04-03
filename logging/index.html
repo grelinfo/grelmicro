@@ -1,0 +1,2311 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes, workers, or services.">
+      
+      
+      
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/logging/">
+      
+      
+        <link rel="prev" href="../cache/">
+      
+      
+        <link rel="next" href="../tracing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Logging - grelmicro</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="green" data-md-color-accent="light-green">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#logging" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            grelmicro
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Logging
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/grelinfo/grelmicro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    grelinfo/grelmicro
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    grelmicro
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/grelinfo/grelmicro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    grelinfo/grelmicro
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    grelmicro
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend Selection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backend Selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#log-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log Formats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Log Formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#auto-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AUTO (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#json" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logfmt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LOGFMT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TEXT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pretty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PRETTY
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#timezone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timezone
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#structured-logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structured Logging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exception-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exception Handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opentelemetry-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenTelemetry Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fastapi-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FastAPI Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#uvicorn-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uvicorn Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-format-loguru-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Format (Loguru only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#json-record-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON Record Structure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="JSON Record Structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#design-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Decisions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#production-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Production Deployment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resilience/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resilience Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synchronization Primitives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Scheduler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/resilience/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resilience
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synchronization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../architecture/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/imports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synchronization Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/kubernetes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kubernetes Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/sqlite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQLite Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tracing Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend Selection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backend Selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#log-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log Formats
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Log Formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#auto-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AUTO (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#json" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logfmt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LOGFMT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TEXT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pretty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PRETTY
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#timezone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timezone
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#structured-logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structured Logging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exception-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exception Handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opentelemetry-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenTelemetry Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fastapi-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FastAPI Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#uvicorn-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uvicorn Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-format-loguru-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Format (Loguru only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#json-record-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON Record Structure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="JSON Record Structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#design-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Decisions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#production-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Production Deployment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="logging">Logging</h1>
+<p>The <code>logging</code> package provides a simple, zero-config logging system following the <strong>12-factor app</strong> methodology.</p>
+<p>Logs go to stdout. Format is selected automatically. Configuration is done via environment variables.</p>
+<h2 id="quick-start">Quick Start</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+</code></pre></div>
+<p>With no environment variables set, <code>configure_logging()</code> detects your terminal:</p>
+<ul>
+<li><strong>Terminal (TTY)</strong>: human-readable colored text</li>
+<li><strong>Piped / CI / container</strong>: structured JSON</li>
+</ul>
+<p>This is the <code>AUTO</code> format (the default).</p>
+<h2 id="backend-selection">Backend Selection</h2>
+<p>grelmicro supports three logging backends. All backends produce <strong>identical output</strong> for each format, making it easy to switch.</p>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Dependencies</th>
+<th>Best for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>stdlib</strong> (default)</td>
+<td>None</td>
+<td>Zero-dependency setups</td>
+</tr>
+<tr>
+<td><strong><a href="https://loguru.readthedocs.io/">Loguru</a></strong></td>
+<td><code>loguru</code></td>
+<td>Developer ergonomics</td>
+</tr>
+<tr>
+<td><strong><a href="https://www.structlog.org/">structlog</a></strong></td>
+<td><code>structlog</code></td>
+<td>High-throughput services</td>
+</tr>
+</tbody>
+</table>
+<h3 id="installation">Installation</h3>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">stdlib (no dependencies)</label><label for="__tabbed_1_2">Loguru</label><label for="__tabbed_1_3">structlog</label><label for="__tabbed_1_4">With OpenTelemetry</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>No additional dependencies required. Uses Python's built-in <code>logging</code> module.</p>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="o">[</span>standard<span class="o">]</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="o">[</span>structlog<span class="o">]</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="o">[</span>standard,opentelemetry<span class="o">]</span>
+<span class="c1"># or</span>
+pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="o">[</span>structlog,opentelemetry<span class="o">]</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<h3 id="usage">Usage</h3>
+<p>Select the backend with the <code>LOG_BACKEND</code> environment variable, then use the corresponding logger:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Loguru</label><label for="__tabbed_2_2">structlog</label><label for="__tabbed_2_3">stdlib</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">structlog</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">log</span> <span class="o">=</span> <span class="n">structlog</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+<span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="mi">123</span><span class="p">})</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<h2 id="log-formats">Log Formats</h2>
+<p>grelmicro provides <strong>five format options</strong>, inspired by the Rust <a href="https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/index.html">tracing</a> ecosystem and Go <a href="https://pkg.go.dev/log/slog">slog</a>:</p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Use Case</th>
+<th>Machine-Parseable</th>
+<th>Inspired By</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AUTO</code></td>
+<td><strong>Default</strong>. Adapts to environment</td>
+<td>Depends</td>
+<td>zerolog, pino</td>
+</tr>
+<tr>
+<td><code>JSON</code></td>
+<td>Production, log aggregation</td>
+<td>Yes</td>
+<td>pino, tracing JSON, slog JSON</td>
+</tr>
+<tr>
+<td><code>LOGFMT</code></td>
+<td>Structured + human-readable</td>
+<td>Yes</td>
+<td>Go slog TextHandler, tracing-logfmt</td>
+</tr>
+<tr>
+<td><code>TEXT</code></td>
+<td>Local development</td>
+<td>No</td>
+<td>tracing Full, loguru</td>
+</tr>
+<tr>
+<td><code>PRETTY</code></td>
+<td>Verbose debugging</td>
+<td>No</td>
+<td>tracing Pretty, structlog ConsoleRenderer</td>
+</tr>
+</tbody>
+</table>
+<h3 id="auto-default">AUTO (Default)</h3>
+<p>Detects the output target and selects the best format automatically:</p>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Selected Format</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>stdout</code> is a TTY (terminal)</td>
+<td><code>TEXT</code> (colored)</td>
+</tr>
+<tr>
+<td><code>stdout</code> is piped or redirected</td>
+<td><code>JSON</code></td>
+</tr>
+<tr>
+<td><code>FORCE_COLOR</code> env var set</td>
+<td><code>TEXT</code> (colored)</td>
+</tr>
+<tr>
+<td><code>NO_COLOR</code> env var set</td>
+<td><code>JSON</code></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: AUTO format logging (default).&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="c1"># AUTO is the default: TEXT in terminal, JSON when piped.</span>
+<span class="c1"># No LOG_FORMAT env var needed.</span>
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>In your terminal:
+<div class="highlight"><pre><span></span><code>2026-04-01 10:30:00.123 INFO     __main__ - Application started version=1.0.0
+</code></pre></div></p>
+<p>In a container or CI:
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;2026-04-01T08:30:00.123456+00:00&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;__main__&quot;</span><span class="p">,</span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">}</span>
+</code></pre></div></p>
+<div class="admonition tip">
+<p class="admonition-title">Zero Config</p>
+<p><code>AUTO</code> is the default. Most users never need to set <code>LOG_FORMAT</code>.</p>
+</div>
+<h3 id="json">JSON</h3>
+<p>Structured newline-delimited JSON. Ideal for production, log aggregation (Datadog, Loki, ELK).</p>
+<div class="highlight"><pre><span></span><code>LOG_FORMAT=JSON
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: JSON format logging with timezone.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="c1"># Ensure clean state</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">,</span> <span class="n">environment</span><span class="o">=</span><span class="s2">&quot;production&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Output:
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;2026-04-01T10:30:00.123456+02:00&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;__main__&quot;</span><span class="p">,</span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">,</span><span class="nt">&quot;environment&quot;</span><span class="p">:</span><span class="s2">&quot;production&quot;</span><span class="p">}</span>
+</code></pre></div></p>
+<h3 id="logfmt">LOGFMT</h3>
+<p>Key-value pairs following the <a href="https://brandur.org/logfmt">logfmt</a> convention. 30-40% smaller than JSON, grep-friendly, parseable by Grafana Loki and most log tools.</p>
+<div class="highlight"><pre><span></span><code>LOG_FORMAT=LOGFMT
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: LOGFMT format logging.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Request handled&quot;</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;GET&quot;</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;/health&quot;</span><span class="p">,</span> <span class="n">status</span><span class="o">=</span><span class="mi">200</span><span class="p">)</span>
+</code></pre></div>
+<p>Output:
+<div class="highlight"><pre><span></span><code>time=2026-04-01T10:30:00.123456+00:00 level=INFO msg=&quot;Request handled&quot; logger=__main__ method=GET path=/health status=200
+</code></pre></div></p>
+<p>Nested dicts use dot notation:
+<div class="highlight"><pre><span></span><code>error.type=ValueError error.message=&quot;invalid input&quot;
+</code></pre></div></p>
+<h3 id="text">TEXT</h3>
+<p>Single-line, human-readable output. Includes extra fields as <code>key=value</code> pairs. Colors are enabled when output is a TTY.</p>
+<div class="highlight"><pre><span></span><code>LOG_FORMAT=TEXT
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: TEXT format logging with timezone.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="c1"># Ensure clean state</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Output:
+<div class="highlight"><pre><span></span><code>2026-04-01 10:30:00.123 INFO     __main__:&lt;module&gt;:12 - Application started version=1.0.0
+</code></pre></div></p>
+<h3 id="pretty">PRETTY</h3>
+<p>Multi-line format with indented fields. Best for debugging with low log volume.</p>
+<div class="highlight"><pre><span></span><code>LOG_FORMAT=PRETTY
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: PRETTY format logging.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Request handled&quot;</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;GET&quot;</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;/health&quot;</span><span class="p">,</span> <span class="n">status</span><span class="o">=</span><span class="mi">200</span><span class="p">)</span>
+</code></pre></div>
+<p>Output:
+<div class="highlight"><pre><span></span><code>  2026-04-01 10:30:00.123 INFO Request handled
+    at __main__:&lt;module&gt;:10
+    method: GET
+    path: /health
+    status: 200
+</code></pre></div></p>
+<p>With exceptions:
+<div class="highlight"><pre><span></span><code>  2026-04-01 10:30:01.456 ERROR Operation failed
+    at myapp.service:process:78
+    error.type: ZeroDivisionError
+    error.message: division by zero
+    error.stack:
+      Traceback (most recent call last):
+        File &quot;service.py&quot;, line 78, in process
+          result = 1 / 0
+      ZeroDivisionError: division by zero
+</code></pre></div></p>
+<h2 id="settings">Settings</h2>
+<p>All configuration is done via environment variables:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Values</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LOG_BACKEND</code></td>
+<td><code>stdlib</code>, <code>loguru</code>, <code>structlog</code></td>
+<td><code>stdlib</code></td>
+</tr>
+<tr>
+<td><code>LOG_LEVEL</code></td>
+<td><code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code></td>
+<td><code>INFO</code></td>
+</tr>
+<tr>
+<td><code>LOG_FORMAT</code></td>
+<td><code>AUTO</code>, <code>JSON</code>, <code>LOGFMT</code>, <code>TEXT</code>, <code>PRETTY</code></td>
+<td><code>AUTO</code></td>
+</tr>
+<tr>
+<td><code>LOG_TIMEZONE</code></td>
+<td>IANA timezone (e.g., <code>UTC</code>, <code>Europe/Zurich</code>)</td>
+<td><code>UTC</code></td>
+</tr>
+<tr>
+<td><code>LOG_JSON_SERIALIZER</code></td>
+<td><code>stdlib</code>, <code>orjson</code></td>
+<td><code>stdlib</code></td>
+</tr>
+<tr>
+<td><code>LOG_CALLER_ENABLED</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>LOG_OTEL_ENABLED</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>auto-detected</td>
+</tr>
+<tr>
+<td><code>NO_COLOR</code></td>
+<td>any value</td>
+<td>(unset)</td>
+</tr>
+<tr>
+<td><code>FORCE_COLOR</code></td>
+<td>any value</td>
+<td>(unset)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Color Support</p>
+<p>Colors follow the <a href="https://no-color.org">NO_COLOR</a> and <a href="https://force-color.org">FORCE_COLOR</a> standards.
+When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</code> and colors are disabled.
+<code>FORCE_COLOR</code> takes precedence over <code>NO_COLOR</code>.</p>
+</div>
+<h3 id="timezone">Timezone</h3>
+<p>The <code>LOG_TIMEZONE</code> setting controls timestamps in all formats:</p>
+<div class="highlight"><pre><span></span><code>LOG_TIMEZONE=Europe/Zurich
+</code></pre></div>
+<p><strong>JSON / LOGFMT</strong>: ISO 8601 with timezone offset
+<div class="highlight"><pre><span></span><code>&quot;time&quot;:&quot;2026-04-01T15:56:36.066922+01:00&quot;
+</code></pre></div></p>
+<p><strong>TEXT / PRETTY</strong>: Localized time
+<div class="highlight"><pre><span></span><code>2026-04-01 15:56:36.066
+</code></pre></div></p>
+<h2 id="structured-logging">Structured Logging</h2>
+<p>Extra context fields are passed as keyword arguments and appear as flat top-level fields:</p>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Structured logging with context.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="c1"># Ensure clean state</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;User logged in&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">,</span> <span class="n">ip_address</span><span class="o">=</span><span class="s2">&quot;192.168.1.1&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Output:
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;User logged in&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;user_id&quot;</span><span class="p">:</span><span class="mi">123</span><span class="p">,</span><span class="nt">&quot;ip_address&quot;</span><span class="p">:</span><span class="s2">&quot;192.168.1.1&quot;</span><span class="p">}</span>
+</code></pre></div></p>
+<h2 id="exception-handling">Exception Handling</h2>
+<p>Exceptions are automatically captured as structured <code>ErrorDict</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Exception logging with context.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="c1"># Ensure clean state</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="mi">1</span> <span class="o">/</span> <span class="mi">0</span>  <span class="c1"># noqa: B018</span>
+<span class="k">except</span> <span class="ne">ZeroDivisionError</span><span class="p">:</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;Operation failed&quot;</span><span class="p">,</span> <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;divide&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>JSON output:
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;ERROR&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Operation failed&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;operation&quot;</span><span class="p">:</span><span class="s2">&quot;divide&quot;</span><span class="p">,</span><span class="nt">&quot;error&quot;</span><span class="p">:{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;ZeroDivisionError&quot;</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;division by zero&quot;</span><span class="p">,</span><span class="nt">&quot;stack&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">}}</span>
+</code></pre></div></p>
+<p>LOGFMT output:
+<div class="highlight"><pre><span></span><code>time=... level=ERROR msg=&quot;Operation failed&quot; logger=... error.type=ZeroDivisionError error.message=&quot;division by zero&quot; error.stack=&quot;Traceback...&quot;
+</code></pre></div></p>
+<p>PRETTY output:
+<div class="highlight"><pre><span></span><code>  ... ERROR Operation failed
+    at ...
+    operation: divide
+    error.type: ZeroDivisionError
+    error.message: division by zero
+    error.stack:
+      Traceback (most recent call last):
+        ...
+      ZeroDivisionError: division by zero
+</code></pre></div></p>
+<h2 id="opentelemetry-integration">OpenTelemetry Integration</h2>
+<p>When <a href="https://opentelemetry.io/">OpenTelemetry</a> is installed, <code>trace_id</code> and <code>span_id</code> are automatically added to logs:</p>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;OpenTelemetry integration example.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">opentelemetry</span><span class="w"> </span><span class="kn">import</span> <span class="n">trace</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">opentelemetry.sdk.trace</span><span class="w"> </span><span class="kn">import</span> <span class="n">TracerProvider</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">opentelemetry.sdk.trace.export</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ConsoleSpanExporter</span><span class="p">,</span>
+    <span class="n">SimpleSpanProcessor</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="c1"># Set up OpenTelemetry</span>
+<span class="n">provider</span> <span class="o">=</span> <span class="n">TracerProvider</span><span class="p">()</span>
+<span class="n">processor</span> <span class="o">=</span> <span class="n">SimpleSpanProcessor</span><span class="p">(</span><span class="n">ConsoleSpanExporter</span><span class="p">())</span>
+<span class="n">provider</span><span class="o">.</span><span class="n">add_span_processor</span><span class="p">(</span><span class="n">processor</span><span class="p">)</span>
+<span class="n">trace</span><span class="o">.</span><span class="n">set_tracer_provider</span><span class="p">(</span><span class="n">provider</span><span class="p">)</span>
+
+<span class="c1"># Configure logging (auto-detects OpenTelemetry)</span>
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="c1"># Get a tracer</span>
+<span class="n">tracer</span> <span class="o">=</span> <span class="n">trace</span><span class="o">.</span><span class="n">get_tracer</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># Logs inside spans will automatically include trace_id and span_id</span>
+<span class="k">with</span> <span class="n">tracer</span><span class="o">.</span><span class="n">start_as_current_span</span><span class="p">(</span><span class="s2">&quot;handle_request&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">span</span><span class="p">:</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Processing request&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="s2">&quot;/api/users&quot;</span><span class="p">)</span>
+
+    <span class="k">with</span> <span class="n">tracer</span><span class="o">.</span><span class="n">start_as_current_span</span><span class="p">(</span><span class="s2">&quot;database_query&quot;</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Executing query&quot;</span><span class="p">,</span> <span class="n">query</span><span class="o">=</span><span class="s2">&quot;SELECT * FROM users&quot;</span><span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Request completed&quot;</span><span class="p">,</span> <span class="n">status</span><span class="o">=</span><span class="s2">&quot;success&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Output:
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-27T16:00:00.000Z&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Processing request&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;myapp.service&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;trace_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;4bf92f3577b34da6a3ce929d0e0e4736&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;span_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;00f067aa0ba902b7&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;user_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">123</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<p>Trace fields follow the OpenTelemetry standard and are placed at the JSON root level for compatibility with observability platforms (Jaeger, Zipkin, DataDog, Grafana Tempo).</p>
+<p>To disable: <code>LOG_OTEL_ENABLED=false</code></p>
+<h2 id="fastapi-integration">FastAPI Integration</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+
+<span class="nd">@asynccontextmanager</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">lifespan_startup</span><span class="p">():</span>
+    <span class="c1"># Ensure logging is configured during startup</span>
+    <span class="n">configure_logging</span><span class="p">()</span>
+    <span class="k">yield</span>
+
+
+<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
+
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">root</span><span class="p">():</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;This is an info message&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;Hello&quot;</span><span class="p">:</span> <span class="s2">&quot;World&quot;</span><span class="p">}</span>
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Call <code>configure_logging</code> during the lifespan of the FastAPI application. The FastAPI CLI may reset the logging configuration otherwise.</p>
+</div>
+<h2 id="uvicorn-integration">Uvicorn Integration</h2>
+<p>Uvicorn has its own logging system separate from your application. To get consistent output between uvicorn and your app, use the format-aware uvicorn formatters via a log config file:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;disable_existing_loggers&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;formatters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;()&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;grelmicro.logging.uvicorn.UvicornFormatter&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;access&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;()&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;grelmicro.logging.uvicorn.UvicornAccessFormatter&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;handlers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;logging.StreamHandler&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;formatter&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;default&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;stream&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ext://sys.stdout&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;access&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;logging.StreamHandler&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;formatter&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;access&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;stream&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ext://sys.stdout&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;loggers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;uvicorn&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;handlers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;default&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;propagate&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;uvicorn.access&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;handlers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;access&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;propagate&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Then start uvicorn with:</p>
+<div class="highlight"><pre><span></span><code>uvicorn<span class="w"> </span>app:app<span class="w"> </span>--log-config<span class="w"> </span>uvicorn_log_config.json
+</code></pre></div>
+<p><code>UvicornFormatter</code> and <code>UvicornAccessFormatter</code> read <code>LOG_FORMAT</code> at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.</p>
+<p><code>UvicornAccessFormatter</code> additionally parses uvicorn's access log arguments into structured fields: <code>client_addr</code>, <code>method</code>, <code>full_path</code>, <code>http_version</code>, <code>status_code</code>.</p>
+<h2 id="custom-format-loguru-only">Custom Format (Loguru only)</h2>
+<p>You can provide a custom <a href="https://loguru.readthedocs.io/en/stable/api/logger.html#message">loguru format template</a>:</p>
+<div class="highlight"><pre><span></span><code>LOG_FORMAT=&quot;{level} | {message}&quot;
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Custom format logging.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+
+<span class="c1"># Ensure clean state</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="n">configure_logging</span><span class="p">()</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Custom format example&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Output:
+<div class="highlight"><pre><span></span><code>INFO | Custom format example
+</code></pre></div></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Custom format strings only work with the loguru backend.</p>
+</div>
+<h2 id="json-record-structure">JSON Record Structure</h2>
+<p>All JSON log records follow this schema. Required fields are always present, optional fields may be absent. Extra context fields are merged flat at the top level:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">JSONRecordDict</span><span class="p">:</span>
+    <span class="c1"># Required</span>
+    <span class="n">time</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># ISO 8601 timestamp with timezone</span>
+    <span class="n">level</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># DEBUG, INFO, WARNING, ERROR, CRITICAL</span>
+    <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span>               <span class="c1"># Log message</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># Logger name (e.g., &quot;myapp.api&quot;)</span>
+    <span class="c1"># Optional (opt-in via LOG_CALLER_ENABLED=true)</span>
+    <span class="n">caller</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># function:line (e.g., &quot;handle:45&quot;)</span>
+    <span class="c1"># Optional</span>
+    <span class="n">trace_id</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># OpenTelemetry trace ID (32 hex chars)</span>
+    <span class="n">span_id</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># OpenTelemetry span ID (16 hex chars)</span>
+    <span class="n">error</span><span class="p">:</span> <span class="n">ErrorDict</span>       <span class="c1"># Structured error info</span>
+</code></pre></div>
+<p>The <code>ErrorDict</code> structure:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ErrorDict</span><span class="p">:</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># Exception class name (e.g., &quot;ValueError&quot;)</span>
+    <span class="n">message</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># Exception message</span>
+    <span class="n">stack</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># Optional: full traceback string</span>
+</code></pre></div>
+<h3 id="design-decisions">Design Decisions</h3>
+<p><strong>Level casing</strong>: UPPERCASE (<code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code>), following Go slog, Java Log4j2, Rust tracing conventions.</p>
+<p><strong>Field naming</strong>: Core field names (<code>time</code>, <code>level</code>, <code>msg</code>, <code>logger</code>, <code>caller</code>, <code>error</code>) follow slog/zap/Caddy conventions. <code>logger</code> is the logger name; <code>caller</code> is the call site (<code>function:line</code>).</p>
+<p><strong>Caller opt-in</strong>: <code>caller</code> is disabled by default, following slog/zap/zerolog/Caddy conventions where caller info is opt-in. Enable with <code>LOG_CALLER_ENABLED=true</code>. Uvicorn formatters never include <code>caller</code> (points to uvicorn internals, not application code).</p>
+<p><strong>Collision protection</strong>: Core fields cannot be overwritten by user-supplied extra context.</p>
+<h2 id="production-deployment">Production Deployment</h2>
+<p>For strict unbuffered output (12-factor compliance):</p>
+<div class="highlight"><pre><span></span><code><span class="nv">PYTHONUNBUFFERED</span><span class="o">=</span><span class="m">1</span>
+</code></pre></div>
+<h2 id="performance">Performance</h2>
+<p>Benchmark results (50,000 iterations):</p>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Serializer</th>
+<th>Ops/sec</th>
+<th>vs Best</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>structlog</td>
+<td>orjson</td>
+<td>302,273</td>
+<td>100.0%</td>
+</tr>
+<tr>
+<td>stdlib</td>
+<td>orjson</td>
+<td>269,353</td>
+<td>89.1%</td>
+</tr>
+<tr>
+<td>structlog</td>
+<td>stdlib</td>
+<td>198,000</td>
+<td>65.5%</td>
+</tr>
+<tr>
+<td>loguru</td>
+<td>orjson</td>
+<td>192,953</td>
+<td>63.8%</td>
+</tr>
+<tr>
+<td>stdlib</td>
+<td>stdlib</td>
+<td>181,745</td>
+<td>60.1%</td>
+</tr>
+<tr>
+<td>loguru</td>
+<td>stdlib</td>
+<td>147,185</td>
+<td>48.7%</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition tip">
+<p class="admonition-title">Performance Recommendation</p>
+<p>For high-throughput applications, use <code>LOG_JSON_SERIALIZER=orjson</code> with <code>structlog</code> or <code>stdlib</code> backend.</p>
+</div>
+<p>Run the benchmark:
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>benchmarks/logging_benchmark.py
+</code></pre></div></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
