@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
-
 import pytest
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from grelmicro.cache.serializers import (
     JsonSerializer,
