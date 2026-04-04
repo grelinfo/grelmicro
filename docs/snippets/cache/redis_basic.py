@@ -1,24 +1,25 @@
-from grelmicro.cache import TTLCache, cached
+from pydantic import BaseModel
+
+from grelmicro.cache import PydanticSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
-from grelmicro.json import json_dumps_bytes, json_loads_bytes
 
-backend = RedisCacheBackend(prefix="myapp:")  # app-level isolation
 
-cache = TTLCache(
-    ttl=300,
-    serializer=json_dumps_bytes,
-    deserializer=json_loads_bytes,
-)
+class User(BaseModel):
+    id: int
+    name: str
+
+
+backend = RedisCacheBackend(prefix="myapp:")
+
+cache = TTLCache[User](ttl=300, serializer=PydanticSerializer(User))
 
 
 @cached(cache, lock=True)
-async def get_user(user_id: int) -> dict:
-    # Expensive database query
-    return {"id": user_id, "name": "Alice"}
+async def get_user(user_id: int) -> User:
+    return User(id=user_id, name="Alice")
 
 
 async def main() -> None:
     async with backend:
-        user = await get_user(1)  # cache miss: calls function
-        user = await get_user(1)  # cache hit: returns cached result
+        user = await get_user(1)
         print(user)

@@ -15,13 +15,13 @@ from grelmicro.json import (
     json_default,
     json_dumps_bytes,
     json_dumps_str,
-    json_loads_bytes,
+    json_loads,
 )
 
 if TYPE_CHECKING:
     from types import ModuleType
 
-    from grelmicro.json import JSONSerializable
+    from grelmicro.json import JSONEncodable
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ class TestOrjsonPath:
         ],
     )
     def test_dumps_bytes(
-        self, obj: JSONSerializable, expected_fragment: bytes
+        self, obj: JSONEncodable, expected_fragment: bytes
     ) -> None:
         """Test json_dumps_bytes serializes various types."""
         result = json_dumps_bytes(obj)
@@ -72,14 +72,20 @@ class TestOrjsonPath:
         assert '"key"' in result
 
     def test_loads_bytes(self) -> None:
-        """Test json_loads_bytes deserializes bytes."""
-        result = json_loads_bytes(b'{"key":"value"}')
+        """Test json_loads deserializes bytes."""
+        result = json_loads(b'{"key":"value"}')
 
         assert result == {"key": "value"}
 
     def test_loads_str(self) -> None:
-        """Test json_loads_bytes also accepts str input."""
-        result = json_loads_bytes('{"key":"value"}')
+        """Test json_loads also accepts str input."""
+        result = json_loads('{"key":"value"}')
+
+        assert result == {"key": "value"}
+
+    def test_loads_str_orjson(self) -> None:
+        """Test json_loads deserializes a JSON string."""
+        result = json_loads('{"key":"value"}')
 
         assert result == {"key": "value"}
 
@@ -91,9 +97,9 @@ class TestOrjsonPath:
             "simple string",
         ],
     )
-    def test_roundtrip(self, obj: JSONSerializable) -> None:
+    def test_roundtrip(self, obj: JSONEncodable) -> None:
         """Test dumps/loads roundtrip preserves data."""
-        result = json_loads_bytes(json_dumps_bytes(obj))
+        result = json_loads(json_dumps_bytes(obj))
 
         assert result == obj
 
@@ -120,14 +126,20 @@ class TestStdlibFallback:
         assert '"key"' in result
 
     def test_loads_bytes(self, stdlib_json_module: ModuleType) -> None:
-        """Test json_loads_bytes with stdlib json from bytes."""
-        result = stdlib_json_module.json_loads_bytes(b'{"key":"value"}')
+        """Test json_loads with stdlib json from bytes."""
+        result = stdlib_json_module.json_loads(b'{"key":"value"}')
 
         assert result == {"key": "value"}
 
     def test_loads_str(self, stdlib_json_module: ModuleType) -> None:
-        """Test json_loads_bytes with stdlib json from str."""
-        result = stdlib_json_module.json_loads_bytes('{"key":"value"}')
+        """Test json_loads with stdlib json from str."""
+        result = stdlib_json_module.json_loads('{"key":"value"}')
+
+        assert result == {"key": "value"}
+
+    def test_loads_str_stdlib(self, stdlib_json_module: ModuleType) -> None:
+        """Test json_loads with stdlib json."""
+        result = stdlib_json_module.json_loads('{"key":"value"}')
 
         assert result == {"key": "value"}
 
@@ -135,7 +147,7 @@ class TestStdlibFallback:
         """Test stdlib dumps/loads roundtrip preserves data."""
         obj = {"id": 42, "tags": [1, 2]}
 
-        result = stdlib_json_module.json_loads_bytes(
+        result = stdlib_json_module.json_loads(
             stdlib_json_module.json_dumps_bytes(obj)
         )
 

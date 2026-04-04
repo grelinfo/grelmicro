@@ -8,30 +8,27 @@ in the ``grelmicro[standard]`` extra.
 
 Example::
 
-    from grelmicro.json import json_dumps_bytes, json_loads_bytes
-    from grelmicro.cache import TTLCache
+    from grelmicro.cache import TTLCache, JsonSerializer
 
-    cache = TTLCache(
-        ttl=300,
-        serializer=json_dumps_bytes,
-        deserializer=json_loads_bytes,
-    )
+    cache = TTLCache(ttl=300, serializer=JsonSerializer())
 """
 
 from grelmicro._json import (
-    JSONSerializable,
+    JSONDecodable,
+    JSONEncodable,
     has_orjson,
     json_default,
     json_dumps_bytes,
     json_dumps_str,
-    json_loads_bytes,
+    json_loads,
 )
 
 __all__ = [
-    "JSONSerializable",
+    "JSONDecodable",
+    "JSONEncodable",
     "has_orjson",
     "json_default",
     "json_dumps_bytes",
     "json_dumps_str",
-    "json_loads_bytes",
+    "json_loads",
 ]

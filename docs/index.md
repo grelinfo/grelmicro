@@ -77,13 +77,12 @@ pip install grelmicro
 Create a file `main.py` with:
 
 ```python
-import json
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 
-from grelmicro.cache import TTLCache, cached
+from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.logging import configure_logging
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
@@ -104,11 +103,7 @@ rate_limit_backend = RedisRateLimiterBackend("redis://localhost:6379/0")
 leader_election = LeaderElection("leader-election")
 task.add_task(leader_election)
 
-cache = TTLCache(
-    ttl=300,
-    serializer=lambda v: json.dumps(v).encode(),
-    deserializer=json.loads,
-)
+cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
 
 # === FastAPI ===

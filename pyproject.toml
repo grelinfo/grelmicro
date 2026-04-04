@@ -128,8 +128,12 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
     "ARG001",
     "ANN001",
     "ANN201",
-    "D103",
     "D100",
+    "D101",
+    "D103",
+    "D104",
+    "DTZ001",
+    "ERA001",
     "INP001",
     "T201",
 ]

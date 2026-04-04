@@ -11,9 +11,12 @@ from typing_extensions import Doc, TypeVar
 from grelmicro.cache._backends import get_cache_backend
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from grelmicro.cache._protocol import CacheBackend
+    from grelmicro.cache.serializers import (
+        JsonSerializer,
+        PickleSerializer,
+        PydanticSerializer,
+    )
 
 T = TypeVar("T", default=Any)
 
@@ -52,8 +55,8 @@ class TTLCache(Generic[T]):
 
     The type parameter ``T`` represents the cached value type.
     Defaults to ``Any`` when unspecified (``TTLCache()``).
-    Use ``TTLCache[bytes]`` for raw bytes or ``TTLCache[MyModel]``
-    with a serializer/deserializer pair for typed caching.
+    Use ``TTLCache[User](serializer=PydanticSerializer(User))``
+    for typed caching.
 
     Raises:
         ValueError: If maxsize is negative or ttl is not positive.
@@ -90,20 +93,15 @@ class TTLCache(Generic[T]):
             ),
         ] = None,
         serializer: Annotated[
-            Callable[[T], bytes] | None,
+            PickleSerializer[T] | JsonSerializer | PydanticSerializer[T] | None,
             Doc(
                 """
-                Optional function to serialize values to bytes
-                before storing in the backend.
-                """,
-            ),
-        ] = None,
-        deserializer: Annotated[
-            Callable[[bytes], T] | None,
-            Doc(
-                """
-                Optional function to deserialize bytes from the
-                backend back into values.
+                Serialization strategy for cached values.
+
+                - ``PickleSerializer()``: Any picklable object.
+                - ``JsonSerializer()``: JSON-native types (dict, list, etc.).
+                - ``PydanticSerializer(Model)``: Type-safe Pydantic roundtrips.
+                - ``None``: Raw bytes only (no serialization).
                 """,
             ),
         ] = None,
@@ -115,15 +113,11 @@ class TTLCache(Generic[T]):
         if ttl <= 0:
             msg = "ttl must be positive"
             raise ValueError(msg)
-        if (serializer is None) != (deserializer is None):
-            msg = "serializer and deserializer must be provided together"
-            raise ValueError(msg)
 
         self._maxsize = maxsize
         self._ttl = ttl
         self._backend = backend
         self._serializer = serializer
-        self._deserializer = deserializer
         self._hits = 0
         self._misses = 0
         self._evictions = 0
@@ -139,19 +133,19 @@ class TTLCache(Generic[T]):
     def _serialize(self, value: T) -> bytes:
         """Serialize a value to bytes for storage."""
         if self._serializer is not None:
-            return self._serializer(value)
+            return self._serializer.dumps(value)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         if isinstance(value, bytes):
             return value
         msg = (
             f"Cannot store {type(value).__name__} without a serializer. "
-            f"Pass serializer/deserializer to TTLCache or use bytes."
+            f"Pass a serializer to TTLCache or use bytes."
         )
         raise TypeError(msg)
 
     def _deserialize(self, raw: bytes) -> T:
         """Deserialize bytes from storage."""
-        if self._deserializer is not None:
-            return self._deserializer(raw)
+        if self._serializer is not None:
+            return self._serializer.loads(raw)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
         return raw  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     async def get(

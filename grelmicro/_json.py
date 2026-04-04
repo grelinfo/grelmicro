@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, TypeAlias
 
-JSONSerializable: TypeAlias = (
+JSONEncodable: TypeAlias = (
     dict[str, Any]
     | list[Any]
     | tuple[Any, ...]
@@ -23,6 +23,12 @@ JSONSerializable: TypeAlias = (
     | datetime
     | None
 )
+"""Types accepted by ``json_dumps_bytes`` and ``json_dumps_str``."""
+
+JSONDecodable: TypeAlias = (
+    dict[str, Any] | list[Any] | str | int | float | bool | None
+)
+"""Types returned by ``json_loads``."""
 
 try:
     import orjson
@@ -49,31 +55,31 @@ def has_orjson() -> bool:
 
 if orjson is not None:
 
-    def json_dumps_bytes(obj: JSONSerializable) -> bytes:
+    def json_dumps_bytes(obj: JSONEncodable) -> bytes:
         """Serialize object to JSON bytes using orjson."""
         return orjson.dumps(obj)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
-    def json_dumps_str(obj: JSONSerializable) -> str:
+    def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using orjson."""
         return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
-    def json_loads_bytes(data: bytes | str) -> JSONSerializable:
-        """Deserialize JSON bytes using orjson."""
+    def json_loads(data: bytes | str) -> JSONDecodable:
+        """Deserialize JSON bytes or string using orjson."""
         return orjson.loads(data)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
 else:
     import json
 
-    def json_dumps_bytes(obj: JSONSerializable) -> bytes:
+    def json_dumps_bytes(obj: JSONEncodable) -> bytes:
         """Serialize object to JSON bytes using stdlib json."""
         return json.dumps(
             obj, separators=(",", ":"), default=json_default
         ).encode("utf-8")
 
-    def json_dumps_str(obj: JSONSerializable) -> str:
+    def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using stdlib json."""
         return json.dumps(obj, separators=(",", ":"), default=json_default)
 
-    def json_loads_bytes(data: bytes | str) -> JSONSerializable:
-        """Deserialize JSON bytes using stdlib json."""
+    def json_loads(data: bytes | str) -> JSONDecodable:
+        """Deserialize JSON bytes or string using stdlib json."""
         return json.loads(data)  # type: ignore[return-value]

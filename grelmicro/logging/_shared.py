@@ -338,7 +338,7 @@ class LoadedSettings(NamedTuple):
     settings: LoggingSettings
     timezone: tzinfo
     resolved_format: LoggingFormatType | str
-    json_dumps: Callable[..., str]
+    json_dumps: Callable[[Mapping[str, Any]], str]
     colors: bool
 
 
@@ -354,10 +354,11 @@ def load_settings() -> LoadedSettings:
     except ValidationError as error:
         raise LoggingSettingsValidationError(error) from None
 
+    json_dumps: Callable[[Mapping[str, Any]], str]
     if settings.LOG_JSON_SERIALIZER == LoggingSerializerType.ORJSON:
         if not has_orjson():
             raise DependencyNotFoundError(module="orjson")
-        json_dumps = json_dumps_str
+        json_dumps = json_dumps_str  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     else:
         json_dumps = _stdlib_json_dumps
 
