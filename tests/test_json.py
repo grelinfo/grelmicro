@@ -83,12 +83,6 @@ class TestOrjsonPath:
 
         assert result == {"key": "value"}
 
-    def test_loads_str_orjson(self) -> None:
-        """Test json_loads deserializes a JSON string."""
-        result = json_loads('{"key":"value"}')
-
-        assert result == {"key": "value"}
-
     @pytest.mark.parametrize(
         "obj",
         [
@@ -133,12 +127,6 @@ class TestStdlibFallback:
 
     def test_loads_str(self, stdlib_json_module: ModuleType) -> None:
         """Test json_loads with stdlib json from str."""
-        result = stdlib_json_module.json_loads('{"key":"value"}')
-
-        assert result == {"key": "value"}
-
-    def test_loads_str_stdlib(self, stdlib_json_module: ModuleType) -> None:
-        """Test json_loads with stdlib json."""
         result = stdlib_json_module.json_loads('{"key":"value"}')
 
         assert result == {"key": "value"}

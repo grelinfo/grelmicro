@@ -12,11 +12,7 @@ from grelmicro.cache._backends import get_cache_backend
 
 if TYPE_CHECKING:
     from grelmicro.cache._protocol import CacheBackend
-    from grelmicro.cache.serializers import (
-        JsonSerializer,
-        PickleSerializer,
-        PydanticSerializer,
-    )
+    from grelmicro.cache.serializers import CacheSerializer
 
 T = TypeVar("T", default=Any)
 
@@ -93,10 +89,15 @@ class TTLCache(Generic[T]):
             ),
         ] = None,
         serializer: Annotated[
-            PickleSerializer[T] | JsonSerializer | PydanticSerializer[T] | None,
+            CacheSerializer[T, T] | None,
             Doc(
                 """
                 Serialization strategy for cached values.
+
+                Any object implementing the ``CacheSerializer`` protocol
+                (``dumps`` / ``loads`` methods) can be used.
+
+                Built-in options:
 
                 - ``PickleSerializer()``: Any picklable object.
                 - ``JsonSerializer()``: JSON-native types (dict, list, etc.).
@@ -133,7 +134,7 @@ class TTLCache(Generic[T]):
     def _serialize(self, value: T) -> bytes:
         """Serialize a value to bytes for storage."""
         if self._serializer is not None:
-            return self._serializer.dumps(value)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            return self._serializer.dumps(value)  # type: ignore[arg-type]
         if isinstance(value, bytes):
             return value
         msg = (
@@ -145,7 +146,7 @@ class TTLCache(Generic[T]):
     def _deserialize(self, raw: bytes) -> T:
         """Deserialize bytes from storage."""
         if self._serializer is not None:
-            return self._serializer.loads(raw)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+            return self._serializer.loads(raw)  # type: ignore[return-value]
         return raw  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     async def get(

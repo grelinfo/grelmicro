@@ -10,7 +10,10 @@ per-call branching.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 JSONEncodable: TypeAlias = (
     dict[str, Any]
@@ -59,7 +62,7 @@ if orjson is not None:
         """Serialize object to JSON bytes using orjson."""
         return orjson.dumps(obj)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
-    def json_dumps_str(obj: JSONEncodable) -> str:
+    def json_dumps_str(obj: JSONEncodable | Mapping[str, Any]) -> str:
         """Serialize object to JSON string using orjson."""
         return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
@@ -76,7 +79,7 @@ else:
             obj, separators=(",", ":"), default=json_default
         ).encode("utf-8")
 
-    def json_dumps_str(obj: JSONEncodable) -> str:
+    def json_dumps_str(obj: JSONEncodable | Mapping[str, Any]) -> str:
         """Serialize object to JSON string using stdlib json."""
         return json.dumps(obj, separators=(",", ":"), default=json_default)
 

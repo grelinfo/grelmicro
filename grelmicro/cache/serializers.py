@@ -24,7 +24,7 @@ Example::
 from __future__ import annotations
 
 import pickle
-from typing import Any, Generic
+from typing import Any, Generic, Protocol, runtime_checkable
 
 from pydantic import TypeAdapter
 from typing_extensions import TypeVar
@@ -37,6 +37,25 @@ from grelmicro._json import (
 )
 
 T = TypeVar("T", default=Any)
+T_contra = TypeVar("T_contra", default=Any, contravariant=True)
+T_co = TypeVar("T_co", default=Any, covariant=True)
+
+
+@runtime_checkable
+class CacheSerializer(Protocol[T_contra, T_co]):
+    """Protocol for cache serialization strategies.
+
+    Any object implementing ``dumps`` and ``loads`` can be used
+    as a ``TTLCache`` serializer.
+    """
+
+    def dumps(self, value: T_contra) -> bytes:
+        """Serialize a value to bytes."""
+        ...
+
+    def loads(self, data: bytes) -> T_co:
+        """Deserialize bytes to a value."""
+        ...
 
 
 class PickleSerializer(Generic[T]):
@@ -44,6 +63,10 @@ class PickleSerializer(Generic[T]):
 
     Supports any picklable Python object. Fast and transparent,
     but produces opaque binary data.
+
+    Warning:
+        Pickle can execute arbitrary code during deserialization.
+        Only use with trusted data sources.
 
     Args:
         protocol: Pickle protocol version. Defaults to the highest

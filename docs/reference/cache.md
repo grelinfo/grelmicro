@@ -7,7 +7,11 @@
         - CacheBackend
         - CacheError
         - CacheInfo
+        - CacheSerializer
         - CacheSettingsValidationError
+        - JsonSerializer
+        - PickleSerializer
+        - PydanticSerializer
         - TTLCache
         - cached
 

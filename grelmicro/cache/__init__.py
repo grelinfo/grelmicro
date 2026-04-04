@@ -4,6 +4,7 @@ from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
 from grelmicro.cache.errors import CacheError, CacheSettingsValidationError
 from grelmicro.cache.serializers import (
+    CacheSerializer,
     JsonSerializer,
     PickleSerializer,
     PydanticSerializer,
@@ -14,6 +15,7 @@ __all__ = [
     "CacheBackend",
     "CacheError",
     "CacheInfo",
+    "CacheSerializer",
     "CacheSettingsValidationError",
     "JsonSerializer",
     "PickleSerializer",

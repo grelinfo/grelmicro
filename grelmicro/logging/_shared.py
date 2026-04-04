@@ -358,7 +358,7 @@ def load_settings() -> LoadedSettings:
     if settings.LOG_JSON_SERIALIZER == LoggingSerializerType.ORJSON:
         if not has_orjson():
             raise DependencyNotFoundError(module="orjson")
-        json_dumps = json_dumps_str  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        json_dumps = json_dumps_str
     else:
         json_dumps = _stdlib_json_dumps
 
