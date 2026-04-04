@@ -9,14 +9,12 @@ per-call branching.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypeAlias
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from typing import Any, TypeAlias
 
 JSONEncodable: TypeAlias = (
-    dict[str, Any]
+    Mapping[str, Any]
     | list[Any]
     | tuple[Any, ...]
     | str
@@ -58,11 +56,11 @@ def has_orjson() -> bool:
 
 if orjson is not None:
 
-    def json_dumps_bytes(obj: JSONEncodable | Mapping[str, Any]) -> bytes:
+    def json_dumps_bytes(obj: JSONEncodable) -> bytes:
         """Serialize object to JSON bytes using orjson."""
         return orjson.dumps(obj)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
-    def json_dumps_str(obj: JSONEncodable | Mapping[str, Any]) -> str:
+    def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using orjson."""
         return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
@@ -73,13 +71,13 @@ if orjson is not None:
 else:
     import json
 
-    def json_dumps_bytes(obj: JSONEncodable | Mapping[str, Any]) -> bytes:
+    def json_dumps_bytes(obj: JSONEncodable) -> bytes:
         """Serialize object to JSON bytes using stdlib json."""
         return json.dumps(
             obj, separators=(",", ":"), default=json_default
         ).encode("utf-8")
 
-    def json_dumps_str(obj: JSONEncodable | Mapping[str, Any]) -> str:
+    def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using stdlib json."""
         return json.dumps(obj, separators=(",", ":"), default=json_default)
 
