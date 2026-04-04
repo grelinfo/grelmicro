@@ -89,7 +89,7 @@ class TTLCache(Generic[T]):
             ),
         ] = None,
         serializer: Annotated[
-            CacheSerializer[T, T] | None,
+            CacheSerializer[T] | None,
             Doc(
                 """
                 Serialization strategy for cached values.

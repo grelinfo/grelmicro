@@ -37,23 +37,21 @@ from grelmicro._json import (
 )
 
 T = TypeVar("T", default=Any)
-T_contra = TypeVar("T_contra", default=Any, contravariant=True)
-T_co = TypeVar("T_co", default=Any, covariant=True)
 
 
 @runtime_checkable
-class CacheSerializer(Protocol[T_contra, T_co]):
+class CacheSerializer(Protocol[T]):
     """Protocol for cache serialization strategies.
 
     Any object implementing ``dumps`` and ``loads`` can be used
     as a ``TTLCache`` serializer.
     """
 
-    def dumps(self, value: T_contra) -> bytes:
+    def dumps(self, value: T) -> bytes:
         """Serialize a value to bytes."""
         ...
 
-    def loads(self, data: bytes) -> T_co:
+    def loads(self, data: bytes) -> T:
         """Deserialize bytes to a value."""
         ...
 

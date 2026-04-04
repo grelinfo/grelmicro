@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict
 
 from grelmicro.cache.serializers import (
+    CacheSerializer,
     JsonSerializer,
     PickleSerializer,
     PydanticSerializer,
@@ -16,12 +17,27 @@ pytestmark = [pytest.mark.timeout(10)]
 
 
 EXPECTED_USER_ID = 42
-EXPECTED_PRICE = 9.99
 
 
 class _User(BaseModel):
     id: int
     name: str
+
+
+class TestCacheSerializerProtocol:
+    """Tests for CacheSerializer protocol conformance."""
+
+    def test_pickle_serializer_satisfies_protocol(self) -> None:
+        """Test PickleSerializer is a CacheSerializer."""
+        assert isinstance(PickleSerializer(), CacheSerializer)
+
+    def test_json_serializer_satisfies_protocol(self) -> None:
+        """Test JsonSerializer is a CacheSerializer."""
+        assert isinstance(JsonSerializer(), CacheSerializer)
+
+    def test_pydantic_serializer_satisfies_protocol(self) -> None:
+        """Test PydanticSerializer is a CacheSerializer."""
+        assert isinstance(PydanticSerializer(_User), CacheSerializer)
 
 
 class TestPickleSerializer:

@@ -58,7 +58,7 @@ def has_orjson() -> bool:
 
 if orjson is not None:
 
-    def json_dumps_bytes(obj: JSONEncodable) -> bytes:
+    def json_dumps_bytes(obj: JSONEncodable | Mapping[str, Any]) -> bytes:
         """Serialize object to JSON bytes using orjson."""
         return orjson.dumps(obj)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
 
@@ -73,7 +73,7 @@ if orjson is not None:
 else:
     import json
 
-    def json_dumps_bytes(obj: JSONEncodable) -> bytes:
+    def json_dumps_bytes(obj: JSONEncodable | Mapping[str, Any]) -> bytes:
         """Serialize object to JSON bytes using stdlib json."""
         return json.dumps(
             obj, separators=(",", ":"), default=json_default
