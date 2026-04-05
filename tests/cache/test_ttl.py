@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from time import monotonic
 from unittest.mock import patch
 
@@ -10,6 +9,7 @@ import pytest
 
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache.memory import MemoryCacheBackend
+from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import CacheInfo, TTLCache
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
@@ -72,40 +72,6 @@ class TestInit:
         with pytest.raises(ValueError, match="ttl must be positive"):
             TTLCache(maxsize=10, ttl=-1, backend=backend)
 
-    def test_serializer_without_deserializer_raises(
-        self, backend: MemoryCacheBackend
-    ) -> None:
-        """Test that providing only serializer raises ValueError."""
-        # Act / Assert
-        with pytest.raises(
-            ValueError,
-            match="serializer and deserializer must be provided together",
-        ):
-            TTLCache(
-                maxsize=10,
-                ttl=60,
-                backend=backend,
-                serializer=json.dumps.encode if False else lambda v: v.encode(),
-                deserializer=None,
-            )
-
-    def test_deserializer_without_serializer_raises(
-        self, backend: MemoryCacheBackend
-    ) -> None:
-        """Test that providing only deserializer raises ValueError."""
-        # Act / Assert
-        with pytest.raises(
-            ValueError,
-            match="serializer and deserializer must be provided together",
-        ):
-            TTLCache(
-                maxsize=10,
-                ttl=60,
-                backend=backend,
-                serializer=None,
-                deserializer=lambda b: b.decode(),
-            )
-
     def test_default_backend_resolved_lazily(self) -> None:
         """Test that TTLCache created without backend resolves it lazily."""
         # Act: should not raise at construction time even without a registered backend
@@ -163,8 +129,7 @@ class TestGetSet:
             maxsize=10,
             ttl=60,
             backend=backend,
-            serializer=lambda v: json.dumps(v).encode(),
-            deserializer=lambda b: json.loads(b.decode()),
+            serializer=JsonSerializer(),
         )
 
         # Act
@@ -581,8 +546,7 @@ class TestSerializer:
             maxsize=10,
             ttl=60,
             backend=backend,
-            serializer=lambda v: json.dumps(v).encode("utf-8"),
-            deserializer=lambda b: json.loads(b.decode("utf-8")),
+            serializer=JsonSerializer(),
         )
 
         # Act
@@ -592,17 +556,14 @@ class TestSerializer:
         # Assert
         assert result == {"id": 42, "name": "alice"}
 
-    async def test_integer_serializer(
-        self, backend: MemoryCacheBackend
-    ) -> None:
-        """Test serializing non-string types via a custom serializer."""
+    async def test_pickle_serializer(self, backend: MemoryCacheBackend) -> None:
+        """Test serializing with PickleSerializer."""
         # Arrange
         cache = TTLCache(
             maxsize=10,
             ttl=60,
             backend=backend,
-            serializer=lambda v: str(v).encode(),
-            deserializer=lambda b: int(b.decode()),
+            serializer=PickleSerializer(),
         )
 
         # Act

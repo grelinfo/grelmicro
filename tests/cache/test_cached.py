@@ -1,7 +1,6 @@
 """Test Cached Decorator."""
 
 import asyncio
-import pickle
 import threading
 import time
 
@@ -11,6 +10,7 @@ import pytest
 
 from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheBackend
+from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
@@ -31,8 +31,7 @@ def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
         maxsize=maxsize,
         ttl=ttl,
         backend=backend,
-        serializer=pickle.dumps,
-        deserializer=pickle.loads,
+        serializer=PickleSerializer(),
     )
 
 

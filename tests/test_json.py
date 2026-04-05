@@ -1,91 +1,184 @@
 """Tests for shared JSON serialization utilities."""
 
+from __future__ import annotations
+
 import importlib
 import sys
 from datetime import datetime
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 
-from grelmicro._json import (
-    _json_default,
+from grelmicro.json import (
     has_orjson,
+    json_default,
     json_dumps_bytes,
     json_dumps_str,
+    json_loads,
 )
 
+if TYPE_CHECKING:
+    from types import ModuleType
 
-def test_json_dumps_bytes_with_orjson() -> None:
-    """Test that json_dumps_bytes uses orjson when available."""
-    result = json_dumps_bytes({"key": "value"})
-
-    assert isinstance(result, bytes)
-    assert b'"key"' in result
-    assert b'"value"' in result
+    from grelmicro.json import JSONEncodable
 
 
-def test_json_dumps_str_with_orjson() -> None:
-    """Test that json_dumps_str uses orjson when available."""
-    result = json_dumps_str({"key": "value"})
-
-    assert isinstance(result, str)
-    assert '"key"' in result
-    assert '"value"' in result
-
-
-def test_has_orjson_returns_true() -> None:
-    """Test that has_orjson returns True when orjson is installed."""
-    assert has_orjson() is True
-
-
-def _reload_without_orjson():  # noqa: ANN202
+@pytest.fixture
+def stdlib_json_module() -> ModuleType:
     """Reload _json module with orjson unavailable."""
     with patch.dict(sys.modules, {"orjson": None}):
-        if "grelmicro._json" in sys.modules:
-            del sys.modules["grelmicro._json"]
+        sys.modules.pop("grelmicro._json", None)
         module = importlib.import_module("grelmicro._json")
-    # Restore original module after test
-    if "grelmicro._json" in sys.modules:
-        del sys.modules["grelmicro._json"]
-    importlib.import_module("grelmicro._json")
-    return module
+    try:
+        return module
+    finally:
+        sys.modules.pop("grelmicro._json", None)
+        importlib.import_module("grelmicro._json")
 
 
-def test_json_dumps_bytes_stdlib_fallback() -> None:
-    """Test json_dumps_bytes falls back to stdlib json."""
-    module = _reload_without_orjson()
+class TestOrjsonPath:
+    """Tests for the orjson-backed implementations."""
 
-    result = module.json_dumps_bytes({"key": "value"})
+    def test_has_orjson(self) -> None:
+        """Test that has_orjson returns True when orjson is installed."""
+        assert has_orjson() is True
 
-    assert isinstance(result, bytes)
-    assert b'"key"' in result
+    @pytest.mark.parametrize(
+        ("obj", "expected_fragment"),
+        [
+            ({"key": "value"}, b'"key"'),
+            ([1, 2, 3], b"[1,2,3]"),
+            ("hello", b'"hello"'),
+            (42, b"42"),
+            (True, b"true"),
+            (None, b"null"),
+        ],
+    )
+    def test_dumps_bytes(
+        self, obj: JSONEncodable, expected_fragment: bytes
+    ) -> None:
+        """Test json_dumps_bytes serializes various types."""
+        result = json_dumps_bytes(obj)
+
+        assert isinstance(result, bytes)
+        assert expected_fragment in result
+
+    def test_dumps_str(self) -> None:
+        """Test json_dumps_str returns a string."""
+        result = json_dumps_str({"key": "value"})
+
+        assert isinstance(result, str)
+        assert '"key"' in result
+
+    def test_loads_bytes(self) -> None:
+        """Test json_loads deserializes bytes."""
+        result = json_loads(b'{"key":"value"}')
+
+        assert result == {"key": "value"}
+
+    def test_loads_str(self) -> None:
+        """Test json_loads also accepts str input."""
+        result = json_loads('{"key":"value"}')
+
+        assert result == {"key": "value"}
+
+    @pytest.mark.parametrize(
+        "obj",
+        [
+            {"id": 42, "name": "alice", "tags": [1, 2, 3]},
+            [1, "two", None, True],
+            "simple string",
+        ],
+    )
+    def test_roundtrip(self, obj: JSONEncodable) -> None:
+        """Test dumps/loads roundtrip preserves data."""
+        result = json_loads(json_dumps_bytes(obj))
+
+        assert result == obj
 
 
-def test_json_dumps_str_stdlib_fallback() -> None:
-    """Test json_dumps_str falls back to stdlib json."""
-    module = _reload_without_orjson()
+class TestStdlibFallback:
+    """Tests for the stdlib json fallback (orjson unavailable)."""
 
-    result = module.json_dumps_str({"key": "value"})
+    def test_has_orjson_false(self, stdlib_json_module: ModuleType) -> None:
+        """Test has_orjson returns False without orjson."""
+        assert stdlib_json_module.has_orjson() is False
 
-    assert isinstance(result, str)
-    assert '"key"' in result
+    def test_dumps_bytes(self, stdlib_json_module: ModuleType) -> None:
+        """Test json_dumps_bytes with stdlib json."""
+        result = stdlib_json_module.json_dumps_bytes({"key": "value"})
+
+        assert isinstance(result, bytes)
+        assert b'"key"' in result
+
+    def test_dumps_str(self, stdlib_json_module: ModuleType) -> None:
+        """Test json_dumps_str with stdlib json."""
+        result = stdlib_json_module.json_dumps_str({"key": "value"})
+
+        assert isinstance(result, str)
+        assert '"key"' in result
+
+    def test_loads_bytes(self, stdlib_json_module: ModuleType) -> None:
+        """Test json_loads with stdlib json from bytes."""
+        result = stdlib_json_module.json_loads(b'{"key":"value"}')
+
+        assert result == {"key": "value"}
+
+    def test_loads_str(self, stdlib_json_module: ModuleType) -> None:
+        """Test json_loads with stdlib json from str."""
+        result = stdlib_json_module.json_loads('{"key":"value"}')
+
+        assert result == {"key": "value"}
+
+    def test_roundtrip(self, stdlib_json_module: ModuleType) -> None:
+        """Test stdlib dumps/loads roundtrip preserves data."""
+        obj = {"id": 42, "tags": [1, 2]}
+
+        result = stdlib_json_module.json_loads(
+            stdlib_json_module.json_dumps_bytes(obj)
+        )
+
+        assert result == obj
 
 
-def test_has_orjson_false_without_orjson() -> None:
-    """Test has_orjson returns False when orjson is not available."""
-    module = _reload_without_orjson()
+class TestJsonDefault:
+    """Tests for json_default (stdlib json fallback handler)."""
 
-    assert module.has_orjson() is False
+    def test_datetime_serialization(self) -> None:
+        """Test datetime is serialized to ISO 8601."""
+        dt = datetime(2025, 1, 1, 12, 0, 0)  # noqa: DTZ001
+
+        result = json_default(dt)
+
+        assert result == "2025-01-01T12:00:00"
+
+    def test_unsupported_type_raises(self) -> None:
+        """Test non-serializable types raise TypeError."""
+        with pytest.raises(TypeError, match="not JSON serializable"):
+            json_default(object())
 
 
-def test_json_default_with_datetime() -> None:
-    """Test _json_default handles datetime objects."""
-    dt = datetime(2025, 1, 1, 12, 0, 0)  # noqa: DTZ001
+class TestDatetimeSerialization:
+    """Tests for datetime handling through the full serialization path."""
 
-    assert _json_default(dt) == "2025-01-01T12:00:00"
+    def test_dumps_bytes_with_datetime_value(self) -> None:
+        """Test that a dict containing datetime is serialized correctly."""
+        dt = datetime(2025, 6, 15, 10, 30, 0)  # noqa: DTZ001
+        obj = {"created_at": dt, "name": "alice"}
 
+        result = json_dumps_bytes(obj)
 
-def test_json_default_with_unsupported_type() -> None:
-    """Test _json_default raises TypeError for unsupported types."""
-    with pytest.raises(TypeError, match="not JSON serializable"):
-        _json_default(object())
+        assert b"2025-06-15T10:30:00" in result
+        assert b"alice" in result
+
+    def test_stdlib_dumps_bytes_with_datetime(
+        self, stdlib_json_module: ModuleType
+    ) -> None:
+        """Test stdlib fallback handles datetime via json_default."""
+        dt = datetime(2025, 6, 15, 10, 30, 0)  # noqa: DTZ001
+        obj = {"created_at": dt}
+
+        result = stdlib_json_module.json_dumps_bytes(obj)
+
+        assert b"2025-06-15T10:30:00" in result

@@ -1,6 +1,5 @@
 """Tests for Cache Backends (parametrized across all implementations)."""
 
-import json
 from collections.abc import AsyncGenerator, Generator
 
 import pytest
@@ -11,6 +10,7 @@ from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(30)]
@@ -172,8 +172,7 @@ async def test_cached_end_to_end_with_redis() -> None:
             cache = TTLCache(
                 ttl=60,
                 backend=redis_backend,
-                serializer=lambda v: json.dumps(v).encode(),
-                deserializer=json.loads,
+                serializer=JsonSerializer(),
             )
             call_count = 0
 
@@ -197,8 +196,7 @@ async def test_cached_end_to_end_with_memory() -> None:
         cache = TTLCache(
             ttl=60,
             backend=memory_backend,
-            serializer=lambda v: json.dumps(v).encode(),
-            deserializer=json.loads,
+            serializer=JsonSerializer(),
         )
         call_count = 0
 

@@ -24,36 +24,17 @@ try:
 except ImportError:  # pragma: no cover
     trace: Any = None
 
-try:
-    import orjson
-except ImportError:  # pragma: no cover
-    orjson: Any = None
-
-
-def _json_default(obj: object) -> str:
-    """Handle non-serializable types for stdlib json."""
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    msg = f"Type is not JSON serializable: {type(obj).__name__}"
-    raise TypeError(msg)
+from grelmicro._json import has_orjson, json_default, json_dumps_str
 
 
 def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
-    """Serialize object to JSON string using stdlib json."""
-    return json.dumps(obj, separators=(",", ":"), default=_json_default)
+    """Serialize object to JSON string using stdlib json.
 
-
-def _orjson_dumps(obj: Mapping[str, Any]) -> str:
-    """Serialize object to JSON string using orjson.
-
-    Note: Only called when orjson is available (validated by load_settings).
+    Always uses the standard library ``json`` module regardless of
+    whether ``orjson`` is installed. Used when the user explicitly
+    selects ``LOG_JSON_SERIALIZER=stdlib``.
     """
-    return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
-
-
-def has_orjson() -> bool:
-    """Check if orjson is available."""
-    return orjson is not None
+    return json.dumps(obj, separators=(",", ":"), default=json_default)
 
 
 def has_opentelemetry() -> bool:
@@ -373,10 +354,11 @@ def load_settings() -> LoadedSettings:
     except ValidationError as error:
         raise LoggingSettingsValidationError(error) from None
 
+    json_dumps: Callable[[Mapping[str, Any]], str]
     if settings.LOG_JSON_SERIALIZER == LoggingSerializerType.ORJSON:
         if not has_orjson():
             raise DependencyNotFoundError(module="orjson")
-        json_dumps = _orjson_dumps
+        json_dumps = json_dumps_str
     else:
         json_dumps = _stdlib_json_dumps
 
