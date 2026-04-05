@@ -61,20 +61,52 @@ await cache.clear()
 
 ### Serialization
 
-Backends store raw bytes. To cache Python objects, provide a `serializer` and `deserializer`:
+Backends store raw bytes. To cache Python objects, pass a serializer:
 
-```python
-import json
+=== "Pydantic Model (recommended)"
 
-cache = TTLCache(
-    ttl=300,
-    serializer=lambda v: json.dumps(v).encode(),
-    deserializer=json.loads,
-)
+    Type-safe roundtrips using Pydantic's Rust-based TypeAdapter (fastest option):
 
-await cache.set("user", {"id": 1, "name": "Alice"})  # stored as JSON bytes
-user = await cache.get("user")  # returns dict
-```
+    ```python
+    from pydantic import BaseModel
+
+    from grelmicro.cache import PydanticSerializer, TTLCache
+
+    class User(BaseModel):
+        id: int
+        name: str
+
+    cache = TTLCache[User](ttl=300, serializer=PydanticSerializer(User))
+
+    await cache.set("user", User(id=1, name="Alice"))
+    user = await cache.get("user")  # returns User instance
+    ```
+
+=== "JSON"
+
+    For plain dicts and lists, using orjson when available:
+
+    ```python
+    from grelmicro.cache import JsonSerializer, TTLCache
+
+    cache = TTLCache(ttl=300, serializer=JsonSerializer())
+
+    await cache.set("user", {"id": 1, "name": "Alice"})
+    user = await cache.get("user")  # returns dict
+    ```
+
+=== "Pickle"
+
+    For any picklable Python object:
+
+    ```python
+    from grelmicro.cache import PickleSerializer, TTLCache
+
+    cache = TTLCache(ttl=300, serializer=PickleSerializer())
+
+    await cache.set("data", {"complex": [1, 2, 3]})
+    data = await cache.get("data")
+    ```
 
 Without a serializer, only `bytes` values are accepted.
 
@@ -93,7 +125,7 @@ The `@cached` decorator automatically caches function results. It works with bot
 ```python
 from grelmicro.cache import TTLCache, cached
 
-cache = TTLCache(ttl=300, serializer=..., deserializer=...)
+cache = TTLCache(ttl=300, serializer=PickleSerializer())
 
 @cached(cache)
 async def get_user(user_id: int) -> dict:

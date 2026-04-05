@@ -5,11 +5,13 @@
 ### Breaking Changes
 
 * 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now opt-in via `LOG_CALLER_ENABLED` (default: `False`), following slog/zap/zerolog/Caddy conventions. Uvicorn formatter never includes `caller`.
+* 💥 **Cache**: replace `TTLCache` `serializer`/`deserializer` callable pair with a single `serializer` accepting a `CacheSerializer` protocol object. Use `JsonSerializer()`, `PydanticSerializer(Model)`, or `PickleSerializer()` instead.
 
 ### Features
 
 * ✨ Add `LOG_CALLER_ENABLED` setting to opt in to caller info (`function:line`) in log records. Disabled by default for cleaner logs and better performance.
 * ✨ Add `logger` field (logger name, e.g., `myapp.api`) to all log records across all backends and formats.
+* ✨ Add `grelmicro.json` module with fast JSON serialization using `orjson` when available, with automatic fallback to stdlib `json`.
 
 ## 0.10.0 - 2026-04-02
 
