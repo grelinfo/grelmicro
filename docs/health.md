@@ -15,7 +15,8 @@ A health checker is any class with a `name` property and an async `check` method
 
 - Return `None`: healthy, no details.
 - Return a `dict`: healthy, with details (e.g. latency, version, connection count).
-- Raise any exception: unhealthy. The exception message becomes the `error` field.
+- Raise a `HealthError`: unhealthy, with the exception message exposed in the `error` field.
+- Raise any other exception: unhealthy, with a generic `"Health check failed"` message (details are logged server-side to prevent information disclosure).
 
 ## Registry
 
@@ -73,7 +74,7 @@ This creates two endpoints:
   "status": "degraded",
   "components": [
     {"name": "database", "status": "healthy", "error": null},
-    {"name": "redis", "status": "unhealthy", "error": "Connection refused"}
+    {"name": "redis", "status": "unhealthy", "error": "Health check failed"}
   ]
 }
 ```

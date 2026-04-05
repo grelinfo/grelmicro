@@ -9,6 +9,7 @@
         - HealthChecker
         - HealthError
         - HealthRegistry
+        - HealthRegistryConfig
         - HealthRegistryNotLoadedError
         - HealthReport
         - HealthStatus

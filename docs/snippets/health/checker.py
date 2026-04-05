@@ -1,5 +1,7 @@
 from typing import Any
 
+from grelmicro.health.errors import HealthError
+
 
 # Any class with a `name` property and an async `check` method
 # satisfies the HealthChecker protocol (structural subtyping)
@@ -29,7 +31,7 @@ class ExternalAPIChecker:
         return "external-api"
 
     async def check(self) -> dict[str, Any] | None:
-        # Raise any exception to signal unhealthy.
-        # The exception message becomes the error field.
+        # Raise HealthError to expose a specific message in the error field.
+        # Other exceptions produce a generic "Health check failed" message.
         msg = "Connection refused"
-        raise ConnectionError(msg)
+        raise HealthError(msg)
