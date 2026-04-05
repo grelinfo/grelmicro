@@ -2,74 +2,15 @@
 
 import time
 
-import anyio
 import pytest
 
 from grelmicro.health._models import HealthStatus, OverallStatus
 from grelmicro.health._registry import HealthRegistry
 from grelmicro.health.errors import HealthCheckTimeoutError
 
+from .conftest import HealthyChecker, SlowChecker, UnhealthyChecker
+
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
-
-
-# --- Test helpers ---
-
-
-class HealthyChecker:
-    """A checker that always returns HEALTHY."""
-
-    def __init__(self, name: str = "healthy") -> None:
-        """Initialize the checker."""
-        self._name = name
-
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> HealthStatus:
-        """Return HEALTHY."""
-        return HealthStatus.HEALTHY
-
-
-class UnhealthyChecker:
-    """A checker that always raises."""
-
-    def __init__(self, name: str = "unhealthy") -> None:
-        """Initialize the checker."""
-        self._name = name
-
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> HealthStatus:
-        """Raise ConnectionError."""
-        msg = "Connection refused"
-        raise ConnectionError(msg)
-
-
-class SlowChecker:
-    """A checker that takes longer than the timeout."""
-
-    def __init__(self, name: str = "slow", delay: float = 10.0) -> None:
-        """Initialize the checker."""
-        self._name = name
-        self._delay = delay
-
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> HealthStatus:
-        """Sleep for the configured delay then return HEALTHY."""
-        await anyio.sleep(self._delay)
-        return HealthStatus.HEALTHY
-
-
-# --- Tests ---
 
 
 async def test_empty_registry_is_healthy() -> None:
@@ -134,7 +75,7 @@ async def test_all_healthy() -> None:
     report = await registry.check()
 
     assert report["status"] == OverallStatus.HEALTHY
-    assert len(report["components"]) == len(["db", "kafka", "redis"])
+    assert [c["name"] for c in report["components"]] == ["db", "kafka", "redis"]
 
 
 async def test_checker_timeout() -> None:
@@ -148,7 +89,10 @@ async def test_checker_timeout() -> None:
     assert len(report["components"]) == 1
     assert report["components"][0]["name"] == "slow_db"
     assert report["components"][0]["status"] == HealthStatus.UNHEALTHY
-    assert "Timed out" in (report["components"][0]["detail"] or "")
+    assert (
+        report["components"][0]["detail"]
+        == "Health check 'slow_db' timed out after 0.1s"
+    )
 
 
 async def test_duplicate_name_raises() -> None:
@@ -187,15 +131,16 @@ def test_health_check_timeout_error() -> None:
 async def test_concurrent_execution() -> None:
     """Test that checkers run concurrently (not sequentially)."""
     checker_count = 3
+    checker_delay = 0.1
     registry = HealthRegistry(timeout=2.0)
     for i in range(checker_count):
-        registry.add(SlowChecker(f"checker_{i}", delay=0.1))
+        registry.add(SlowChecker(f"checker_{i}", delay=checker_delay))
 
     start = time.monotonic()
     report = await registry.check()
     elapsed = time.monotonic() - start
 
     assert report["status"] == OverallStatus.HEALTHY
-    # If concurrent, should finish in ~0.1s, not ~0.3s
-    max_concurrent_time = 0.25
-    assert elapsed < max_concurrent_time
+    # If concurrent, should finish in ~0.1s; sequential would be ~0.3s
+    sequential_bound = checker_count * checker_delay
+    assert elapsed < sequential_bound

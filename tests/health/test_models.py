@@ -77,7 +77,7 @@ def test_health_report_degraded() -> None:
     )
 
     assert report["status"] == OverallStatus.DEGRADED
-    assert len(report["components"]) == len(["db", "redis"])
+    assert [c["name"] for c in report["components"]] == ["db", "redis"]
 
 
 def test_health_status_serializes_as_string() -> None:

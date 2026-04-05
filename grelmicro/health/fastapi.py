@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel
 from typing_extensions import Doc
@@ -27,7 +27,7 @@ class ComponentHealthResponse(BaseModel):
 class LivenessResponse(BaseModel):
     """Liveness probe response."""
 
-    status: str = "healthy"
+    status: Literal["healthy"] = "healthy"
 
 
 class ReadinessResponse(BaseModel):
@@ -68,6 +68,7 @@ def health_router(
         from fastapi import APIRouter as _APIRouter  # noqa: PLC0415
         from fastapi.responses import Response  # noqa: PLC0415
         from starlette.status import (  # noqa: PLC0415
+            HTTP_200_OK,
             HTTP_503_SERVICE_UNAVAILABLE,
         )
     except ImportError:
@@ -103,7 +104,7 @@ def health_router(
         """Readiness probe. Checks all registered health checkers."""
         report = await registry.check()
         status_code = (
-            200
+            HTTP_200_OK
             if report["status"] == OverallStatus.HEALTHY
             else HTTP_503_SERVICE_UNAVAILABLE
         )

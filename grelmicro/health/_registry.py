@@ -12,6 +12,7 @@ from grelmicro.health._models import (
     OverallStatus,
 )
 from grelmicro.health._protocol import HealthChecker
+from grelmicro.health.errors import HealthCheckTimeoutError
 
 
 class HealthRegistry:
@@ -34,7 +35,7 @@ class HealthRegistry:
         ] = 5.0,
     ) -> None:
         """Initialize the health registry."""
-        self._checkers: list[HealthChecker] = []
+        self._checkers: dict[str, HealthChecker] = {}
         self._timeout = timeout
 
     def add(
@@ -50,11 +51,10 @@ class HealthRegistry:
             ValueError: If a checker with the same name is already
                 registered.
         """
-        for existing in self._checkers:
-            if existing.name == checker.name:
-                msg = f"Health checker '{checker.name}' is already registered"
-                raise ValueError(msg)
-        self._checkers.append(checker)
+        if checker.name in self._checkers:
+            msg = f"Health checker '{checker.name}' is already registered"
+            raise ValueError(msg)
+        self._checkers[checker.name] = checker
 
     async def check(self) -> HealthReport:
         """Run all registered checkers concurrently.
@@ -63,29 +63,33 @@ class HealthRegistry:
         raise or time out produce an UNHEALTHY component entry.
 
         Returns:
-            An immutable HealthReport with the aggregated status.
+            A HealthReport containing the aggregated status.
         """
         results: list[ComponentHealth] = []
 
         async def _run_checker(checker: HealthChecker) -> None:
             try:
-                with anyio.fail_after(self._timeout):
+                with anyio.move_on_after(self._timeout) as cancel_scope:
                     status = await checker.check()
-                results.append(
-                    ComponentHealth(
-                        name=checker.name,
-                        status=status,
-                        detail=None,
+                if cancel_scope.cancelled_caught:
+                    error = HealthCheckTimeoutError(
+                        name=checker.name, timeout=self._timeout
                     )
-                )
-            except TimeoutError:
-                results.append(
-                    ComponentHealth(
-                        name=checker.name,
-                        status=HealthStatus.UNHEALTHY,
-                        detail=f"Timed out after {self._timeout:.1f}s",
+                    results.append(
+                        ComponentHealth(
+                            name=checker.name,
+                            status=HealthStatus.UNHEALTHY,
+                            detail=str(error),
+                        )
                     )
-                )
+                else:
+                    results.append(
+                        ComponentHealth(
+                            name=checker.name,
+                            status=status,
+                            detail=None,
+                        )
+                    )
             except Exception as exc:  # noqa: BLE001
                 results.append(
                     ComponentHealth(
@@ -96,7 +100,7 @@ class HealthRegistry:
                 )
 
         async with anyio.create_task_group() as tg:
-            for checker in self._checkers:
+            for checker in self._checkers.values():
                 tg.start_soon(_run_checker, checker)
 
         all_healthy = all(c["status"] == HealthStatus.HEALTHY for c in results)

@@ -13,52 +13,12 @@ from starlette.status import (
 )
 
 from grelmicro.errors import DependencyNotFoundError
-from grelmicro.health._models import HealthStatus
 from grelmicro.health._registry import HealthRegistry
 from grelmicro.health.fastapi import health_router
 
+from .conftest import HealthyChecker, UnhealthyChecker
+
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
-
-
-# --- Test helpers ---
-
-
-class HealthyChecker:
-    """A checker that always returns HEALTHY."""
-
-    def __init__(self, name: str = "db") -> None:
-        """Initialize the checker."""
-        self._name = name
-
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> HealthStatus:
-        """Return HEALTHY."""
-        return HealthStatus.HEALTHY
-
-
-class UnhealthyChecker:
-    """A checker that always raises."""
-
-    def __init__(self, name: str = "redis") -> None:
-        """Initialize the checker."""
-        self._name = name
-
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> HealthStatus:
-        """Raise ConnectionError."""
-        msg = "Connection refused"
-        raise ConnectionError(msg)
-
-
-# --- Fixtures ---
 
 
 @pytest.fixture
@@ -79,9 +39,6 @@ def app(registry: HealthRegistry) -> FastAPI:
 def client(app: FastAPI) -> TestClient:
     """Test client for the FastAPI app."""
     return TestClient(app)
-
-
-# --- Tests ---
 
 
 def test_liveness_always_healthy(client: TestClient) -> None:
@@ -149,7 +106,7 @@ def test_readiness_degraded_with_mixed_checkers(
     assert response.status_code == HTTP_503_SERVICE_UNAVAILABLE
     data = response.json()
     assert data["status"] == "degraded"
-    assert len(data["components"]) == len(["db", "redis"])
+    assert [c["name"] for c in data["components"]] == ["db", "redis"]
 
 
 def test_openapi_schema_includes_response_models(
