@@ -144,7 +144,12 @@ def _strip_details(report: HealthReport) -> dict[str, Any]:
     return {
         "status": report["status"],
         "components": [
-            {k: v for k, v in component.items() if k != "details"}
+            {
+                "name": component["name"],
+                "status": component["status"],
+                "critical": component["critical"],
+                "error": component["error"],
+            }
             for component in report["components"]
         ],
     }

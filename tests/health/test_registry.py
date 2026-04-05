@@ -4,6 +4,7 @@ import time
 from collections.abc import Generator
 
 import pytest
+from pydantic import ValidationError
 
 from grelmicro.health._models import HealthStatus, OverallStatus
 from grelmicro.health._registry import HealthRegistry
@@ -20,6 +21,7 @@ from .conftest import (
     HealthyCheckerWithDetails,
     SlowChecker,
     UnhealthyChecker,
+    UnhealthyCheckerWithHealthError,
 )
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
@@ -70,7 +72,7 @@ async def test_single_unhealthy_checker() -> None:
     assert len(report["components"]) == 1
     assert report["components"][0]["name"] == "redis"
     assert report["components"][0]["status"] == HealthStatus.UNHEALTHY
-    assert report["components"][0]["error"] == "Connection refused"
+    assert report["components"][0]["error"] == "Health check failed"
     assert report["components"][0]["details"] is None
 
 
@@ -162,6 +164,7 @@ async def test_components_sorted_by_name() -> None:
 def test_health_check_timeout_error() -> None:
     """Test HealthCheckTimeoutError message formatting."""
     timeout = 5.0
+
     error = HealthCheckTimeoutError(name="db", timeout=timeout)
 
     assert error.name == "db"
@@ -183,7 +186,6 @@ async def test_concurrent_execution() -> None:
     elapsed = time.monotonic() - start
 
     assert report["status"] == OverallStatus.HEALTHY
-    # If concurrent, should finish in ~0.1s; sequential would be ~0.3s
     sequential_bound = checker_count * checker_delay
     assert elapsed < sequential_bound
 
@@ -217,12 +219,19 @@ def test_overwrite_warns() -> None:
         HealthRegistry()
 
 
-def test_set_and_reset() -> None:
-    """Test set_health_registry and reset_health_registry."""
+def test_set_health_registry() -> None:
+    """Test that set_health_registry registers the singleton."""
     registry = HealthRegistry(auto_register=False)
+
     set_health_registry(registry)
 
     assert get_health_registry() is registry
+
+
+def test_reset_health_registry() -> None:
+    """Test that reset_health_registry removes the singleton."""
+    registry = HealthRegistry(auto_register=False)
+    set_health_registry(registry)
 
     reset_health_registry()
 
@@ -279,3 +288,52 @@ async def test_critical_defaults_to_true() -> None:
     report = await registry.check()
 
     assert report["components"][0]["critical"] is True
+
+
+async def test_health_error_exposes_message() -> None:
+    """Test that HealthError subclasses expose their message."""
+    registry = HealthRegistry(auto_register=False)
+    registry.add(UnhealthyCheckerWithHealthError("db"))
+
+    report = await registry.check()
+
+    assert report["status"] == OverallStatus.DEGRADED
+    assert (
+        report["components"][0]["error"] == "Database connection pool exhausted"
+    )
+
+
+async def test_generic_exception_hides_message() -> None:
+    """Test that non-HealthError exceptions use a generic message."""
+    registry = HealthRegistry(auto_register=False)
+    registry.add(UnhealthyChecker("redis"))
+
+    report = await registry.check()
+
+    assert report["components"][0]["error"] == "Health check failed"
+
+
+def test_timeout_zero_raises() -> None:
+    """Test that timeout=0 raises a validation error."""
+    with pytest.raises(ValidationError, match="greater than 0"):
+        HealthRegistry(timeout=0, auto_register=False)
+
+
+def test_timeout_negative_raises() -> None:
+    """Test that a negative timeout raises a validation error."""
+    with pytest.raises(ValidationError, match="greater than 0"):
+        HealthRegistry(timeout=-1.0, auto_register=False)
+
+
+def test_overwrite_warning_points_to_caller(
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """Test that the overwrite warning stacklevel points to user code."""
+    HealthRegistry()
+
+    HealthRegistry()
+
+    assert len(recwarn) == 1
+    warning = recwarn.pop(UserWarning)
+    assert "Overwriting" in str(warning.message)
+    assert warning.filename == __file__

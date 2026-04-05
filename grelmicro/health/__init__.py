@@ -7,7 +7,7 @@ from grelmicro.health._models import (
     OverallStatus,
 )
 from grelmicro.health._protocol import HealthChecker
-from grelmicro.health._registry import HealthRegistry
+from grelmicro.health._registry import HealthRegistry, HealthRegistryConfig
 from grelmicro.health._state import (
     HealthRegistryNotLoadedError,
     get_health_registry,
@@ -20,6 +20,7 @@ __all__ = [
     "HealthChecker",
     "HealthError",
     "HealthRegistry",
+    "HealthRegistryConfig",
     "HealthRegistryNotLoadedError",
     "HealthReport",
     "HealthStatus",

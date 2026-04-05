@@ -26,7 +26,7 @@ def set_health_registry(registry: HealthRegistry) -> None:
     if _registry is not None:
         warnings.warn(
             "Overwriting already-registered health registry.",
-            stacklevel=2,
+            stacklevel=3,
         )
     _registry = registry
 

@@ -121,7 +121,7 @@ def test_readiness_degraded_with_unhealthy_checker(
     assert data["status"] == "degraded"
     assert len(data["components"]) == 1
     assert data["components"][0]["status"] == "unhealthy"
-    assert data["components"][0]["error"] == "Connection refused"
+    assert data["components"][0]["error"] == "Health check failed"
 
 
 def test_readiness_degraded_with_mixed_checkers(
@@ -236,15 +236,12 @@ def test_openapi_schema_includes_response_models(
 ) -> None:
     """Test that OpenAPI schema contains proper response models."""
     response = client.get("/openapi.json")
-    schema = response.json()
 
-    ready_path = schema["paths"]["/health/ready"]
-    ready_responses = ready_path["get"]["responses"]
+    schema = response.json()
+    ready_responses = schema["paths"]["/health/ready"]["get"]["responses"]
+    live_responses = schema["paths"]["/health/live"]["get"]["responses"]
     assert "200" in ready_responses
     assert "503" in ready_responses
-
-    live_path = schema["paths"]["/health/live"]
-    live_responses = live_path["get"]["responses"]
     assert "200" in live_responses
 
 
@@ -258,21 +255,30 @@ def test_health_router_raises_without_fastapi() -> None:
         with pytest.raises(DependencyNotFoundError):
             module.health_router()
 
-    # Restore
     if "grelmicro.health.fastapi" in sys.modules:
         del sys.modules["grelmicro.health.fastapi"]
-    importlib.import_module("grelmicro.health.fastapi")
+    importlib.import_module("grelmicro.health.fastapi")  # restore
 
 
 @pytest.mark.usefixtures("registry")
-def test_router_with_prefix() -> None:
-    """Test that the router respects the prefix parameter."""
+def test_router_with_prefix_liveness() -> None:
+    """Test that the liveness endpoint respects the prefix parameter."""
     app = FastAPI()
     app.include_router(health_router(prefix="/api"))
     client = TestClient(app)
 
     response = client.get("/api/health/live")
+
     assert response.status_code == HTTP_200_OK
 
+
+@pytest.mark.usefixtures("registry")
+def test_router_with_prefix_readiness() -> None:
+    """Test that the readiness endpoint respects the prefix parameter."""
+    app = FastAPI()
+    app.include_router(health_router(prefix="/api"))
+    client = TestClient(app)
+
     response = client.get("/api/health/ready")
+
     assert response.status_code == HTTP_200_OK

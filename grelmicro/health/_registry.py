@@ -1,9 +1,11 @@
 """Health Check Registry."""
 
 from dataclasses import dataclass
-from typing import Annotated, Any, cast
+from logging import getLogger
+from typing import Annotated, Any
 
 import anyio
+from pydantic import BaseModel, PositiveFloat
 from typing_extensions import Doc
 
 from grelmicro.health._models import (
@@ -13,7 +15,21 @@ from grelmicro.health._models import (
     OverallStatus,
 )
 from grelmicro.health._protocol import HealthChecker
-from grelmicro.health.errors import HealthCheckTimeoutError
+from grelmicro.health.errors import HealthCheckTimeoutError, HealthError
+
+logger = getLogger("grelmicro.health")
+
+
+class HealthRegistryConfig(BaseModel, frozen=True, extra="forbid"):
+    """Health Registry Config."""
+
+    timeout: Annotated[
+        PositiveFloat,
+        Doc(
+            "Per-checker timeout in seconds. Checkers that exceed "
+            "this duration are reported as UNHEALTHY."
+        ),
+    ] = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +52,7 @@ class HealthRegistry:
         self,
         *,
         timeout: Annotated[
-            float,
+            PositiveFloat,
             Doc(
                 "Per-checker timeout in seconds. Checkers that exceed "
                 "this duration are reported as UNHEALTHY."
@@ -51,8 +67,8 @@ class HealthRegistry:
         ] = True,
     ) -> None:
         """Initialize the health registry."""
+        self._config = HealthRegistryConfig(timeout=timeout)
         self._checkers: dict[str, _RegisteredChecker] = {}
-        self._timeout = timeout
         if auto_register:
             from grelmicro.health._state import set_health_registry  # noqa: I001, PLC0415
 
@@ -100,17 +116,18 @@ class HealthRegistry:
         Returns:
             A HealthReport containing the aggregated status.
         """
+        timeout = self._config.timeout
         entries = list(self._checkers.values())
-        results: list[ComponentHealth | None] = [None] * len(entries)
+        results: dict[int, ComponentHealth] = {}
 
         async def _run_checker(index: int, entry: _RegisteredChecker) -> None:
             checker = entry.checker
             try:
-                with anyio.move_on_after(self._timeout) as cancel_scope:
+                with anyio.move_on_after(timeout) as cancel_scope:
                     result: dict[str, Any] | None = await checker.check()
                 if cancel_scope.cancelled_caught:
                     error = HealthCheckTimeoutError(
-                        name=checker.name, timeout=self._timeout
+                        name=checker.name, timeout=timeout
                     )
                     results[index] = ComponentHealth(
                         name=checker.name,
@@ -127,7 +144,7 @@ class HealthRegistry:
                         error=None,
                         details=result,
                     )
-            except Exception as exc:  # noqa: BLE001
+            except HealthError as exc:
                 results[index] = ComponentHealth(
                     name=checker.name,
                     status=HealthStatus.UNHEALTHY,
@@ -135,13 +152,24 @@ class HealthRegistry:
                     error=str(exc),
                     details=None,
                 )
+            except Exception:
+                logger.exception(
+                    "Health check '%s' raised unexpectedly",
+                    checker.name,
+                )
+                results[index] = ComponentHealth(
+                    name=checker.name,
+                    status=HealthStatus.UNHEALTHY,
+                    critical=entry.critical,
+                    error="Health check failed",
+                    details=None,
+                )
 
         async with anyio.create_task_group() as tg:
             for i, entry in enumerate(entries):
                 tg.start_soon(_run_checker, i, entry)
 
-        # results slots are guaranteed filled after task group completes
-        components = cast("list[ComponentHealth]", results)
+        components = [results[i] for i in range(len(entries))]
         all_critical_healthy = all(
             c["status"] == HealthStatus.HEALTHY
             for c in components

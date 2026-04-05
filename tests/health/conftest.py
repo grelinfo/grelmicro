@@ -4,6 +4,8 @@ from typing import Any
 
 import anyio
 
+from grelmicro.health.errors import HealthError
+
 
 class HealthyChecker:
     """A checker that always returns healthy (None)."""
@@ -58,6 +60,24 @@ class UnhealthyChecker:
         """Raise ConnectionError."""
         msg = "Connection refused"
         raise ConnectionError(msg)
+
+
+class UnhealthyCheckerWithHealthError:
+    """A checker that raises a HealthError subclass."""
+
+    def __init__(self, name: str = "health-error") -> None:
+        """Initialize the checker."""
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        """Return the checker name."""
+        return self._name
+
+    async def check(self) -> dict[str, Any] | None:
+        """Raise a HealthError with a safe message."""
+        msg = "Database connection pool exhausted"
+        raise HealthError(msg)
 
 
 class SlowChecker:
