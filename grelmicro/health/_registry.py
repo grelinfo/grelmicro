@@ -72,7 +72,7 @@ class HealthRegistry:
         if auto_register:
             from grelmicro.health._state import set_health_registry  # noqa: I001, PLC0415
 
-            set_health_registry(self)
+            set_health_registry(self, stacklevel=3)
 
     def add(
         self,
