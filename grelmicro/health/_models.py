@@ -1,7 +1,7 @@
 """Health Check Models."""
 
 from enum import StrEnum
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
 class HealthStatus(StrEnum):
@@ -23,7 +23,9 @@ class ComponentHealth(TypedDict):
 
     name: str
     status: HealthStatus
-    detail: str | None
+    critical: bool
+    error: str | None
+    details: dict[str, Any] | None
 
 
 class HealthReport(TypedDict):

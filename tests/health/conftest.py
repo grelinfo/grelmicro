@@ -1,12 +1,12 @@
 """Shared test helpers for health checks."""
 
-import anyio
+from typing import Any
 
-from grelmicro.health._models import HealthStatus
+import anyio
 
 
 class HealthyChecker:
-    """A checker that always returns HEALTHY."""
+    """A checker that always returns healthy (None)."""
 
     def __init__(self, name: str = "healthy") -> None:
         """Initialize the checker."""
@@ -17,9 +17,29 @@ class HealthyChecker:
         """Return the checker name."""
         return self._name
 
-    async def check(self) -> HealthStatus:
-        """Return HEALTHY."""
-        return HealthStatus.HEALTHY
+    async def check(self) -> dict[str, Any] | None:
+        """Return None (healthy, no details)."""
+        return None
+
+
+class HealthyCheckerWithDetails:
+    """A checker that returns healthy with details."""
+
+    def __init__(
+        self, name: str = "detailed", details: dict[str, Any] | None = None
+    ) -> None:
+        """Initialize the checker."""
+        self._name = name
+        self._details = details or {"latency_ms": 1.5}
+
+    @property
+    def name(self) -> str:
+        """Return the checker name."""
+        return self._name
+
+    async def check(self) -> dict[str, Any] | None:
+        """Return details dict."""
+        return self._details
 
 
 class UnhealthyChecker:
@@ -34,7 +54,7 @@ class UnhealthyChecker:
         """Return the checker name."""
         return self._name
 
-    async def check(self) -> HealthStatus:
+    async def check(self) -> dict[str, Any] | None:
         """Raise ConnectionError."""
         msg = "Connection refused"
         raise ConnectionError(msg)
@@ -53,7 +73,7 @@ class SlowChecker:
         """Return the checker name."""
         return self._name
 
-    async def check(self) -> HealthStatus:
-        """Sleep for the configured delay then return HEALTHY."""
+    async def check(self) -> dict[str, Any] | None:
+        """Sleep for the configured delay then return healthy."""
         await anyio.sleep(self._delay)
-        return HealthStatus.HEALTHY
+        return None

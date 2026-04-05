@@ -25,24 +25,57 @@ def test_component_health_creation() -> None:
     component = ComponentHealth(
         name="db",
         status=HealthStatus.HEALTHY,
-        detail=None,
+        critical=True,
+        error=None,
+        details=None,
     )
 
     assert component["name"] == "db"
     assert component["status"] == HealthStatus.HEALTHY
-    assert component["detail"] is None
+    assert component["critical"] is True
+    assert component["error"] is None
+    assert component["details"] is None
 
 
-def test_component_health_with_detail() -> None:
-    """Test ComponentHealth with error detail."""
+def test_component_health_with_error() -> None:
+    """Test ComponentHealth with error."""
     component = ComponentHealth(
         name="redis",
         status=HealthStatus.UNHEALTHY,
-        detail="Connection refused",
+        critical=True,
+        error="Connection refused",
+        details=None,
     )
 
     assert component["status"] == HealthStatus.UNHEALTHY
-    assert component["detail"] == "Connection refused"
+    assert component["error"] == "Connection refused"
+
+
+def test_component_health_with_details() -> None:
+    """Test ComponentHealth with details."""
+    component = ComponentHealth(
+        name="redis",
+        status=HealthStatus.HEALTHY,
+        critical=True,
+        error=None,
+        details={"latency_ms": 1.5, "version": "7.2"},
+    )
+
+    assert component["status"] == HealthStatus.HEALTHY
+    assert component["details"] == {"latency_ms": 1.5, "version": "7.2"}
+
+
+def test_component_health_non_critical() -> None:
+    """Test ComponentHealth with critical=False."""
+    component = ComponentHealth(
+        name="external-api",
+        status=HealthStatus.UNHEALTHY,
+        critical=False,
+        error="timeout",
+        details=None,
+    )
+
+    assert component["critical"] is False
 
 
 def test_health_report_healthy() -> None:
@@ -51,7 +84,11 @@ def test_health_report_healthy() -> None:
         status=OverallStatus.HEALTHY,
         components=[
             ComponentHealth(
-                name="db", status=HealthStatus.HEALTHY, detail=None
+                name="db",
+                status=HealthStatus.HEALTHY,
+                critical=True,
+                error=None,
+                details=None,
             ),
         ],
     )
@@ -66,12 +103,18 @@ def test_health_report_degraded() -> None:
         status=OverallStatus.DEGRADED,
         components=[
             ComponentHealth(
-                name="db", status=HealthStatus.HEALTHY, detail=None
+                name="db",
+                status=HealthStatus.HEALTHY,
+                critical=True,
+                error=None,
+                details=None,
             ),
             ComponentHealth(
                 name="redis",
                 status=HealthStatus.UNHEALTHY,
-                detail="timeout",
+                critical=True,
+                error="timeout",
+                details=None,
             ),
         ],
     )

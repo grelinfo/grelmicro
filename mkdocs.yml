@@ -33,6 +33,7 @@ nav:
 - grelmicro: index.md
 - User Guide:
     - cache.md
+    - health.md
     - json.md
     - logging.md
     - tracing.md
@@ -41,6 +42,7 @@ nav:
     - task.md
 - API Reference:
     - reference/cache.md
+    - reference/health.md
     - reference/json.md
     - reference/logging.md
     - reference/resilience.md

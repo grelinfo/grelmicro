@@ -1,19 +1,15 @@
 """FastAPI Health Check Router."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel
 from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_bytes
-from grelmicro.health._models import HealthStatus, OverallStatus
+from grelmicro.health._models import HealthReport, HealthStatus, OverallStatus
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
-
-    from grelmicro.health._registry import HealthRegistry
 
 
 class ComponentHealthResponse(BaseModel):
@@ -21,11 +17,20 @@ class ComponentHealthResponse(BaseModel):
 
     name: str
     status: HealthStatus
-    detail: str | None
+    critical: bool = True
+    error: str | None = None
+    details: dict[str, Any] | None = None
 
 
 class LivenessResponse(BaseModel):
-    """Liveness probe response."""
+    """Liveness probe response.
+
+    Always returns ``"healthy"``. If the process can serve this
+    response it is alive; if it cannot, the orchestrator (e.g.
+    Kubernetes, Nomad, or a load balancer) will detect the failure
+    and restart the instance. Liveness probes must never check
+    dependencies (that is the readiness probe's job).
+    """
 
     status: Literal["healthy"] = "healthy"
 
@@ -38,19 +43,26 @@ class ReadinessResponse(BaseModel):
 
 
 def health_router(
-    registry: Annotated[
-        HealthRegistry,
-        Doc("The health registry to use for readiness checks."),
-    ],
     *,
     prefix: Annotated[
         str,
         Doc("URL prefix for health endpoints (e.g. '/api')."),
     ] = "",
-) -> APIRouter:
+    show_details: Annotated[
+        bool,
+        Doc(
+            "Include checker details in the readiness response. "
+            "When False (default), the ``details`` field is stripped "
+            "from each component. Can be overridden per-request with "
+            "the ``?details=true`` query parameter."
+        ),
+    ] = False,
+) -> "APIRouter":
     """Create a FastAPI router with health check endpoints.
 
-    Provides two endpoints following Kubernetes probe best practices:
+    Provides two endpoints following standard liveness/readiness
+    probe conventions (used by Kubernetes, Nomad, Consul, load
+    balancers, etc.):
 
     - ``GET {prefix}/health/live``: Liveness probe. Always returns
       200 with ``{"status": "healthy"}``. Never checks dependencies.
@@ -66,6 +78,7 @@ def health_router(
     """
     try:
         from fastapi import APIRouter as _APIRouter  # noqa: PLC0415
+        from fastapi import Query  # noqa: PLC0415
         from fastapi.responses import Response  # noqa: PLC0415
         from starlette.status import (  # noqa: PLC0415
             HTTP_200_OK,
@@ -77,6 +90,8 @@ def health_router(
         )
 
         raise DependencyNotFoundError(module="fastapi")  # noqa: B904
+
+    from grelmicro.health._state import get_health_registry  # noqa: PLC0415
 
     _liveness_body = json_dumps_bytes({"status": "healthy"})
 
@@ -100,9 +115,16 @@ def health_router(
             },
         },
     )
-    async def readiness() -> Response:
+    async def readiness(
+        details: Annotated[
+            bool,
+            Query(description="Include checker details in the response."),
+        ] = show_details,
+    ) -> Response:
         """Readiness probe. Checks all registered health checkers."""
-        report = await registry.check()
+        report = await get_health_registry().check()
+        if not details:
+            report = _strip_details(report)
         status_code = (
             HTTP_200_OK
             if report["status"] == OverallStatus.HEALTHY
@@ -115,3 +137,14 @@ def health_router(
         )
 
     return router
+
+
+def _strip_details(report: HealthReport) -> dict[str, Any]:
+    """Remove the details field from each component."""
+    return {
+        "status": report["status"],
+        "components": [
+            {k: v for k, v in component.items() if k != "details"}
+            for component in report["components"]
+        ],
+    }

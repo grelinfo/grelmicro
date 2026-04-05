@@ -1,8 +1,6 @@
 """Health Checker Protocol."""
 
-from typing import Protocol
-
-from grelmicro.health._models import HealthStatus
+from typing import Any, Protocol
 
 
 class HealthChecker(Protocol):
@@ -11,9 +9,10 @@ class HealthChecker(Protocol):
     Any class with a ``name`` property and an async ``check`` method
     satisfies this protocol (structural subtyping).
 
-    Checkers should raise an exception to signal unhealthy status.
-    The registry catches exceptions and maps them to
-    ``HealthStatus.UNHEALTHY`` with the error message as detail.
+    - Return ``None`` to signal healthy with no details.
+    - Return a ``dict`` to signal healthy with details (e.g. metrics).
+    - Raise any exception to signal unhealthy. The exception message
+      is captured as the ``error`` field.
     """
 
     @property
@@ -21,14 +20,15 @@ class HealthChecker(Protocol):
         """Unique name identifying this health check."""
         ...
 
-    async def check(self) -> HealthStatus:
+    async def check(self) -> dict[str, Any] | None:
         """Run the health check.
 
         Returns:
-            HealthStatus.HEALTHY if the component is healthy.
+            ``None`` if the component is healthy with no details,
+            or a ``dict`` with optional details (e.g. latency, version).
 
         Raises:
             Exception: Any exception signals the component is unhealthy.
-                The exception message is captured as the detail field.
+                The exception message is captured as the ``error`` field.
         """
         ...
