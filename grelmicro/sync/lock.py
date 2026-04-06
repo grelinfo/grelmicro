@@ -185,14 +185,12 @@ class Lock(BaseLock):
         self._held_by_tasks.add(task_id)
 
     async def acquire_nowait(self) -> None:
-        """
-        Acquire the lock, without blocking.
+        """Acquire the lock, without blocking.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             WouldBlock: If the lock cannot be acquired without blocking.
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
-
         """
         task_id = get_current_task().id
         if task_id in self._held_by_tasks:

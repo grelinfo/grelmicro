@@ -22,6 +22,14 @@ from typing_extensions import Doc
 
 from grelmicro.resilience.errors import CircuitBreakerError
 
+__all__ = [
+    "CircuitBreaker",
+    "CircuitBreakerError",
+    "CircuitBreakerMetrics",
+    "CircuitBreakerState",
+    "ErrorDetails",
+]
+
 
 class _TransitionCause(StrEnum):
     """Cause of a circuit breaker state transition."""
@@ -475,12 +483,3 @@ class _ThreadAdapter:
     def transition_to_forced_closed(self) -> None:
         """Transition the circuit breaker to FORCED_CLOSED state."""
         from_thread.run(self._cb.transition_to_forced_closed)
-
-
-__all__ = (
-    "CircuitBreaker",
-    "CircuitBreakerError",
-    "CircuitBreakerMetrics",
-    "CircuitBreakerState",
-    "ErrorDetails",
-)

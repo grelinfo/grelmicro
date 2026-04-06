@@ -7,15 +7,6 @@ from typing import Any
 from grelmicro._context import (
     context_stack as _context_stack,
 )
-from grelmicro._context import (
-    merge_context_into as _merge_context_into,
-)
-from grelmicro._context import (
-    pop_context as _pop_context,
-)
-from grelmicro._context import (
-    push_context as _push_context,
-)
 
 try:
     from opentelemetry import trace as _otel_trace
@@ -67,10 +58,6 @@ def add_context(**fields: object) -> None:
 
 
 __all__ = [
-    "_context_stack",
-    "_merge_context_into",
-    "_pop_context",
-    "_push_context",
     "add_context",
     "get_context",
 ]

@@ -6,10 +6,16 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_mock
 
+from grelmicro._context import (
+    merge_context_into as _merge_context_into,
+)
+from grelmicro._context import (
+    pop_context as _pop_context,
+)
+from grelmicro._context import (
+    push_context as _push_context,
+)
 from grelmicro.tracing._context import (
-    _merge_context_into,
-    _pop_context,
-    _push_context,
     add_context,
     get_context,
 )
