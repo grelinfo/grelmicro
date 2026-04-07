@@ -1,10 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 - 2026-04-07
 
 ### Features
 
 * ✨ Add `health` module with health check registry, concurrent checker execution, and FastAPI integration for liveness/readiness probes. PR [#84](https://github.com/grelinfo/grelmicro/pull/84).
+
+### Internal
+
+* ⬆️ Bump orjson from 3.11.7 to 3.11.8. PR [#72](https://github.com/grelinfo/grelmicro/pull/72).
+* ⬆️ Bump ty from 0.0.26 to 0.0.27. PR [#74](https://github.com/grelinfo/grelmicro/pull/74).
+* ⬆️ Update uv-build requirement from `<0.10.0` to `<0.12.0`. PR [#75](https://github.com/grelinfo/grelmicro/pull/75).
+* 👷 Add build provenance attestations and wheel verification to release pipeline.
+* ♻️ Pre-release cleanup: add health/json to overview, fix style inconsistencies, remove stale branches.
 
 ## 0.11.0 - 2026-04-03
 
