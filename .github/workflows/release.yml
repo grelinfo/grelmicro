@@ -20,6 +20,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      attestations: write
     environment: pypi
     env:
       UV_FROZEN: 1
@@ -36,9 +37,13 @@ jobs:
         run: uv version ${{ github.event.release.tag_name || github.event.inputs.version }}
       - name: Build Package
         run: uv build
+      - name: Verify Wheel Installs
+        run: uv run --no-project -- pip install dist/*.whl
       - name: Publish Package to PyPI
         if: ${{ github.event.inputs.dry_run != 'true' }}
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
   publish-docs:
     needs: publish-pypi
     runs-on: ubuntu-latest
@@ -53,6 +58,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.release.tag_name || github.event.inputs.version }}
+          fetch-depth: 0
       - name: Configure Git User
         run: |
           git config user.name "${{ github.actor }}"
