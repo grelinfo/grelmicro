@@ -514,6 +514,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -569,6 +573,62 @@
     
   
     Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JSON
   
 
     
@@ -748,6 +808,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -803,6 +867,62 @@
     
   
     Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="reference/health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="reference/json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JSON
   
 
     
@@ -1508,13 +1628,12 @@
 <h2 id="example">Example</h2>
 <h3 id="fastapi-integration">FastAPI Integration</h3>
 <p>Create a file <code>main.py</code> with:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">HTTPException</span><span class="p">,</span> <span class="n">Request</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">TTLCache</span><span class="p">,</span> <span class="n">cached</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">JsonSerializer</span><span class="p">,</span> <span class="n">TTLCache</span><span class="p">,</span> <span class="n">cached</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisCacheBackend</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
@@ -1535,11 +1654,7 @@
 <span class="n">leader_election</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;leader-election&quot;</span><span class="p">)</span>
 <span class="n">task</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader_election</span><span class="p">)</span>
 
-<span class="n">cache</span> <span class="o">=</span> <span class="n">TTLCache</span><span class="p">(</span>
-    <span class="n">ttl</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
-    <span class="n">serializer</span><span class="o">=</span><span class="k">lambda</span> <span class="n">v</span><span class="p">:</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(),</span>
-    <span class="n">deserializer</span><span class="o">=</span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">,</span>
-<span class="p">)</span>
+<span class="n">cache</span> <span class="o">=</span> <span class="n">TTLCache</span><span class="p">(</span><span class="n">ttl</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">serializer</span><span class="o">=</span><span class="n">JsonSerializer</span><span class="p">())</span>
 
 
 <span class="c1"># === FastAPI ===</span>
