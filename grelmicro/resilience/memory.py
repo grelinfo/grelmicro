@@ -111,3 +111,67 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
             retry_after=0.0,
             reset_after=reset_after,
         )
+
+    async def peek(
+        self,
+        *,
+        key: str,
+        limit: int,
+        window: float,
+    ) -> RateLimitResult:
+        """Check rate limit state without consuming tokens.
+
+        Args:
+            key: The rate limit key.
+            limit: Maximum requests allowed in the window.
+            window: Window duration in seconds.
+
+        Returns:
+            RateLimitResult reflecting the current state.
+
+        """
+        now = monotonic()
+
+        emission_interval = window / limit
+        burst_offset = emission_interval * limit
+
+        tat = self._tats.get(key, now)
+
+        # Compute current state without consuming (cost=0)
+        new_tat = max(tat, now)
+        allow_at = new_tat - burst_offset
+        diff = now - allow_at
+        remaining = math.floor(diff / emission_interval + 0.5)
+
+        if remaining <= 0:
+            reset_after = tat - now
+            retry_after = -diff if remaining < 0 else emission_interval - diff
+            return RateLimitResult(
+                allowed=False,
+                limit=limit,
+                remaining=0,
+                retry_after=retry_after,
+                reset_after=max(0.0, reset_after),
+            )
+
+        reset_after = max(tat, now) - now
+        return RateLimitResult(
+            allowed=True,
+            limit=limit,
+            remaining=remaining,
+            retry_after=0.0,
+            reset_after=max(0.0, reset_after),
+        )
+
+    async def reset(
+        self,
+        *,
+        key: str,
+    ) -> None:
+        """Delete rate limit state for a key, restoring full quota.
+
+        Args:
+            key: The rate limit key to reset.
+
+        """
+        self._tats.pop(key, None)

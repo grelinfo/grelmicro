@@ -1,6 +1,7 @@
 """Test RateLimiter implementation."""
 
 from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -284,3 +285,257 @@ def test_rate_limit_exceeded_error() -> None:
     assert error.retry_after == retry_after
     assert "192.168.1.1" in str(error)
     assert "12.5" in str(error)
+
+
+# --- peek ---
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_peek_allowed(limiter: RateLimiter) -> None:
+    """Test peek returns allowed result for fresh key."""
+    # Act
+    result = await limiter.peek(key="user:peek1")
+
+    # Assert
+    assert result.allowed is True
+    assert result.limit == LIMIT
+    assert result.remaining == LIMIT
+    assert result.retry_after == 0.0
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_peek_does_not_consume(limiter: RateLimiter) -> None:
+    """Test peek does not consume tokens."""
+    # Act
+    await limiter.peek(key="user:peek2")
+    await limiter.peek(key="user:peek2")
+    result = await limiter.acquire(key="user:peek2")
+
+    # Assert
+    assert result.remaining == LIMIT - 1
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_peek_after_exhaustion(limiter: RateLimiter) -> None:
+    """Test peek returns not allowed when limit exhausted."""
+    # Arrange
+    for _ in range(LIMIT):
+        await limiter.acquire(key="user:peek3")
+
+    # Act
+    result = await limiter.peek(key="user:peek3")
+
+    # Assert
+    assert result.allowed is False
+    assert result.remaining == 0
+    assert result.retry_after > 0.0
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_peek_reflects_remaining(limiter: RateLimiter) -> None:
+    """Test peek remaining reflects consumed tokens."""
+    # Arrange
+    await limiter.acquire(key="user:peek4", cost=3)
+
+    # Act
+    result = await limiter.peek(key="user:peek4")
+
+    # Assert
+    assert result.allowed is True
+    assert result.remaining == LIMIT - 3
+
+
+async def test_peek_without_backend() -> None:
+    """Test peek raises BackendNotLoadedError without backend."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW)
+
+    # Act & Assert
+    with pytest.raises(BackendNotLoadedError):
+        await limiter.peek(key="user:1")
+
+
+# --- reset ---
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_reset_restores_quota(limiter: RateLimiter) -> None:
+    """Test reset restores full quota for a key."""
+    # Arrange
+    for _ in range(LIMIT):
+        await limiter.acquire(key="user:reset1")
+
+    # Act
+    await limiter.reset(key="user:reset1")
+    result = await limiter.acquire(key="user:reset1")
+
+    # Assert
+    assert result.allowed is True
+    assert result.remaining == LIMIT - 1
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_reset_nonexistent_key(limiter: RateLimiter) -> None:
+    """Test reset on a nonexistent key is a no-op."""
+    # Act (should not raise)
+    await limiter.reset(key="user:nonexistent")
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_reset_independent_keys(limiter: RateLimiter) -> None:
+    """Test reset only affects the specified key."""
+    # Arrange
+    await limiter.acquire(key="user:reset_a")
+    await limiter.acquire(key="user:reset_b")
+
+    # Act
+    await limiter.reset(key="user:reset_a")
+
+    # Assert
+    result_a = await limiter.peek(key="user:reset_a")
+    result_b = await limiter.peek(key="user:reset_b")
+    assert result_a.remaining == LIMIT
+    assert result_b.remaining == LIMIT - 1
+
+
+async def test_reset_without_backend() -> None:
+    """Test reset raises BackendNotLoadedError without backend."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW)
+
+    # Act & Assert
+    with pytest.raises(BackendNotLoadedError):
+        await limiter.reset(key="user:1")
+
+
+# --- fail_open ---
+
+
+@pytest.fixture
+def _failing_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> MemoryRateLimiterBackend:
+    """Create a backend where all methods raise RuntimeError."""
+    backend = MemoryRateLimiterBackend()
+    error = RuntimeError("connection lost")
+    monkeypatch.setattr(backend, "acquire", AsyncMock(side_effect=error))
+    monkeypatch.setattr(backend, "peek", AsyncMock(side_effect=error))
+    monkeypatch.setattr(backend, "reset", AsyncMock(side_effect=error))
+    return backend
+
+
+@pytest.mark.usefixtures("_failing_backend")
+async def test_fail_open_acquire() -> None:
+    """Test fail_open returns allowed result on backend error."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=True)
+
+    # Act
+    result = await limiter.acquire(key="user:1")
+
+    # Assert
+    assert result.allowed is True
+    assert result.limit == LIMIT
+    assert result.remaining == LIMIT
+
+
+@pytest.mark.usefixtures("_failing_backend")
+async def test_fail_open_false_acquire_propagates_error() -> None:
+    """Test fail_open=False propagates backend error on acquire."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=False)
+
+    # Act & Assert
+    with pytest.raises(RuntimeError, match="connection lost"):
+        await limiter.acquire(key="user:1")
+
+
+@pytest.mark.usefixtures("_failing_backend")
+async def test_fail_open_peek() -> None:
+    """Test fail_open returns allowed result on backend peek error."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=True)
+
+    # Act
+    result = await limiter.peek(key="user:1")
+
+    # Assert
+    assert result.allowed is True
+    assert result.remaining == LIMIT
+
+
+@pytest.mark.usefixtures("_failing_backend")
+async def test_fail_open_false_peek_propagates_error() -> None:
+    """Test fail_open=False propagates backend error on peek."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=False)
+
+    # Act & Assert
+    with pytest.raises(RuntimeError, match="connection lost"):
+        await limiter.peek(key="user:1")
+
+
+@pytest.mark.usefixtures("_failing_backend")
+async def test_fail_open_reset() -> None:
+    """Test fail_open silently ignores backend reset error."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=True)
+
+    # Act (should not raise)
+    await limiter.reset(key="user:1")
+
+
+@pytest.mark.usefixtures("_failing_backend")
+async def test_fail_open_false_reset_propagates_error() -> None:
+    """Test fail_open=False propagates backend error on reset."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=False)
+
+    # Act & Assert
+    with pytest.raises(RuntimeError, match="connection lost"):
+        await limiter.reset(key="user:1")
+
+
+@pytest.mark.usefixtures("_failing_backend")
+async def test_fail_open_acquire_or_raise() -> None:
+    """Test fail_open on acquire_or_raise returns allowed on backend error."""
+    # Arrange
+    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=True)
+
+    # Act
+    result = await limiter.acquire_or_raise(key="user:1")
+
+    # Assert
+    assert result.allowed is True
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_fail_open_still_rejects_when_limit_exceeded() -> None:
+    """Test fail_open does not bypass legitimate rate limit rejections."""
+    # Arrange
+    limiter = RateLimiter(
+        "fo_reject", limit=LIMIT, window=WINDOW, fail_open=True
+    )
+    for _ in range(LIMIT):
+        await limiter.acquire(key="user:1")
+
+    # Act
+    result = await limiter.acquire(key="user:1")
+
+    # Assert
+    assert result.allowed is False
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_fail_open_acquire_or_raise_still_raises_on_exceeded() -> None:
+    """Test fail_open acquire_or_raise still raises on legitimate exceeded."""
+    # Arrange
+    limiter = RateLimiter(
+        "fo_raise", limit=LIMIT, window=WINDOW, fail_open=True
+    )
+    for _ in range(LIMIT):
+        await limiter.acquire(key="user:1")
+
+    # Act & Assert
+    with pytest.raises(RateLimitExceededError):
+        await limiter.acquire_or_raise(key="user:1")
