@@ -1147,6 +1147,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.RateLimiter.peek" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        peek
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.RateLimiter.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1285,6 +1307,28 @@
     <span class="md-ellipsis">
       
         acquire
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.RateLimiterBackend.peek" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        peek
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.RateLimiterBackend.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset
       
     </span>
   </a>
@@ -2035,6 +2079,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.RateLimiter.peek" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        peek
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.RateLimiter.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2173,6 +2239,28 @@
     <span class="md-ellipsis">
       
         acquire
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.RateLimiterBackend.peek" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        peek
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.RateLimiterBackend.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset
       
     </span>
   </a>
@@ -3083,6 +3171,12 @@ by monitoring and controlling calls to a protected service.</p>
     <span class="n">window</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
         <span class="n">PositiveFloat</span><span class="p">,</span> <span class="n">Doc</span><span class="p">(</span><span class="s2">&quot;Window duration in seconds.&quot;</span><span class="p">)</span>
     <span class="p">],</span>
+    <span class="n">fail_open</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="nb">bool</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;When True, backend errors return an allowed result instead of propagating the exception. Useful for non-critical rate limiters where availability is more important than strictness.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -3309,6 +3403,104 @@ backend (Redis or Memory).</p>
           </tr>
       </tbody>
     </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="grelmicro.resilience.RateLimiter.peek" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">peek</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">peek</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="nb">str</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;Identifier for rate limiting (e.g. IP address, user ID, session).&quot;</span>
+        <span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RateLimitResult</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Check rate limit state without consuming tokens.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitResult&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimitResult&lt;/code&gt;)" href="#grelmicro.resilience.RateLimitResult">RateLimitResult</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>RateLimitResult reflecting the current state.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitResult&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimitResult&lt;/code&gt;)" href="#grelmicro.resilience.RateLimitResult">RateLimitResult</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>allowed</code> indicates whether the next acquire would succeed.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="grelmicro.resilience.RateLimiter.reset" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reset</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reset</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="nb">str</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;Identifier for rate limiting (e.g. IP address, user ID, session).&quot;</span>
+        <span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Delete rate limit state for a key, restoring full quota.</p>
+<p>Idempotent: resetting a nonexistent key is a no-op.</p>
 
 
     </div>
@@ -3616,7 +3808,7 @@ backend (Redis or Memory).</p>
 
         <p>Protocol for rate limiter storage backends.</p>
 <p>Implementations must be async context managers and provide
-a single <code>acquire</code> method for atomic rate limit checks.</p>
+<code>acquire</code>, <code>peek</code>, and <code>reset</code> methods.</p>
 
 
 
@@ -3819,6 +4011,173 @@ a single <code>acquire</code> method for atomic rate limit checks.</p>
               <div class="doc-md-description">
                 <p>retry_after, and reset_after fields.</p>
               </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="grelmicro.resilience.RateLimiterBackend.peek" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">peek</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">peek</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">window</span><span class="p">:</span> <span class="nb">float</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RateLimitResult</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Check rate limit state without consuming tokens.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>key</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The rate limit key (e.g. IP, user ID, session).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>limit</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maximum number of requests allowed in the window.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>window</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Window duration in seconds.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitResult&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimitResult&lt;/code&gt;)" href="#grelmicro.resilience.RateLimitResult">RateLimitResult</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>RateLimitResult reflecting the current state.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="grelmicro.resilience.RateLimiterBackend.reset" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reset</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reset</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Delete rate limit state for a key, restoring full quota.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>key</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The rate limit key to reset.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
             </td>
           </tr>
       </tbody>

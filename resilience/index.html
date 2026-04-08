@@ -622,6 +622,39 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#peek-check-without-consuming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Peek (Check Without Consuming)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fail-open-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fail-Open Mode
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1362,6 +1395,39 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#peek-check-without-consuming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Peek (Check Without Consuming)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fail-open-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fail-Open Mode
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1590,6 +1656,56 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># Bulk endpoint costs 10 tokens</span>
 <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">api_limiter</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">cost</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 </code></pre></div>
+<h3 id="peek-check-without-consuming">Peek (Check Without Consuming)</h3>
+<p>Use <code>peek()</code> to check the current rate limit state without consuming tokens:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.ratelimiter</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
+
+<span class="n">invite_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;invite&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">3600</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_locked</span><span class="p">(</span><span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">invite_limiter</span><span class="o">.</span><span class="n">peek</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">code</span><span class="p">)</span>
+    <span class="k">return</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">allowed</span>
+</code></pre></div>
+<h3 id="reset">Reset</h3>
+<p>Use <code>reset()</code> to delete the rate limit state for a key, restoring its full quota:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.ratelimiter</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
+
+<span class="n">auth_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">verify_password</span><span class="p">(</span><span class="n">password</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">return</span> <span class="kc">True</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">login</span><span class="p">(</span><span class="n">ip</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">password</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">auth_limiter</span><span class="o">.</span><span class="n">acquire_or_raise</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">ip</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">verify_password</span><span class="p">(</span><span class="n">password</span><span class="p">):</span>
+        <span class="c1"># Successful login: clear the failure counter</span>
+        <span class="k">await</span> <span class="n">auth_limiter</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">ip</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="fail-open-mode">Fail-Open Mode</h3>
+<p>Use <code>fail_open=True</code> when availability is more important than strictness. On backend errors (e.g. Redis down), the rate limiter returns an allowed result instead of propagating the exception:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.ratelimiter</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
+
+<span class="c1"># Non-critical limiter: prefer availability over strictness</span>
+<span class="n">limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;analytics&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">fail_open</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">record_event</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">track_event</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="c1"># If Redis is down, the event is still tracked</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">limiter</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">user_id</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">allowed</span><span class="p">:</span>
+        <span class="n">record_event</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Fail-open mode only catches backend infrastructure errors. Legitimate rate limit rejections still work normally.</p>
+</div>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>The rate limiter uses the same backend registry pattern as the synchronization primitives. See <a href="../architecture/backends/">Backend Architecture</a> for details.</p>
