@@ -35,7 +35,7 @@ class RateLimiterBackend(Protocol):
     """Protocol for rate limiter storage backends.
 
     Implementations must be async context managers and provide
-    a single ``acquire`` method for atomic rate limit checks.
+    ``acquire``, ``peek``, and ``reset`` methods.
     """
 
     async def __aenter__(self) -> Self:
@@ -70,5 +70,36 @@ class RateLimiterBackend(Protocol):
         Returns:
             RateLimitResult with allowed, limit, remaining,
             retry_after, and reset_after fields.
+        """
+        ...
+
+    async def peek(
+        self,
+        *,
+        key: str,
+        limit: int,
+        window: float,
+    ) -> RateLimitResult:
+        """Check rate limit state without consuming tokens.
+
+        Args:
+            key: The rate limit key (e.g. IP, user ID, session).
+            limit: Maximum number of requests allowed in the window.
+            window: Window duration in seconds.
+
+        Returns:
+            RateLimitResult reflecting the current state.
+        """
+        ...
+
+    async def reset(
+        self,
+        *,
+        key: str,
+    ) -> None:
+        """Delete rate limit state for a key, restoring full quota.
+
+        Args:
+            key: The rate limit key to reset.
         """
         ...

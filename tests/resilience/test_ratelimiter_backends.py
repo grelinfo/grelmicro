@@ -138,3 +138,121 @@ async def test_acquire_cost(
     # Assert
     assert result.allowed is True
     assert result.remaining == LIMIT - 3
+
+
+# --- peek ---
+
+
+async def test_peek_fresh_key(
+    backend: RateLimiterBackend,
+) -> None:
+    """Test peek on a fresh key shows full quota."""
+    # Act
+    result = await backend.peek(key="peek_fresh", limit=LIMIT, window=WINDOW)
+
+    # Assert
+    assert result.allowed is True
+    assert result.limit == LIMIT
+    assert result.remaining == LIMIT
+    assert result.retry_after == 0.0
+
+
+async def test_peek_does_not_consume(
+    backend: RateLimiterBackend,
+) -> None:
+    """Test peek does not consume tokens."""
+    # Arrange
+    await backend.acquire(
+        key="peek_no_consume", limit=LIMIT, window=WINDOW, cost=1
+    )
+
+    # Act
+    result1 = await backend.peek(
+        key="peek_no_consume", limit=LIMIT, window=WINDOW
+    )
+    result2 = await backend.peek(
+        key="peek_no_consume", limit=LIMIT, window=WINDOW
+    )
+
+    # Assert
+    assert result1.remaining == result2.remaining
+    assert result1.allowed is True
+
+
+async def test_peek_after_exhaustion(
+    backend: RateLimiterBackend,
+) -> None:
+    """Test peek returns not allowed when limit exhausted."""
+    # Arrange
+    for _ in range(LIMIT):
+        await backend.acquire(
+            key="peek_exhausted", limit=LIMIT, window=WINDOW, cost=1
+        )
+
+    # Act
+    result = await backend.peek(
+        key="peek_exhausted", limit=LIMIT, window=WINDOW
+    )
+
+    # Assert
+    assert result.allowed is False
+    assert result.remaining == 0
+    assert result.retry_after > 0.0
+
+
+# --- reset ---
+
+
+async def test_reset_restores_quota(
+    backend: RateLimiterBackend,
+) -> None:
+    """Test reset restores full quota for a key."""
+    # Arrange
+    for _ in range(LIMIT):
+        await backend.acquire(
+            key="reset_restore", limit=LIMIT, window=WINDOW, cost=1
+        )
+
+    # Act
+    await backend.reset(key="reset_restore")
+    result = await backend.acquire(
+        key="reset_restore", limit=LIMIT, window=WINDOW, cost=1
+    )
+
+    # Assert
+    assert result.allowed is True
+    assert result.remaining == LIMIT - 1
+
+
+async def test_reset_nonexistent_key(
+    backend: RateLimiterBackend,
+) -> None:
+    """Test reset on a nonexistent key is a no-op."""
+    # Act (should not raise)
+    await backend.reset(key="reset_nonexistent")
+
+
+async def test_reset_independent_keys(
+    backend: RateLimiterBackend,
+) -> None:
+    """Test reset only affects the specified key."""
+    # Arrange
+    await backend.acquire(
+        key="reset_indep_a", limit=LIMIT, window=WINDOW, cost=1
+    )
+    await backend.acquire(
+        key="reset_indep_b", limit=LIMIT, window=WINDOW, cost=1
+    )
+
+    # Act
+    await backend.reset(key="reset_indep_a")
+
+    # Assert: key A is reset, key B is unchanged
+    result_a = await backend.peek(
+        key="reset_indep_a", limit=LIMIT, window=WINDOW
+    )
+    result_b = await backend.peek(
+        key="reset_indep_b", limit=LIMIT, window=WINDOW
+    )
+    assert result_a.remaining == LIMIT
+    assert result_b.remaining == LIMIT - 1

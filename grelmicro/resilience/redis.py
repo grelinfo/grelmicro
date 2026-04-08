@@ -60,6 +60,47 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         return {1, remaining, "0", tostring(reset_after)}
     """
 
+    _LUA_GCRA_PEEK = """
+        local key = KEYS[1]
+        local rate = tonumber(ARGV[1])
+        local period = tonumber(ARGV[2])
+
+        local emission_interval = period / rate
+
+        -- Use Redis server time for cross-process consistency
+        local now = redis.call("TIME")
+        -- Offset to Jan 1 2017 to avoid double-precision issues
+        local jan_1_2017 = 1483228800
+        now = (now[1] - jan_1_2017) + (now[2] / 1000000)
+
+        local tat = redis.call("GET", key)
+        if not tat then
+            tat = now
+        else
+            tat = tonumber(tat)
+        end
+
+        -- Compute current state without consuming (cost=0)
+        local new_tat = math.max(tat, now)
+        local allow_at = new_tat - period
+        local diff = now - allow_at
+        local remaining = math.floor(diff / emission_interval + 0.5)
+
+        -- Use <= 0 (not < 0 like acquire): remaining=0 means the next
+        -- acquire(cost=1) would be rejected, so peek reports allowed=false.
+        if remaining <= 0 then
+            local reset_after = math.max(0, tat - now)
+            local retry_after = emission_interval - diff
+            if remaining < 0 then
+                retry_after = diff * -1
+            end
+            return {0, 0, tostring(math.max(0, retry_after)), tostring(reset_after)}
+        end
+
+        local reset_after = new_tat - now
+        return {1, remaining, "0", tostring(reset_after)}
+    """
+
     def __init__(
         self,
         url: Annotated[
@@ -96,6 +137,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         )
         self._prefix = prefix
         self._lua_gcra = self._redis.register_script(self._LUA_GCRA)
+        self._lua_gcra_peek = self._redis.register_script(self._LUA_GCRA_PEEK)
         if auto_register:
             rate_limiter_backend_registry.set(self)
 
@@ -153,3 +195,53 @@ class RedisRateLimiterBackend(RateLimiterBackend):
             retry_after=retry_after,
             reset_after=reset_after,
         )
+
+    async def peek(
+        self,
+        *,
+        key: str,
+        limit: int,
+        window: float,
+    ) -> RateLimitResult:
+        """Check rate limit state without consuming tokens.
+
+        Args:
+            key: The rate limit key.
+            limit: Maximum requests allowed in the window.
+            window: Window duration in seconds.
+
+        Returns:
+            RateLimitResult reflecting the current state.
+
+        """
+        result = await self._lua_gcra_peek(
+            keys=[f"{self._prefix}{key}"],
+            args=[limit, window],
+            client=self._redis,
+        )
+
+        allowed = bool(result[0])
+        remaining = int(result[1])
+        retry_after = float(result[2])
+        reset_after = float(result[3])
+
+        return RateLimitResult(
+            allowed=allowed,
+            limit=limit,
+            remaining=remaining,
+            retry_after=retry_after,
+            reset_after=reset_after,
+        )
+
+    async def reset(
+        self,
+        *,
+        key: str,
+    ) -> None:
+        """Delete rate limit state for a key, restoring full quota.
+
+        Args:
+            key: The rate limit key to reset.
+
+        """
+        await self._redis.delete(f"{self._prefix}{key}")

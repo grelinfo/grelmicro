@@ -96,5 +96,32 @@ Use the `cost` parameter to consume multiple tokens per request:
 result = await api_limiter.acquire(key=user_id, cost=10)
 ```
 
+### Peek (Check Without Consuming)
+
+Use `peek()` to check the current rate limit state without consuming tokens:
+
+```python
+--8<-- "resilience/ratelimiter_peek.py"
+```
+
+### Reset
+
+Use `reset()` to delete the rate limit state for a key, restoring its full quota:
+
+```python
+--8<-- "resilience/ratelimiter_reset.py"
+```
+
+### Fail-Open Mode
+
+Use `fail_open=True` when availability is more important than strictness. On backend errors (e.g. Redis down), the rate limiter returns an allowed result instead of propagating the exception:
+
+```python
+--8<-- "resilience/ratelimiter_fail_open.py"
+```
+
+!!! warning
+    Fail-open mode only catches backend infrastructure errors. Legitimate rate limit rejections still work normally.
+
 !!! tip
     The rate limiter uses the same backend registry pattern as the synchronization primitives. See [Backend Architecture](architecture/backends.md) for details.
