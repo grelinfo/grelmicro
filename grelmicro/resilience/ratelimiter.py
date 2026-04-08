@@ -1,8 +1,7 @@
 """Rate Limiter."""
 
 import logging
-from collections.abc import Awaitable
-from typing import Annotated, TypeVar
+from typing import Annotated
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
@@ -12,8 +11,6 @@ from grelmicro.resilience._protocol import RateLimitResult
 from grelmicro.resilience.errors import RateLimitExceededError
 
 logger = logging.getLogger(__name__)
-
-_T = TypeVar("_T")
 
 
 class RateLimiterConfig(BaseModel, frozen=True, extra="forbid"):
@@ -80,6 +77,19 @@ class RateLimiter:
         """Return the config."""
         return self._config
 
+    def _log_fail_open(
+        self,
+        key: str,
+        exc: Exception,
+    ) -> None:
+        """Log a fail-open warning for a backend error."""
+        logger.warning(
+            "Rate limiter '%s' backend error, failing open for key '%s'",
+            self._config.name,
+            key,
+            exc_info=exc,
+        )
+
     def _allowed_result(self) -> RateLimitResult:
         """Return a fully-allowed result for fail-open fallback."""
         return RateLimitResult(
@@ -89,27 +99,6 @@ class RateLimiter:
             retry_after=0.0,
             reset_after=0.0,
         )
-
-    async def _call_backend(
-        self,
-        coro: Awaitable[_T],
-        *,
-        key: str,
-        fallback: _T,
-    ) -> _T:
-        """Call a backend method, returning fallback on error if fail_open."""
-        try:
-            return await coro
-        except Exception:
-            if self._fail_open:
-                logger.warning(
-                    "Rate limiter '%s' backend error, failing open for key '%s'",
-                    self._config.name,
-                    key,
-                    exc_info=True,
-                )
-                return fallback
-            raise
 
     async def acquire(
         self,
@@ -140,16 +129,18 @@ class RateLimiter:
             raise ValueError(msg)
         backend = get_rate_limiter_backend()
         full_key = f"{self._config.name}:{key}"
-        return await self._call_backend(
-            backend.acquire(
+        try:
+            return await backend.acquire(
                 key=full_key,
                 limit=self._config.limit,
                 window=self._config.window,
                 cost=cost,
-            ),
-            key=key,
-            fallback=self._allowed_result(),
-        )
+            )
+        except Exception as exc:
+            if self._fail_open:
+                self._log_fail_open(key, exc)
+                return self._allowed_result()
+            raise
 
     async def acquire_or_raise(
         self,
@@ -201,15 +192,17 @@ class RateLimiter:
         """
         backend = get_rate_limiter_backend()
         full_key = f"{self._config.name}:{key}"
-        return await self._call_backend(
-            backend.peek(
+        try:
+            return await backend.peek(
                 key=full_key,
                 limit=self._config.limit,
                 window=self._config.window,
-            ),
-            key=key,
-            fallback=self._allowed_result(),
-        )
+            )
+        except Exception as exc:
+            if self._fail_open:
+                self._log_fail_open(key, exc)
+                return self._allowed_result()
+            raise
 
     async def reset(
         self,
@@ -228,8 +221,10 @@ class RateLimiter:
         """
         backend = get_rate_limiter_backend()
         full_key = f"{self._config.name}:{key}"
-        await self._call_backend(
-            backend.reset(key=full_key),
-            key=key,
-            fallback=None,
-        )
+        try:
+            await backend.reset(key=full_key)
+        except Exception as exc:
+            if self._fail_open:
+                self._log_fail_open(key, exc)
+                return
+            raise
