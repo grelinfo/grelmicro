@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0 - 2026-04-08
+
+### Features
+
+* ✨ Add `RateLimiter.peek(key)`: check rate limit state without consuming tokens. PR [#90](https://github.com/grelinfo/grelmicro/pull/90).
+* ✨ Add `RateLimiter.reset(key)`: delete rate limit state for a key, restoring full quota. PR [#90](https://github.com/grelinfo/grelmicro/pull/90).
+* ✨ Add `fail_open` parameter to `RateLimiter`: return allowed result on backend errors instead of propagating exceptions. PR [#90](https://github.com/grelinfo/grelmicro/pull/90).
+
 ## 0.12.0 - 2026-04-07
 
 ### Features
