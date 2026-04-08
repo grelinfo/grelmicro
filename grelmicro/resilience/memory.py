@@ -133,13 +133,12 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         now = monotonic()
 
         emission_interval = window / limit
-        burst_offset = emission_interval * limit
 
         tat = self._tats.get(key, now)
 
         # Compute current state without consuming (cost=0)
         new_tat = max(tat, now)
-        allow_at = new_tat - burst_offset
+        allow_at = new_tat - window
         diff = now - allow_at
         remaining = math.floor(diff / emission_interval + 0.5)
 
@@ -150,11 +149,11 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
                 allowed=False,
                 limit=limit,
                 remaining=0,
-                retry_after=retry_after,
+                retry_after=max(0.0, retry_after),
                 reset_after=max(0.0, reset_after),
             )
 
-        reset_after = max(tat, now) - now
+        reset_after = new_tat - now
         return RateLimitResult(
             allowed=True,
             limit=limit,

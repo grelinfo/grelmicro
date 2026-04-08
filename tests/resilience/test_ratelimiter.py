@@ -414,14 +414,13 @@ async def test_reset_without_backend() -> None:
 @pytest.fixture
 def _failing_backend(
     monkeypatch: pytest.MonkeyPatch,
-) -> MemoryRateLimiterBackend:
-    """Create a backend where all methods raise RuntimeError."""
+) -> None:
+    """Register a backend where all methods raise RuntimeError."""
     backend = MemoryRateLimiterBackend()
     error = RuntimeError("connection lost")
     monkeypatch.setattr(backend, "acquire", AsyncMock(side_effect=error))
     monkeypatch.setattr(backend, "peek", AsyncMock(side_effect=error))
     monkeypatch.setattr(backend, "reset", AsyncMock(side_effect=error))
-    return backend
 
 
 @pytest.mark.usefixtures("_failing_backend")

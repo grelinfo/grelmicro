@@ -62,12 +62,10 @@ class RedisRateLimiterBackend(RateLimiterBackend):
 
     _LUA_GCRA_PEEK = """
         local key = KEYS[1]
-        local burst = tonumber(ARGV[1])
-        local rate = tonumber(ARGV[2])
-        local period = tonumber(ARGV[3])
+        local rate = tonumber(ARGV[1])
+        local period = tonumber(ARGV[2])
 
         local emission_interval = period / rate
-        local burst_offset = emission_interval * burst
 
         -- Use Redis server time for cross-process consistency
         local now = redis.call("TIME")
@@ -84,7 +82,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
 
         -- Compute current state without consuming (cost=0)
         local new_tat = math.max(tat, now)
-        local allow_at = new_tat - burst_offset
+        local allow_at = new_tat - period
         local diff = now - allow_at
         local remaining = math.floor(diff / emission_interval + 0.5)
 
@@ -94,10 +92,10 @@ class RedisRateLimiterBackend(RateLimiterBackend):
             if remaining < 0 then
                 retry_after = diff * -1
             end
-            return {0, 0, tostring(retry_after), tostring(reset_after)}
+            return {0, 0, tostring(math.max(0, retry_after)), tostring(reset_after)}
         end
 
-        local reset_after = math.max(tat, now) - now
+        local reset_after = new_tat - now
         return {1, remaining, "0", tostring(reset_after)}
     """
 
@@ -216,7 +214,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         """
         result = await self._lua_gcra_peek(
             keys=[f"{self._prefix}{key}"],
-            args=[limit, limit, window],
+            args=[limit, window],
             client=self._redis,
         )
 
