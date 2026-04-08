@@ -86,8 +86,10 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         local diff = now - allow_at
         local remaining = math.floor(diff / emission_interval + 0.5)
 
+        -- Use <= 0 (not < 0 like acquire): remaining=0 means the next
+        -- acquire(cost=1) would be rejected, so peek reports allowed=false.
         if remaining <= 0 then
-            local reset_after = tat - now
+            local reset_after = math.max(0, tat - now)
             local retry_after = emission_interval - diff
             if remaining < 0 then
                 retry_after = diff * -1

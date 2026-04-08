@@ -142,6 +142,8 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         diff = now - allow_at
         remaining = math.floor(diff / emission_interval + 0.5)
 
+        # Use <= 0 (not < 0 like acquire): remaining=0 means the next
+        # acquire(cost=1) would be rejected, so peek reports allowed=False.
         if remaining <= 0:
             reset_after = tat - now
             retry_after = -diff if remaining < 0 else emission_interval - diff
