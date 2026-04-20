@@ -4,6 +4,8 @@
     options:
       show_submodules: true
       members:
+        - DuplicateFilter
+        - DuplicateFilterConfig
         - JSONRecordDict
         - configure_logging
 

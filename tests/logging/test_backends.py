@@ -5,7 +5,6 @@ identically for the public API.
 """
 
 import logging
-from collections.abc import Generator
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -28,60 +27,7 @@ from grelmicro.logging._shared import (
 )
 from grelmicro.logging._structlog import _add_caller_info
 from grelmicro.logging.errors import LoggingSettingsValidationError
-from tests.logging.conftest import log_message, parse_json_log
-
-# Backend configurations
-BACKENDS = ["loguru", "structlog", "stdlib"]
-
-
-@pytest.fixture
-def reset_loguru() -> Generator[None, None, None]:
-    """Reset loguru configuration."""
-    loguru_logger.configure(handlers=[])
-    yield
-    loguru_logger.remove()
-
-
-@pytest.fixture
-def reset_structlog() -> Generator[None, None, None]:
-    """Reset structlog configuration."""
-    structlog.reset_defaults()
-    yield
-    structlog.reset_defaults()
-
-
-@pytest.fixture
-def reset_stdlib() -> Generator[None, None, None]:
-    """Reset stdlib logging configuration (root and child loggers)."""
-    root = logging.getLogger()
-    old_handlers = root.handlers.copy()
-    old_level = root.level
-    # Capture child logger state
-    manager = root.manager
-    old_logger_levels = {
-        name: logger.level
-        for name, logger in manager.loggerDict.items()
-        if isinstance(logger, logging.Logger)
-    }
-    root.handlers.clear()
-    yield
-    root.handlers.clear()
-    root.handlers.extend(old_handlers)
-    root.setLevel(old_level)
-    # Restore child logger levels
-    for name, level in old_logger_levels.items():
-        logging.getLogger(name).setLevel(level)
-
-
-@pytest.fixture
-def reset_backend(
-    reset_loguru: None,
-    reset_structlog: None,
-    reset_stdlib: None,
-) -> None:
-    """Reset all backends before each test."""
-    _ = reset_loguru, reset_structlog, reset_stdlib
-
+from tests.logging.conftest import BACKENDS, log_message, parse_json_log
 
 _USER_ID = 123
 _USER_ID_2 = 456

@@ -402,6 +402,27 @@ class ErrorDict:
 
 **Collision protection**: Core fields cannot be overwritten by user-supplied extra context.
 
+## Deduplicating Noisy Logs
+
+A periodic check that fails every few seconds (health probes, leader elections, circuit breakers) floods logs with near-identical records. `DuplicateFilter` is a `logging.Filter` that caps repeats per message, modeled on Logback's `DuplicateMessageFilter`.
+
+```python
+--8<-- "logging/duplicate_filter.py"
+```
+
+Defaults: the first **5** records per key pass; subsequent records are silently dropped. Up to **100** distinct keys are tracked in an LRU; the least-recently-seen key is evicted when full.
+
+The default key is `(logger_name, level, record.getMessage())` — the **rendered message**. Two log calls collapse when they would print identical text, regardless of whether they came from `%`-style formatting or an f-string. `logger.warning("check %s failed", "db")` and `logger.warning(f"check db failed")` share the same bucket; `"db"` and `"redis"` keep independent counters. Pass `key=` to override (e.g., raw `record.msg` for Logback-style template keying):
+
+```python
+filt = DuplicateFilter(key=lambda r: (r.name, r.levelno, r.msg))
+```
+
+!!! note "Why not emit a suppression summary?"
+    Every major logger surveyed (Logback, Log4j2, zap, zerolog, `slog-sampling`) drops silently. Summaries belong in issue trackers (Sentry) rather than log filters.
+
+`DuplicateFilter` is a plain `logging.Filter`, so it attaches to any stdlib logger and runs before any backend-specific handling. This means it works with every `LOG_BACKEND` (`stdlib`, `loguru`, `structlog`) for any logger obtained via `logging.getLogger(...)` -- including every grelmicro module (`grelmicro.health`, `grelmicro.task`, `grelmicro.sync`, `grelmicro.resilience`). For user code that uses `from loguru import logger` or `structlog.get_logger()` directly, use those libraries' native filtering (`filter=` option for loguru, processor chain for structlog).
+
 ## Production Deployment
 
 For strict unbuffered output (12-factor compliance):
