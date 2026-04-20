@@ -1,5 +1,6 @@
 """Tests for Health Check Registry."""
 
+import logging
 import time
 from collections.abc import Generator
 
@@ -311,6 +312,61 @@ async def test_generic_exception_hides_message() -> None:
     report = await registry.check()
 
     assert report["components"][0]["error"] == "Health check failed"
+
+
+async def test_health_error_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """HealthError failures are logged at WARNING with exc_info."""
+    registry = HealthRegistry(auto_register=False)
+    registry.add(UnhealthyCheckerWithHealthError("db"))
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.health"):
+        await registry.check()
+
+    records = [r for r in caplog.records if r.name == "grelmicro.health"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.levelno == logging.WARNING
+    assert "db" in record.getMessage()
+    assert record.exc_info is not None
+    assert "Database connection pool exhausted" in str(record.exc_info[1])
+
+
+async def test_generic_exception_logs_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unexpected exceptions are logged at ERROR with a traceback."""
+    registry = HealthRegistry(auto_register=False)
+    registry.add(UnhealthyChecker("redis"))
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.health"):
+        await registry.check()
+
+    records = [r for r in caplog.records if r.name == "grelmicro.health"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.levelno == logging.ERROR
+    assert "redis" in record.getMessage()
+    assert record.exc_info is not None
+
+
+async def test_timeout_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Timed-out checks are logged at WARNING with the configured timeout."""
+    registry = HealthRegistry(timeout=0.05, auto_register=False)
+    registry.add(SlowChecker("slow", delay=1.0))
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.health"):
+        await registry.check()
+
+    records = [r for r in caplog.records if r.name == "grelmicro.health"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.levelno == logging.WARNING
+    assert record.args == ("slow", 0.05)
+    assert record.exc_info is None
 
 
 def test_timeout_zero_raises() -> None:
