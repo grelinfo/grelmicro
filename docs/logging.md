@@ -412,18 +412,20 @@ class ErrorDict:
 
 After **5** identical records the filter silently drops further occurrences. Up to **100** distinct keys are tracked in an LRU.
 
-`key_mode="template"` (default) keys on the raw format string — `%`-style calls with different arguments share one counter and it is **~3× faster** than rendered keying. Use `key_mode="rendered"` to distinguish each rendered message, or pass `key=` for a custom fingerprint:
+`key_mode="template"` (default) keys on the raw format string: `%`-style calls with different arguments share one counter, and it is **~3× faster** than rendered keying. Use `key_mode="rendered"` to distinguish each rendered message, or pass `key=` for a custom fingerprint:
 
 ```python
 logger.addFilter(DuplicateFilter(key_mode="rendered"))
 logger.addFilter(DuplicateFilter(key=lambda r: (r.name, r.exc_info)))
 ```
 
-Set `ttl_seconds` to let suppressed keys re-emerge after a silence window:
+Set `ttl_seconds` to re-emit a burst of `allowed_repetitions` records every window during sustained floods, so operators keep getting periodic reminders:
 
 ```python
 logger.addFilter(DuplicateFilter(allowed_repetitions=5, ttl_seconds=300))
 ```
+
+State is in-process only. There is no cross-process sharing and no explicit reset API: construct a new filter if you need to wipe counters.
 
 !!! tip
     `DuplicateFilter` attaches to any stdlib logger, so it works with every `LOG_BACKEND`. For code using `from loguru import logger` or `structlog.get_logger()` directly, use those libraries' native filtering.

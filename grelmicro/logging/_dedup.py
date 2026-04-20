@@ -88,13 +88,17 @@ class DuplicateFilter(Filter):
 
     Keys are tracked in an LRU cache of at most ``cache_size``
     entries. Choose the default key via ``key_mode`` or supply
-    ``key`` to override. Set ``ttl_seconds`` to reset a counter
-    after that much silence on the key. ``key_mode="template"``
-    is roughly 3x faster than ``"rendered"`` because it skips
-    message formatting.
+    ``key`` to override. Set ``ttl_seconds`` to re-emit a burst of
+    ``allowed_repetitions`` records every ``ttl_seconds`` during a
+    sustained flood, so operators get periodic reminders that the
+    issue persists. ``key_mode="template"`` is roughly 3x faster
+    than ``"rendered"`` because it skips message formatting.
 
     Thread-safe: a :class:`threading.Lock` protects the counter
     map. The user-supplied ``key`` callable runs outside the lock.
+
+    State is in-process only; there is no cross-process sharing
+    and no reset API. Construct a new filter to wipe counters.
     """
 
     def __init__(
@@ -176,7 +180,6 @@ class DuplicateFilter(Filter):
                 counts.move_to_end(key)
                 return True
             if count > allowed:
-                counts[key] = (count, now)
                 counts.move_to_end(key)
                 return False
             counts[key] = (count + 1, now)

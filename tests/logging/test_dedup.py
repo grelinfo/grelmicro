@@ -351,19 +351,20 @@ def test_ttl_resets_counter_after_silence() -> None:
         assert third
 
 
-def test_ttl_hot_key_never_expires() -> None:
-    """Continuous hits refresh the timestamp so TTL never triggers."""
+def test_ttl_reemits_during_sustained_flood() -> None:
+    """A flood that outlives ``ttl_seconds`` re-emits once per window."""
     with freeze_time() as frozen:
         filt = DuplicateFilter(allowed_repetitions=1, ttl_seconds=10.0)
         record = _make_record(msg="flood")
 
-        filt.filter(record)
-        results = []
-        for _ in range(20):
-            frozen.tick(5)
-            results.append(filt.filter(record))
+        first = filt.filter(record)
+        dropped_within_window = filt.filter(record)
+        frozen.tick(11)
+        after_window = filt.filter(record)
 
-        assert not any(results)
+        assert first
+        assert not dropped_within_window
+        assert after_window
 
 
 def test_ttl_none_disables_time_expiry() -> None:
