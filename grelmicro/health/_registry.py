@@ -126,6 +126,11 @@ class HealthRegistry:
                 with anyio.move_on_after(timeout) as cancel_scope:
                     result: dict[str, Any] | None = await checker.check()
                 if cancel_scope.cancelled_caught:
+                    logger.warning(
+                        "Health check '%s' timed out after %gs",
+                        checker.name,
+                        timeout,
+                    )
                     error = HealthCheckTimeoutError(
                         name=checker.name, timeout=timeout
                     )
@@ -145,6 +150,11 @@ class HealthRegistry:
                         details=result,
                     )
             except HealthError as exc:
+                logger.warning(
+                    "Health check '%s' reported unhealthy",
+                    checker.name,
+                    exc_info=exc,
+                )
                 results[index] = ComponentHealth(
                     name=checker.name,
                     status=HealthStatus.UNHEALTHY,

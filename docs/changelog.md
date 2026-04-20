@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ `HealthRegistry` now logs every unhealthy path via the `grelmicro.health` logger, so operators can distinguish a slow query from a timeout from a permission error without external instrumentation.
+* ✨ `HealthError` and timeouts log at `WARNING` with `exc_info`; unexpected exceptions keep logging at `ERROR` with traceback.
+
 ## 0.13.0 - 2026-04-08
 
 ### Features
