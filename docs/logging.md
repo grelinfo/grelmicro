@@ -404,24 +404,29 @@ class ErrorDict:
 
 ## Deduplicating Noisy Logs
 
-A periodic check that fails every few seconds (health probes, leader elections, circuit breakers) floods logs with near-identical records. `DuplicateFilter` is a `logging.Filter` that caps repeats per message, modeled on Logback's `DuplicateMessageFilter`.
+`DuplicateFilter` is a `logging.Filter` that silences repeated log records.
 
 ```python
 --8<-- "logging/duplicate_filter.py"
 ```
 
-Defaults: the first **5** records per key pass; subsequent records are silently dropped. Up to **100** distinct keys are tracked in an LRU; the least-recently-seen key is evicted when full.
+After **5** identical records the filter silently drops further occurrences. Up to **100** distinct keys are tracked in an LRU.
 
-The default key is `(logger_name, level, record.getMessage())` — the **rendered message**. Two log calls collapse when they would print identical text, regardless of whether they came from `%`-style formatting or an f-string. `logger.warning("check %s failed", "db")` and `logger.warning(f"check db failed")` share the same bucket; `"db"` and `"redis"` keep independent counters. Pass `key=` to override (e.g., raw `record.msg` for Logback-style template keying):
+`key_mode="template"` (default) keys on the raw format string — `%`-style calls with different arguments share one counter and it is **~3× faster** than rendered keying. Use `key_mode="rendered"` to distinguish each rendered message, or pass `key=` for a custom fingerprint:
 
 ```python
-filt = DuplicateFilter(key=lambda r: (r.name, r.levelno, r.msg))
+logger.addFilter(DuplicateFilter(key_mode="rendered"))
+logger.addFilter(DuplicateFilter(key=lambda r: (r.name, r.exc_info)))
 ```
 
-!!! note "Why not emit a suppression summary?"
-    Every major logger surveyed (Logback, Log4j2, zap, zerolog, `slog-sampling`) drops silently. Summaries belong in issue trackers (Sentry) rather than log filters.
+Set `ttl_seconds` to let suppressed keys re-emerge after a silence window:
 
-`DuplicateFilter` is a plain `logging.Filter`, so it attaches to any stdlib logger and runs before any backend-specific handling. This means it works with every `LOG_BACKEND` (`stdlib`, `loguru`, `structlog`) for any logger obtained via `logging.getLogger(...)` -- including every grelmicro module (`grelmicro.health`, `grelmicro.task`, `grelmicro.sync`, `grelmicro.resilience`). For user code that uses `from loguru import logger` or `structlog.get_logger()` directly, use those libraries' native filtering (`filter=` option for loguru, processor chain for structlog).
+```python
+logger.addFilter(DuplicateFilter(allowed_repetitions=5, ttl_seconds=300))
+```
+
+!!! tip
+    `DuplicateFilter` attaches to any stdlib logger, so it works with every `LOG_BACKEND`. For code using `from loguru import logger` or `structlog.get_logger()` directly, use those libraries' native filtering.
 
 ## Production Deployment
 

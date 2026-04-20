@@ -5,9 +5,11 @@ from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from freezegun import freeze_time
 from pydantic import ValidationError
 
 from grelmicro.logging import DuplicateFilter, configure_logging
+from grelmicro.logging._dedup import _key_by_rendered
 from tests.logging.conftest import BACKENDS
 
 
@@ -52,7 +54,7 @@ def test_allows_first_n_then_drops() -> None:
 
 
 def test_default_allowed_repetitions_is_five() -> None:
-    """Default allowance matches Logback's DuplicateMessageFilter."""
+    """Default allowance is five records per key."""
     expected = 5
     filt = DuplicateFilter()
     record = _make_record()
@@ -80,9 +82,9 @@ def test_distinct_keys_tracked_independently() -> None:
     assert results == [True, True, False, True, True, False]
 
 
-def test_different_rendered_messages_dedup_independently() -> None:
-    """Same template, different args -> distinct rendered -> own counters."""
-    filt = DuplicateFilter(allowed_repetitions=1)
+def test_rendered_mode_distinguishes_args() -> None:
+    """Rendered mode: same template, different args -> own counters."""
+    filt = DuplicateFilter(allowed_repetitions=1, key_mode="rendered")
     template = "check %s failed"
 
     results = [
@@ -105,9 +107,9 @@ def test_fstring_style_dedup() -> None:
     assert results == [True, True, False, False]
 
 
-def test_percent_and_fstring_with_same_output_share_counter() -> None:
-    """Two call styles producing the same rendered string collapse."""
-    filt = DuplicateFilter(allowed_repetitions=1)
+def test_rendered_mode_percent_and_fstring_share_counter() -> None:
+    """Rendered mode: two styles producing the same text collapse."""
+    filt = DuplicateFilter(allowed_repetitions=1, key_mode="rendered")
     percent_style = _make_record(msg="check %s failed", args=("db",))
     fstring_style = _make_record(msg="check db failed", args=())
 
@@ -116,6 +118,13 @@ def test_percent_and_fstring_with_same_output_share_counter() -> None:
 
     assert first
     assert not second
+
+
+def test_default_key_mode_is_template() -> None:
+    """Default key_mode is ``template`` (faster than ``rendered``)."""
+    filt = DuplicateFilter()
+
+    assert filt.config.key_mode == "template"
 
 
 def test_different_levels_do_not_collapse() -> None:
@@ -202,6 +211,8 @@ def test_key_override() -> None:
 
 def test_thread_safe_counting() -> None:
     """Concurrent calls produce exactly ``allowed_repetitions`` passes."""
+    # cache_size=1 keeps a single shared counter so this exercises the
+    # lock-protected increment path rather than LRU eviction.
     allowed = 50
     filt = DuplicateFilter(allowed_repetitions=allowed, cache_size=1)
 
@@ -244,6 +255,9 @@ def test_works_under_every_backend(
     monkeypatch.setenv("LOG_BACKEND", backend)
     monkeypatch.setenv("LOG_LEVEL", "WARNING")
     configure_logging()
+    # configure_logging() under LOG_BACKEND=stdlib clears root handlers,
+    # removing caplog's capture handler. Re-attach it so records emitted
+    # through dedup_logger still reach caplog.records via propagation.
     logging.getLogger().addHandler(caplog.handler)
     dedup_logger.addFilter(DuplicateFilter(allowed_repetitions=allowed))
 
@@ -265,6 +279,114 @@ def test_malformed_format_does_not_crash() -> None:
     assert results == [True, True, False, False]
 
 
+def test_rendered_key_fallback_on_render_failure() -> None:
+    """``_key_by_rendered`` returns ``str(record.msg)`` when rendering raises."""
+    bad = _make_record(msg="needs %d", args=("not an int",))
+
+    key = _key_by_rendered(bad)
+
+    assert key == ("grelmicro.test", logging.WARNING, "needs %d")
+
+
+def test_key_mode_template_collapses_parameterized_calls() -> None:
+    """``key_mode='template'`` dedups `%`-style calls across args."""
+    filt = DuplicateFilter(allowed_repetitions=1, key_mode="template")
+    template = "check %s failed"
+
+    results = [
+        filt.filter(_make_record(msg=template, args=("db",))),
+        filt.filter(_make_record(msg=template, args=("redis",))),
+        filt.filter(_make_record(msg=template, args=("kafka",))),
+    ]
+
+    assert results == [True, False, False]
+
+
+def test_key_mode_template_ignores_rendering_errors() -> None:
+    """Template mode does not call ``getMessage`` so format bugs are moot."""
+    filt = DuplicateFilter(allowed_repetitions=1, key_mode="template")
+    bad = _make_record(msg="needs %d", args=("not an int",))
+
+    results = [filt.filter(bad) for _ in range(3)]
+
+    assert results == [True, False, False]
+
+
+def test_explicit_key_callable_overrides_mode() -> None:
+    """When ``key=`` is set, ``key_mode`` is ignored."""
+    filt = DuplicateFilter(
+        allowed_repetitions=1,
+        key_mode="template",
+        key=lambda record: record.levelno,
+    )
+    record_a = _make_record(msg="one")
+    record_b = _make_record(msg="two")
+
+    first = filt.filter(record_a)
+    second = filt.filter(record_b)
+
+    assert first
+    assert not second
+
+
+def test_invalid_key_mode_rejected() -> None:
+    """Unknown ``key_mode`` values raise a pydantic ValidationError."""
+    with pytest.raises(ValidationError, match="key_mode"):
+        DuplicateFilter(key_mode="bogus")  # ty: ignore[invalid-argument-type]
+
+
+def test_ttl_resets_counter_after_silence() -> None:
+    """After ``ttl_seconds`` without hits, the counter resets."""
+    with freeze_time() as frozen:
+        filt = DuplicateFilter(allowed_repetitions=1, ttl_seconds=10.0)
+        record = _make_record(msg="flood")
+
+        first = filt.filter(record)
+        second = filt.filter(record)
+        frozen.tick(11)
+        third = filt.filter(record)
+
+        assert first
+        assert not second
+        assert third
+
+
+def test_ttl_hot_key_never_expires() -> None:
+    """Continuous hits refresh the timestamp so TTL never triggers."""
+    with freeze_time() as frozen:
+        filt = DuplicateFilter(allowed_repetitions=1, ttl_seconds=10.0)
+        record = _make_record(msg="flood")
+
+        filt.filter(record)
+        results = []
+        for _ in range(20):
+            frozen.tick(5)
+            results.append(filt.filter(record))
+
+        assert not any(results)
+
+
+def test_ttl_none_disables_time_expiry() -> None:
+    """With ``ttl_seconds=None``, long silence does not reset the counter."""
+    with freeze_time() as frozen:
+        filt = DuplicateFilter(allowed_repetitions=1)
+        record = _make_record(msg="flood")
+
+        filt.filter(record)
+        filt.filter(record)
+        frozen.tick(3600)
+        after_long_silence = filt.filter(record)
+
+        assert not after_long_silence
+
+
+@pytest.mark.parametrize("bad_ttl", [0, -0.5, -1])
+def test_non_positive_ttl_rejected(bad_ttl: float) -> None:
+    """Non-positive ``ttl_seconds`` values raise a pydantic ValidationError."""
+    with pytest.raises(ValidationError, match="greater than 0"):
+        DuplicateFilter(ttl_seconds=bad_ttl)
+
+
 @pytest.mark.parametrize(
     ("allowed", "cache"),
     [(0, 10), (-1, 10), (10, 0), (10, -5)],
@@ -280,7 +402,10 @@ def test_config_exposed() -> None:
     allowed = 7
     cache = 42
 
-    filt = DuplicateFilter(allowed_repetitions=allowed, cache_size=cache)
+    filt = DuplicateFilter(
+        allowed_repetitions=allowed, cache_size=cache, key_mode="template"
+    )
 
     assert filt.config.allowed_repetitions == allowed
     assert filt.config.cache_size == cache
+    assert filt.config.key_mode == "template"
