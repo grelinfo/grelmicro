@@ -365,8 +365,8 @@ async def test_timeout_logs_warning(
     assert len(records) == 1
     record = records[0]
     assert record.levelno == logging.WARNING
-    assert "slow" in record.getMessage()
-    assert "0.05" in record.getMessage()
+    assert record.args == ("slow", 0.05)
+    assert record.exc_info is None
 
 
 def test_timeout_zero_raises() -> None:
