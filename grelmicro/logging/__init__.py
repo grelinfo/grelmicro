@@ -2,6 +2,7 @@
 
 from pydantic import ValidationError
 
+from grelmicro.logging._dedup import DuplicateFilter, DuplicateFilterConfig
 from grelmicro.logging.config import LoggingBackendType, LoggingSettings
 from grelmicro.logging.errors import (
     LoggingError,
@@ -54,6 +55,8 @@ def configure_logging() -> None:
 
 
 __all__ = [
+    "DuplicateFilter",
+    "DuplicateFilterConfig",
     "ErrorDict",
     "JSONRecordDict",
     "LoggingError",

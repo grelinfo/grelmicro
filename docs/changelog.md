@@ -6,6 +6,7 @@
 
 * ✨ `HealthRegistry` now logs every unhealthy path via the `grelmicro.health` logger, so operators can distinguish between a slow query, a timeout, and a permission error without external instrumentation.
 * ✨ `HealthError` logs at `WARNING` with `exc_info`. Timeouts log at `WARNING` without `exc_info`. Unexpected exceptions keep logging at `ERROR` with traceback.
+* ✨ Add `grelmicro.logging.DuplicateFilter`, a stdlib `logging.Filter` that caps repeated records per `(logger, level, format template)` key. Bounded LRU, thread-safe, silent drops. `key_mode="rendered"` switches to per-rendered-message keying; `ttl_seconds` adds lazy time-based counter reset for long-running services.
 
 ## 0.13.0 - 2026-04-08
 
