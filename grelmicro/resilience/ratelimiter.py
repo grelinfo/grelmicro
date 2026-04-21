@@ -85,7 +85,7 @@ class RateLimiter:
                 [`GCRA`][grelmicro.resilience.algorithms.GCRA].
 
                 Required, unless the deprecated `limit` / `window`
-                GCRA shorthand is used (will be removed in 0.7.0).
+                GCRA shorthand is used (will be removed in 0.15.0).
                 """
             ),
         ] = None,
@@ -127,7 +127,7 @@ class RateLimiter:
             ),
             deprecated(
                 "Use `algorithm=GCRA(limit=..., window=...)` instead. "
-                "Will be removed in 0.7.0."
+                "Will be removed in 0.15.0."
             ),
         ] = None,
         window: Annotated[
@@ -142,7 +142,7 @@ class RateLimiter:
             ),
             deprecated(
                 "Use `algorithm=GCRA(limit=..., window=...)` instead. "
-                "Will be removed in 0.7.0."
+                "Will be removed in 0.15.0."
             ),
         ] = None,
     ) -> None:
@@ -315,7 +315,7 @@ def _resolve_algorithm(
         warnings.warn(
             "RateLimiter(name, limit=..., window=...) is deprecated; "
             "use RateLimiter(name, algorithm=GCRA(limit=..., "
-            "window=...)). Will be removed in 0.7.0.",
+            "window=...)). Will be removed in 0.15.0.",
             DeprecationWarning,
             stacklevel=3,
         )

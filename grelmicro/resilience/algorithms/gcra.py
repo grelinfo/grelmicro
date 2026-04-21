@@ -12,13 +12,24 @@ class GCRA(BaseModel, frozen=True, extra="forbid"):
     Tracks a single theoretical arrival time (TAT) per key
     (~72 bytes). Mathematically equivalent to the "leaky bucket as
     meter" formulation used by Stripe; operators searching for a
-    "leaky bucket" rate limiter should use ``GCRA``.
+    "leaky bucket" rate limiter should use `GCRA`.
 
     Use when you need precise sliding-window semantics (e.g. HTTP
-    API throttling with ``X-RateLimit-*`` headers). For
+    API throttling with `X-RateLimit-*` headers). For
     burst-friendly "allow N, then 1/sec" semantics use
-    :class:`~grelmicro.resilience.algorithms.tokenbucket.TokenBucket`
+    [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]
     instead.
+
+    Example:
+    ```python
+    from grelmicro.resilience import GCRA, RateLimiter
+
+    # 5 requests per 60-second sliding window.
+    rl = RateLimiter("auth", algorithm=GCRA(limit=5, window=60))
+    ```
+
+    Read more in the
+    [Rate Limiter](../resilience.md#rate-limiter) docs.
     """
 
     type: Annotated[

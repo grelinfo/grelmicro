@@ -49,10 +49,36 @@ A **Rate Limiter** controls how many requests a client can make within a time wi
 
 ### Choosing an algorithm
 
-| Algorithm | Semantics | Parameters | When to use |
-|---|---|---|---|
-| **[`GCRA`][grelmicro.resilience.algorithms.GCRA]** | Sliding-window (leaky bucket as meter) | `limit`, `window` | Precise HTTP API throttling with `X-RateLimit-*` headers. Memory-efficient (~72 bytes/key). Mathematically equivalent to the "leaky bucket" formulation (Stripe, Cloudflare). |
-| **[`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]** | Burst + continuous refill | `capacity`, `refill_rate` | Operators reason in "allow a burst of N, then 1/sec" language (Log4j2 BurstFilter, zerolog, AWS API Gateway). |
+Pick the algorithm whose semantics match how **operators describe the limit** in runbooks and API docs. Both algorithms share the same Python API, backends, and `RateLimitResult` shape, so you can swap later if you change your mind.
+
+#### Decision guide
+
+1. **Are you throttling an HTTP API with `X-RateLimit-*` headers?** → [`GCRA`][grelmicro.resilience.algorithms.GCRA]. Its sliding-window semantics map 1:1 onto the IETF RateLimit headers and produce a precise `limit` / `remaining` / `reset_after`.
+2. **Do you want "allow a burst of N, then 1/sec sustained"?** → [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]. The `capacity` / `refill_rate` pair is exactly that shape.
+3. **Does a client need to send occasional spikes above the average rate?** → [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket] (capacity absorbs the spike). GCRA allows bursts too but the configuration is less intuitive.
+4. **Do you need the tightest per-key memory footprint?** → [`GCRA`][grelmicro.resilience.algorithms.GCRA] (~72 bytes/key vs ~88 bytes for TokenBucket).
+5. **You searched "leaky bucket"?** → [`GCRA`][grelmicro.resilience.algorithms.GCRA]. It **is** the leaky-bucket-as-meter formulation used by Stripe's 2017 rate-limiting post and Cloudflare.
+
+#### Side-by-side comparison
+
+| | [`GCRA`][grelmicro.resilience.algorithms.GCRA] | [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket] |
+|---|---|---|
+| **Mental model** | "N requests per sliding T-second window" | "A bucket holding N tokens that refills at R tokens/sec" |
+| **Parameters** | `limit`, `window` | `capacity`, `refill_rate` |
+| **Burst behaviour** | Up to `limit` requests if the window is empty | Up to `capacity` if the bucket is full |
+| **Sustained rate** | `limit / window` requests per second | `refill_rate` tokens per second |
+| **HTTP header fit** | Ideal (`Retry-After`, `X-RateLimit-*`) | Good |
+| **Per-key memory (Memory backend)** | ~72 bytes | ~88 bytes |
+| **Memory backend state** | `dict[str, float]` (TAT) | `dict[str, tuple[float, float]]` (tokens, last) |
+| **Redis storage** | `GET`/`SET` string (TAT) | `HMGET`/`HSET` hash (tokens, last) |
+| **Industry uses** | Stripe, Cloudflare, IETF RateLimit RFC draft | AWS API Gateway, Log4j2 BurstFilter, zerolog |
+
+#### Worked scenarios
+
+- **"Limit each user to 100 API calls per minute."** → `GCRA(limit=100, window=60)`. Sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into `X-RateLimit-Reset`.
+- **"Allow a burst of 20 uploads, then 2 per second."** → `TokenBucket(capacity=20, refill_rate=2)`. The wording maps 1:1 onto the parameters.
+- **"Fair share: every account gets 1 heavy job/10s but can queue up to 5."** → `TokenBucket(capacity=5, refill_rate=0.1)`.
+- **"Throttle expensive webhook retries: at most 10/min per target."** → `GCRA(limit=10, window=60)`.
 
 !!! note
     There is no separate `LeakyBucket` algorithm because GCRA **is** the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `GCRA`.
@@ -141,7 +167,7 @@ Use `fail_open=True` when availability is more important than strictness. On bac
 
 ### Migration from the legacy constructor
 
-The shorthand `RateLimiter(name, limit=..., window=...)` is still accepted and emits a `DeprecationWarning`: it's internally rewritten to `RateLimiter(name, algorithm=GCRA(limit=..., window=...))`. It will be removed in **0.7.0**.
+The shorthand `RateLimiter(name, limit=..., window=...)` is still accepted and emits a `DeprecationWarning`: it's internally rewritten to `RateLimiter(name, algorithm=GCRA(limit=..., window=...))`. It will be removed in **0.15.0**.
 
 ```python
 # Before (deprecated)
