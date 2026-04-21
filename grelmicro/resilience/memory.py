@@ -6,7 +6,6 @@ from time import monotonic
 from types import TracebackType
 from typing import Annotated, Self, assert_never
 
-from pydantic import PositiveFloat
 from typing_extensions import Doc
 
 from grelmicro.resilience._backends import rate_limiter_backend_registry
@@ -51,11 +50,14 @@ class MemoryTokenBucket:
         self,
         *,
         capacity: Annotated[
-            PositiveFloat,
-            Doc("Maximum burst size: the bucket never exceeds this."),
+            int,
+            Doc(
+                "Maximum burst size. The bucket never holds more "
+                "than `capacity` tokens."
+            ),
         ],
         refill_rate: Annotated[
-            PositiveFloat,
+            float,
             Doc("Tokens replenished per second, up to `capacity`."),
         ],
     ) -> None:
@@ -66,6 +68,7 @@ class MemoryTokenBucket:
         if refill_rate <= 0:
             msg = f"refill_rate must be greater than 0, got {refill_rate}"
             raise ValueError(msg)
+        self._capacity_int = capacity
         self._capacity = float(capacity)
         self._refill_rate = float(refill_rate)
         # Per-key state: (tokens, last_refill_monotonic)
@@ -73,9 +76,9 @@ class MemoryTokenBucket:
         self._lock = Lock()
 
     @property
-    def capacity(self) -> float:
+    def capacity(self) -> int:
         """Configured bucket capacity."""
-        return self._capacity
+        return self._capacity_int
 
     @property
     def refill_rate(self) -> float:

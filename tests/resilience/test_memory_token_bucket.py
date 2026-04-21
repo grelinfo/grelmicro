@@ -9,7 +9,7 @@ from grelmicro.resilience.memory import MemoryTokenBucket
 
 pytestmark = [pytest.mark.timeout(2)]
 
-CAPACITY = 3.0
+CAPACITY = 3
 SMALL_EPSILON = 0.001
 THREAD_COUNT = 8
 CALLS_PER_THREAD = 50
@@ -23,7 +23,7 @@ THROUGHPUT_SLACK = 10
 def test_properties() -> None:
     """Test properties expose config."""
     # Arrange
-    capacity = 10.0
+    capacity = 10
     refill_rate = 2.0
 
     # Act
@@ -38,10 +38,10 @@ def test_properties() -> None:
     ("capacity", "refill_rate"),
     [(0, 1), (-1, 1), (1, 0), (1, -1)],
 )
-def test_invalid_config(capacity: float, refill_rate: float) -> None:
-    """Test non-positive capacity or refill_rate raises ValidationError."""
+def test_invalid_config(capacity: int, refill_rate: float) -> None:
+    """Test non-positive capacity or refill_rate raises ValueError."""
     # Act & Assert
-    with pytest.raises(Exception, match="greater than"):
+    with pytest.raises(ValueError, match="greater than"):
         MemoryTokenBucket(capacity=capacity, refill_rate=refill_rate)
 
 
@@ -141,7 +141,7 @@ def test_reset_restores_full_capacity() -> None:
     """Test reset clears state for a key."""
     # Arrange
     bucket = MemoryTokenBucket(capacity=CAPACITY, refill_rate=1)
-    for _ in range(int(CAPACITY)):
+    for _ in range(CAPACITY):
         bucket.try_acquire()
 
     # Act

@@ -13,7 +13,7 @@ from collections.abc import Callable
 from logging import Filter, LogRecord
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, PositiveFloat
+from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro.resilience import MemoryTokenBucket
@@ -25,7 +25,7 @@ class RateLimitFilterConfig(BaseModel, frozen=True, extra="forbid"):
     """Rate Limit Filter Config."""
 
     capacity: Annotated[
-        PositiveFloat,
+        PositiveInt,
         Doc(
             "Maximum burst size: the bucket holds at most this many "
             "tokens. A burst of up to `capacity` records is allowed "
@@ -134,7 +134,7 @@ class RateLimitFilter(Filter):
         self,
         *,
         capacity: Annotated[
-            PositiveFloat,
+            PositiveInt,
             Doc("Maximum burst size."),
         ] = 5,
         refill_rate: Annotated[

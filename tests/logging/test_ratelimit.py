@@ -38,7 +38,7 @@ def _make_record(
 def test_defaults() -> None:
     """Test default configuration."""
     # Arrange
-    default_capacity = 5.0
+    default_capacity = 5
     default_refill = 1.0
     default_cost = 1.0
 
@@ -74,9 +74,7 @@ def test_config_property_is_frozen() -> None:
         (1, 1, -1),
     ],
 )
-def test_invalid_config(
-    capacity: float, refill_rate: float, cost: float
-) -> None:
+def test_invalid_config(capacity: int, refill_rate: float, cost: float) -> None:
     """Test non-positive values raise ValidationError."""
     # Act & Assert
     with pytest.raises(ValidationError, match="greater than"):
