@@ -83,6 +83,8 @@ def _key_by_rendered(record: LogRecord) -> str:
     try:
         rendered = record.getMessage()
     except Exception:  # noqa: BLE001
+        # getMessage() can raise (mismatched args, non-string msg);
+        # a logging filter must never break logging itself.
         rendered = str(record.msg)
     return f"{record.name}|{record.levelno}|{rendered}"
 
