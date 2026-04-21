@@ -445,8 +445,8 @@ By default the filter buckets **per logger**: each logger has its own burst budg
 | `"logger"` (default) | One bucket per logger name | Noisy third-party libraries that hammer a single logger |
 | `"level"` | One bucket per log level | Throttle all WARNING/ERROR across the app |
 | `"global"` | One shared bucket | App-wide safety net on the root handler |
-| `"template"` | One bucket per `str(record.msg)` | Shares across arg values of the same template |
-| `"rendered"` | One bucket per `record.getMessage()` | Distinguishes fully-rendered messages |
+| `"template"` | One bucket per (logger, level, `str(record.msg)`) | Shares across arg values of the same template |
+| `"rendered"` | One bucket per (logger, level, `record.getMessage()`) | Distinguishes fully-rendered messages |
 
 ```python
 --8<-- "logging/rate_limit_filter_global.py"

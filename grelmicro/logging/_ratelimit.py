@@ -46,9 +46,11 @@ class RateLimitFilterConfig(BaseModel, frozen=True, extra="forbid"):
             "logger name (each logger gets its own burst budget). "
             '`"level"` buckets per log level. `"global"` uses a '
             'single shared bucket for all records. `"template"` '
-            "buckets by `str(record.msg)` (collapses across arg "
-            'values). `"rendered"` buckets by '
-            "`record.getMessage()`. Ignored when `key` is set."
+            "buckets per (logger, level, `str(record.msg)`): "
+            "collapses across arg values of the same template. "
+            '`"rendered"` buckets per (logger, level, '
+            "`record.getMessage()`): distinguishes fully-rendered "
+            "messages. Ignored when `key` is set."
         ),
     ] = "logger"
     cost: Annotated[
