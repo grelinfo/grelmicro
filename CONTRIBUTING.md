@@ -223,18 +223,40 @@ If you adapt code from another project, even a snippet:
 - Primitives expose the `backend=` override even when they also
   fall back to the registry.
 
-### Smooth deprecations
+### Smooth deprecations (pre-1.0 policy)
 
-- Never break existing user code in a minor release.
-- When an API changes shape, keep the old signature working and
-  emit a `DeprecationWarning` that points to the new API. Mark
-  the old parameter with
-  [`typing_extensions.deprecated`](https://peps.python.org/pep-0702/).
-- Target removal one **minor** release after the release that
-  introduces the new shape (e.g. deprecated in `0.14.0`,
-  removed in `0.15.0`).
-- Reference the removal version in both the `DeprecationWarning`
-  message and the `Doc(...)` block.
+grelmicro is still on a `0.x` series. The explicit goal is to
+reach **1.0.0 with a stable, well-shaped API**, not to carry a
+long `0.x` tail. We follow the Pydantic playbook, where aggressive
+pre-1.0 deprecations produced a clean v1/v2, rather than the
+"endless 0.x minor bumps with full back-compat" approach some other
+projects take.
+
+Concretely:
+
+- Pre-1.0 we iterate on the public API freely. If a shape can be
+  improved, change it. Don't let "might break users" block a
+  better long-term design.
+- Every change still ships through a **smooth deprecation cycle**
+  so users get one release to migrate:
+  - Keep the old signature working and emit a `DeprecationWarning`
+    that names the new API and the removal version.
+  - Mark the old parameter with
+    [`typing_extensions.deprecated`](https://peps.python.org/pep-0702/)
+    so type-checkers and IDEs flag it inline.
+  - Reference the removal version in both the `DeprecationWarning`
+    message and the `Doc(...)` block.
+- **Target removal one minor release after the deprecation ships.**
+  For example, deprecated in `0.14.0` → removed in `0.15.0`.
+- Keep a "Deprecated" entry in `docs/changelog.md` under the
+  minor that introduces the deprecation **and** under the minor
+  that removes it.
+
+Post-1.0 this policy tightens (longer deprecation windows, no
+breaking changes outside major releases), but we're not there
+yet. If you're unsure whether a change is "aggressive enough",
+open an issue and ask; a slightly worse 0.x migration path is
+cheaper than a bad API we carry for years.
 
 ## Before opening a PR
 
