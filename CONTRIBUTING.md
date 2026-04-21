@@ -31,42 +31,48 @@ single source of truth for what "passes CI": ruff, ty, pytest
 - Work on a branch named for the change, e.g. `feat/<name>` or
   `fix/<name>`.
 - Every commit and PR title **must** follow the
-  [gitmoji](https://gitmoji.dev/) convention. Format:
+  [gitmoji](https://gitmoji.dev/) convention. The format (from
+  [gitmoji's spec](https://gitmoji.dev/about)) is:
 
   ```
   <intention> [scope?][:?] <message>
   ```
 
-  - `intention`: a single emoji from
-    [gitmoji.dev](https://gitmoji.dev/) that describes the nature
-    of the change. The ones used most in this repo are:
-
-    | Emoji | Meaning | When to use |
-    |---|---|---|
-    | `✨` | `:sparkles:` | New feature |
-    | `🐛` | `:bug:` | Bug fix |
-    | `📝` | `:memo:` | Documentation / changelog |
-    | `♻️` | `:recycle:` | Refactor (no behaviour change) |
-    | `✅` | `:white_check_mark:` | Tests |
-    | `⚡` | `:zap:` | Performance improvement |
-    | `🔒` | `:lock:` | Security |
-    | `👷` | `:construction_worker:` | CI / build pipeline |
-    | `⬆️` | `:arrow_up:` | Dependency upgrade |
-    | `🧹` | `:broom:` | Chore / cleanup |
-
+  - `intention`: a single emoji from the
+    [gitmoji list](https://gitmoji.dev/) that describes what the
+    change does. The [full list](https://gitmoji.dev/) is the
+    source of truth; pick the one whose meaning fits best.
   - `scope` (optional): a short contextual string followed by `:`.
     Repo conventions accept either a Conventional-Commits type
     (`feat`, `docs`, `chore`, `ci`) or a module name
     (`resilience`, `logging`, `sync`, `task`).
   - `message`: a concise imperative summary of the change.
 
-  Real examples pulled from the repo history:
+  The [full gitmoji list](https://gitmoji.dev/) is the source of
+  truth. The ones that cover most grelmicro commits, with the
+  exact code and description from gitmoji.dev:
+
+  | Emoji | `:code:` | Description (from gitmoji.dev) |
+  |---|---|---|
+  | ✨ | `:sparkles:` | Introduce new features. |
+  | 🐛 | `:bug:` | Fix a bug. |
+  | 📝 | `:memo:` | Add or update documentation. |
+  | ♻️ | `:recycle:` | Refactor code. |
+  | ✅ | `:white_check_mark:` | Add, update, or pass tests. |
+  | ⚡️ | `:zap:` | Improve performance. |
+  | 🔒️ | `:lock:` | Fix security or privacy issues. |
+  | 👷 | `:construction_worker:` | Add or update CI build system. |
+  | ⬆️ | `:arrow_up:` | Upgrade dependencies. |
+  | 🚨 | `:rotating_light:` | Fix compiler / linter warnings. |
+  | 🔥 | `:fire:` | Remove code or files. |
+  | 🎨 | `:art:` | Improve structure / format of the code. |
+
+  Sample titles taken from this repo's `git log`:
 
   - `✨ feat: Add DuplicateFilter for noisy repeated log records (#94)`
   - `🔒 ci: Grant security-events write to Workflow Lint (#101)`
   - `👷 ci: Add attestations, wheel verification, and fetch-depth to release`
   - `📝 docs: Update changelog for 0.13.0 release`
-  - `🧹 chore: Pre-release cleanup and consistency fixes`
   - `⚡ Optimize CI matrix and migrate to PyPI trusted publishing (#81)`
   - `⬆️ Bump pydantic-extra-types from 2.11.1 to 2.11.2`
 
