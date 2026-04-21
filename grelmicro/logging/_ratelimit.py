@@ -5,10 +5,9 @@ token bucket is empty. Burst-friendly: allows up to ``capacity``
 records in a burst, then refills at ``refill_rate`` records per
 second.
 
-Industry reference: Log4j2 ``BurstFilter``, rs/zerolog
-``BurstSampler``, AWS CloudWatch RateLimitingPolicy all use the
-token-bucket algorithm for the same reasons (simple burst semantics,
-predictable refill).
+Industry practice: many logging frameworks ship a burst-style rate
+limiter using the token-bucket algorithm for the same reasons
+(simple burst semantics, predictable refill).
 """
 
 from collections.abc import Callable

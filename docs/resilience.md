@@ -57,7 +57,7 @@ Pick the algorithm whose semantics match how **operators describe the limit** in
 2. **Do you want "allow a burst of N, then 1/sec sustained"?** → [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]. The `capacity` / `refill_rate` pair is exactly that shape.
 3. **Does a client need to send occasional spikes above the average rate?** → [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket] (capacity absorbs the spike). GCRA allows bursts too but the configuration is less intuitive.
 4. **Do you need the tightest per-key memory footprint?** → [`GCRA`][grelmicro.resilience.algorithms.GCRA] (~72 bytes/key vs ~88 bytes for TokenBucket).
-5. **You searched "leaky bucket"?** → [`GCRA`][grelmicro.resilience.algorithms.GCRA]. It **is** the leaky-bucket-as-meter formulation popularised by Stripe's 2017 rate-limiting post.
+5. **You searched "leaky bucket"?** → [`GCRA`][grelmicro.resilience.algorithms.GCRA]. It **is** the leaky-bucket-as-meter formulation.
 
 #### Side-by-side comparison
 
@@ -71,7 +71,6 @@ Pick the algorithm whose semantics match how **operators describe the limit** in
 | **Per-key memory (Memory backend)** | ~72 bytes | ~88 bytes |
 | **Memory backend state** | `dict[str, float]` (TAT) | `dict[str, tuple[float, float]]` (tokens, last) |
 | **Redis storage** | `GET`/`SET` string (TAT) | `HMGET`/`HSET` hash (tokens, last) |
-| **Industry uses** | Stripe, IETF RateLimit RFC draft | AWS API Gateway, Log4j2 BurstFilter, zerolog |
 
 #### Worked scenarios
 

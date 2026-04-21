@@ -16,8 +16,7 @@ class TokenBucket(BaseModel, frozen=True, extra="forbid"):
 
     Use when operators reason about "allow a burst of N, then
     steady 1/sec": token-bucket is the industry-standard
-    burst-friendly algorithm (Log4j2 `BurstFilter`, zerolog
-    `BurstSampler`, AWS API Gateway).
+    burst-friendly rate-limiting algorithm.
 
     Example:
     ```python

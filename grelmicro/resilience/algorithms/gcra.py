@@ -11,8 +11,8 @@ class GCRA(BaseModel, frozen=True, extra="forbid"):
 
     Tracks a single theoretical arrival time (TAT) per key
     (~72 bytes). Mathematically equivalent to the "leaky bucket as
-    meter" formulation used by Stripe; operators searching for a
-    "leaky bucket" rate limiter should use `GCRA`.
+    meter" formulation; operators searching for a "leaky bucket"
+    rate limiter should use `GCRA`.
 
     Use when you need precise sliding-window semantics (e.g. HTTP
     API throttling with `X-RateLimit-*` headers). For
