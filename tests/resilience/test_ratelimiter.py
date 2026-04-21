@@ -2,8 +2,9 @@
 
 from collections.abc import AsyncGenerator
 from time import monotonic
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from types import TracebackType
+from typing import Any, Self
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -14,7 +15,7 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import GCRA, TokenBucket
+from grelmicro.resilience.algorithms import GCRA, Algorithm, TokenBucket
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.ratelimiter import RateLimiter
@@ -477,40 +478,64 @@ async def test_reset_nonexistent_key(limiter: RateLimiter) -> None:
 # --- fail_open ---
 
 
+class _FailingStrategy:
+    """RateLimiterStrategy whose every method raises RuntimeError."""
+
+    _error = RuntimeError("connection lost")
+
+    async def acquire(
+        self,
+        *,
+        key: str,  # noqa: ARG002
+        cost: int,  # noqa: ARG002
+    ) -> RateLimitResult:
+        raise self._error
+
+    async def peek(self, *, key: str) -> RateLimitResult:  # noqa: ARG002
+        raise self._error
+
+    async def reset(self, *, key: str) -> None:  # noqa: ARG002
+        raise self._error
+
+
+class _FailingBackend:
+    """Backend whose bind() returns a strategy that always raises."""
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    def bind(self, algorithm: Algorithm) -> RateLimiterStrategy:  # noqa: ARG002
+        return _FailingStrategy()
+
+
 @pytest.fixture
 def failing_limiter() -> RateLimiter:
     """RateLimiter whose strategy raises on every call, fail_open=True."""
-    backend = MemoryRateLimiterBackend()
-    limiter = RateLimiter(
+    return RateLimiter(
         "failing",
         algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        backend=_FailingBackend(),
         fail_open=True,
     )
-    error = RuntimeError("connection lost")
-    limiter._strategy = AsyncMock(spec=RateLimiterStrategy)
-    limiter._strategy.acquire = AsyncMock(side_effect=error)
-    limiter._strategy.peek = AsyncMock(side_effect=error)
-    limiter._strategy.reset = AsyncMock(side_effect=error)
-    _ = backend  # silence unused
-    return limiter
 
 
 @pytest.fixture
 def failing_limiter_strict() -> RateLimiter:
     """RateLimiter whose strategy raises; fail_open=False."""
-    backend = MemoryRateLimiterBackend()
-    limiter = RateLimiter(
+    return RateLimiter(
         "failing-strict",
         algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        backend=_FailingBackend(),
         fail_open=False,
     )
-    error = RuntimeError("connection lost")
-    limiter._strategy = AsyncMock(spec=RateLimiterStrategy)
-    limiter._strategy.acquire = AsyncMock(side_effect=error)
-    limiter._strategy.peek = AsyncMock(side_effect=error)
-    limiter._strategy.reset = AsyncMock(side_effect=error)
-    _ = backend
-    return limiter
 
 
 async def test_fail_open_acquire(
