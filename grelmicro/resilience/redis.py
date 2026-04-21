@@ -1,26 +1,134 @@
 """Redis Rate Limiter Backend."""
 
 from types import TracebackType
-from typing import Annotated, Self
+from typing import Annotated, Any, Self, assert_never
 
 from pydantic import RedisDsn
+from redis.asyncio import Redis
 from typing_extensions import Doc
 
 from grelmicro._redis import _create_redis_client
 from grelmicro.resilience._backends import rate_limiter_backend_registry
-from grelmicro.resilience._protocol import RateLimiterBackend, RateLimitResult
+from grelmicro.resilience._protocol import (
+    RateLimiterBackend,
+    RateLimiterStrategy,
+    RateLimitResult,
+)
+from grelmicro.resilience.algorithms import GCRA, Algorithm, TokenBucket
 from grelmicro.resilience.errors import ResilienceSettingsValidationError
 
 
 class RedisRateLimiterBackend(RateLimiterBackend):
-    """Redis Rate Limiter Backend.
+    """Redis rate limiter backend.
 
-    Uses the GCRA (Generic Cell Rate Algorithm) for atomic
-    sliding-window rate limiting. Stores a single Theoretical
-    Arrival Time (TAT) per key (~72 bytes).
+    Supports both
+    [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket] and
+    [`GCRA`][grelmicro.resilience.algorithms.GCRA] algorithms via
+    atomic Lua scripts. Safe across processes and machines.
+
+    Example:
+    ```python
+    from grelmicro.resilience import RateLimiter, TokenBucket
+    from grelmicro.resilience.redis import RedisRateLimiterBackend
+
+    backend = RedisRateLimiterBackend("redis://localhost:6379/0")
+    async with backend:
+        rl = RateLimiter(
+            "api",
+            algorithm=TokenBucket(capacity=10, refill_rate=1),
+        )
+        await rl.acquire(key=user_id)
+    ```
+
+    Read more in the [Resilience](../resilience.md) docs.
     """
 
-    _LUA_GCRA = """
+    def __init__(
+        self,
+        url: Annotated[
+            RedisDsn | str | None,
+            Doc(
+                """
+                The Redis URL.
+
+                If not provided, the URL will be taken from the
+                environment variables `REDIS_URL` or `REDIS_HOST`,
+                `REDIS_PORT`, `REDIS_DB`, and `REDIS_PASSWORD`.
+                """
+            ),
+        ] = None,
+        *,
+        prefix: Annotated[
+            str,
+            Doc(
+                """
+                Prefix prepended to every Redis key the backend
+                writes. Use it to avoid collisions with other
+                consumers of the same Redis database.
+
+                By default no prefix is added.
+                """
+            ),
+        ] = "",
+        auto_register: Annotated[
+            bool,
+            Doc(
+                """
+                Automatically register the backend as the default
+                for rate limiters.
+
+                Set to `False` to manage multiple backends manually.
+                """
+            ),
+        ] = True,
+    ) -> None:
+        """Initialize the rate limiter backend."""
+        self._url, self._redis = _create_redis_client(
+            url, ResilienceSettingsValidationError
+        )
+        self._prefix = prefix
+        if auto_register:
+            rate_limiter_backend_registry.set(self)
+
+    async def __aenter__(self) -> Self:
+        """Open the rate limiter backend."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the rate limiter backend."""
+        await self._redis.aclose()
+
+    def bind(self, algorithm: Algorithm) -> RateLimiterStrategy:
+        """Compile `algorithm` into a bound strategy.
+
+        Each concrete strategy owns its own Lua scripts and
+        registers them with the Redis client at construction.
+        """
+        match algorithm:
+            case TokenBucket():
+                return _RedisTokenBucket(self._redis, self._prefix, algorithm)
+            case GCRA():
+                return _RedisGCRA(self._redis, self._prefix, algorithm)
+        assert_never(algorithm)
+
+
+class _RedisGCRA(RateLimiterStrategy):
+    """Redis GCRA strategy. Private.
+
+    Prepends a per-algorithm discriminator to every Redis key so
+    that a GCRA limiter and a token-bucket limiter sharing the same
+    name cannot collide (they would hit each other's stored values
+    with mismatched Redis types otherwise).
+    """
+
+    _ALGO_PREFIX = "gcra:"
+
+    _LUA_ACQUIRE = """
         local key = KEYS[1]
         local burst = tonumber(ARGV[1])
         local rate = tonumber(ARGV[2])
@@ -60,16 +168,14 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         return {1, remaining, "0", tostring(reset_after)}
     """
 
-    _LUA_GCRA_PEEK = """
+    _LUA_PEEK = """
         local key = KEYS[1]
         local rate = tonumber(ARGV[1])
         local period = tonumber(ARGV[2])
 
         local emission_interval = period / rate
 
-        -- Use Redis server time for cross-process consistency
         local now = redis.call("TIME")
-        -- Offset to Jan 1 2017 to avoid double-precision issues
         local jan_1_2017 = 1483228800
         now = (now[1] - jan_1_2017) + (now[2] / 1000000)
 
@@ -80,7 +186,6 @@ class RedisRateLimiterBackend(RateLimiterBackend):
             tat = tonumber(tat)
         end
 
-        -- Compute current state without consuming (cost=0)
         local new_tat = math.max(tat, now)
         local allow_at = new_tat - period
         local diff = now - allow_at
@@ -103,145 +208,199 @@ class RedisRateLimiterBackend(RateLimiterBackend):
 
     def __init__(
         self,
-        url: Annotated[
-            RedisDsn | str | None,
-            Doc("""
-                The Redis URL.
-
-                If not provided, the URL will be taken from the
-                environment variables REDIS_URL or REDIS_HOST,
-                REDIS_PORT, REDIS_DB, and REDIS_PASSWORD.
-                """),
-        ] = None,
-        *,
-        prefix: Annotated[
-            str,
-            Doc("""
-                The prefix to add on redis keys to avoid
-                conflicts with other keys.
-
-                By default no prefix is added.
-                """),
-        ] = "",
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register the rate limiter backend"
-                " in the backend registry."
-            ),
-        ] = True,
+        redis: Redis,
+        prefix: str,
+        algorithm: GCRA,
     ) -> None:
-        """Initialize the rate limiter backend."""
-        self._url, self._redis = _create_redis_client(
-            url, ResilienceSettingsValidationError
-        )
-        self._prefix = prefix
-        self._lua_gcra = self._redis.register_script(self._LUA_GCRA)
-        self._lua_gcra_peek = self._redis.register_script(self._LUA_GCRA_PEEK)
-        if auto_register:
-            rate_limiter_backend_registry.set(self)
+        self._redis = redis
+        self._key_prefix = f"{prefix}{self._ALGO_PREFIX}"
+        self._lua_acquire = redis.register_script(self._LUA_ACQUIRE)
+        self._lua_peek = redis.register_script(self._LUA_PEEK)
+        self._limit = algorithm.limit
+        self._window = algorithm.window
 
-    async def __aenter__(self) -> Self:
-        """Open the rate limiter backend."""
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        """Close the rate limiter backend."""
-        await self._redis.aclose()
-
-    async def acquire(
-        self,
-        *,
-        key: str,
-        limit: int,
-        window: float,
-        cost: int,
-    ) -> RateLimitResult:
-        """Try to acquire rate limit tokens using GCRA.
-
-        Args:
-            key: The rate limit key.
-            limit: Maximum requests allowed in the window.
-            window: Window duration in seconds.
-            cost: Number of tokens to consume.
-
-        Returns:
-            RateLimitResult with allowed, limit, remaining,
-            retry_after, and reset_after fields.
-
-        """
-        # burst=limit so full-window burst is allowed (standard behaviour).
-        # rate=limit matches the "limit requests per window" semantics.
-        result = await self._lua_gcra(
-            keys=[f"{self._prefix}{key}"],
-            args=[limit, limit, window, cost],
+    async def acquire(self, *, key: str, cost: int) -> RateLimitResult:
+        """Async acquire (GCRA)."""
+        result: list[Any] = await self._lua_acquire(
+            keys=[f"{self._key_prefix}{key}"],
+            args=[self._limit, self._limit, self._window, cost],
             client=self._redis,
         )
-
-        allowed = bool(result[0])
-        remaining = int(result[1])
-        retry_after = float(result[2])
-        reset_after = float(result[3])
-
         return RateLimitResult(
-            allowed=allowed,
-            limit=limit,
-            remaining=remaining,
-            retry_after=retry_after,
-            reset_after=reset_after,
+            allowed=bool(result[0]),
+            limit=self._limit,
+            remaining=int(result[1]),
+            retry_after=float(result[2]),
+            reset_after=float(result[3]),
         )
 
-    async def peek(
-        self,
-        *,
-        key: str,
-        limit: int,
-        window: float,
-    ) -> RateLimitResult:
-        """Check rate limit state without consuming tokens.
-
-        Args:
-            key: The rate limit key.
-            limit: Maximum requests allowed in the window.
-            window: Window duration in seconds.
-
-        Returns:
-            RateLimitResult reflecting the current state.
-
-        """
-        result = await self._lua_gcra_peek(
-            keys=[f"{self._prefix}{key}"],
-            args=[limit, window],
+    async def peek(self, *, key: str) -> RateLimitResult:
+        """Async peek (GCRA)."""
+        result: list[Any] = await self._lua_peek(
+            keys=[f"{self._key_prefix}{key}"],
+            args=[self._limit, self._window],
             client=self._redis,
         )
-
-        allowed = bool(result[0])
-        remaining = int(result[1])
-        retry_after = float(result[2])
-        reset_after = float(result[3])
-
         return RateLimitResult(
-            allowed=allowed,
-            limit=limit,
-            remaining=remaining,
-            retry_after=retry_after,
-            reset_after=reset_after,
+            allowed=bool(result[0]),
+            limit=self._limit,
+            remaining=int(result[1]),
+            retry_after=float(result[2]),
+            reset_after=float(result[3]),
         )
 
-    async def reset(
+    async def reset(self, *, key: str) -> None:
+        """Async reset (GCRA)."""
+        await self._redis.delete(f"{self._key_prefix}{key}")
+
+
+class _RedisTokenBucket(RateLimiterStrategy):
+    """Redis token-bucket strategy. Private.
+
+    Lua scripts adapted from
+    [Upstash Ratelimit](https://github.com/upstash/ratelimit) (MIT):
+    the HMGET/HSET hash-storage pattern and structural shape come from
+    there. grelmicro-specific adaptations:
+
+    - Server-side `TIME` (cross-process clock consistency, matching
+      the existing GCRA script).
+    - Continuous refill by `refill_rate` (tokens/sec) rather than
+      discrete intervals.
+    - Result payload shaped like `RateLimitResult`
+      ``(allowed, remaining, retry_after, reset_after)`` for a
+      uniform Python surface across algorithms.
+
+    Prepends a per-algorithm discriminator to every Redis key so
+    that a token-bucket limiter and a GCRA limiter sharing the same
+    name cannot collide on Redis value types.
+    """
+
+    _ALGO_PREFIX = "tb:"
+
+    _LUA_ACQUIRE = """
+        local key = KEYS[1]
+        local capacity = tonumber(ARGV[1])
+        local refill_rate = tonumber(ARGV[2])
+        local cost = tonumber(ARGV[3])
+
+        -- Use Redis server time for cross-process consistency.
+        local now_pair = redis.call("TIME")
+        -- Offset to Jan 1 2017 to avoid double-precision issues.
+        local jan_1_2017 = 1483228800
+        local now = (now_pair[1] - jan_1_2017) + (now_pair[2] / 1000000)
+
+        local stored = redis.call("HMGET", key, "tokens", "last")
+        local tokens, last
+        if stored[1] == false then
+            tokens = capacity
+            last = now
+        else
+            tokens = tonumber(stored[1])
+            last = tonumber(stored[2])
+        end
+
+        -- Continuous refill: tokens gained = elapsed_seconds * rate.
+        tokens = math.min(capacity, tokens + (now - last) * refill_rate)
+
+        if tokens >= cost then
+            local remaining = tokens - cost
+            local reset_after = (capacity - remaining) / refill_rate
+            redis.call("HSET", key, "tokens", remaining, "last", now)
+            redis.call("EXPIRE", key, math.max(1, math.ceil(reset_after)))
+            return {1, math.floor(remaining), "0", tostring(reset_after)}
+        end
+
+        local retry_after = (cost - tokens) / refill_rate
+        local reset_after = (capacity - tokens) / refill_rate
+        redis.call("HSET", key, "tokens", tokens, "last", now)
+        redis.call("EXPIRE", key, math.max(1, math.ceil(reset_after)))
+        return {
+            0,
+            math.floor(tokens),
+            tostring(retry_after),
+            tostring(reset_after),
+        }
+    """
+
+    _LUA_PEEK = """
+        local key = KEYS[1]
+        local capacity = tonumber(ARGV[1])
+        local refill_rate = tonumber(ARGV[2])
+
+        local now_pair = redis.call("TIME")
+        local jan_1_2017 = 1483228800
+        local now = (now_pair[1] - jan_1_2017) + (now_pair[2] / 1000000)
+
+        local stored = redis.call("HMGET", key, "tokens", "last")
+        local tokens, last
+        if stored[1] == false then
+            tokens = capacity
+            last = now
+        else
+            tokens = tonumber(stored[1])
+            last = tonumber(stored[2])
+        end
+
+        tokens = math.min(capacity, tokens + (now - last) * refill_rate)
+
+        if tokens >= 1 then
+            local reset_after = (capacity - tokens) / refill_rate
+            return {1, math.floor(tokens), "0", tostring(reset_after)}
+        end
+
+        local retry_after = (1 - tokens) / refill_rate
+        local reset_after = (capacity - tokens) / refill_rate
+        return {
+            0,
+            math.floor(tokens),
+            tostring(retry_after),
+            tostring(reset_after),
+        }
+    """
+
+    def __init__(
         self,
-        *,
-        key: str,
+        redis: Redis,
+        prefix: str,
+        algorithm: TokenBucket,
     ) -> None:
-        """Delete rate limit state for a key, restoring full quota.
+        self._redis = redis
+        self._key_prefix = f"{prefix}{self._ALGO_PREFIX}"
+        self._lua_acquire = redis.register_script(self._LUA_ACQUIRE)
+        self._lua_peek = redis.register_script(self._LUA_PEEK)
+        self._capacity = algorithm.capacity
+        self._refill_rate = algorithm.refill_rate
 
-        Args:
-            key: The rate limit key to reset.
+    async def acquire(self, *, key: str, cost: int) -> RateLimitResult:
+        """Async acquire (token bucket)."""
+        result: list[Any] = await self._lua_acquire(
+            keys=[f"{self._key_prefix}{key}"],
+            args=[self._capacity, self._refill_rate, cost],
+            client=self._redis,
+        )
+        return RateLimitResult(
+            allowed=bool(result[0]),
+            limit=int(self._capacity),
+            remaining=int(result[1]),
+            retry_after=float(result[2]),
+            reset_after=float(result[3]),
+        )
 
-        """
-        await self._redis.delete(f"{self._prefix}{key}")
+    async def peek(self, *, key: str) -> RateLimitResult:
+        """Async peek (token bucket)."""
+        result: list[Any] = await self._lua_peek(
+            keys=[f"{self._key_prefix}{key}"],
+            args=[self._capacity, self._refill_rate],
+            client=self._redis,
+        )
+        return RateLimitResult(
+            allowed=bool(result[0]),
+            limit=int(self._capacity),
+            remaining=int(result[1]),
+            retry_after=float(result[2]),
+            reset_after=float(result[3]),
+        )
+
+    async def reset(self, *, key: str) -> None:
+        """Async reset (token bucket)."""
+        await self._redis.delete(f"{self._key_prefix}{key}")

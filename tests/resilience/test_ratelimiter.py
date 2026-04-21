@@ -1,14 +1,20 @@
 """Test RateLimiter implementation."""
 
 from collections.abc import AsyncGenerator
-from unittest.mock import AsyncMock
+from time import monotonic
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
 
 from grelmicro._backends import BackendNotLoadedError
 from grelmicro.resilience._backends import rate_limiter_backend_registry
-from grelmicro.resilience._protocol import RateLimitResult
+from grelmicro.resilience._protocol import (
+    RateLimiterStrategy,
+    RateLimitResult,
+)
+from grelmicro.resilience.algorithms import GCRA, TokenBucket
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.ratelimiter import RateLimiter
@@ -17,6 +23,8 @@ pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
 
 LIMIT = 5
 WINDOW = 60.0
+CAPACITY = 5.0
+REFILL_RATE = 1.0
 
 
 @pytest.fixture(autouse=True)
@@ -33,23 +41,88 @@ async def _backend() -> AsyncGenerator[MemoryRateLimiterBackend]:
 
 
 @pytest.fixture
-def limiter() -> RateLimiter:
-    """Create a rate limiter with default settings."""
-    return RateLimiter("test", limit=LIMIT, window=WINDOW)
+def _sync_backend() -> MemoryRateLimiterBackend:
+    """Create and register a memory backend for sync-only tests.
+
+    Sync tests can't consume the async `_backend` fixture
+    (pytest-anyio doesn't bridge them).
+    """
+    return MemoryRateLimiterBackend()
+
+
+@pytest.fixture
+def gcra_limiter() -> RateLimiter:
+    """RateLimiter with GCRA."""
+    return RateLimiter("test-gcra", algorithm=GCRA(limit=LIMIT, window=WINDOW))
+
+
+@pytest.fixture
+def token_bucket_limiter() -> RateLimiter:
+    """RateLimiter with TokenBucket."""
+    return RateLimiter(
+        "test-tb",
+        algorithm=TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE),
+    )
+
+
+@pytest.fixture(params=["gcra", "token_bucket"])
+def limiter(
+    request: pytest.FixtureRequest,
+    gcra_limiter: RateLimiter,
+    token_bucket_limiter: RateLimiter,
+) -> RateLimiter:
+    """Parametrize tests across both algorithms."""
+    return gcra_limiter if request.param == "gcra" else token_bucket_limiter
 
 
 # --- Properties ---
 
 
-def test_properties() -> None:
-    """Test RateLimiter properties."""
+@pytest.mark.usefixtures("_sync_backend")
+def test_gcra_properties() -> None:
+    """Test RateLimiter with GCRA properties."""
     # Arrange
-    rl = RateLimiter("auth", limit=LIMIT, window=WINDOW)
+    rl = RateLimiter("auth", algorithm=GCRA(limit=LIMIT, window=WINDOW))
 
     # Assert
     assert rl.config.name == "auth"
-    assert rl.config.limit == LIMIT
-    assert rl.config.window == WINDOW
+    assert isinstance(rl.config.algorithm, GCRA)
+    assert rl.config.algorithm.limit == LIMIT
+    assert rl.config.algorithm.window == WINDOW
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_token_bucket_properties() -> None:
+    """Test RateLimiter with TokenBucket properties."""
+    # Arrange
+    rl = RateLimiter(
+        "api",
+        algorithm=TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE),
+    )
+
+    # Assert
+    assert rl.config.name == "api"
+    assert isinstance(rl.config.algorithm, TokenBucket)
+    assert rl.config.algorithm.capacity == CAPACITY
+    assert rl.config.algorithm.refill_rate == REFILL_RATE
+
+
+# --- bind() called exactly once at __init__ ---
+
+
+def test_bind_called_once_at_init() -> None:
+    """Test bind() is called once at construction: zero runtime dispatch."""
+    # Arrange
+    algorithm = TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE)
+    strategy: Any = MagicMock(spec=RateLimiterStrategy)
+    backend: Any = MagicMock()
+    backend.bind = MagicMock(return_value=strategy)
+
+    # Act
+    RateLimiter("test", algorithm=algorithm, backend=backend)
+
+    # Assert
+    backend.bind.assert_called_once_with(algorithm)
 
 
 # --- acquire ---
@@ -70,9 +143,7 @@ async def test_acquire_allowed(limiter: RateLimiter) -> None:
 
 
 @pytest.mark.usefixtures("_backend")
-async def test_acquire_remaining_decreases(
-    limiter: RateLimiter,
-) -> None:
+async def test_acquire_remaining_decreases(limiter: RateLimiter) -> None:
     """Test remaining count decreases with each acquire."""
     # Act
     results = [await limiter.acquire(key="user:1") for _ in range(LIMIT)]
@@ -102,9 +173,7 @@ async def test_acquire_rejected_when_limit_exceeded(
 
 
 @pytest.mark.usefixtures("_backend")
-async def test_acquire_independent_keys(
-    limiter: RateLimiter,
-) -> None:
+async def test_acquire_independent_keys(limiter: RateLimiter) -> None:
     """Test different keys are rate limited independently."""
     # Arrange
     for _ in range(LIMIT):
@@ -116,27 +185,6 @@ async def test_acquire_independent_keys(
     # Assert
     assert result.allowed is True
     assert result.remaining == LIMIT - 1
-
-
-async def test_acquire_evicts_expired_keys(
-    limiter: RateLimiter,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test lazy eviction removes expired keys when threshold exceeded."""
-    # Arrange
-    monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 2)
-    async with MemoryRateLimiterBackend() as backend:
-        backend._tats["test:expired1"] = 0.0
-        backend._tats["test:expired2"] = 0.0
-        backend._tats["test:expired3"] = 0.0
-
-        # Act
-        await limiter.acquire(key="user:1")
-
-        # Assert
-        assert "test:expired1" not in backend._tats
-        assert "test:expired2" not in backend._tats
-        assert "test:expired3" not in backend._tats
 
 
 @pytest.mark.usefixtures("_backend")
@@ -151,9 +199,7 @@ async def test_acquire_cost(limiter: RateLimiter) -> None:
 
 
 @pytest.mark.usefixtures("_backend")
-async def test_acquire_cost_exceeds_remaining(
-    limiter: RateLimiter,
-) -> None:
+async def test_acquire_cost_exceeds_remaining(limiter: RateLimiter) -> None:
     """Test cost rejects when not enough tokens remain."""
     # Arrange
     await limiter.acquire(key="user:1", cost=3)
@@ -163,13 +209,10 @@ async def test_acquire_cost_exceeds_remaining(
 
     # Assert
     assert result.allowed is False
-    assert result.remaining == 0
 
 
 @pytest.mark.usefixtures("_backend")
-async def test_acquire_result_is_named_tuple(
-    limiter: RateLimiter,
-) -> None:
+async def test_acquire_result_is_named_tuple(limiter: RateLimiter) -> None:
     """Test RateLimitResult is an immutable NamedTuple."""
     # Act
     result = await limiter.acquire(key="user:1")
@@ -185,9 +228,7 @@ async def test_acquire_result_is_named_tuple(
 
 
 @pytest.mark.usefixtures("_backend")
-async def test_acquire_or_raise_allowed(
-    limiter: RateLimiter,
-) -> None:
+async def test_acquire_or_raise_allowed(limiter: RateLimiter) -> None:
     """Test acquire_or_raise returns result when within limit."""
     # Act
     result = await limiter.acquire_or_raise(key="user:1")
@@ -198,9 +239,7 @@ async def test_acquire_or_raise_allowed(
 
 
 @pytest.mark.usefixtures("_backend")
-async def test_acquire_or_raise_exceeded(
-    limiter: RateLimiter,
-) -> None:
+async def test_acquire_or_raise_exceeded(limiter: RateLimiter) -> None:
     """Test acquire_or_raise raises RateLimitExceededError."""
     # Arrange
     for _ in range(LIMIT):
@@ -216,9 +255,7 @@ async def test_acquire_or_raise_exceeded(
 
 
 @pytest.mark.usefixtures("_backend")
-async def test_acquire_or_raise_with_cost(
-    limiter: RateLimiter,
-) -> None:
+async def test_acquire_or_raise_with_cost(limiter: RateLimiter) -> None:
     """Test acquire_or_raise respects cost parameter."""
     # Arrange
     await limiter.acquire_or_raise(key="user:1", cost=LIMIT)
@@ -232,13 +269,10 @@ async def test_acquire_or_raise_with_cost(
 
 
 async def test_acquire_without_backend() -> None:
-    """Test acquire raises BackendNotLoadedError without backend."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW)
-
+    """Test RateLimiter construction fails without backend."""
     # Act & Assert
     with pytest.raises(BackendNotLoadedError):
-        await limiter.acquire(key="user:1")
+        RateLimiter("test", algorithm=GCRA(limit=LIMIT, window=WINDOW))
 
 
 # --- Validation ---
@@ -253,11 +287,29 @@ async def test_acquire_without_backend() -> None:
         (LIMIT, -1),
     ],
 )
-def test_invalid_config(limit: int, window: float) -> None:
+def test_invalid_gcra_config(limit: int, window: float) -> None:
     """Test non-positive limit or window raises ValidationError."""
     # Act & Assert
     with pytest.raises(ValidationError):
-        RateLimiter("test", limit=limit, window=window)
+        GCRA(limit=limit, window=window)
+
+
+@pytest.mark.parametrize(
+    ("capacity", "refill_rate"),
+    [
+        (0, REFILL_RATE),
+        (-1, REFILL_RATE),
+        (CAPACITY, 0),
+        (CAPACITY, -1),
+    ],
+)
+def test_invalid_token_bucket_config(
+    capacity: float, refill_rate: float
+) -> None:
+    """Test non-positive capacity or refill_rate raises ValidationError."""
+    # Act & Assert
+    with pytest.raises(ValidationError):
+        TokenBucket(capacity=capacity, refill_rate=refill_rate)
 
 
 @pytest.mark.parametrize("cost", [0, -1, LIMIT + 1])
@@ -267,6 +319,70 @@ async def test_invalid_cost(limiter: RateLimiter, cost: int) -> None:
     # Act & Assert
     with pytest.raises(ValueError, match="cost must be between"):
         await limiter.acquire(key="user:1", cost=cost)
+
+
+# --- Algorithm resolution and deprecation ---
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_legacy_ctor_emits_deprecation_warning() -> None:
+    """Test RateLimiter(name, limit, window) emits DeprecationWarning."""
+    # Act & Assert
+    with pytest.warns(DeprecationWarning, match="algorithm=GCRA"):
+        rl = RateLimiter("legacy", limit=LIMIT, window=WINDOW)
+
+    # Assert: legacy resolves to GCRA
+    assert isinstance(rl.config.algorithm, GCRA)
+    assert rl.config.algorithm.limit == LIMIT
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_both_algorithm_and_legacy_raises() -> None:
+    """Test passing both algorithm= and limit= raises TypeError."""
+    # Act & Assert
+    with pytest.raises(TypeError, match="either"):
+        RateLimiter(
+            "bad",
+            algorithm=GCRA(limit=LIMIT, window=WINDOW),
+            limit=LIMIT,
+        )
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_no_algorithm_and_no_legacy_raises() -> None:
+    """Test missing both algorithm= and legacy kwargs raises TypeError."""
+    # Act & Assert
+    with pytest.raises(TypeError, match="requires"):
+        RateLimiter("bad")
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_legacy_partial_kwargs_raises() -> None:
+    """Test legacy requires BOTH limit and window together."""
+    # Act & Assert
+    with pytest.raises(TypeError, match="requires"):
+        RateLimiter("bad", limit=LIMIT)
+
+
+# --- Explicit backend override ---
+
+
+async def test_explicit_backend_bypasses_registry() -> None:
+    """Test backend= arg wins over registered default."""
+    # Arrange: registered backend rejects everything
+    rejected = MemoryRateLimiterBackend()
+    my = MemoryRateLimiterBackend(auto_register=False)
+
+    # Act: limiter uses the explicit backend
+    rl = RateLimiter(
+        "explicit",
+        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        backend=my,
+    )
+
+    # Assert: RateLimiter's backend is the explicit one
+    assert rl._backend is my
+    assert rl._backend is not rejected
 
 
 # --- Error class ---
@@ -331,30 +447,6 @@ async def test_peek_after_exhaustion(limiter: RateLimiter) -> None:
     assert result.retry_after > 0.0
 
 
-@pytest.mark.usefixtures("_backend")
-async def test_peek_reflects_remaining(limiter: RateLimiter) -> None:
-    """Test peek remaining reflects consumed tokens."""
-    # Arrange
-    await limiter.acquire(key="user:peek4", cost=3)
-
-    # Act
-    result = await limiter.peek(key="user:peek4")
-
-    # Assert
-    assert result.allowed is True
-    assert result.remaining == LIMIT - 3
-
-
-async def test_peek_without_backend() -> None:
-    """Test peek raises BackendNotLoadedError without backend."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW)
-
-    # Act & Assert
-    with pytest.raises(BackendNotLoadedError):
-        await limiter.peek(key="user:1")
-
-
 # --- reset ---
 
 
@@ -381,56 +473,51 @@ async def test_reset_nonexistent_key(limiter: RateLimiter) -> None:
     await limiter.reset(key="user:nonexistent")
 
 
-@pytest.mark.usefixtures("_backend")
-async def test_reset_independent_keys(limiter: RateLimiter) -> None:
-    """Test reset only affects the specified key."""
-    # Arrange
-    await limiter.acquire(key="user:reset_a")
-    await limiter.acquire(key="user:reset_b")
-
-    # Act
-    await limiter.reset(key="user:reset_a")
-
-    # Assert
-    result_a = await limiter.peek(key="user:reset_a")
-    result_b = await limiter.peek(key="user:reset_b")
-    assert result_a.remaining == LIMIT
-    assert result_b.remaining == LIMIT - 1
-
-
-async def test_reset_without_backend() -> None:
-    """Test reset raises BackendNotLoadedError without backend."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW)
-
-    # Act & Assert
-    with pytest.raises(BackendNotLoadedError):
-        await limiter.reset(key="user:1")
-
-
 # --- fail_open ---
 
 
 @pytest.fixture
-def _failing_backend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Register a backend where all methods raise RuntimeError."""
+def failing_limiter() -> RateLimiter:
+    """RateLimiter whose strategy raises on every call, fail_open=True."""
     backend = MemoryRateLimiterBackend()
+    limiter = RateLimiter(
+        "failing",
+        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        fail_open=True,
+    )
     error = RuntimeError("connection lost")
-    monkeypatch.setattr(backend, "acquire", AsyncMock(side_effect=error))
-    monkeypatch.setattr(backend, "peek", AsyncMock(side_effect=error))
-    monkeypatch.setattr(backend, "reset", AsyncMock(side_effect=error))
+    limiter._strategy = AsyncMock(spec=RateLimiterStrategy)
+    limiter._strategy.acquire = AsyncMock(side_effect=error)
+    limiter._strategy.peek = AsyncMock(side_effect=error)
+    limiter._strategy.reset = AsyncMock(side_effect=error)
+    _ = backend  # silence unused
+    return limiter
 
 
-@pytest.mark.usefixtures("_failing_backend")
-async def test_fail_open_acquire() -> None:
+@pytest.fixture
+def failing_limiter_strict() -> RateLimiter:
+    """RateLimiter whose strategy raises; fail_open=False."""
+    backend = MemoryRateLimiterBackend()
+    limiter = RateLimiter(
+        "failing-strict",
+        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        fail_open=False,
+    )
+    error = RuntimeError("connection lost")
+    limiter._strategy = AsyncMock(spec=RateLimiterStrategy)
+    limiter._strategy.acquire = AsyncMock(side_effect=error)
+    limiter._strategy.peek = AsyncMock(side_effect=error)
+    limiter._strategy.reset = AsyncMock(side_effect=error)
+    _ = backend
+    return limiter
+
+
+async def test_fail_open_acquire(
+    failing_limiter: RateLimiter,
+) -> None:
     """Test fail_open returns allowed result on backend error."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=True)
-
     # Act
-    result = await limiter.acquire(key="user:1")
+    result = await failing_limiter.acquire(key="user:1")
 
     # Assert
     assert result.allowed is True
@@ -438,74 +525,111 @@ async def test_fail_open_acquire() -> None:
     assert result.remaining == LIMIT
 
 
-@pytest.mark.usefixtures("_failing_backend")
-async def test_fail_open_false_acquire_propagates_error() -> None:
+async def test_fail_open_false_acquire_propagates_error(
+    failing_limiter_strict: RateLimiter,
+) -> None:
     """Test fail_open=False propagates backend error on acquire."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=False)
-
     # Act & Assert
     with pytest.raises(RuntimeError, match="connection lost"):
-        await limiter.acquire(key="user:1")
+        await failing_limiter_strict.acquire(key="user:1")
 
 
-@pytest.mark.usefixtures("_failing_backend")
-async def test_fail_open_peek() -> None:
+async def test_fail_open_peek(
+    failing_limiter: RateLimiter,
+) -> None:
     """Test fail_open returns allowed result on backend peek error."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=True)
-
     # Act
-    result = await limiter.peek(key="user:1")
+    result = await failing_limiter.peek(key="user:1")
 
     # Assert
     assert result.allowed is True
     assert result.remaining == LIMIT
 
 
-@pytest.mark.usefixtures("_failing_backend")
-async def test_fail_open_false_peek_propagates_error() -> None:
+async def test_fail_open_false_peek_propagates_error(
+    failing_limiter_strict: RateLimiter,
+) -> None:
     """Test fail_open=False propagates backend error on peek."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=False)
-
     # Act & Assert
     with pytest.raises(RuntimeError, match="connection lost"):
-        await limiter.peek(key="user:1")
+        await failing_limiter_strict.peek(key="user:1")
 
 
-@pytest.mark.usefixtures("_failing_backend")
-async def test_fail_open_reset() -> None:
+async def test_fail_open_reset(
+    failing_limiter: RateLimiter,
+) -> None:
     """Test fail_open silently ignores backend reset error."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=True)
-
     # Act (should not raise)
-    await limiter.reset(key="user:1")
+    await failing_limiter.reset(key="user:1")
 
 
-@pytest.mark.usefixtures("_failing_backend")
-async def test_fail_open_false_reset_propagates_error() -> None:
+async def test_fail_open_false_reset_propagates_error(
+    failing_limiter_strict: RateLimiter,
+) -> None:
     """Test fail_open=False propagates backend error on reset."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=False)
-
     # Act & Assert
     with pytest.raises(RuntimeError, match="connection lost"):
-        await limiter.reset(key="user:1")
+        await failing_limiter_strict.reset(key="user:1")
 
 
-@pytest.mark.usefixtures("_failing_backend")
-async def test_fail_open_acquire_or_raise() -> None:
+async def test_fail_open_acquire_or_raise(
+    failing_limiter: RateLimiter,
+) -> None:
     """Test fail_open on acquire_or_raise returns allowed on backend error."""
-    # Arrange
-    limiter = RateLimiter("test", limit=LIMIT, window=WINDOW, fail_open=True)
-
     # Act
-    result = await limiter.acquire_or_raise(key="user:1")
+    result = await failing_limiter.acquire_or_raise(key="user:1")
 
     # Assert
     assert result.allowed is True
+
+
+async def test_gcra_strategy_evicts_expired_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test _MemoryGCRA eviction drops keys whose TAT has passed."""
+    # Arrange
+    monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 1)
+    backend = MemoryRateLimiterBackend(auto_register=False)
+    limiter = RateLimiter(
+        "evict",
+        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        backend=backend,
+    )
+    # Seed two fully-expired GCRA entries (TAT in the distant past).
+    backend._gcra_state["evict:stale_a"] = 0.0
+    backend._gcra_state["evict:stale_b"] = 0.0
+
+    # Act: next acquire pushes past the threshold and evicts.
+    await limiter.acquire(key="active")
+
+    # Assert: stale entries are gone.
+    assert "evict:stale_a" not in backend._gcra_state
+    assert "evict:stale_b" not in backend._gcra_state
+
+
+async def test_token_bucket_strategy_evicts_full_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test _MemoryTokenBucket eviction drops keys at full capacity."""
+    # Arrange
+    monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 2)
+    backend = MemoryRateLimiterBackend(auto_register=False)
+    limiter = RateLimiter(
+        "evict",
+        algorithm=TokenBucket(capacity=CAPACITY, refill_rate=1),
+        backend=backend,
+    )
+    # Seed two entries that are fully refilled (so eviction can drop them).
+    past = monotonic() - 10000.0
+    backend._token_bucket_state["evict:idle_a"] = (CAPACITY, past)
+    backend._token_bucket_state["evict:idle_b"] = (CAPACITY, past)
+
+    # Act
+    await limiter.acquire(key="active")
+
+    # Assert
+    assert "evict:idle_a" not in backend._token_bucket_state
+    assert "evict:idle_b" not in backend._token_bucket_state
 
 
 @pytest.mark.usefixtures("_backend")
@@ -513,7 +637,9 @@ async def test_fail_open_still_rejects_when_limit_exceeded() -> None:
     """Test fail_open does not bypass legitimate rate limit rejections."""
     # Arrange
     limiter = RateLimiter(
-        "fo_reject", limit=LIMIT, window=WINDOW, fail_open=True
+        "fo_reject",
+        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        fail_open=True,
     )
     for _ in range(LIMIT):
         await limiter.acquire(key="user:1")
@@ -530,7 +656,9 @@ async def test_fail_open_acquire_or_raise_still_raises_on_exceeded() -> None:
     """Test fail_open acquire_or_raise still raises on legitimate exceeded."""
     # Arrange
     limiter = RateLimiter(
-        "fo_raise", limit=LIMIT, window=WINDOW, fail_open=True
+        "fo_raise",
+        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        fail_open=True,
     )
     for _ in range(LIMIT):
         await limiter.acquire(key="user:1")

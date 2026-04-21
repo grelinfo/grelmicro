@@ -34,18 +34,23 @@ def test_circuit_breaker_error() -> None:
 def test_resilience_module_exports() -> None:
     """Test resilience module __all__ contains expected symbols."""
     expected = {
+        "GCRA",
+        "Algorithm",
         "CircuitBreaker",
         "CircuitBreakerError",
         "CircuitBreakerMetrics",
         "CircuitBreakerState",
         "ErrorDetails",
+        "MemoryTokenBucket",
         "RateLimitExceededError",
         "RateLimitResult",
         "RateLimiter",
         "RateLimiterBackend",
         "RateLimiterConfig",
+        "RateLimiterStrategy",
         "ResilienceError",
         "ResilienceSettingsValidationError",
+        "TokenBucket",
     }
     assert set(resilience_mod.__all__) == expected
 
