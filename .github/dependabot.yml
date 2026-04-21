@@ -5,6 +5,42 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Load-bearing deps: require human review for major bumps.
+      - dependency-name: "fastapi"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pydantic"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pydantic-settings"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "uvicorn"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "anyio"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "⬆️ "
       prefix-development: "⬆️ "
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "⬆️ ci: "
