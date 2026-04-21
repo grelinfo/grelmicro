@@ -15,24 +15,24 @@ two projects.
 # Install with all extras for development
 uv sync --all-extras
 
-# Run the same gates CI runs
-uv run ruff check grelmicro tests docs/snippets
-uv run ruff format --check grelmicro tests docs/snippets
-uv run ty check grelmicro tests
-uv run pytest -m "not integration"
-uv run pytest -m "integration"
-uv run coverage report --fail-under=100
+# Install the pre-commit hooks (runs all CI gates on every commit)
+uv run pre-commit install
+
+# Run the full gate set on demand
+uv run pre-commit run --all-files
 ```
 
-Pre-commit hooks run all of the above automatically. Install them
-once with `uv run pre-commit install`.
+The pre-commit configuration (`.pre-commit-config.yaml`) is the
+single source of truth for what "passes CI": ruff, ty, pytest
+(unit and integration), coverage, and file-hygiene hooks.
 
 ## Branch and commit conventions
 
 - Work on a branch named for the change, e.g. `feat/<name>` or
   `fix/<name>`.
-- Every commit and PR title **must** start with a gitmoji plus a
-  conventional-commit prefix:
+- Every commit and PR title **must** start with a
+  [gitmoji](https://gitmoji.dev/) plus a
+  [conventional-commit](https://www.conventionalcommits.org/) prefix:
   - `✨ feat(<scope>): ...`
   - `🐛 fix(<scope>): ...`
   - `📝 docs(<scope>): ...`
@@ -47,21 +47,22 @@ once with `uv run pre-commit install`.
 
 ### Type annotations
 
-- Python 3.11+ syntax: PEP 604 unions (`X | Y`), `dict[str, ...]`,
-  `list[...]`, no `Dict`/`List`/`Union` from `typing`.
-- Keyword-only arguments on every public method that takes more
-  than one parameter (`def f(self, *, key: str, cost: int)`).
-- Use
+Mechanical style rules (modern unions, built-in generics,
+keyword-only arguments, import layout) are enforced by ruff and
+ty: let the tooling fail the hook and fix what it points at.
+The rules below are the ones the tooling can't check:
+
+- Annotate **every public parameter** with
   [`typing.Annotated`](https://docs.python.org/3/library/typing.html#typing.Annotated)
-  with
-  [`typing_extensions.Doc`](https://peps.python.org/pep-0727/) on
-  **every public parameter**. Each `Annotated` block reads as a
-  self-contained paragraph of documentation.
-- Use
+  and
+  [`typing_extensions.Doc`](https://peps.python.org/pep-0727/).
+  Each `Annotated` block reads as a self-contained paragraph of
+  documentation.
+- Mark deprecated parameters with
   [`typing_extensions.deprecated`](https://peps.python.org/pep-0702/)
-  as a second `Annotated` entry on any deprecated parameter so
-  type-checkers and IDEs surface the deprecation inline. Keep a
-  runtime `warnings.warn` alongside it.
+  as a second `Annotated` entry so type-checkers and IDEs surface
+  the deprecation inline. Keep a runtime `warnings.warn` alongside
+  it.
 - Keep `__init__` bodies thin. Attribute assignment only; delegate
   validation to a frozen Pydantic config model.
 
