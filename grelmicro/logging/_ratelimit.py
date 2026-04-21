@@ -1,13 +1,12 @@
 """Rate-limit log filter.
 
-Stdlib :class:`logging.Filter` that drops records when a per-key
-token bucket is empty. Burst-friendly: allows up to ``capacity``
-records in a burst, then refills at ``refill_rate`` records per
-second.
+Stdlib `logging.Filter` that drops records when a per-key token
+bucket is empty. Burst-friendly: allows up to `capacity` records
+in a burst, then refills at `refill_rate` records per second.
 
-Industry practice: many logging frameworks ship a burst-style rate
-limiter using the token-bucket algorithm for the same reasons
-(simple burst semantics, predictable refill).
+Industry practice: many logging frameworks ship a burst-style
+rate limiter using the token-bucket algorithm for the same
+reasons (simple burst semantics, predictable refill).
 """
 
 from collections.abc import Callable
@@ -29,7 +28,7 @@ class RateLimitFilterConfig(BaseModel, frozen=True, extra="forbid"):
         PositiveFloat,
         Doc(
             "Maximum burst size: the bucket holds at most this many "
-            "tokens. A burst of up to ``capacity`` records is allowed "
+            "tokens. A burst of up to `capacity` records is allowed "
             "before any are dropped."
         ),
     ] = 5
@@ -43,13 +42,13 @@ class RateLimitFilterConfig(BaseModel, frozen=True, extra="forbid"):
     key_mode: Annotated[
         KeyMode,
         Doc(
-            'Default key strategy. ``"logger"`` (default) buckets per '
+            'Default key strategy. `"logger"` (default) buckets per '
             "logger name (each logger gets its own burst budget). "
-            '``"level"`` buckets per log level. ``"global"`` uses a '
-            'single shared bucket for all records. ``"template"`` '
-            "buckets by ``str(record.msg)`` (collapses across arg "
-            'values). ``"rendered"`` buckets by '
-            "``record.getMessage()``. Ignored when ``key`` is set."
+            '`"level"` buckets per log level. `"global"` uses a '
+            'single shared bucket for all records. `"template"` '
+            "buckets by `str(record.msg)` (collapses across arg "
+            'values). `"rendered"` buckets by '
+            "`record.getMessage()`. Ignored when `key` is set."
         ),
     ] = "logger"
     cost: Annotated[
@@ -99,21 +98,22 @@ class RateLimitFilter(Filter):
     """Rate-limit log records with a token bucket.
 
     Drops records once the per-key bucket is empty. Each key refills
-    at ``refill_rate`` tokens per second, capped at ``capacity``.
+    at `refill_rate` tokens per second, capped at `capacity`.
 
-    Pick the default key strategy via ``key_mode`` (per-logger,
-    per-level, global, template, rendered) or supply a custom ``key``
-    callable. Tune ``capacity`` and ``refill_rate`` to match your
+    Pick the default key strategy via `key_mode` (per-logger,
+    per-level, global, template, rendered) or supply a custom `key`
+    callable. Tune `capacity` and `refill_rate` to match your
     acceptable burst and sustained log rate.
 
     Thread-safe: state lives in a
     [`MemoryTokenBucket`][grelmicro.resilience.MemoryTokenBucket]
-    protected by a [`threading.Lock`][]. The user-supplied ``key``
+    protected by a [`threading.Lock`][]. The user-supplied `key`
     callable runs outside the lock.
 
     State is in-process only; there is no cross-process sharing.
     Construct a new filter to wipe counters, or call
-    :meth:`reset` on a specific key.
+    [`reset`][grelmicro.logging.RateLimitFilter.reset] on a
+    specific key.
 
     Example:
     ```python
@@ -144,7 +144,7 @@ class RateLimitFilter(Filter):
             Doc(
                 'Default key strategy: "logger" (default), "level", '
                 '"global", "template" or "rendered". Ignored when '
-                "``key`` is set."
+                "`key` is set."
             ),
         ] = "logger",
         cost: Annotated[
@@ -181,7 +181,7 @@ class RateLimitFilter(Filter):
         return self._config
 
     def filter(self, record: LogRecord) -> bool:
-        """Return ``True`` to keep the record, ``False`` to drop it."""
+        """Return `True` to keep the record, `False` to drop it."""
         key = self._key_fn(record)
         return self._bucket.try_acquire(key, cost=self._config.cost)
 
@@ -192,9 +192,9 @@ class RateLimitFilter(Filter):
             Doc(
                 "Identifier to reset. Use the same value the key "
                 "function produces for the records you want to clear. "
-                'Pass ``""`` for the ``"global"`` key mode.'
+                'Pass `""` for the `"global"` key mode.'
             ),
         ] = "",
     ) -> None:
-        """Restore ``key``'s bucket to full capacity."""
+        """Restore `key`'s bucket to full capacity."""
         self._bucket.reset(key)

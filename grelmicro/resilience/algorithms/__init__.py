@@ -1,10 +1,10 @@
 """Rate-limiter algorithms.
 
-Algorithms are pure Pydantic configs (no logic). A
-:class:`~grelmicro.resilience.RateLimiter` binds an algorithm to a
-backend once at construction via
-:meth:`~grelmicro.resilience._protocol.RateLimiterBackend.bind`; at
-runtime the bound strategy is called directly, with no algorithm
+Algorithms are pure [Pydantic](https://docs.pydantic.dev/) configs
+(no logic). A [`RateLimiter`][grelmicro.resilience.RateLimiter]
+binds an algorithm to a backend once at construction via
+[`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind];
+at runtime the bound strategy is called directly, with no algorithm
 dispatch on the hot path.
 """
 
