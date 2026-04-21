@@ -57,6 +57,7 @@ nav:
     - architecture/sqlite.md
     - architecture/tracing.md
 - changelog.md
+- Third-party notices: third_party_notices.md
 
 plugins:
   - search

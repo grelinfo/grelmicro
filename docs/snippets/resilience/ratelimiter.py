@@ -1,8 +1,12 @@
-from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience import GCRA, RateLimiter, TokenBucket
 
-# Create rate limiters for different concerns
-auth_limiter = RateLimiter("auth", limit=5, window=60)
-api_limiter = RateLimiter("api", limit=100, window=60)
+# GCRA for precise sliding-window API throttling.
+auth_limiter = RateLimiter("auth", algorithm=GCRA(limit=5, window=60))
+
+# TokenBucket for burst-friendly "N then 1/sec" semantics.
+api_limiter = RateLimiter(
+    "api", algorithm=TokenBucket(capacity=100, refill_rate=10)
+)
 
 
 async def login(ip: str) -> None:
@@ -14,6 +18,6 @@ async def login(ip: str) -> None:
 
 
 async def api_call(user_id: str) -> None:
-    # Raises RateLimitExceededError if limit exceeded
+    # Raises RateLimitExceededError if the bucket is empty
     await api_limiter.acquire_or_raise(key=user_id)
     print("API call allowed")

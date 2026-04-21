@@ -1,6 +1,6 @@
-from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience import GCRA, RateLimiter
 
-invite_limiter = RateLimiter("invite", limit=5, window=3600)
+invite_limiter = RateLimiter("invite", algorithm=GCRA(limit=5, window=3600))
 
 
 async def is_locked(code: str) -> bool:

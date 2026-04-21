@@ -430,6 +430,51 @@ State is in-process only. There is no cross-process sharing and no explicit rese
 !!! tip
     `DuplicateFilter` attaches to any stdlib logger, so it works with every `LOG_BACKEND`. For code using `from loguru import logger` or `structlog.get_logger()` directly, use those libraries' native filtering.
 
+## Rate-Limiting Noisy Logs
+
+`RateLimitFilter` is a `logging.Filter` that drops records when a token bucket is empty. Burst-friendly: allow up to `capacity` records in a burst, then refill at `refill_rate` records per second sustained.
+
+```python
+--8<-- "logging/rate_limit_filter.py"
+```
+
+By default the filter buckets **per logger**: each logger has its own burst budget. Swap `key_mode` for different grouping:
+
+| `key_mode` | Bucket scope | Good for |
+|---|---|---|
+| `"logger"` (default) | One bucket per logger name | Noisy third-party libraries that hammer a single logger |
+| `"level"` | One bucket per log level | Throttle all WARNING/ERROR across the app |
+| `"global"` | One shared bucket | App-wide safety net on the root handler |
+| `"template"` | One bucket per (logger, level, `str(record.msg)`) | Shares across arg values of the same template |
+| `"rendered"` | One bucket per (logger, level, `record.getMessage()`) | Distinguishes fully-rendered messages |
+
+```python
+--8<-- "logging/rate_limit_filter_global.py"
+```
+
+Pass a custom `key=` callable for any other grouping:
+
+```python
+logger.addFilter(
+    RateLimitFilter(
+        capacity=20,
+        refill_rate=2,
+        key=lambda r: f"{r.name}|{r.exc_info is not None}",
+    )
+)
+```
+
+Use `cost=` when a record should spend multiple tokens (e.g. on a verbose-level handler):
+
+```python
+logger.addFilter(RateLimitFilter(capacity=100, refill_rate=10, cost=2))
+```
+
+State is in-process only, backed by [`MemoryTokenBucket`][grelmicro.resilience.MemoryTokenBucket]. Call `filter.reset(key)` to clear one key, or construct a new filter to wipe all state.
+
+!!! tip
+    `RateLimitFilter` and `DuplicateFilter` compose well: attach the dedup filter first to collapse true duplicates, then the rate-limit filter to cap the sustained flow.
+
 ## Production Deployment
 
 For strict unbuffered output (12-factor compliance):

@@ -1,7 +1,11 @@
-from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience import RateLimiter, TokenBucket
 
 # Non-critical limiter: prefer availability over strictness
-limiter = RateLimiter("analytics", limit=100, window=60, fail_open=True)
+limiter = RateLimiter(
+    "analytics",
+    algorithm=TokenBucket(capacity=100, refill_rate=10),
+    fail_open=True,
+)
 
 
 def record_event(user_id: str) -> None: ...

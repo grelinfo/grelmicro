@@ -1,0 +1,48 @@
+"""GCRA (Generic Cell Rate Algorithm) configuration."""
+
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, PositiveFloat, PositiveInt
+from typing_extensions import Doc
+
+
+class GCRA(BaseModel, frozen=True, extra="forbid"):
+    """Generic Cell Rate Algorithm: sliding-window rate limiting.
+
+    Tracks a single theoretical arrival time (TAT) per key
+    (~72 bytes). Mathematically equivalent to the "leaky bucket as
+    meter" formulation; operators searching for a "leaky bucket"
+    rate limiter should use `GCRA`.
+
+    Use when you need precise sliding-window semantics (e.g. HTTP
+    API throttling with `X-RateLimit-*` headers). For
+    burst-friendly "allow N, then 1/sec" semantics use
+    [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]
+    instead.
+
+    Example:
+    ```python
+    from grelmicro.resilience import GCRA, RateLimiter
+
+    # 5 requests per 60-second sliding window.
+    rl = RateLimiter("auth", algorithm=GCRA(limit=5, window=60))
+    ```
+
+    Read more in the
+    [Rate Limiter](../resilience.md#rate-limiter) docs.
+    """
+
+    type: Annotated[
+        Literal["gcra"],
+        Doc("Discriminator for the algorithm Pydantic union."),
+    ] = "gcra"
+
+    limit: Annotated[
+        PositiveInt,
+        Doc("Maximum number of requests allowed per window."),
+    ]
+
+    window: Annotated[
+        PositiveFloat,
+        Doc("Window duration in seconds."),
+    ]
