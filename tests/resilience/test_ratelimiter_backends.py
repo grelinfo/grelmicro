@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.anyio, pytest.mark.timeout(30)]
 
 LIMIT = 5
 WINDOW = 60.0
-CAPACITY = 5.0
+CAPACITY = 5
 REFILL_RATE = 0.1  # slow enough to not refill between assertions
 
 
@@ -210,3 +210,26 @@ async def test_reset_nonexistent_key(strategy: RateLimiterStrategy) -> None:
     """Test reset on a nonexistent key is a no-op."""
     # Act (should not raise)
     await strategy.reset(key="reset_nonexistent")
+
+
+async def test_reset_only_affects_given_key(
+    strategy: RateLimiterStrategy,
+) -> None:
+    """Test reset of one key leaves other keys untouched.
+
+    Regression: the Memory backend's per-algorithm state maps and
+    the Redis backend's per-algorithm key prefixes must not leak
+    across keys.
+    """
+    # Arrange
+    await strategy.acquire(key="reset_iso_a", cost=1)
+    await strategy.acquire(key="reset_iso_b", cost=1)
+
+    # Act
+    await strategy.reset(key="reset_iso_a")
+
+    # Assert: key A is restored to full quota, key B is unchanged.
+    result_a = await strategy.peek(key="reset_iso_a")
+    result_b = await strategy.peek(key="reset_iso_b")
+    assert result_a.remaining == LIMIT
+    assert result_b.remaining == LIMIT - 1

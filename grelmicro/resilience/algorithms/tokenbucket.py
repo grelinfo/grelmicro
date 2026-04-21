@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, PositiveFloat
+from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 
@@ -36,7 +36,7 @@ class TokenBucket(BaseModel, frozen=True, extra="forbid"):
     ] = "token_bucket"
 
     capacity: Annotated[
-        PositiveFloat,
+        PositiveInt,
         Doc(
             "Maximum burst size. The bucket never holds more than "
             "`capacity` tokens."

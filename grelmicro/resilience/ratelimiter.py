@@ -2,7 +2,7 @@
 
 import logging
 import warnings
-from typing import Annotated
+from typing import Annotated, assert_never
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc, deprecated
@@ -325,6 +325,13 @@ def _resolve_algorithm(
             stacklevel=3,
         )
         return GCRA(limit=limit, window=window)
+    if legacy_used:
+        msg = (
+            "Legacy `limit` and `window` must be provided together. "
+            "Pass both, or migrate to "
+            "`algorithm=GCRA(limit=..., window=...)`."
+        )
+        raise TypeError(msg)
     msg = (
         "RateLimiter requires `algorithm=` "
         "(or the deprecated `limit=` and `window=` shorthand for GCRA)."
@@ -341,9 +348,11 @@ def _build_fallback(algorithm: Algorithm) -> RateLimitResult:
     """
     match algorithm:
         case TokenBucket():
-            limit_value = int(algorithm.capacity)
+            limit_value = algorithm.capacity
         case GCRA():
             limit_value = algorithm.limit
+        case _ as unknown:  # pragma: no cover
+            assert_never(unknown)
     return RateLimitResult(
         allowed=True,
         limit=limit_value,

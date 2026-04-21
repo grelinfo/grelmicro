@@ -23,7 +23,7 @@ pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
 
 LIMIT = 5
 WINDOW = 60.0
-CAPACITY = 5.0
+CAPACITY = 5
 REFILL_RATE = 1.0
 
 
@@ -303,9 +303,7 @@ def test_invalid_gcra_config(limit: int, window: float) -> None:
         (CAPACITY, -1),
     ],
 )
-def test_invalid_token_bucket_config(
-    capacity: float, refill_rate: float
-) -> None:
+def test_invalid_token_bucket_config(capacity: int, refill_rate: float) -> None:
     """Test non-positive capacity or refill_rate raises ValidationError."""
     # Act & Assert
     with pytest.raises(ValidationError):
@@ -358,10 +356,13 @@ def test_no_algorithm_and_no_legacy_raises() -> None:
 
 @pytest.mark.usefixtures("_sync_backend")
 def test_legacy_partial_kwargs_raises() -> None:
-    """Test legacy requires BOTH limit and window together."""
-    # Act & Assert
-    with pytest.raises(TypeError, match="requires"):
+    """Test passing only one of limit/window raises an actionable TypeError."""
+    # Act & Assert: message points to the migration path instead of
+    # the generic "requires algorithm=" error.
+    with pytest.raises(TypeError, match="must be provided together"):
         RateLimiter("bad", limit=LIMIT)
+    with pytest.raises(TypeError, match="must be provided together"):
+        RateLimiter("bad", window=WINDOW)
 
 
 # --- Explicit backend override ---

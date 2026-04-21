@@ -30,16 +30,48 @@ single source of truth for what "passes CI": ruff, ty, pytest
 
 - Work on a branch named for the change, e.g. `feat/<name>` or
   `fix/<name>`.
-- Every commit and PR title **must** start with a
-  [gitmoji](https://gitmoji.dev/) plus a
-  [conventional-commit](https://www.conventionalcommits.org/) prefix:
-  - `✨ feat(<scope>): ...`
-  - `🐛 fix(<scope>): ...`
-  - `📝 docs(<scope>): ...`
-  - `🔧 ci: ...`
-  - `♻️ refactor(<scope>): ...`
-  - `🗑️ chore: ...`
-- Reference the issue or PR number in parentheses where applicable.
+- Every commit and PR title **must** follow the
+  [gitmoji](https://gitmoji.dev/) convention. Format:
+
+  ```
+  <intention> [scope?][:?] <message>
+  ```
+
+  - `intention`: a single emoji from
+    [gitmoji.dev](https://gitmoji.dev/) that describes the nature
+    of the change. The ones used most in this repo are:
+
+    | Emoji | Meaning | When to use |
+    |---|---|---|
+    | `✨` | `:sparkles:` | New feature |
+    | `🐛` | `:bug:` | Bug fix |
+    | `📝` | `:memo:` | Documentation / changelog |
+    | `♻️` | `:recycle:` | Refactor (no behaviour change) |
+    | `✅` | `:white_check_mark:` | Tests |
+    | `⚡` | `:zap:` | Performance improvement |
+    | `🔒` | `:lock:` | Security |
+    | `👷` | `:construction_worker:` | CI / build pipeline |
+    | `⬆️` | `:arrow_up:` | Dependency upgrade |
+    | `🧹` | `:broom:` | Chore / cleanup |
+
+  - `scope` (optional): a short contextual string followed by `:`.
+    Repo conventions accept either a Conventional-Commits type
+    (`feat`, `docs`, `chore`, `ci`) or a module name
+    (`resilience`, `logging`, `sync`, `task`).
+  - `message`: a concise imperative summary of the change.
+
+  Real examples pulled from the repo history:
+
+  - `✨ feat: Add DuplicateFilter for noisy repeated log records (#94)`
+  - `🔒 ci: Grant security-events write to Workflow Lint (#101)`
+  - `👷 ci: Add attestations, wheel verification, and fetch-depth to release`
+  - `📝 docs: Update changelog for 0.13.0 release`
+  - `🧹 chore: Pre-release cleanup and consistency fixes`
+  - `⚡ Optimize CI matrix and migrate to PyPI trusted publishing (#81)`
+  - `⬆️ Bump pydantic-extra-types from 2.11.1 to 2.11.2`
+
+- Reference the issue or PR number in parentheses where applicable
+  (e.g. `✨ resilience: Add TokenBucket algorithm (#93)`).
 - Keep each commit focused. When chaining related commits, pause
   for review between them.
 
