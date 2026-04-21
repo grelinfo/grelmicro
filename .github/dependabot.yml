@@ -5,6 +5,30 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
     commit-message:
       prefix: "⬆️ "
       prefix-development: "⬆️ "
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "⬆️ ci: "
