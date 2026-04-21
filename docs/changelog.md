@@ -2,11 +2,38 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-04-21
+
 ### Features
 
-* ✨ `HealthRegistry` now logs every unhealthy path via the `grelmicro.health` logger, so operators can distinguish between a slow query, a timeout, and a permission error without external instrumentation.
-* ✨ `HealthError` logs at `WARNING` with `exc_info`. Timeouts log at `WARNING` without `exc_info`. Unexpected exceptions keep logging at `ERROR` with traceback.
-* ✨ Add `grelmicro.logging.DuplicateFilter`, a stdlib `logging.Filter` that caps repeated records per `(logger, level, format template)` key. Bounded LRU, thread-safe, silent drops. `key_mode="rendered"` switches to per-rendered-message keying; `ttl_seconds` adds lazy time-based counter reset for long-running services.
+* ✨ Add pluggable `RateLimiter` algorithms via the `algorithm=` parameter: `TokenBucket` and `GCRA`. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
+* ✨ Add `MemoryTokenBucket`, a standalone synchronous token-bucket primitive. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
+* ✨ Add `RateLimitFilter`, a `logging.Filter` with configurable `key_mode`. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
+* ✨ Add `DuplicateFilter`, a `logging.Filter` that caps repeated records per key with optional TTL. PR [#94](https://github.com/grelinfo/grelmicro/pull/94).
+* ✨ `HealthRegistry` now logs every unhealthy path at `WARNING` (`ERROR` for unexpected exceptions). PR [#92](https://github.com/grelinfo/grelmicro/pull/92).
+
+### Deprecations
+
+* 🗑️ `RateLimiter(name, limit=..., window=...)` is deprecated. Use `RateLimiter(name, algorithm=GCRA(limit=..., window=...))` instead. Will be removed in 0.15.0. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
+
+### Docs
+
+* 📝 Add [`CONTRIBUTING.md`](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md) with repo conventions. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
+* 📝 Add a "Choosing an algorithm" guide for `TokenBucket` vs `GCRA` in the [Resilience](resilience.md) docs. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
+* 📝 Surface `THIRD_PARTY_NOTICES.md` in the docs site. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
+
+### Security
+
+* 🔒️ Harden CI supply chain: pin all Actions to SHAs, close `run:` injection vectors, add zizmor workflow-lint, restrict Dependabot auto-merge to uv patch/minor updates. PRs [#95](https://github.com/grelinfo/grelmicro/pull/95), [#100](https://github.com/grelinfo/grelmicro/pull/100), [#101](https://github.com/grelinfo/grelmicro/pull/101).
+
+### Internal
+
+* ⬆️ Bump `pydantic` to 2.13.0, `opentelemetry-api` / `opentelemetry-sdk` to 1.41.0, `pytest` to 9.0.3, `ruff` to 0.15.10, `ty` to 0.0.29, `fastapi` to 0.135.3, `uvicorn` to 0.44.0. PR [#99](https://github.com/grelinfo/grelmicro/pull/99).
+* ⬆️ Bump `pydantic-extra-types` from 2.11.1 to 2.11.2. PR [#89](https://github.com/grelinfo/grelmicro/pull/89).
+* ⬆️ Pre-commit `ruff` autoupdate (v0.15.9 → v0.15.11). PR [#91](https://github.com/grelinfo/grelmicro/pull/91).
+* ⬆️ Bump `codecov/codecov-action` to v6. PR [#96](https://github.com/grelinfo/grelmicro/pull/96).
+* ⬆️ Bump `astral-sh/setup-uv` to v8. PR [#97](https://github.com/grelinfo/grelmicro/pull/97).
+* ⬆️ Bump `dependabot/fetch-metadata` to v3. PR [#98](https://github.com/grelinfo/grelmicro/pull/98).
 
 ## 0.13.0 - 2026-04-08
 
