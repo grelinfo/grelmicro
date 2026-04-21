@@ -67,13 +67,14 @@ single source of truth for what "passes CI": ruff, ty, pytest
   | 🔥 | `:fire:` | Remove code or files. |
   | 🎨 | `:art:` | Improve structure / format of the code. |
 
-  Sample titles taken from this repo's `git log`:
+  Sample titles that combine the right emoji with a realistic
+  grelmicro-style message:
 
   - `✨ feat: Add DuplicateFilter for noisy repeated log records (#94)`
   - `🔒 ci: Grant security-events write to Workflow Lint (#101)`
   - `👷 ci: Add attestations, wheel verification, and fetch-depth to release`
   - `📝 docs: Update changelog for 0.13.0 release`
-  - `⚡ Optimize CI matrix and migrate to PyPI trusted publishing (#81)`
+  - `♻️ resilience: Bind algorithm to strategy once at construction`
   - `⬆️ Bump pydantic-extra-types from 2.11.1 to 2.11.2`
 
 - Reference the issue or PR number in parentheses where applicable
