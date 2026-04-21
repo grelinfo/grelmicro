@@ -716,6 +716,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#deduplicating-noisy-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deduplicating Noisy Logs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limiting-noisy-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate-Limiting Noisy Logs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#production-deployment" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1407,6 +1429,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../third_party_notices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Third-party notices
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1674,6 +1723,28 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deduplicating-noisy-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deduplicating Noisy Logs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limiting-noisy-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate-Limiting Noisy Logs
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2301,6 +2372,101 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <p><strong>Field naming</strong>: Core field names (<code>time</code>, <code>level</code>, <code>msg</code>, <code>logger</code>, <code>caller</code>, <code>error</code>) follow slog/zap/Caddy conventions. <code>logger</code> is the logger name; <code>caller</code> is the call site (<code>function:line</code>).</p>
 <p><strong>Caller opt-in</strong>: <code>caller</code> is disabled by default, following slog/zap/zerolog/Caddy conventions where caller info is opt-in. Enable with <code>LOG_CALLER_ENABLED=true</code>. Uvicorn formatters never include <code>caller</code> (points to uvicorn internals, not application code).</p>
 <p><strong>Collision protection</strong>: Core fields cannot be overwritten by user-supplied extra context.</p>
+<h2 id="deduplicating-noisy-logs">Deduplicating Noisy Logs</h2>
+<p><code>DuplicateFilter</code> is a <code>logging.Filter</code> that silences repeated log records.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">getLogger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">DuplicateFilter</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;grelmicro.health&quot;</span><span class="p">)</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">())</span>
+</code></pre></div>
+<p>After <strong>5</strong> identical records the filter silently drops further occurrences. Up to <strong>100</strong> distinct keys are tracked in an LRU.</p>
+<p><code>key_mode="template"</code> (default) keys on the raw format string: <code>%</code>-style calls with different arguments share one counter, and it is <strong>~3× faster</strong> than rendered keying. Use <code>key_mode="rendered"</code> to distinguish each rendered message, or pass <code>key=</code> for a custom fingerprint:</p>
+<div class="highlight"><pre><span></span><code><span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">(</span><span class="n">key_mode</span><span class="o">=</span><span class="s2">&quot;rendered&quot;</span><span class="p">))</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">exc_info</span><span class="p">)))</span>
+</code></pre></div>
+<p>Set <code>ttl_seconds</code> to re-emit a burst of <code>allowed_repetitions</code> records every window during sustained floods, so operators keep getting periodic reminders:</p>
+<div class="highlight"><pre><span></span><code><span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">(</span><span class="n">allowed_repetitions</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">ttl_seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">))</span>
+</code></pre></div>
+<p>State is in-process only. There is no cross-process sharing and no explicit reset API: construct a new filter if you need to wipe counters.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p><code>DuplicateFilter</code> attaches to any stdlib logger, so it works with every <code>LOG_BACKEND</code>. For code using <code>from loguru import logger</code> or <code>structlog.get_logger()</code> directly, use those libraries' native filtering.</p>
+</div>
+<h2 id="rate-limiting-noisy-logs">Rate-Limiting Noisy Logs</h2>
+<p><code>RateLimitFilter</code> is a <code>logging.Filter</code> that drops records when a token bucket is empty. Burst-friendly: allow up to <code>capacity</code> records in a burst, then refill at <code>refill_rate</code> records per second sustained.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">getLogger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitFilter</span>
+
+<span class="c1"># Allow a burst of 10 records per logger, then 1 record/sec sustained.</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;grelmicro.ingest&quot;</span><span class="p">)</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">RateLimitFilter</span><span class="p">(</span><span class="n">capacity</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+</code></pre></div>
+<p>By default the filter buckets <strong>per logger</strong>: each logger has its own burst budget. Swap <code>key_mode</code> for different grouping:</p>
+<table>
+<thead>
+<tr>
+<th><code>key_mode</code></th>
+<th>Bucket scope</th>
+<th>Good for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"logger"</code> (default)</td>
+<td>One bucket per logger name</td>
+<td>Noisy third-party libraries that hammer a single logger</td>
+</tr>
+<tr>
+<td><code>"level"</code></td>
+<td>One bucket per log level</td>
+<td>Throttle all WARNING/ERROR across the app</td>
+</tr>
+<tr>
+<td><code>"global"</code></td>
+<td>One shared bucket</td>
+<td>App-wide safety net on the root handler</td>
+</tr>
+<tr>
+<td><code>"template"</code></td>
+<td>One bucket per (logger, level, <code>str(record.msg)</code>)</td>
+<td>Shares across arg values of the same template</td>
+</tr>
+<tr>
+<td><code>"rendered"</code></td>
+<td>One bucket per (logger, level, <code>record.getMessage()</code>)</td>
+<td>Distinguishes fully-rendered messages</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">getLogger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitFilter</span>
+
+<span class="c1"># One shared bucket across every record the handler sees.</span>
+<span class="c1"># Useful on the root or app-level handler as a global safety net.</span>
+<span class="n">root</span> <span class="o">=</span> <span class="n">getLogger</span><span class="p">()</span>
+<span class="n">root</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">RateLimitFilter</span><span class="p">(</span><span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">key_mode</span><span class="o">=</span><span class="s2">&quot;global&quot;</span><span class="p">))</span>
+</code></pre></div>
+<p>Pass a custom <code>key=</code> callable for any other grouping:</p>
+<div class="highlight"><pre><span></span><code><span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span>
+    <span class="n">RateLimitFilter</span><span class="p">(</span>
+        <span class="n">capacity</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+        <span class="n">refill_rate</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+        <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">exc_info</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="kc">None</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Use <code>cost=</code> when a record should spend multiple tokens (e.g. on a verbose-level handler):</p>
+<div class="highlight"><pre><span></span><code><span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">RateLimitFilter</span><span class="p">(</span><span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">cost</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
+</code></pre></div>
+<p>State is in-process only, backed by [<code>MemoryTokenBucket</code>][grelmicro.resilience.MemoryTokenBucket]. Call <code>filter.reset(key)</code> to clear one key, or construct a new filter to wipe all state.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p><code>RateLimitFilter</code> and <code>DuplicateFilter</code> compose well: attach the dedup filter first to collapse true duplicates, then the rate-limit filter to cap the sustained flow.</p>
+</div>
 <h2 id="production-deployment">Production Deployment</h2>
 <p>For strict unbuffered output (12-factor compliance):</p>
 <div class="highlight"><pre><span></span><code><span class="nv">PYTHONUNBUFFERED</span><span class="o">=</span><span class="m">1</span>

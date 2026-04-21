@@ -1,6 +1,6 @@
-from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience import GCRA, RateLimiter
 
-auth_limiter = RateLimiter("auth", limit=5, window=60)
+auth_limiter = RateLimiter("auth", algorithm=GCRA(limit=5, window=60))
 
 
 def verify_password(password: str) -> bool:

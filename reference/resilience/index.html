@@ -1303,32 +1303,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.resilience.RateLimiterBackend.acquire" class="md-nav__link">
+  <a href="#grelmicro.resilience.RateLimiterBackend.bind" class="md-nav__link">
     <span class="md-ellipsis">
       
-        acquire
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.RateLimiterBackend.peek" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        peek
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.RateLimiterBackend.reset" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        reset
+        bind
       
     </span>
   </a>
@@ -1687,6 +1665,33 @@
     
   
     Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../third_party_notices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Third-party notices
   
 
     
@@ -2235,32 +2240,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.resilience.RateLimiterBackend.acquire" class="md-nav__link">
+  <a href="#grelmicro.resilience.RateLimiterBackend.bind" class="md-nav__link">
     <span class="md-ellipsis">
       
-        acquire
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.RateLimiterBackend.peek" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        peek
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.RateLimiterBackend.reset" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        reset
+        bind
       
     </span>
   </a>
@@ -3164,19 +3147,42 @@ by monitoring and controlling calls to a protected service.</p>
         <span class="nb">str</span><span class="p">,</span> <span class="n">Doc</span><span class="p">(</span><span class="s2">&quot;Name of the rate limiter instance.&quot;</span><span class="p">)</span>
     <span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">limit</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
-        <span class="n">PositiveInt</span><span class="p">,</span>
-        <span class="n">Doc</span><span class="p">(</span><span class="s2">&quot;Maximum number of requests per window.&quot;</span><span class="p">),</span>
-    <span class="p">],</span>
-    <span class="n">window</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
-        <span class="n">PositiveFloat</span><span class="p">,</span> <span class="n">Doc</span><span class="p">(</span><span class="s2">&quot;Window duration in seconds.&quot;</span><span class="p">)</span>
-    <span class="p">],</span>
+    <span class="n">algorithm</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">Algorithm</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">                The rate-limit algorithm. Pass an instance of</span><span class="se">\n</span><span class="s2">                [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]</span><span class="se">\n</span><span class="s2">                or</span><span class="se">\n</span><span class="s2">                [`GCRA`][grelmicro.resilience.algorithms.GCRA].</span><span class="se">\n\n</span><span class="s2">                Required, unless the deprecated `limit` / `window`</span><span class="se">\n</span><span class="s2">                GCRA shorthand is used (will be removed in 0.15.0).</span><span class="se">\n</span><span class="s2">                &quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">RateLimiterBackend</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">                Explicit backend instance. When `None` (the default),</span><span class="se">\n</span><span class="s2">                the registered backend is resolved at construction.</span><span class="se">\n\n</span><span class="s2">                Pass this to bypass the global registry (e.g. in</span><span class="se">\n</span><span class="s2">                tests or when running multiple backends side by</span><span class="se">\n</span><span class="s2">                side).</span><span class="se">\n</span><span class="s2">                &quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">fail_open</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
         <span class="nb">bool</span><span class="p">,</span>
         <span class="n">Doc</span><span class="p">(</span>
-            <span class="s2">&quot;When True, backend errors return an allowed result instead of propagating the exception. Useful for non-critical rate limiters where availability is more important than strictness.&quot;</span>
+            <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">                When `True`, backend errors return an allowed result</span><span class="se">\n</span><span class="s2">                instead of propagating the exception.</span><span class="se">\n\n</span><span class="s2">                Useful for non-critical rate limiters where</span><span class="se">\n</span><span class="s2">                availability matters more than strictness (e.g.</span><span class="se">\n</span><span class="s2">                analytics events).</span><span class="se">\n</span><span class="s2">                &quot;</span>
         <span class="p">),</span>
     <span class="p">]</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">limit</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">PositiveInt</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">                Legacy shorthand for</span><span class="se">\n</span><span class="s2">                `algorithm=GCRA(limit=..., window=...)`.</span><span class="se">\n\n</span><span class="s2">                Pairs with `window`.</span><span class="se">\n</span><span class="s2">                &quot;</span>
+        <span class="p">),</span>
+        <span class="n">deprecated</span><span class="p">(</span>
+            <span class="s2">&quot;Use `algorithm=GCRA(limit=..., window=...)` instead. Will be removed in 0.15.0.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">window</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">PositiveFloat</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">                Legacy shorthand for</span><span class="se">\n</span><span class="s2">                `algorithm=GCRA(limit=..., window=...)`.</span><span class="se">\n\n</span><span class="s2">                Pairs with `limit`.</span><span class="se">\n</span><span class="s2">                &quot;</span>
+        <span class="p">),</span>
+        <span class="n">deprecated</span><span class="p">(</span>
+            <span class="s2">&quot;Use `algorithm=GCRA(limit=..., window=...)` instead. Will be removed in 0.15.0.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -3184,11 +3190,33 @@ by monitoring and controlling calls to a protected service.</p>
 
 
 
-        <p>Rate limiter using Generic Cell Rate Algorithm (GCRA).</p>
-<p>Implements sliding-window rate limiting by tracking the
-theoretical arrival time of requests. Limits the number of
-calls within a time window per key. Requires a rate limiter
-backend (Redis or Memory).</p>
+        <p>Rate limiter with a pluggable algorithm.</p>
+<p>Supports multiple algorithms via the required <code>algorithm</code>
+parameter: pass a
+[<code>TokenBucket</code>][grelmicro.resilience.algorithms.TokenBucket]
+for burst-friendly semantics, or a
+[<code>GCRA</code>][grelmicro.resilience.algorithms.GCRA] for precise
+sliding-window semantics.</p>
+<p>The algorithm is bound to the backend once at construction via
+<a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;bind&lt;/span&gt;" href="#grelmicro.resilience.RateLimiterBackend.bind"><code>RateLimiterBackend.bind</code></a>;
+subsequent <code>acquire</code> / <code>peek</code> / <code>reset</code> calls invoke the bound
+strategy directly, with <strong>no runtime algorithm dispatch</strong>.</p>
+<p>Example:
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span><span class="p">,</span> <span class="n">TokenBucket</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryRateLimiterBackend</span>
+
+<span class="n">MemoryRateLimiterBackend</span><span class="p">()</span>
+<span class="n">api</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span>
+    <span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">TokenBucket</span><span class="p">(</span><span class="n">capacity</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">api</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">user_id</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">allowed</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;rate limited&quot;</span><span class="p">)</span>
+</code></pre></div></p>
+<p>Read more in the <a href="../../resilience/">Resilience</a> docs.</p>
 
         <p>Initialize the rate limiter.</p>
 
@@ -3316,7 +3344,8 @@ backend (Redis or Memory).</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If cost is less than 1 or greater than limit.</p>
+                <p>If <code>cost</code> is not between 1 and the
+algorithm's limit/capacity.</p>
               </div>
             </td>
           </tr>
@@ -3462,7 +3491,17 @@ backend (Redis or Memory).</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>allowed</code> indicates whether the next acquire would succeed.</p>
+                <p><code>allowed</code> indicates whether the next acquire would</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitResult&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimitResult&lt;/code&gt;)" href="#grelmicro.resilience.RateLimitResult">RateLimitResult</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>succeed.</p>
               </div>
             </td>
           </tr>
@@ -3700,7 +3739,7 @@ backend (Redis or Memory).</p>
 
     <div class="doc doc-contents ">
 
-        <p>Total quota for the window.</p>
+        <p>Total quota (<code>capacity</code> for TokenBucket, <code>limit</code> for GCRA).</p>
 
     </div>
 
@@ -3724,7 +3763,7 @@ backend (Redis or Memory).</p>
 
     <div class="doc doc-contents ">
 
-        <p>Remaining requests in the current window.</p>
+        <p>Remaining tokens or requests.</p>
 
     </div>
 
@@ -3806,9 +3845,15 @@ backend (Redis or Memory).</p>
 
 
 
-        <p>Protocol for rate limiter storage backends.</p>
-<p>Implementations must be async context managers and provide
-<code>acquire</code>, <code>peek</code>, and <code>reset</code> methods.</p>
+        <p>Protocol for rate-limiter storage backends.</p>
+<p>A backend owns the storage for every rate limiter that shares
+it. It compiles an algorithm into a bound strategy via
+<a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;bind&lt;/span&gt;" href="#grelmicro.resilience.RateLimiterBackend.bind"><code>bind</code></a>; the
+returned
+[<code>RateLimiterStrategy</code>][grelmicro.resilience.RateLimiterStrategy]
+is what a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiter&lt;/span&gt;" href="#grelmicro.resilience.RateLimiter"><code>RateLimiter</code></a>
+calls on every <code>acquire</code> / <code>peek</code> / <code>reset</code>, with no algorithm
+dispatch at runtime.</p>
 
 
 
@@ -3886,23 +3931,22 @@ backend (Redis or Memory).</p>
 <div class="doc doc-object doc-function">
 
 
-<h3 id="grelmicro.resilience.RateLimiterBackend.acquire" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">acquire</span>
+<h3 id="grelmicro.resilience.RateLimiterBackend.bind" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">bind</span>
 
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">acquire</span><span class="p">(</span>
-    <span class="o">*</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">window</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">cost</span><span class="p">:</span> <span class="nb">int</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RateLimitResult</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">bind</span><span class="p">(</span><span class="n">algorithm</span><span class="p">:</span> <span class="n">Algorithm</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RateLimiterStrategy</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Try to acquire rate limit tokens.</p>
+        <p>Compile an algorithm into a bound strategy.</p>
+<p>Called exactly once per
+<a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiter&lt;/span&gt;" href="#grelmicro.resilience.RateLimiter"><code>RateLimiter</code></a> at
+construction. The returned strategy keeps a reference to
+the backend's live storage; subsequent requests invoke
+strategy methods directly without any algorithm dispatch.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -3918,62 +3962,15 @@ backend (Redis or Memory).</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                <code>key</code>
+                <code>algorithm</code>
             </td>
             <td>
-                  <code><span title="str">str</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The rate limit key (e.g. IP, user ID, session).</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>limit</code>
-            </td>
-            <td>
-                  <code><span title="int">int</span></code>
+                  <code><span title="grelmicro.resilience.algorithms.Algorithm">Algorithm</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Maximum number of requests allowed in the window.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>window</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Window duration in seconds.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>cost</code>
-            </td>
-            <td>
-                  <code><span title="int">int</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Number of tokens to consume.</p>
+                <p>The algorithm configuration
+(<code>TokenBucket</code> or <code>GCRA</code>).</p>
               </div>
             </td>
             <td>
@@ -3995,189 +3992,22 @@ backend (Redis or Memory).</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitResult&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimitResult&lt;/code&gt;)" href="#grelmicro.resilience.RateLimitResult">RateLimitResult</a></code>
+                  <code><span title="grelmicro.resilience._protocol.RateLimiterStrategy">RateLimiterStrategy</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>RateLimitResult with allowed, limit, remaining,</p>
+                <p>A strategy bound to <code>algorithm</code> and this backend's</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitResult&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimitResult&lt;/code&gt;)" href="#grelmicro.resilience.RateLimitResult">RateLimitResult</a></code>
+                  <code><span title="grelmicro.resilience._protocol.RateLimiterStrategy">RateLimiterStrategy</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>retry_after, and reset_after fields.</p>
+                <p>storage.</p>
               </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="grelmicro.resilience.RateLimiterBackend.peek" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">peek</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">peek</span><span class="p">(</span>
-    <span class="o">*</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">window</span><span class="p">:</span> <span class="nb">float</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RateLimitResult</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Check rate limit state without consuming tokens.</p>
-
-
-<p><span class="doc-section-title">Parameters:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-          <th>Default</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>key</code>
-            </td>
-            <td>
-                  <code><span title="str">str</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The rate limit key (e.g. IP, user ID, session).</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>limit</code>
-            </td>
-            <td>
-                  <code><span title="int">int</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum number of requests allowed in the window.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>window</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Window duration in seconds.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-    <p><span class="doc-section-title">Returns:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitResult&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimitResult&lt;/code&gt;)" href="#grelmicro.resilience.RateLimitResult">RateLimitResult</a></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>RateLimitResult reflecting the current state.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="grelmicro.resilience.RateLimiterBackend.reset" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">reset</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reset</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Delete rate limit state for a key, restoring full quota.</p>
-
-
-<p><span class="doc-section-title">Parameters:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-          <th>Default</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>key</code>
-            </td>
-            <td>
-                  <code><span title="str">str</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The rate limit key to reset.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
             </td>
           </tr>
       </tbody>

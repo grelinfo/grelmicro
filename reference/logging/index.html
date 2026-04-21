@@ -777,6 +777,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DuplicateFilter
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DuplicateFilter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilter.config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilter.filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        filter
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilterConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DuplicateFilterConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#grelmicro.logging.JSONRecordDict" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1241,6 +1291,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../third_party_notices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Third-party notices
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1272,6 +1349,56 @@
     <span class="md-ellipsis">
       
         logging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DuplicateFilter
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DuplicateFilter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilter.config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilter.filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        filter
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilterConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DuplicateFilterConfig
       
     </span>
   </a>
@@ -1417,6 +1544,192 @@
 
 
 
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="grelmicro.logging.DuplicateFilter" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">DuplicateFilter</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">DuplicateFilter</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">allowed_repetitions</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">PositiveInt</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;Maximum number of records per key that pass the filter before subsequent records are dropped.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="n">cache_size</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">PositiveInt</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;Maximum number of distinct keys tracked. When exceeded, the least-recently-seen key is evicted.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+    <span class="n">key_mode</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">KeyMode</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s1">&#39;Default key strategy: &quot;template&quot; (default) uses ``str(record.msg)``; &quot;rendered&quot; uses ``record.getMessage()``. Ignored when ``key`` is set.&#39;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;template&quot;</span><span class="p">,</span>
+    <span class="n">ttl_seconds</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">PositiveFloat</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;Silence window for automatic counter reset. ``None`` disables time-based expiry.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span>
+        <span class="n">Callable</span><span class="p">[[</span><span class="n">LogRecord</span><span class="p">],</span> <span class="n">Hashable</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">Doc</span><span class="p">(</span>
+            <span class="s2">&quot;Override the default key function. Receives the record and returns any hashable value.&quot;</span>
+        <span class="p">),</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="logging.Filter">Filter</span></code></p>
+
+
+
+        <p>Drop log records that repeat beyond <code>allowed_repetitions</code>.</p>
+<p>Keys are tracked in an LRU cache of at most <code>cache_size</code>
+entries. Choose the default key via <code>key_mode</code> or supply
+<code>key</code> to override. Set <code>ttl_seconds</code> to re-emit a burst of
+<code>allowed_repetitions</code> records every <code>ttl_seconds</code> during a
+sustained flood, so operators get periodic reminders that the
+issue persists. <code>key_mode="template"</code> is roughly 3x faster
+than <code>"rendered"</code> because it skips message formatting.</p>
+<p>Thread-safe: a :class:<code>threading.Lock</code> protects the counter
+map. The user-supplied <code>key</code> callable runs outside the lock.</p>
+<p>State is in-process only; there is no cross-process sharing
+and no reset API. Construct a new filter to wipe counters.</p>
+
+        <p>Initialize the filter.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="grelmicro.logging.DuplicateFilter.config" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">config</span><span class="p">:</span> <span class="n">DuplicateFilterConfig</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the config.</p>
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="grelmicro.logging.DuplicateFilter.filter" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">filter</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">filter</span><span class="p">(</span><span class="n">record</span><span class="p">:</span> <span class="n">LogRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return <code>True</code> if the record should pass, <code>False</code> to drop.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="grelmicro.logging.DuplicateFilterConfig" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">DuplicateFilterConfig</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+
+        <p>Duplicate Filter Config.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-class">
 
