@@ -30,6 +30,17 @@ jobs:
       - name: Run Ty
         run: uv run ty check
 
+  workflow-lint:
+    name: Workflow Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.0
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@b1d7e1fb5de872772f31590499237e7cce841e8e # v0.5.3
+
   test:
     name: Test Python ${{ matrix.python }}
     runs-on: "ubuntu-latest"
