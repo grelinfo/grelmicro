@@ -5,7 +5,7 @@ import warnings
 from typing import Annotated
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
-from typing_extensions import Doc
+from typing_extensions import Doc, deprecated
 
 from grelmicro.resilience._backends import get_rate_limiter_backend
 from grelmicro.resilience._protocol import (
@@ -119,22 +119,30 @@ class RateLimiter:
             PositiveInt | None,
             Doc(
                 """
-                Deprecated. Legacy shorthand for
+                Legacy shorthand for
                 `algorithm=GCRA(limit=..., window=...)`.
 
-                Pairs with `window`. Will be removed in 0.7.0.
+                Pairs with `window`.
                 """
+            ),
+            deprecated(
+                "Use `algorithm=GCRA(limit=..., window=...)` instead. "
+                "Will be removed in 0.7.0."
             ),
         ] = None,
         window: Annotated[
             PositiveFloat | None,
             Doc(
                 """
-                Deprecated. Legacy shorthand for
+                Legacy shorthand for
                 `algorithm=GCRA(limit=..., window=...)`.
 
-                Pairs with `limit`. Will be removed in 0.7.0.
+                Pairs with `limit`.
                 """
+            ),
+            deprecated(
+                "Use `algorithm=GCRA(limit=..., window=...)` instead. "
+                "Will be removed in 0.7.0."
             ),
         ] = None,
     ) -> None:
