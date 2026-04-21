@@ -31,13 +31,14 @@ class RedisRateLimiterBackend(RateLimiterBackend):
     from grelmicro.resilience import RateLimiter, TokenBucket
     from grelmicro.resilience.redis import RedisRateLimiterBackend
 
-    backend = RedisRateLimiterBackend("redis://localhost:6379/0")
-    async with backend:
-        rl = RateLimiter(
-            "api",
-            algorithm=TokenBucket(capacity=10, refill_rate=1),
-        )
-        await rl.acquire(key=user_id)
+
+    async def main() -> None:
+        async with RedisRateLimiterBackend("redis://localhost:6379/0"):
+            rl = RateLimiter(
+                "api",
+                algorithm=TokenBucket(capacity=10, refill_rate=1),
+            )
+            await rl.acquire(key="u1")
     ```
 
     Read more in the [Resilience](../resilience.md) docs.
@@ -257,18 +258,10 @@ class _RedisGCRA(RateLimiterStrategy):
 class _RedisTokenBucket(RateLimiterStrategy):
     """Redis token-bucket strategy. Private.
 
-    Lua scripts adapted from
-    [Upstash Ratelimit](https://github.com/upstash/ratelimit) (MIT):
-    the HMGET/HSET hash-storage pattern and structural shape come from
-    there. grelmicro-specific adaptations:
-
-    - Server-side `TIME` (cross-process clock consistency, matching
-      the existing GCRA script).
-    - Continuous refill by `refill_rate` (tokens/sec) rather than
-      discrete intervals.
-    - Result payload shaped like `RateLimitResult`
-      ``(allowed, remaining, retry_after, reset_after)`` for a
-      uniform Python surface across algorithms.
+    Continuous refill by `refill_rate` (tokens/sec), server-side
+    `TIME` for cross-process clock consistency, and a
+    `RateLimitResult`-shaped return payload so that both algorithms
+    expose a uniform Python surface.
 
     Prepends a per-algorithm discriminator to every Redis key so
     that a token-bucket limiter and a GCRA limiter sharing the same
@@ -277,6 +270,8 @@ class _RedisTokenBucket(RateLimiterStrategy):
 
     _ALGO_PREFIX = "tb:"
 
+    # Lua scripts below adapt the HMGET/HSET hash-storage pattern
+    # from an upstream project; see THIRD_PARTY_NOTICES.md.
     _LUA_ACQUIRE = """
         local key = KEYS[1]
         local capacity = tonumber(ARGV[1])

@@ -39,8 +39,9 @@ class MemoryTokenBucket:
 
     bucket = MemoryTokenBucket(capacity=5, refill_rate=1)
 
-    if bucket.try_acquire(key="access-log"):
-        logger.info("request served")
+
+    def handle(key: str) -> bool:
+        return bucket.try_acquire(key=key)
     ```
 
     Read more in the [Resilience](../resilience.md) docs.

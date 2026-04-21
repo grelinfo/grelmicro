@@ -62,7 +62,12 @@ class RateLimiter:
     api = RateLimiter(
         "api", algorithm=TokenBucket(capacity=10, refill_rate=1)
     )
-    await api.acquire(key=user_id)
+
+
+    async def handle(user_id: str) -> None:
+        result = await api.acquire(key=user_id)
+        if not result.allowed:
+            raise RuntimeError("rate limited")
     ```
 
     Read more in the [Resilience](../resilience.md) docs.
