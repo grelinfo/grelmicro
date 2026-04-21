@@ -35,6 +35,14 @@ repos:
     pass_filenames: false
     files: '(^README\.md$|^docs/index\.md$)'
 
+  - id: notices-to-docs
+    name: notices-to-docs
+    description: "Copy THIRD_PARTY_NOTICES.md to docs/third_party_notices.md"
+    entry: bash -c "cp THIRD_PARTY_NOTICES.md docs/third_party_notices.md"
+    language: system
+    pass_filenames: false
+    files: '(^THIRD_PARTY_NOTICES\.md$|^docs/third_party_notices\.md$)'
+
   # --- Local development hooks ---
   - id: uv-lock
     name: uv-lock
