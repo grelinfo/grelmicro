@@ -11,6 +11,9 @@ The cache is technology-agnostic, supporting multiple backends (see more in the 
 
 You must load a cache backend before using `TTLCache`.
 
+!!! tip "Install"
+    The Redis backend needs the `redis` extra: `pip install "grelmicro[redis]"`. See the [installation guide](installation.md) for `uv` and `poetry`.
+
 !!! note
     Although grelmicro uses AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
 
@@ -142,7 +145,7 @@ async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 ```
 
-Locking is **per-key**: concurrent misses on different keys proceed in parallel. Only callers hitting the same key are serialized, so one slow computation does not block unrelated keys.
+Locking is **per-key**: concurrent misses on different keys run in parallel. Only callers that request the same key wait in turn, so one slow computation does not block unrelated keys.
 
 **When to use:** your cached function is expensive (database query, API call, heavy computation) and may be called concurrently with the same arguments.
 

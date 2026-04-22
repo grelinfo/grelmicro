@@ -2,7 +2,7 @@
 
 The `json` module provides fast JSON serialization and deserialization using [orjson](https://github.com/ijl/orjson) when available, with automatic fallback to the standard library `json` module.
 
-The backend is resolved once at import time with zero per-call overhead.
+The JSON backend is selected once at import time, so there is no per-call overhead.
 
 ## Installation
 
@@ -34,7 +34,7 @@ For caching, use the built-in serializer classes instead of the low-level functi
 
 ## Performance
 
-`orjson` is roughly 7x faster than stdlib `json` for serialization. The module resolves the implementation at import time, so there is no per-call branching overhead.
+`orjson` is about 7 times faster than stdlib `json` for serialization. The module chooses the implementation at import time, so there is no per-call branching.
 
 | Method | Speed |
 |--------|-------|

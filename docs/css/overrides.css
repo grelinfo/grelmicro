@@ -1,0 +1,11 @@
+/* Tables span the full content width. */
+.md-typeset table:not([class]) {
+  display: table;
+  width: 100%;
+}
+
+/* Prevent inline code identifiers from breaking mid-token inside tables. */
+.md-typeset table:not([class]) code {
+  white-space: nowrap;
+  word-break: keep-all;
+}

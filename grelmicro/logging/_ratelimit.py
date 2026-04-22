@@ -1,12 +1,13 @@
 """Rate-limit log filter.
 
-Stdlib `logging.Filter` that drops records when a per-key token
-bucket is empty. Burst-friendly: allows up to `capacity` records
-in a burst, then refills at `refill_rate` records per second.
+A standard library `logging.Filter` that drops records when the
+token bucket for a given key is empty. It allows up to
+`capacity` records in a burst, then refills at `refill_rate`
+records per second.
 
-Industry practice: many logging frameworks ship a burst-style
-rate limiter using the token-bucket algorithm for the same
-reasons (simple burst semantics, predictable refill).
+Many logging libraries offer a similar burst-style rate limiter
+based on the token bucket algorithm. The reasons are the same:
+simple burst behavior and predictable refill.
 """
 
 from collections.abc import Callable
@@ -56,9 +57,9 @@ class RateLimitFilterConfig(BaseModel, frozen=True, extra="forbid"):
     cost: Annotated[
         PositiveFloat,
         Doc(
-            "Tokens consumed per record. Increase to make some filters "
-            "(e.g. attached to a verbose-level handler) spend the "
-            "bucket faster than others."
+            "Tokens used per record. Increase this to make some "
+            "filters drain their bucket faster than others. For "
+            "example, a filter on a verbose-level handler."
         ),
     ] = 1.0
 
@@ -109,15 +110,14 @@ class RateLimitFilter(Filter):
     callable. Tune `capacity` and `refill_rate` to match your
     acceptable burst and sustained log rate.
 
-    Thread-safe: state lives in a
-    [`MemoryTokenBucket`][grelmicro.resilience.MemoryTokenBucket]
-    protected by a [`threading.Lock`][]. The user-supplied `key`
-    callable runs outside the lock.
+    Thread-safe. State lives in a
+    [`MemoryTokenBucket`][grelmicro.resilience.MemoryTokenBucket].
 
-    State is in-process only; there is no cross-process sharing.
-    Construct a new filter to wipe counters, or call
-    [`reset`][grelmicro.logging.RateLimitFilter.reset] on a
-    specific key.
+    State is kept in the current process only. It is not shared
+    between processes. Create a new filter to clear all counters,
+    or call
+    [`reset`][grelmicro.logging.RateLimitFilter.reset] for a
+    single key.
 
     Example:
     ```python
@@ -158,10 +158,11 @@ class RateLimitFilter(Filter):
         key: Annotated[
             Callable[[LogRecord], str] | None,
             Doc(
-                "Override the default key function. Receives the "
-                "record and returns a string key; any returned key "
-                "collides with the default key function's output "
-                "namespace, so use a distinctive prefix if needed."
+                "Override the default key function. It receives "
+                "the record and returns a string key. Returned "
+                "keys share the same namespace as the default "
+                "key function. Add a unique prefix if you need "
+                "to avoid collisions."
             ),
         ] = None,
     ) -> None:

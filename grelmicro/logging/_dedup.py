@@ -49,9 +49,9 @@ class DuplicateFilterConfig(BaseModel, frozen=True, extra="forbid"):
         PositiveFloat | None,
         Doc(
             "Silence window for automatic counter reset. If a key "
-            "has not been hit for ``ttl_seconds``, its counter "
-            "resets on the next occurrence. ``None`` (default) "
-            "disables time-based expiry; only LRU eviction can "
+            "has not been seen for ``ttl_seconds``, its counter "
+            "resets the next time it appears. ``None`` (default) "
+            "disables time-based expiry, so only LRU eviction can "
             "reset a counter."
         ),
     ] = None
@@ -60,7 +60,8 @@ class DuplicateFilterConfig(BaseModel, frozen=True, extra="forbid"):
 def _key_by_rendered(record: LogRecord) -> tuple[str, int, str]:
     """Return ``(logger, level, rendered message)``.
 
-    Falls back to ``str(record.msg)`` if rendering raises.
+    Uses ``str(record.msg)`` as a fallback if rendering raises
+    an exception.
     """
     try:
         rendered = record.getMessage()
@@ -86,19 +87,22 @@ _KEY_FUNCS: dict[KeyMode, Callable[[LogRecord], Hashable]] = {
 class DuplicateFilter(Filter):
     """Drop log records that repeat beyond ``allowed_repetitions``.
 
-    Keys are tracked in an LRU cache of at most ``cache_size``
-    entries. Choose the default key via ``key_mode`` or supply
-    ``key`` to override. Set ``ttl_seconds`` to re-emit a burst of
-    ``allowed_repetitions`` records every ``ttl_seconds`` during a
-    sustained flood, so operators get periodic reminders that the
-    issue persists. ``key_mode="template"`` is roughly 3x faster
-    than ``"rendered"`` because it skips message formatting.
+    Keys are tracked in an LRU cache with at most ``cache_size``
+    entries. Use ``key_mode`` to pick the default key, or pass
+    ``key`` to override it.
 
-    Thread-safe: a :class:`threading.Lock` protects the counter
-    map. The user-supplied ``key`` callable runs outside the lock.
+    Set ``ttl_seconds`` to emit a new burst of
+    ``allowed_repetitions`` records every ``ttl_seconds`` during
+    a long flood. This gives operators regular reminders that
+    the issue is still active.
 
-    State is in-process only; there is no cross-process sharing
-    and no reset API. Construct a new filter to wipe counters.
+    ``key_mode="template"`` is about 3 times faster than
+    ``"rendered"`` because it skips message formatting.
+
+    Thread-safe.
+
+    State is kept in the current process only. There is no
+    reset method. Create a new filter to clear all counters.
     """
 
     def __init__(

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Docs
+
+* 📝 Split the resilience docs into per-pattern pages.
+* 📝 Add an Installation guide with `pip`, `uv`, and `poetry` tabs.
+* 📝 Render PEP 727 `Annotated[..., Doc(...)]` parameter docs via `griffe-typingdoc`.
+* 📝 Plain-English pass on docs and docstrings for non-native readers.
+* 📝 Add a Mermaid state diagram to the Circuit Breaker page.
+* 📝 Document every `__all__` symbol in the API reference.
+* 📝 Add a plain-English style guide to `CONTRIBUTING.md`.
+
+### Internal
+
+* 🔧 Add keywords to `pyproject.toml` for PyPI discovery.
+
 ## 0.14.0 - 2026-04-21
 
 ### Features
@@ -19,7 +33,7 @@
 ### Docs
 
 * 📝 Add [`CONTRIBUTING.md`](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md) with repo conventions. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
-* 📝 Add a "Choosing an algorithm" guide for `TokenBucket` vs `GCRA` in the [Resilience](resilience.md) docs. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
+* 📝 Add a "Choosing an algorithm" guide for `TokenBucket` vs `GCRA` in the [Rate Limiter](resilience/rate-limiter.md) docs. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
 * 📝 Surface `THIRD_PARTY_NOTICES.md` in the docs site. PR [#102](https://github.com/grelinfo/grelmicro/pull/102).
 
 ### Security

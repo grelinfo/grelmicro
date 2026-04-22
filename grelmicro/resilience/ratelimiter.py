@@ -48,10 +48,12 @@ class RateLimiter:
     [`GCRA`][grelmicro.resilience.algorithms.GCRA] for precise
     sliding-window semantics.
 
-    The algorithm is bound to the backend once at construction via
-    [`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind];
-    subsequent `acquire` / `peek` / `reset` calls invoke the bound
-    strategy directly, with **no runtime algorithm dispatch**.
+    The algorithm is attached to the backend once when the
+    rate limiter is created. It uses
+    [`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind].
+    Each call to `acquire`, `peek`, or `reset` then runs the
+    attached algorithm directly. There is no extra algorithm
+    lookup on each call.
 
     Example:
     ```python
@@ -70,7 +72,7 @@ class RateLimiter:
             raise RuntimeError("rate limited")
     ```
 
-    Read more in the [Resilience](../resilience.md) docs.
+    Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
     def __init__(
@@ -84,13 +86,14 @@ class RateLimiter:
             Algorithm | None,
             Doc(
                 """
-                The rate-limit algorithm. Pass an instance of
+                The rate-limit algorithm. Use
                 [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]
                 or
                 [`GCRA`][grelmicro.resilience.algorithms.GCRA].
 
-                Required, unless the deprecated `limit` / `window`
-                GCRA shorthand is used (will be removed in 0.15.0).
+                Required, unless you use the deprecated `limit`
+                and `window` shortcut for GCRA. That shortcut
+                will be removed in 0.15.0.
                 """
             ),
         ] = None,
@@ -98,12 +101,12 @@ class RateLimiter:
             RateLimiterBackend | None,
             Doc(
                 """
-                Explicit backend instance. When `None` (the default),
-                the registered backend is resolved at construction.
+                An explicit backend instance. When `None` (the
+                default), the registered backend is used.
 
-                Pass this to bypass the global registry (e.g. in
-                tests or when running multiple backends side by
-                side).
+                Set this to skip the global registry, for example
+                in tests or when running several backends at the
+                same time.
                 """
             ),
         ] = None,
@@ -111,12 +114,13 @@ class RateLimiter:
             bool,
             Doc(
                 """
-                When `True`, backend errors return an allowed result
-                instead of propagating the exception.
+                When `True`, the rate limiter returns an allowed
+                result if the backend raises an error, instead of
+                re-raising the error.
 
-                Useful for non-critical rate limiters where
-                availability matters more than strictness (e.g.
-                analytics events).
+                Use this for rate limiters where availability
+                matters more than strict enforcement. For example,
+                analytics events.
                 """
             ),
         ] = False,
@@ -304,8 +308,9 @@ def _resolve_algorithm(
 ) -> Algorithm:
     """Resolve the algorithm from explicit or legacy kwargs.
 
-    Emits `DeprecationWarning` when legacy `limit` / `window`
-    are used. Raises `TypeError` for incompatible combinations.
+    Emits a `DeprecationWarning` when the legacy `limit` or
+    `window` arguments are used. Raises `TypeError` for
+    incompatible combinations.
     """
     legacy_used = limit is not None or window is not None
     if algorithm is not None:
@@ -342,8 +347,9 @@ def _resolve_algorithm(
 def _build_fallback(algorithm: Algorithm) -> RateLimitResult:
     """Build the fail-open fallback result for the given algorithm.
 
-    Called once at [`RateLimiter`][grelmicro.resilience.RateLimiter]
-    construction; the result is cached on the instance and reused
+    Called once when
+    [`RateLimiter`][grelmicro.resilience.RateLimiter] is
+    created. The result is cached on the instance and reused
     on every fail-open path.
     """
     match algorithm:

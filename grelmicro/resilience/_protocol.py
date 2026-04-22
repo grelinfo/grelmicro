@@ -34,12 +34,13 @@ class RateLimitResult(NamedTuple):
 
 
 class RateLimiterStrategy(Protocol):
-    """Algorithm- and backend-specific rate-limiter strategy.
+    """A rate-limiter strategy for a specific algorithm and backend.
 
-    Produced by
+    Returned by
     [`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind].
-    The algorithm config is already baked in, so methods take
-    only `key` and `cost`. Runtime dispatch is zero.
+    The algorithm settings are already stored in the strategy,
+    so the methods only need `key` and `cost`. No extra
+    algorithm lookup happens at call time.
     """
 
     async def acquire(
@@ -91,14 +92,14 @@ class RateLimiterStrategy(Protocol):
 class RateLimiterBackend(Protocol):
     """Protocol for rate-limiter storage backends.
 
-    A backend owns the storage for every rate limiter that shares
-    it. It compiles an algorithm into a bound strategy via
-    [`bind`][grelmicro.resilience.RateLimiterBackend.bind]; the
+    A backend holds the storage for every rate limiter that uses
+    it. It turns an algorithm into a strategy through
+    [`bind`][grelmicro.resilience.RateLimiterBackend.bind]. The
     returned
     [`RateLimiterStrategy`][grelmicro.resilience.RateLimiterStrategy]
     is what a [`RateLimiter`][grelmicro.resilience.RateLimiter]
-    calls on every `acquire` / `peek` / `reset`, with no algorithm
-    dispatch at runtime.
+    calls on each `acquire`, `peek`, or `reset`. No extra
+    algorithm lookup happens at call time.
     """
 
     async def __aenter__(self) -> Self:
@@ -118,13 +119,13 @@ class RateLimiterBackend(Protocol):
         self,
         algorithm: Algorithm,
     ) -> RateLimiterStrategy:
-        """Compile an algorithm into a bound strategy.
+        """Build a strategy for the given algorithm.
 
         Called exactly once per
-        [`RateLimiter`][grelmicro.resilience.RateLimiter] at
-        construction. The returned strategy keeps a reference to
-        the backend's live storage; subsequent requests invoke
-        strategy methods directly without any algorithm dispatch.
+        [`RateLimiter`][grelmicro.resilience.RateLimiter] when
+        it is created. The returned strategy shares storage with
+        the backend. Later requests call the strategy methods
+        directly, with no extra algorithm lookup.
 
         Args:
             algorithm: The algorithm configuration
