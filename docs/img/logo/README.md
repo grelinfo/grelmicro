@@ -1,9 +1,9 @@
 # grelmicro brand assets
 
-Every SVG contains outlined glyph paths of **Funnel Sans 700** (OFL),
-so there is no web-font or font-file dependency at runtime. Every
-position is measured from the font's actual glyph data (ascender top,
-dot contour, g-stem midpoint), not tuned by eye.
+Every SVG contains outlined glyph paths, so there is no web-font or
+font-file dependency at runtime. Every position is measured from the
+font's actual glyph data (ascender top, dot contour, g-stem midpoint),
+not tuned by eye.
 
 Regenerate with:
 
@@ -11,20 +11,26 @@ Regenerate with:
 uv run docs/img/logo/build_logo.py
 ```
 
-## Wordmark
+## Wordmark variants
 
-Transparent background: the consumer provides the surface. GitHub
-serves `README.md` on both light and dark, so the same mark needs two
-colour variants.
+Four variants ship. Pick the one that matches the surface your
+consumer controls.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="wordmark-dark.svg">
-  <img alt="grelmicro" src="wordmark.svg" width="520">
-</picture>
+| File | Background | Letters | Use when |
+|---|---|---|---|
+| `wordmark.svg` | paper `#FAFAF7` plate | ink | **Default.** Universal fallback: GitHub README, PyPI long-description, any renderer that can't style images. Readable on any surface. |
+| `wordmark-dark.svg` | ink `#0F0F10` plate | paper | Explicit dark-mode asset. Hand-picked when you *know* the host is dark and want the plate to match. |
+| `wordmark-transparent.svg` | transparent | ink | The host page controls the surface. Use on a known paper / light background, or let CSS pick per theme. |
+| `wordmark-transparent-dark.svg` | transparent | paper | Same, for a known ink / dark background. |
 
-| Light | Dark |
-|---|---|
-| <img src="wordmark.svg" width="320" alt="wordmark light"> | <img src="wordmark-dark.svg" width="320" alt="wordmark dark" style="background:#0F0F10;padding:12px;border-radius:6px"> |
+The red square on the `i` is always `#E30613`, aligned to the
+ascender top, sized to the font's natural dot. Do not move or
+recolour it.
+
+On the docs site we swap `wordmark.svg` for the transparent variants
+via `[data-md-color-scheme]` in `docs/css/overrides.css`, so the
+plate disappears and the mark flows with the page. GitHub and PyPI
+ignore that CSS and keep the plated default.
 
 ## Favicon
 
@@ -64,11 +70,6 @@ URL is shared on social platforms.
 | Hero red | `#E30613` |
 | Ink | `#0F0F10` |
 | Paper | `#FAFAF7` |
-| Typeface | Funnel Sans 700 (outlined inside every SVG) |
-
-The red square above **g** and **i** is the signature: aligned to the
-ascender top, sized to the font's natural dot. Do not move or
-recolour it.
 
 ## License
 

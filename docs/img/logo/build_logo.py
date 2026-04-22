@@ -227,17 +227,22 @@ def _svg_header(vw: int | float, vh: int | float, title: str) -> str:
     )
 
 
-def build_wordmark(font: TTFont, m: dict, *, dark: bool) -> str:
-    """Tight-padded wordmark with transparent background.
+def build_wordmark(
+    font: TTFont,
+    m: dict,
+    *,
+    dark: bool,
+    with_plate: bool,
+) -> str:
+    """Tight-padded wordmark.
 
-    The SVG ships a ``<style>`` block with ``@media (prefers-color-scheme)``
-    so the same file renders ink letters on a light surface and paper
-    letters on a dark surface. That works for ``<img src>`` on GitHub,
-    PyPI, and the docs site without requiring ``<picture>`` tag support,
-    and collapses the need for a separate ``-dark.svg``.
+    ``with_plate=True`` emits a paper- or ink-coloured rounded rectangle
+    behind the letters so the mark stays readable on any surface
+    (universal fallback for GitHub / PyPI / generic renderers).
 
-    ``dark=True`` still emits a pinned-paper fallback (no media query),
-    in case a consumer explicitly wants a dark-only asset.
+    ``with_plate=False`` emits a transparent-background mark. Intended
+    for contexts where the hosting page controls the surface colour
+    (typically swapped via CSS in Material-theme dark mode).
     """
     font_size = 110
     scale = font_size / m["upem"]
@@ -261,23 +266,18 @@ def build_wordmark(font: TTFont, m: dict, *, dark: bool) -> str:
     g_cx = xs[text.index("g")] + m["g_stem_cx"] * scale
     tit_side = m["square"] * scale
     tit_y = baseline - m["ascender"] * scale
+    fill_text = PAPER if dark else INK
 
     lines = [_svg_header(vw, vh, "grelmicro")]
-    if dark:
-        text_fill_attr = f'fill="{PAPER}"'
-    else:
+    if with_plate:
+        plate_fill = INK if dark else PAPER
         lines.append(
-            "  <style>"
-            f".g-letter {{ fill: {INK}; }}"
-            f" @media (prefers-color-scheme: dark) "
-            f"{{ .g-letter {{ fill: {PAPER}; }} }}"
-            "</style>"
+            f'  <rect width="{vw}" height="{vh}" rx="12" fill="{plate_fill}"/>'
         )
-        text_fill_attr = 'class="g-letter"'
     for idx, ch in enumerate(text):
-        attr = text_fill_attr if idx < 4 else f'fill="{RED}"'
+        fill = fill_text if idx < 4 else RED
         lines.append(
-            f'  <path d="{_glyph_path(font, ch)}" {attr} '
+            f'  <path d="{_glyph_path(font, ch)}" fill="{fill}" '
             f'transform="translate({xs[idx]:.3f} {baseline:.3f}) '
             f'scale({scale:.6f} -{scale:.6f})"/>'
         )
@@ -491,8 +491,26 @@ def main() -> None:
         rasterise(svg, path, width, height)
         written.append(path)
 
-    _write_svg("wordmark.svg", build_wordmark(font, m, dark=False))
-    _write_svg("wordmark-dark.svg", build_wordmark(font, m, dark=True))
+    # Default wordmark: light (paper plate + ink letters). Universal
+    # fallback that reads on any surface, safe for every renderer.
+    _write_svg(
+        "wordmark.svg",
+        build_wordmark(font, m, dark=False, with_plate=True),
+    )
+    _write_svg(
+        "wordmark-dark.svg",
+        build_wordmark(font, m, dark=True, with_plate=True),
+    )
+    # Transparent variants for contexts that control their own surface
+    # colour (e.g. Material-theme dark mode swapping via CSS).
+    _write_svg(
+        "wordmark-transparent.svg",
+        build_wordmark(font, m, dark=False, with_plate=False),
+    )
+    _write_svg(
+        "wordmark-transparent-dark.svg",
+        build_wordmark(font, m, dark=True, with_plate=False),
+    )
     fav = _write_svg("favicon.svg", build_favicon(font, m, dark=False))
     _write_svg("favicon-dark.svg", build_favicon(font, m, dark=True))
     social = _write_svg("social-preview.svg", build_social_preview(font, m))
