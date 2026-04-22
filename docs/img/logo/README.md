@@ -49,10 +49,10 @@ URL is shared on social platforms.
 ## HTML wiring
 
 ```html
-<link rel="icon" type="image/svg+xml" href="/img/logo/favicon.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="/img/logo/favicon-32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/img/logo/favicon-16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/img/logo/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="img/logo/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="img/logo/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="img/logo/favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="img/logo/apple-touch-icon.png">
 <meta property="og:image"
       content="https://grelinfo.github.io/grelmicro/img/logo/social-preview.png">
 ```

@@ -66,7 +66,21 @@ def _ensure_font() -> Path:
     if FONT_CACHE.exists():
         return FONT_CACHE
     FONT_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(FONT_URL, FONT_CACHE)
+    # Download to a sibling temp file then atomically rename, so a concurrent
+    # invocation (or a crashed one) never leaves ``FONT_CACHE`` half-written.
+    with tempfile.NamedTemporaryFile(
+        dir=FONT_CACHE.parent,
+        prefix=FONT_CACHE.name,
+        suffix=".part",
+        delete=False,
+    ) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        urllib.request.urlretrieve(FONT_URL, tmp_path)
+        tmp_path.replace(FONT_CACHE)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
     return FONT_CACHE
 
 
@@ -401,7 +415,7 @@ def build_social_preview(font: TTFont, m: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# PNG rasterisation via Chrome headless
+# PNG rasterisation via resvg-py
 # --------------------------------------------------------------------------- #
 
 
@@ -430,26 +444,31 @@ def main() -> None:
     print(f"  g stem centre       : {m['g_stem_cx']:.2f} fu")
     print(f"  square side         : {m['square']:.2f} fu")
 
-    (OUT_DIR / "wordmark.svg").write_text(build_wordmark(font, m, dark=False))
-    (OUT_DIR / "wordmark-dark.svg").write_text(
-        build_wordmark(font, m, dark=True)
-    )
-    (OUT_DIR / "favicon.svg").write_text(build_favicon(font, m, dark=False))
-    (OUT_DIR / "favicon-dark.svg").write_text(build_favicon(font, m, dark=True))
-    (OUT_DIR / "social-preview.svg").write_text(build_social_preview(font, m))
+    written: list[Path] = []
 
-    fav = OUT_DIR / "favicon.svg"
+    def _write_svg(name: str, svg: str) -> Path:
+        path = OUT_DIR / name
+        path.write_text(svg)
+        written.append(path)
+        return path
+
+    def _raster(svg: Path, name: str, width: int, height: int) -> None:
+        path = OUT_DIR / name
+        rasterise(svg, path, width, height)
+        written.append(path)
+
+    _write_svg("wordmark.svg", build_wordmark(font, m, dark=False))
+    _write_svg("wordmark-dark.svg", build_wordmark(font, m, dark=True))
+    fav = _write_svg("favicon.svg", build_favicon(font, m, dark=False))
+    _write_svg("favicon-dark.svg", build_favicon(font, m, dark=True))
+    social = _write_svg("social-preview.svg", build_social_preview(font, m))
+
     for size in (16, 32, 48, 192, 512):
-        rasterise(fav, OUT_DIR / f"favicon-{size}.png", size, size)
-    rasterise(fav, OUT_DIR / "apple-touch-icon.png", 180, 180)
-    rasterise(
-        OUT_DIR / "social-preview.svg",
-        OUT_DIR / "social-preview.png",
-        1200,
-        630,
-    )
+        _raster(fav, f"favicon-{size}.png", size, size)
+    _raster(fav, "apple-touch-icon.png", 180, 180)
+    _raster(social, "social-preview.png", 1200, 630)
 
-    print(f"\nWrote {len(list(OUT_DIR.glob('*')))} files to {OUT_DIR}/")
+    print(f"\nWrote {len(written)} files to {OUT_DIR}/")
 
 
 if __name__ == "__main__":
