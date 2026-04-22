@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.14.2 - 2026-04-22
+
+### Docs
+
+* 🐛 Fix the landing-page wordmark disappearing when the docs site is toggled into dark mode. PR [#108](https://github.com/grelinfo/grelmicro/pull/108).
+* 📝 Centre the badges row under the tagline. PR [#108](https://github.com/grelinfo/grelmicro/pull/108).
+
 ## 0.14.1 - 2026-04-22
 
 ### Docs
