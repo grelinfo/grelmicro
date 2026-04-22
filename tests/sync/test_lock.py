@@ -62,6 +62,26 @@ def lock(locks: list[Lock]) -> Lock:
     return locks[WORKER_1]
 
 
+@pytest.fixture
+def reentrant_thread_lock(backend: SyncBackend) -> Lock:
+    """Lock with a lease long enough to outlive thread-scheduling jitter.
+
+    The reentrant-from-thread tests do *acquire → attempt-reacquire-raises →
+    release* in a single worker thread. On Python 3.12 under CI load that
+    sequence can exceed a 10 ms lease, which makes the outer release race
+    with lease expiry and spuriously raise ``LockNotOwnedError``. Use this
+    fixture only for tests that need the slow-path guarantee; the default
+    ``lock`` fixture keeps its 10 ms lease for expiry tests and the rest.
+    """
+    return Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker=f"worker_{WORKER_1}",
+        lease_duration=0.5,
+        retry_interval=0.001,
+    )
+
+
 async def test_lock_key_prefix(backend: SyncBackend, lock: Lock) -> None:
     """Test Lock uses prefixed key on the backend."""
     # Act
@@ -580,8 +600,9 @@ async def test_lock_reacquire_after_context_manager(lock: Lock) -> None:
         assert await lock.locked() is True
 
 
-async def test_lock_reentrant_from_thread(lock: Lock) -> None:
+async def test_lock_reentrant_from_thread(reentrant_thread_lock: Lock) -> None:
     """Test Lock nested from_thread raises LockReentrantError."""
+    lock = reentrant_thread_lock
 
     def sync() -> None:
         with (
@@ -594,8 +615,11 @@ async def test_lock_reentrant_from_thread(lock: Lock) -> None:
     await to_thread.run_sync(sync)
 
 
-async def test_lock_reentrant_from_thread_acquire(lock: Lock) -> None:
+async def test_lock_reentrant_from_thread_acquire(
+    reentrant_thread_lock: Lock,
+) -> None:
     """Test Lock nested from_thread acquire raises LockReentrantError."""
+    lock = reentrant_thread_lock
 
     def sync() -> None:
         lock.from_thread.acquire()
@@ -605,8 +629,11 @@ async def test_lock_reentrant_from_thread_acquire(lock: Lock) -> None:
     await to_thread.run_sync(sync)
 
 
-async def test_lock_reentrant_from_thread_acquire_nowait(lock: Lock) -> None:
+async def test_lock_reentrant_from_thread_acquire_nowait(
+    reentrant_thread_lock: Lock,
+) -> None:
     """Test Lock nested from_thread acquire_nowait raises LockReentrantError."""
+    lock = reentrant_thread_lock
 
     def sync() -> None:
         lock.from_thread.acquire_nowait()
@@ -617,9 +644,10 @@ async def test_lock_reentrant_from_thread_acquire_nowait(lock: Lock) -> None:
 
 
 async def test_lock_reentrant_from_thread_acquire_then_acquire_nowait(
-    lock: Lock,
+    reentrant_thread_lock: Lock,
 ) -> None:
     """Test Lock from_thread acquire then acquire_nowait raises LockReentrantError."""
+    lock = reentrant_thread_lock
 
     def sync() -> None:
         lock.from_thread.acquire()
@@ -630,9 +658,10 @@ async def test_lock_reentrant_from_thread_acquire_then_acquire_nowait(
 
 
 async def test_lock_reentrant_from_thread_acquire_nowait_then_acquire(
-    lock: Lock,
+    reentrant_thread_lock: Lock,
 ) -> None:
     """Test Lock from_thread acquire_nowait then acquire raises LockReentrantError."""
+    lock = reentrant_thread_lock
 
     def sync() -> None:
         lock.from_thread.acquire_nowait()

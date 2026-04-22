@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+## 0.14.1 - 2026-04-22
+
 ### Docs
 
+* 🎨 Ship the grelmicro brand identity: wordmark, favicon, and social-preview card. PR [#106](https://github.com/grelinfo/grelmicro/pull/106).
+* 🎨 Refresh the docs theme with the brand palette. PR [#106](https://github.com/grelinfo/grelmicro/pull/106).
+* 📝 Rewrite the "Why grelmicro" pillars. PR [#106](https://github.com/grelinfo/grelmicro/pull/106).
 * 📝 Split the resilience docs into per-pattern pages.
 * 📝 Add an Installation guide with `pip`, `uv`, and `poetry` tabs.
 * 📝 Render PEP 727 `Annotated[..., Doc(...)]` parameter docs via `griffe-typingdoc`.
@@ -14,6 +19,7 @@
 
 ### Internal
 
+* 🐛 De-flake `test_lock_reentrant_from_thread` on Python 3.12. Fixes [#105](https://github.com/grelinfo/grelmicro/issues/105).
 * 🔧 Add keywords to `pyproject.toml` for PyPI discovery.
 
 ## 0.14.0 - 2026-04-21
