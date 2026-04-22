@@ -32,7 +32,6 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import cast
 
 import resvg_py
 from fontTools.pens.boundsPen import BoundsPen
@@ -180,12 +179,27 @@ def _glyph_advance(font: TTFont, ch: str) -> float:
     return gs[_cmap(font)[ord(ch)]].width
 
 
+def _units_per_em(font: TTFont) -> int:
+    """Read the font's units-per-em with a runtime isinstance check.
+
+    ``font["head"]`` is typed as the abstract ``DefaultTable`` by
+    fonttools' stubs, so the concrete ``unitsPerEm`` attribute is
+    invisible to a type checker. Using ``getattr`` + ``isinstance``
+    narrows the value without resorting to ``typing.cast``.
+    """
+    value = getattr(font["head"], "unitsPerEm", None)
+    if not isinstance(value, int):
+        msg = f"Font has no integer unitsPerEm (got {type(value).__name__})"
+        raise TypeError(msg)
+    return value
+
+
 def measure(font: TTFont) -> dict:
     tit = _dot_bbox(font)
     g_bb = _bbox(font, "g")
     stem = _g_stem_geom(font)
     return {
-        "upem": cast("int", font["head"].unitsPerEm),  # ty: ignore[unresolved-attribute]
+        "upem": _units_per_em(font),
         "ascender": _bbox(font, "l")[3],
         # g's descender depth is |yMin| of the g glyph (negative in font y-up).
         "descender": abs(g_bb[1]),
