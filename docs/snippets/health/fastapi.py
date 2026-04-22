@@ -8,7 +8,6 @@ from grelmicro.health import HealthRegistry
 from grelmicro.health.fastapi import health_router
 
 
-# Define a health checker
 class DatabaseChecker:
     @property
     def name(self) -> str:
@@ -18,7 +17,6 @@ class DatabaseChecker:
         return None
 
 
-# Setup
 registry = HealthRegistry()
 registry.add(DatabaseChecker())
 
@@ -30,3 +28,4 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(health_router())
+# Endpoints: GET /livez, GET /readyz, GET /healthz
