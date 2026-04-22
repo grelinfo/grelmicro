@@ -1,9 +1,7 @@
 <p align="center">
   <a href="https://grelinfo.github.io/grelmicro">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="img/logo/wordmark-dark.svg">
-      <img alt="grelmicro" src="img/logo/wordmark.svg" width="520">
-    </picture>
+    <img alt="grelmicro" class="grel-wordmark-light" src="img/logo/wordmark.svg#gh-light-mode-only" width="520">
+    <img alt="grelmicro" class="grel-wordmark-dark" src="img/logo/wordmark-dark.svg#gh-dark-mode-only" width="520">
   </a>
 </p>
 
@@ -15,13 +13,15 @@
   A toolkit of Python primitives built for production needs, for services that coordinate work across processes, workers, or clusters.
 </p>
 
-[![PyPI - Version](https://img.shields.io/pypi/v/grelmicro)](https://pypi.org/project/grelmicro/)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/grelmicro)](https://pypi.org/project/grelmicro/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/grelinfo/grelmicro/blob/main/LICENSE)
-[![codecov](https://codecov.io/gh/grelinfo/grelmicro/graph/badge.svg?token=GDFY0AEFWR)](https://codecov.io/gh/grelinfo/grelmicro)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
+<p align="center">
+  <a href="https://pypi.org/project/grelmicro/"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/grelmicro"></a>
+  <a href="https://pypi.org/project/grelmicro/"><img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/grelmicro"></a>
+  <a href="https://github.com/grelinfo/grelmicro/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
+  <a href="https://codecov.io/gh/grelinfo/grelmicro"><img alt="codecov" src="https://codecov.io/gh/grelinfo/grelmicro/graph/badge.svg?token=GDFY0AEFWR"></a>
+  <a href="https://github.com/astral-sh/uv"><img alt="uv" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json"></a>
+  <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
+  <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
+</p>
 
 > **Project status: Active development.** grelmicro is pre-1.0, so APIs can change between minor releases. Every change ships with a clear deprecation path: `DeprecationWarning`, PEP 702 `@deprecated`, and a one-minor removal window.
 
