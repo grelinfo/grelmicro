@@ -6,4 +6,7 @@
       members:
         - LeaderElection
         - Lock
+        - SyncError
+        - SyncPrimitive
+        - SyncSettingsValidationError
         - TaskLock

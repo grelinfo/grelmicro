@@ -14,14 +14,14 @@ class ErrorDict(TypedDict):
 
 
 class JSONRecordDict(TypedDict):
-    """Structured JSON log record (post-serialization schema).
+    """Structured JSON log record after serialization.
 
-    Describes the shape of each log line after JSON serialization.
-    Internally, formatters use ``datetime`` objects for ``time``
-    and delegate ISO 8601 conversion to the JSON serializer.
+    Describes the shape of each log line after it is serialized
+    to JSON. Internally, formatters use ``datetime`` objects
+    for ``time``. The JSON serializer converts them to ISO 8601.
 
-    Core fields follow industry conventions (slog, zap, zerolog).
-    Extra context fields are merged flat at the top level.
+    The core fields follow common structured-logging conventions.
+    Extra context fields are added flat at the top level.
 
     Example::
 

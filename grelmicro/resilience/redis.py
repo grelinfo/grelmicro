@@ -41,7 +41,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
             await rl.acquire(key="u1")
     ```
 
-    Read more in the [Resilience](../resilience.md) docs.
+    Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
     def __init__(
@@ -105,10 +105,10 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         await self._redis.aclose()
 
     def bind(self, algorithm: Algorithm) -> RateLimiterStrategy:
-        """Compile `algorithm` into a bound strategy.
+        """Build a strategy for the given algorithm.
 
-        Each concrete strategy owns its own Lua scripts and
-        registers them with the Redis client at construction.
+        Each strategy has its own Lua scripts. It registers them
+        with the Redis client when the strategy is created.
         """
         match algorithm:
             case TokenBucket():

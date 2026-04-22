@@ -31,13 +31,17 @@ validation:
 
 nav:
 - grelmicro: index.md
+- installation.md
 - User Guide:
     - cache.md
     - health.md
     - json.md
     - logging.md
     - tracing.md
-    - resilience.md
+    - Resilience:
+        - resilience/index.md
+        - resilience/circuit-breaker.md
+        - resilience/rate-limiter.md
     - sync.md
     - task.md
 - API Reference:
@@ -65,18 +69,35 @@ plugins:
       handlers:
         python:
           options:
+            extensions:
+              - griffe_typingdoc
             docstring_style: google
+            docstring_section_style: spacy
             show_source: false
-            show_root_heading: false
+            show_root_heading: true
+            show_if_no_docstring: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
             members_order: source
             merge_init_into_class: true
             show_signature_annotations: true
             separate_signature: true
+            signature_crossrefs: true
+            unwrap_annotated: true
+            filters:
+              - '!^_'
+
+extra_css:
+  - css/overrides.css
 
 markdown_extensions:
   - admonition
   - pymdownx.highlight
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.inlinehilite
   - pymdownx.tabbed:
       alternate_style: true

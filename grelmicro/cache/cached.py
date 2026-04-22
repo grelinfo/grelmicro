@@ -66,20 +66,20 @@ def cached(
         _LockType,
         Doc(
             """
-            Enable stampede protection. When a cache miss occurs,
-            only one caller executes the function while all others
-            block until the result is available.
+            Protect against duplicate work on a cache miss. When
+            the cache does not have the value, only one caller
+            runs the function. The other callers wait for the
+            result.
 
-            Set to ``True`` to enable with **per-key** locking:
-            concurrent misses on different keys proceed in parallel,
-            only callers hitting the same key are serialized.
-            The appropriate lock type is auto-created
-            (``asyncio.Lock`` for async, ``threading.Lock`` for
-            sync).
+            Set to ``True`` for **per-key** locking. Misses on
+            different keys run in parallel. Misses on the same
+            key run one at a time. The right lock type is
+            created automatically (``asyncio.Lock`` for async,
+            ``threading.Lock`` for sync).
 
-            You can also pass a custom context manager instance
-            for **global** locking (a single lock shared across
-            all keys).
+            You can also pass a custom context manager for
+            **global** locking. This uses a single lock shared
+            by all keys.
             """,
         ),
     ] = None,

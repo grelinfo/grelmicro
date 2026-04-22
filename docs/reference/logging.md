@@ -6,7 +6,12 @@
       members:
         - DuplicateFilter
         - DuplicateFilterConfig
+        - ErrorDict
         - JSONRecordDict
+        - LoggingError
+        - LoggingSettingsValidationError
+        - RateLimitFilter
+        - RateLimitFilterConfig
         - configure_logging
 
 ::: grelmicro.logging.uvicorn

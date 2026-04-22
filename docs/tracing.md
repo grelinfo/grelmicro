@@ -87,7 +87,10 @@ async def process(order_id: str):
 
 The tracing context enriches log records regardless of how logging is configured. No additional configuration is needed.
 
-When OpenTelemetry is installed, `@instrument` and `span()` also create OTel spans with the same fields as attributes. This means one decorator gives you both structured logs and distributed traces.
+When OpenTelemetry is installed, `@instrument` and `span()` also create OTel spans and add the same fields as span attributes. A single decorator produces both structured logs and distributed traces.
+
+!!! tip "Install"
+    OpenTelemetry integration needs the `opentelemetry` extra: `pip install "grelmicro[opentelemetry]"`. See the [installation guide](installation.md) for `uv` and `poetry`.
 
 ```python
 # Logging only (no OTel dependency needed)

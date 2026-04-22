@@ -14,9 +14,9 @@ class TokenBucket(BaseModel, frozen=True, extra="forbid"):
     request consumes tokens; if the bucket has enough, the request
     is allowed, otherwise it is rejected with a `retry_after` hint.
 
-    Use when operators reason about "allow a burst of N, then
-    steady 1/sec": token-bucket is the industry-standard
-    burst-friendly rate-limiting algorithm.
+    Use this when you want the pattern "allow a burst of N
+    requests, then a steady rate of 1 request per second". The
+    token bucket is a common choice for bursty rate limiting.
 
     Example:
     ```python
@@ -26,8 +26,7 @@ class TokenBucket(BaseModel, frozen=True, extra="forbid"):
     rl = RateLimiter("api", algorithm=TokenBucket(capacity=10, refill_rate=1))
     ```
 
-    Read more in the
-    [Rate Limiter](../resilience.md#rate-limiter) docs.
+    Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
     type: Annotated[

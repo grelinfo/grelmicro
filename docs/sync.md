@@ -19,6 +19,16 @@ The synchronization primitives can be used in combination with the `TaskManager`
 
 You must load a synchronization backend before using synchronization primitives.
 
+!!! tip "Install"
+    Each backend needs its own extra:
+
+    - Redis: `pip install "grelmicro[redis]"`
+    - PostgreSQL: `pip install "grelmicro[postgres]"`
+    - SQLite: `pip install "grelmicro[sqlite]"`
+    - Kubernetes: `pip install "grelmicro[kubernetes]"`
+
+    See the [installation guide](installation.md) for `uv` and `poetry`.
+
 !!! note
     Although grelmicro uses AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
 
@@ -83,9 +93,9 @@ There is no background task that maintains the lock active during execution. The
 
 ## Leader Election
 
-Leader election ensures that only one worker in the cluster is designated as the leader at any given time using a distributed lock.
+Leader election uses a distributed lock to make sure that only one worker in the cluster acts as the leader at any given time.
 
-The leader election service is responsible for acquiring and renewing the distributed lock. It runs as an AnyIO Task that can be easily started with the [Task Manager](./task.md#task-manager). This service operates in the background, automatically renewing the lock to prevent other workers from acquiring it. The lock is released automatically when the task is cancelled or during shutdown.
+The leader election service acquires and renews the distributed lock. It runs as an AnyIO task that you can start with the [Task Manager](./task.md#task-manager). The service runs in the background and renews the lock automatically so other workers cannot acquire it. The lock releases automatically when the task is cancelled or when the application shuts down.
 
 === "Task Manager (Recommended)"
     ```python
@@ -103,13 +113,13 @@ The lock is a distributed lock that can be used to synchronize access to shared 
 
 The lock supports the following features:
 
-- **Async**: The lock must be acquired and released asynchronously.
-- **Distributed**: The lock must be distributed across multiple workers.
-- **Non-reentrant**: Nested acquire from the same task or thread raises `LockReentrantError`. Use separate instances if you need independent locks.
-- **Idempotent backend**: The backend allows the same token to re-acquire the lock, extending the lease. Use `do_acquire` directly if you need to extend the lease explicitly.
-- **Expiring**: The lock must have a timeout to auto-release after an interval to prevent deadlocks.
-- **Non-blocking**: Lock operations must not block the async event loop.
-- **Vendor-agnostic**: Must support multiple backends (Redis, Postgres, ConfigMap, etc.).
+- **Async**: the lock is acquired and released asynchronously.
+- **Distributed**: the lock is shared across multiple workers.
+- **Non-reentrant**: a nested acquire from the same task or thread raises `LockReentrantError`. Use separate instances if you need independent locks.
+- **Idempotent backend**: the backend lets the same token re-acquire the lock, which extends the lease. Call `do_acquire` directly if you need to extend the lease explicitly.
+- **Expiring**: the lock has a timeout that auto-releases the lock to prevent deadlocks.
+- **Non-blocking**: lock operations do not block the async event loop.
+- **Backend-agnostic**: several backends are supported, including Redis, PostgreSQL, and Kubernetes ConfigMap.
 
 
 ```python

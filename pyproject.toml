@@ -5,6 +5,32 @@ description = "grelmicro is a lightweight toolkit for building Python applicatio
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
 readme = "README.md"
+keywords = [
+    "microservice",
+    "microservice-patterns",
+    "self-contained-systems",
+    "cloud-native",
+    "kubernetes",
+    "containerized",
+    "distributed-systems",
+    "distributed-lock",
+    "leader-election",
+    "rate-limiter",
+    "circuit-breaker",
+    "cache",
+    "health-checks",
+    "task-scheduler",
+    "logging",
+    "tracing",
+    "opentelemetry",
+    "redis",
+    "postgresql",
+    "fastapi",
+    "asyncio",
+    "anyio",
+    "async",
+    "pydantic",
+]
 
 classifiers = [
     "Intended Audience :: Information Technology",
@@ -102,6 +128,7 @@ dev = [
 docs = [
     "mkdocs-material>=9.5.44",
     "mkdocstrings[python]>=0.27.0",
+    "griffe-typingdoc>=0.2.7",
     "pygments>=2.18.0",
     "pymdown-extensions>=10.12",
     "mdx-include>=1.4.2",

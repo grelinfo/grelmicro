@@ -81,15 +81,15 @@ Select the backend with the `LOG_BACKEND` environment variable, then use the cor
 
 ## Log Formats
 
-grelmicro provides **five format options**, inspired by the Rust [tracing](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/index.html) ecosystem and Go [slog](https://pkg.go.dev/log/slog):
+grelmicro provides **five format options**, following common structured-logging conventions:
 
-| Format | Use Case | Machine-Parseable | Inspired By |
-|--------|----------|-------------------|-------------|
-| `AUTO` | **Default**. Adapts to environment | Depends | zerolog, pino |
-| `JSON` | Production, log aggregation | Yes | pino, tracing JSON, slog JSON |
-| `LOGFMT` | Structured + human-readable | Yes | Go slog TextHandler, tracing-logfmt |
-| `TEXT` | Local development | No | tracing Full, loguru |
-| `PRETTY` | Verbose debugging | No | tracing Pretty, structlog ConsoleRenderer |
+| Format | Use Case | Machine-Parseable |
+|--------|----------|-------------------|
+| `AUTO` | **Default**. Adapts to environment | Depends |
+| `JSON` | Production, log aggregation | Yes |
+| `LOGFMT` | Structured + human-readable | Yes |
+| `TEXT` | Local development | No |
+| `PRETTY` | Verbose debugging | No |
 
 ### AUTO (Default)
 
@@ -394,11 +394,11 @@ class ErrorDict:
 
 ### Design Decisions
 
-**Level casing**: UPPERCASE (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`), following Go slog, Java Log4j2, Rust tracing conventions.
+**Level casing**: UPPERCASE (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`), following common structured-logging conventions.
 
-**Field naming**: Core field names (`time`, `level`, `msg`, `logger`, `caller`, `error`) follow slog/zap/Caddy conventions. `logger` is the logger name; `caller` is the call site (`function:line`).
+**Field naming**: Core field names (`time`, `level`, `msg`, `logger`, `caller`, `error`) follow common structured-logging conventions. `logger` is the logger name, `caller` is the call site (`function:line`).
 
-**Caller opt-in**: `caller` is disabled by default, following slog/zap/zerolog/Caddy conventions where caller info is opt-in. Enable with `LOG_CALLER_ENABLED=true`. Uvicorn formatters never include `caller` (points to uvicorn internals, not application code).
+**Caller opt-in**: `caller` is disabled by default, as in many structured-logging libraries. Enable with `LOG_CALLER_ENABLED=true`. Uvicorn formatters never include `caller` (points to uvicorn internals, not application code).
 
 **Collision protection**: Core fields cannot be overwritten by user-supplied extra context.
 
@@ -410,16 +410,16 @@ class ErrorDict:
 --8<-- "logging/duplicate_filter.py"
 ```
 
-After **5** identical records the filter silently drops further occurrences. Up to **100** distinct keys are tracked in an LRU.
+After **5** identical records, the filter silently drops any further occurrences. It tracks up to **100** distinct keys in an LRU cache.
 
-`key_mode="template"` (default) keys on the raw format string: `%`-style calls with different arguments share one counter, and it is **~3× faster** than rendered keying. Use `key_mode="rendered"` to distinguish each rendered message, or pass `key=` for a custom fingerprint:
+`key_mode="template"` (default) uses the raw format string as the key, so `%`-style calls with different arguments share one counter. It is also about **3 times faster** than rendered keying. Use `key_mode="rendered"` to track each rendered message separately, or pass `key=` for a custom fingerprint:
 
 ```python
 logger.addFilter(DuplicateFilter(key_mode="rendered"))
 logger.addFilter(DuplicateFilter(key=lambda r: (r.name, r.exc_info)))
 ```
 
-Set `ttl_seconds` to re-emit a burst of `allowed_repetitions` records every window during sustained floods, so operators keep getting periodic reminders:
+Set `ttl_seconds` to re-emit a burst of `allowed_repetitions` records every window during sustained floods, so operators continue to receive periodic reminders:
 
 ```python
 logger.addFilter(DuplicateFilter(allowed_repetitions=5, ttl_seconds=300))
@@ -432,7 +432,7 @@ State is in-process only. There is no cross-process sharing and no explicit rese
 
 ## Rate-Limiting Noisy Logs
 
-`RateLimitFilter` is a `logging.Filter` that drops records when a token bucket is empty. Burst-friendly: allow up to `capacity` records in a burst, then refill at `refill_rate` records per second sustained.
+`RateLimitFilter` is a `logging.Filter` that drops records when a token bucket is empty. It allows bursts: up to `capacity` records can pass through at once, and the bucket then refills at `refill_rate` records per second.
 
 ```python
 --8<-- "logging/rate_limit_filter.py"
@@ -442,7 +442,7 @@ By default the filter buckets **per logger**: each logger has its own burst budg
 
 | `key_mode` | Bucket scope | Good for |
 |---|---|---|
-| `"logger"` (default) | One bucket per logger name | Noisy third-party libraries that hammer a single logger |
+| `"logger"` (default) | One bucket per logger name | Noisy third-party libraries that flood a single logger |
 | `"level"` | One bucket per log level | Throttle all WARNING/ERROR across the app |
 | `"global"` | One shared bucket | App-wide safety net on the root handler |
 | `"template"` | One bucket per (logger, level, `str(record.msg)`) | Shares across arg values of the same template |

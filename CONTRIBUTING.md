@@ -181,6 +181,46 @@ docstring style.
   one line of prose.
 - **No em dashes.** Use `: `, ` - ` (spaced), or `(…)` to separate
   clauses. Rewrite the sentence if none of those fit.
+- **No semicolons in prose.** Split into two sentences or use a
+  comma. Semicolons remain fine inside code blocks, SQL snippets,
+  and parametrize IDs.
+
+### Plain English for non-native readers
+
+A large share of grelmicro's readers are professional developers
+whose first language is not English. Write accordingly. This
+applies to every user-facing surface: Markdown pages under `docs/`,
+docstrings that mkdocstrings renders, the README, and release
+notes.
+
+- **Plain, industry-standard vocabulary.** Use the words readers
+  already know from FastAPI, Pydantic, AWS, Kubernetes, and the
+  Python standard library. Prefer "backend", "primitive", "request
+  path", "timeout", "retry", "deadline" over invented or clever
+  alternatives.
+- **Short active sentences.** Aim for 15-20 words. Split rather
+  than stack clauses with "and", "which", or a comma.
+- **No idioms or metaphors.** Examples to avoid: "plumbing",
+  "eating threads", "hitting a key", "touching a lock", "gate the
+  task behind", "boring in the best possible way", "à la carte",
+  "surface the health", "in the spirit of". Literal verbs win.
+- **No anthropomorphic phrasing.** "The primitive asks for...",
+  "the backend speaks a protocol..." - rewrite with a literal
+  subject ("The primitive needs...", "the backend implements a
+  protocol...").
+- **No marketing adjectives without support.** Drop "effortlessly",
+  "aggressively", "ergonomic", "blazing", "best possible way". If
+  you claim something is fast or production-ready, either point to
+  a benchmark or test suite, or rewrite with the concrete feature
+  that delivers it.
+- **Name technologies we integrate with** (FastAPI, Redis,
+  PostgreSQL, Kubernetes, OpenTelemetry). Do not drop vendor
+  names for flavour or comparison ("like zerolog", "in the
+  Stripe style"). Industry concept names (JSON, sliding window,
+  token bucket) are fine.
+- **Compact shorthand is fine inside code blocks** (`~3x`, `1:1`,
+  `1/sec`), but expand it in prose ("about 3 times faster",
+  "maps directly", "1 per second").
 
 ### Example (a public class)
 
@@ -199,7 +239,7 @@ class RateLimiter:
     rl = RateLimiter("api", algorithm=TokenBucket(capacity=10, refill_rate=1))
     ```
 
-    Read more in the [Resilience](../resilience.md) docs.
+    Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 ```
 

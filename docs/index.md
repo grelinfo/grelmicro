@@ -1,13 +1,18 @@
 # grelmicro
 
-grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes, workers, or services.
+**Micro by design. Fast by default. Import what you need.**
+
+A toolkit of Python primitives built for production needs, for services that coordinate work across processes, workers, or clusters.
 
 [![PyPI - Version](https://img.shields.io/pypi/v/grelmicro)](https://pypi.org/project/grelmicro/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/grelmicro)](https://pypi.org/project/grelmicro/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/grelinfo/grelmicro/blob/main/LICENSE)
 [![codecov](https://codecov.io/gh/grelinfo/grelmicro/graph/badge.svg?token=GDFY0AEFWR)](https://codecov.io/gh/grelinfo/grelmicro)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
+
+> **Project status: Active development.** grelmicro is pre-1.0, so APIs can change between minor releases. Every change ships with a clear deprecation path: `DeprecationWarning`, PEP 702 `@deprecated`, and a one-minor removal window.
 
 ______________________________________________________________________
 
@@ -17,52 +22,30 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## Vision
+## Why grelmicro
 
-grelmicro is for any Python application that needs to coordinate work across multiple processes: microservices, modular monoliths, multi-worker deployments, or traditional applications scaling beyond a single process.
+grelmicro gives you the building blocks every Python service needs: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Each is a small, focused module with a pluggable backend.
 
-- **Easy to use.** Simple decorators and context managers that do the right thing out of the box. No boilerplate, no complex configuration.
+It is built for any Python application, from a standalone script to full **microservice patterns** and **self-contained systems**, with a strong focus on solving **distributed system** problems. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
 
-- **Async by default.** All I/O operations use `async`/`await`. Async is the natural fit for applications that spend most of their time waiting on network and disk, and it integrates cleanly with FastAPI and FastStream.
+- **Micro**: a small, focused API in the microframework and microservice tradition. Import only the primitives you need.
+- **Fast**: low runtime overhead per call. Easy to build with: a clean API, sensible defaults, and typed parameters IDEs can complete.
+- **Async by default**: all I/O uses `async` / `await`, integrating cleanly with FastAPI, FastStream, and any AnyIO-based stack.
+- **Backend-agnostic**: every primitive is defined by a protocol, not a specific technology. Swap Redis for PostgreSQL without changing application code.
+- **Production-focused**: 100% test coverage, strict typing, pluggable backends covering Redis, PostgreSQL, SQLite, Kubernetes, and in-memory.
 
-- **Backend-agnostic.** Every feature is defined by a protocol, not tied to a specific technology. Swap Redis for PostgreSQL, or use the in-memory backend for tests, without changing application code.
+## Modules
 
-- **Lightweight.** A toolkit, not a framework. Pick the modules you need, ignore the rest. Minimal configuration: just register a backend and start using it.
-
-The long-term goal is to grow grelmicro into an enterprise-grade toolkit, and eventually rewrite performance-critical components in Rust for better throughput and safety.
-
-## Overview
-
-### [Cache](cache.md)
-
-The `cache` module provides a `@cached` decorator with per-key stampede protection. Choose the cache that fits your use case: `TTLCache` for fast in-memory caching within a single process, or `RedisCache` for shared caching across multiple processes.
-
-### [Synchronization Primitives](sync.md)
-
-The `sync` module provides distributed coordination primitives, technology-agnostic across Redis, PostgreSQL, SQLite, Kubernetes, and in-memory backends.
-
-- **Lock**: Distributed lock for synchronizing access to shared resources.
-- **Task Lock**: Distributed lock for scheduled tasks with minimum and maximum hold times.
-- **Leader Election**: Single-leader election for running tasks only once in a cluster.
-
-### [Task Scheduler](task.md)
-
-The `task` module provides periodic task execution with optional distributed locking for at-most-once semantics across workers. Not a replacement for Celery or APScheduler: it is lightweight, easy to use, and built for coordination.
-
-### [Resilience](resilience.md)
-
-The `resilience` module provides patterns to protect services from failures and overload.
-
-- **Circuit Breaker**: Automatically detects repeated failures and temporarily blocks calls to unstable services.
-- **Rate Limiter**: Limits the number of requests per time window using the GCRA algorithm with Redis or in-memory backends.
-
-### [Logging](logging.md)
-
-The `logging` module provides 12-factor-compliant logging with JSON/text formatting, configurable timezone, and environment variable configuration (`LOG_LEVEL`, `LOG_FORMAT`, `LOG_TIMEZONE`).
-
-### [Tracing](tracing.md)
-
-The `tracing` module provides unified instrumentation inspired by Rust's `tracing` crate. The `@instrument` decorator creates OTel spans and enriches log records with structured context automatically.
+| Module | Summary |
+|---|---|
+| [**Cache**](cache.md) | `@cached` decorator with per-key stampede protection. In-memory `TTLCache` or `RedisCacheBackend`. |
+| [**Synchronization**](sync.md) | Distributed `Lock`, `TaskLock`, `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
+| [**Task Scheduler**](task.md) | Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement. |
+| [**Resilience**](resilience/index.md) | [Circuit Breaker](resilience/circuit-breaker.md) and [Rate Limiter](resilience/rate-limiter.md) with pluggable algorithms (`TokenBucket`, `GCRA`). |
+| [**Logging**](logging.md) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
+| [**Tracing**](tracing.md) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
+| [**Health**](health.md) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
+| [**JSON**](json.md) | Fast JSON via `orjson` when available, with automatic fallback to stdlib `json`. |
 
 ## Installation
 
@@ -70,9 +53,11 @@ The `tracing` module provides unified instrumentation inspired by Rust's `tracin
 pip install grelmicro
 ```
 
+See the [Installation guide](https://grelinfo.github.io/grelmicro/installation/) for `uv` and `poetry` commands, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, and structlog.
+
 ## Example
 
-### FastAPI Integration
+### FastAPI integration
 
 Create a file `main.py` with:
 
@@ -85,6 +70,7 @@ from fastapi import FastAPI, HTTPException, Request
 from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.logging import configure_logging
+from grelmicro.resilience import GCRA
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter import RateLimiter
@@ -139,7 +125,7 @@ async def read_root():
 
 
 # --- Rate Limiter: protect endpoints from overload ---
-api_limiter = RateLimiter("api", limit=100, window=60)
+api_limiter = RateLimiter("api", algorithm=GCRA(limit=100, window=60))
 
 
 @app.get("/api")
@@ -183,28 +169,6 @@ def leader_only_task():
     logger.info("leader task")
 ```
 
-## Dependencies
-
-grelmicro depends on Pydantic v2+, AnyIO v4+, and FastDepends.
-
-### `standard` Dependencies
-
-When you install grelmicro with `pip install grelmicro[standard]` it comes with:
-
-- `orjson`: A fast, correct JSON library for Python.
-
-### `redis` Dependencies
-
-When you install grelmicro with `pip install grelmicro[redis]` it comes with:
-
-- `redis-py`: The Python interface to the Redis key-value store (the async interface depends on `asyncio`).
-
-### `postgres` Dependencies
-
-When you install grelmicro with `pip install grelmicro[postgres]` it comes with:
-
-- `asyncpg`: The Python `asyncio` interface for PostgreSQL.
-
 ## License
 
-This project is licensed under the terms of the MIT license.
+This project is licensed under the terms of the [MIT license](https://github.com/grelinfo/grelmicro/blob/main/LICENSE).

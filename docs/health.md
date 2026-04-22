@@ -13,10 +13,10 @@ A health checker is any class with a `name` property and an async `check` method
 --8<-- "health/checker.py"
 ```
 
-- Return `None`: healthy, no details.
-- Return a `dict`: healthy, with details (e.g. latency, version, connection count).
-- Raise a `HealthError`: unhealthy, with the exception message exposed in the `error` field.
-- Raise any other exception: unhealthy, with a generic `"Health check failed"` message (details are logged server-side to prevent information disclosure).
+- Return `None`: healthy, with no details.
+- Return a `dict`: healthy, with details such as latency, version, or connection count.
+- Raise a `HealthError`: unhealthy. The exception message appears in the `error` field.
+- Raise any other exception: unhealthy, with a generic `"Health check failed"` message. The full details are logged on the server to avoid leaking internal information.
 
 ## Registry
 
@@ -40,7 +40,7 @@ registry.add(DatabaseChecker())
 registry.add(ExternalAPIChecker(), critical=False)
 ```
 
-Non-critical checkers are still executed and reported in the response, but their failures do not cause the readiness probe to fail. Use this for optional dependencies (external APIs, analytics services, etc.) that should not prevent your app from serving traffic.
+Non-critical checkers still run and appear in the response, but their failures do not make the readiness probe fail. Use this setting for optional dependencies such as external APIs or analytics services that should not prevent your app from serving traffic.
 
 ### Timeout
 
@@ -50,7 +50,7 @@ Checkers that exceed the timeout are reported as unhealthy:
 --8<-- "health/timeout.py"
 ```
 
-Timeout detection uses `anyio.move_on_after`, which correctly distinguishes registry timeouts from `TimeoutError` raised by the checker itself (e.g. socket timeouts).
+Timeout detection uses `anyio.move_on_after`. It correctly separates registry timeouts from a `TimeoutError` raised inside the checker itself, for example a socket timeout.
 
 ## FastAPI Integration
 

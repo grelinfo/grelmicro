@@ -22,10 +22,10 @@ _EVICTION_THRESHOLD = 1000
 class MemoryTokenBucket:
     """Standalone in-memory token bucket.
 
-    Public, **synchronous**, thread-safe, keyed. Use this primitive
-    directly when you need zero-I/O, per-process, burst-friendly
-    rate limiting on a sync hot path (most notably from a
-    [`logging.Filter`][]).
+    Public, **synchronous**, thread-safe, and keyed. Use this
+    class directly when you need fast, in-process, burst-friendly
+    rate limiting in synchronous code. A typical use is inside a
+    `logging.Filter`.
 
     For async workflows, distributed coordination, or alternative
     algorithms, use
@@ -43,7 +43,7 @@ class MemoryTokenBucket:
         return bucket.try_acquire(key=key)
     ```
 
-    Read more in the [Resilience](../resilience.md) docs.
+    Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
     def __init__(
@@ -165,7 +165,7 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
     [`GCRA`][grelmicro.resilience.algorithms.GCRA] algorithms.
     State is held in separate per-algorithm maps so two rate
     limiters with the same name but different algorithms cannot
-    collide. Thread-safe via [`threading.Lock`][].
+    collide. Thread-safe.
 
     Use it for tests and single-process deployments. For
     distributed coordination, use
@@ -182,7 +182,7 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
     )
     ```
 
-    Read more in the [Resilience](../resilience.md) docs.
+    Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
     def __init__(
@@ -227,13 +227,13 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
             self._gcra_state.clear()
 
     def bind(self, algorithm: Algorithm) -> RateLimiterStrategy:
-        """Compile `algorithm` into a bound strategy.
+        """Build a strategy for the given algorithm.
 
         Called once by
-        [`RateLimiter`][grelmicro.resilience.RateLimiter] at
-        construction. The match below is the **only** algorithm
-        dispatch: every subsequent `acquire` / `peek` / `reset`
-        invokes the bound strategy directly.
+        [`RateLimiter`][grelmicro.resilience.RateLimiter] when
+        the rate limiter is created. This is the only place that
+        picks which algorithm to run. Later calls to `acquire`,
+        `peek`, and `reset` use the returned strategy directly.
         """
         match algorithm:
             case TokenBucket():

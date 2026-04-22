@@ -98,8 +98,9 @@ class CircuitBreakerMetrics(BaseModel, frozen=True, extra="forbid"):
 class CircuitBreaker:
     """Circuit Breaker.
 
-    Implements the circuit breaker pattern to prevent cascading errors
-    by monitoring and controlling calls to a protected service.
+    Implements the circuit breaker pattern. It watches calls to
+    a protected service and blocks them when the service is
+    failing, to avoid cascading errors.
     """
 
     def __init__(
