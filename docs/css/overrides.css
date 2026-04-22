@@ -56,6 +56,20 @@
 }
 
 
+/* Landing-page wordmark: the repo ships a paper-plated wordmark.svg as
+   the universal default (readable on any surface, safe for every
+   renderer). On the docs site we can do better: swap for the
+   transparent-dark variant in Material's slate scheme, so the plate
+   disappears and the mark matches the page. GitHub and PyPI ignore
+   CSS and keep the plated default. */
+[data-md-color-scheme="default"] img.grel-wordmark {
+  content: url("../img/logo/wordmark-transparent.svg");
+}
+
+[data-md-color-scheme="slate"] img.grel-wordmark {
+  content: url("../img/logo/wordmark-transparent-dark.svg");
+}
+
 /* Tabs bar: red underline on the active tab. */
 .md-tabs {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
