@@ -55,22 +55,6 @@
   width: 1.5rem;
 }
 
-/* Wordmark logo on the landing page: swap variant with the active Material
-   colour scheme. The <picture> media-query approach only tracks the OS
-   preference, so it breaks when users manually toggle the theme. */
-.grel-wordmark-light,
-.grel-wordmark-dark {
-  max-width: 100%;
-  height: auto;
-}
-
-[data-md-color-scheme="default"] .grel-wordmark-dark {
-  display: none;
-}
-
-[data-md-color-scheme="slate"] .grel-wordmark-light {
-  display: none;
-}
 
 /* Tabs bar: red underline on the active tab. */
 .md-tabs {

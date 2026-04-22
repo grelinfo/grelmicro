@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.14.3 - 2026-04-22
+
+### Docs
+
+* 🐛 Fix the wordmark duplicating on PyPI and other renderers that don't understand GitHub's theme-only URL fragments. PR [#109](https://github.com/grelinfo/grelmicro/pull/109).
+
 ## 0.14.2 - 2026-04-22
 
 ### Docs
