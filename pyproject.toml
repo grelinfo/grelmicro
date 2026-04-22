@@ -151,6 +151,22 @@ select = ["ALL"]
 ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 
 [tool.ruff.lint.extend-per-file-ignores]
+"docs/img/logo/build_logo.py" = [
+    "ANN",     # internal build script, type stubs add noise
+    "D",       # no docstring-per-function enforcement
+    "ERA001",  # commented-out code is fine in adhoc scripts
+    "INP001",  # the script lives with its output, not a package
+    "PERF401", # adhoc list-building is clearer than comprehensions
+    "PLR0913", # argument-count doesn't apply to build helpers
+    "PLR0915", # allow long-but-linear build functions
+    "PLR2004", # magic numbers come from font metrics
+    "PYI041",  # don't require simplified numeric union types
+    "RUF001",  # dotless-ı (U+0131) is the intended glyph
+    "RUF002",  # same, inside docstrings
+    "RUF046",  # allow constructing from measured floats
+    "S310",    # font is downloaded from a fixed https URL
+    "T201",    # print() is how the script reports progress
+]
 "docs/snippets/*" = [
     "ARG001",
     "ANN001",
