@@ -6,7 +6,7 @@ A **Rate Limiter** caps how many requests a client can make inside a time window
 
 - Protect services from overload and abuse.
 - Enforce fair usage across clients.
-- Produce HTTP 429 responses with standard `RateLimit-*` headers.
+- Produce HTTP 429 responses with [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) `RateLimit-*` or legacy `X-RateLimit-*` headers.
 
 ## Choosing an algorithm
 
@@ -14,7 +14,7 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 
 ### Decision guide
 
-1. **Are you throttling an HTTP API with `RateLimit-*` headers?** Use [`GCRA`][grelmicro.resilience.algorithms.GCRA]. Its sliding-window model matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
+1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`GCRA`][grelmicro.resilience.algorithms.GCRA]. Its sliding-window model matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
 2. **Do you want "allow a burst of N, then 1 per second sustained"?** Use [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]. The `capacity` and `refill_rate` parameters describe exactly that.
 3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]. The capacity absorbs the spike. GCRA can allow bursts too, but the configuration is less direct.
 4. **Did you search for "leaky bucket"?** Use [`GCRA`][grelmicro.resilience.algorithms.GCRA]. It is the leaky-bucket-as-meter formulation.
@@ -78,15 +78,15 @@ The backend compiles the algorithm into a bound strategy at `RateLimiter.__init_
 
 ### Result fields
 
-`RateLimitResult` is the same across algorithms and carries everything needed for HTTP rate limit headers.
+`RateLimitResult` is the same across algorithms and carries everything needed for HTTP rate limit headers. The `HTTP header` column shows the [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) name first and the legacy `X-RateLimit-*` name second. Pick whichever convention your API already uses.
 
 | Field | Type | Description | HTTP Header |
 |---|---|---|---|
 | `allowed` | `bool` | Whether the request is permitted | 200 vs 429 status |
-| `limit` | `int` | Total quota (`limit` for GCRA, `int(capacity)` for TokenBucket) | `RateLimit-Limit` |
-| `remaining` | `int` | Remaining requests / tokens | `RateLimit-Remaining` |
+| `limit` | `int` | Total quota (`limit` for GCRA, `int(capacity)` for TokenBucket) | `RateLimit-Limit` / `X-RateLimit-Limit` |
+| `remaining` | `int` | Remaining requests / tokens | `RateLimit-Remaining` / `X-RateLimit-Remaining` |
 | `retry_after` | `float` | Seconds until next allowed request | `Retry-After` |
-| `reset_after` | `float` | Seconds until full quota resets | `RateLimit-Reset` |
+| `reset_after` | `float` | Seconds until full quota resets | `RateLimit-Reset` / `X-RateLimit-Reset` |
 
 ### Weighted requests
 

@@ -167,6 +167,11 @@ docstring style.
   shortened to the local name; the target path must be fully
   qualified.
 - **External links** use plain markdown: `[Label](url)`.
+- **RFC and PEP references** link to their canonical page in
+  Markdown files under `docs/`: `[RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html)`
+  and `[PEP 702](https://peps.python.org/pep-0702/)`. Inside
+  Python docstrings, keep them as plain text (`RFC 9211`,
+  `PEP 702`) so they read naturally in IDEs and tracebacks.
 - **Runnable example** in every public class docstring. Include
   all necessary `import` statements and show the primitive in use.
 - **"Read more" link** at the end of class docstrings, pointing

@@ -15,8 +15,9 @@ class GCRA(BaseModel, frozen=True, extra="forbid"):
     `GCRA`.
 
     Use this when you need a precise sliding window, such as
-    for HTTP API throttling with `X-RateLimit-*` headers. For
-    the pattern "allow a burst of N, then 1 per second", use
+    for HTTP API throttling with RFC 9211 `RateLimit-*` headers
+    or legacy `X-RateLimit-*` headers. For the pattern "allow a
+    burst of N, then 1 per second", use
     [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]
     instead.
 
