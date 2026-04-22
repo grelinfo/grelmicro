@@ -22,7 +22,7 @@
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../img/logo/favicon-192.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
@@ -55,6 +55,8 @@
     
       <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
+      <link rel="stylesheet" href="../css/overrides.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -66,10 +68,12 @@
   
     
     
+      
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="green" data-md-color-accent="light-green">
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -96,8 +100,7 @@
   <nav class="md-header__inner md-grid" aria-label="Header">
     <a href=".." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+  <img src="../img/logo/favicon-48.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -122,7 +125,33 @@
     </div>
     
       
+        <form class="md-header__option" data-md-component="palette">
+  
     
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
     
     
     
@@ -206,8 +235,7 @@
   <label class="md-nav__title" for="__drawer">
     <a href=".." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+  <img src="../img/logo/favicon-48.png" alt="logo">
 
     </a>
     grelmicro
@@ -260,6 +288,33 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
       
@@ -287,10 +342,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -308,8 +363,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -465,15 +520,81 @@
   
   
   
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../resilience/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resilience
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Resilience
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
     <li class="md-nav__item">
-      <a href="../resilience/" class="md-nav__link">
+      <a href="../resilience/circuit-breaker/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Resilience Patterns
+    Circuit Breaker
   
 
     
@@ -482,6 +603,42 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resilience/rate-limiter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rate Limiter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -581,10 +738,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -602,8 +759,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -849,7 +1006,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -871,14 +1028,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1143,6 +1300,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#0141-2026-04-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.14.1 - 2026-04-22
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.14.1 - 2026-04-22">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#0140-2026-04-21" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1177,7 +1373,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs" class="md-nav__link">
+  <a href="#docs_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -1199,7 +1395,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal" class="md-nav__link">
+  <a href="#internal_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1266,7 +1462,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_1" class="md-nav__link">
+  <a href="#internal_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1605,7 +1801,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_2" class="md-nav__link">
+  <a href="#internal_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1616,7 +1812,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_1" class="md-nav__link">
+  <a href="#docs_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -1677,7 +1873,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_2" class="md-nav__link">
+  <a href="#docs_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -1688,7 +1884,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_3" class="md-nav__link">
+  <a href="#internal_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1744,7 +1940,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#docs_3" class="md-nav__link">
+  <a href="#docs_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -1755,7 +1951,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_4" class="md-nav__link">
+  <a href="#internal_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1794,7 +1990,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_4" class="md-nav__link">
+  <a href="#docs_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -1805,7 +2001,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_5" class="md-nav__link">
+  <a href="#internal_6" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1833,7 +2029,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#internal_6" class="md-nav__link">
+  <a href="#internal_7" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1861,7 +2057,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#docs_5" class="md-nav__link">
+  <a href="#docs_6" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -1872,7 +2068,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_7" class="md-nav__link">
+  <a href="#internal_8" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1911,7 +2107,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_6" class="md-nav__link">
+  <a href="#docs_7" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -1922,7 +2118,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_8" class="md-nav__link">
+  <a href="#internal_9" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -1989,7 +2185,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_9" class="md-nav__link">
+  <a href="#internal_10" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2017,7 +2213,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#internal_10" class="md-nav__link">
+  <a href="#internal_11" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2056,7 +2252,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_7" class="md-nav__link">
+  <a href="#docs_8" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -2067,7 +2263,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_11" class="md-nav__link">
+  <a href="#internal_12" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2155,6 +2351,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#0141-2026-04-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.14.1 - 2026-04-22
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.14.1 - 2026-04-22">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#0140-2026-04-21" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2189,7 +2424,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs" class="md-nav__link">
+  <a href="#docs_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -2211,7 +2446,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal" class="md-nav__link">
+  <a href="#internal_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2278,7 +2513,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_1" class="md-nav__link">
+  <a href="#internal_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2617,7 +2852,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_2" class="md-nav__link">
+  <a href="#internal_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2628,7 +2863,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_1" class="md-nav__link">
+  <a href="#docs_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -2689,7 +2924,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_2" class="md-nav__link">
+  <a href="#docs_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -2700,7 +2935,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_3" class="md-nav__link">
+  <a href="#internal_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2756,7 +2991,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#docs_3" class="md-nav__link">
+  <a href="#docs_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -2767,7 +3002,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_4" class="md-nav__link">
+  <a href="#internal_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2806,7 +3041,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_4" class="md-nav__link">
+  <a href="#docs_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -2817,7 +3052,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_5" class="md-nav__link">
+  <a href="#internal_6" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2845,7 +3080,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#internal_6" class="md-nav__link">
+  <a href="#internal_7" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2873,7 +3108,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#docs_5" class="md-nav__link">
+  <a href="#docs_6" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -2884,7 +3119,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_7" class="md-nav__link">
+  <a href="#internal_8" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -2923,7 +3158,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_6" class="md-nav__link">
+  <a href="#docs_7" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -2934,7 +3169,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_8" class="md-nav__link">
+  <a href="#internal_9" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -3001,7 +3236,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_9" class="md-nav__link">
+  <a href="#internal_10" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -3029,7 +3264,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#internal_10" class="md-nav__link">
+  <a href="#internal_11" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -3068,7 +3303,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#docs_7" class="md-nav__link">
+  <a href="#docs_8" class="md-nav__link">
     <span class="md-ellipsis">
       
         Docs
@@ -3079,7 +3314,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#internal_11" class="md-nav__link">
+  <a href="#internal_12" class="md-nav__link">
     <span class="md-ellipsis">
       
         Internal
@@ -3116,6 +3351,25 @@
 
 <h1 id="changelog">Changelog</h1>
 <h2 id="unreleased">Unreleased</h2>
+<h2 id="0141-2026-04-22">0.14.1 - 2026-04-22</h2>
+<h3 id="docs">Docs</h3>
+<ul>
+<li>🎨 Ship the grelmicro brand identity: wordmark, favicon, and social-preview card. PR <a href="https://github.com/grelinfo/grelmicro/pull/106">#106</a>.</li>
+<li>🎨 Refresh the docs theme with the brand palette. PR <a href="https://github.com/grelinfo/grelmicro/pull/106">#106</a>.</li>
+<li>📝 Rewrite the "Why grelmicro" pillars. PR <a href="https://github.com/grelinfo/grelmicro/pull/106">#106</a>.</li>
+<li>📝 Split the resilience docs into per-pattern pages.</li>
+<li>📝 Add an Installation guide with <code>pip</code>, <code>uv</code>, and <code>poetry</code> tabs.</li>
+<li>📝 Render PEP 727 <code>Annotated[..., Doc(...)]</code> parameter docs via <code>griffe-typingdoc</code>.</li>
+<li>📝 Plain-English pass on docs and docstrings for non-native readers.</li>
+<li>📝 Add a Mermaid state diagram to the Circuit Breaker page.</li>
+<li>📝 Document every <code>__all__</code> symbol in the API reference.</li>
+<li>📝 Add a plain-English style guide to <code>CONTRIBUTING.md</code>.</li>
+</ul>
+<h3 id="internal">Internal</h3>
+<ul>
+<li>🐛 De-flake <code>test_lock_reentrant_from_thread</code> on Python 3.12. Fixes <a href="https://github.com/grelinfo/grelmicro/issues/105">#105</a>.</li>
+<li>🔧 Add keywords to <code>pyproject.toml</code> for PyPI discovery.</li>
+</ul>
 <h2 id="0140-2026-04-21">0.14.0 - 2026-04-21</h2>
 <h3 id="features">Features</h3>
 <ul>
@@ -3129,17 +3383,17 @@
 <ul>
 <li>🗑️ <code>RateLimiter(name, limit=..., window=...)</code> is deprecated. Use <code>RateLimiter(name, algorithm=GCRA(limit=..., window=...))</code> instead. Will be removed in 0.15.0. PR <a href="https://github.com/grelinfo/grelmicro/pull/102">#102</a>.</li>
 </ul>
-<h3 id="docs">Docs</h3>
+<h3 id="docs_1">Docs</h3>
 <ul>
 <li>📝 Add <a href="https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a> with repo conventions. PR <a href="https://github.com/grelinfo/grelmicro/pull/102">#102</a>.</li>
-<li>📝 Add a "Choosing an algorithm" guide for <code>TokenBucket</code> vs <code>GCRA</code> in the <a href="../resilience/">Resilience</a> docs. PR <a href="https://github.com/grelinfo/grelmicro/pull/102">#102</a>.</li>
+<li>📝 Add a "Choosing an algorithm" guide for <code>TokenBucket</code> vs <code>GCRA</code> in the <a href="../resilience/rate-limiter/">Rate Limiter</a> docs. PR <a href="https://github.com/grelinfo/grelmicro/pull/102">#102</a>.</li>
 <li>📝 Surface <code>THIRD_PARTY_NOTICES.md</code> in the docs site. PR <a href="https://github.com/grelinfo/grelmicro/pull/102">#102</a>.</li>
 </ul>
 <h3 id="security">Security</h3>
 <ul>
 <li>🔒️ Harden CI supply chain: pin all Actions to SHAs, close <code>run:</code> injection vectors, add zizmor workflow-lint, restrict Dependabot auto-merge to uv patch/minor updates. PRs <a href="https://github.com/grelinfo/grelmicro/pull/95">#95</a>, <a href="https://github.com/grelinfo/grelmicro/pull/100">#100</a>, <a href="https://github.com/grelinfo/grelmicro/pull/101">#101</a>.</li>
 </ul>
-<h3 id="internal">Internal</h3>
+<h3 id="internal_1">Internal</h3>
 <ul>
 <li>⬆️ Bump <code>pydantic</code> to 2.13.0, <code>opentelemetry-api</code> / <code>opentelemetry-sdk</code> to 1.41.0, <code>pytest</code> to 9.0.3, <code>ruff</code> to 0.15.10, <code>ty</code> to 0.0.29, <code>fastapi</code> to 0.135.3, <code>uvicorn</code> to 0.44.0. PR <a href="https://github.com/grelinfo/grelmicro/pull/99">#99</a>.</li>
 <li>⬆️ Bump <code>pydantic-extra-types</code> from 2.11.1 to 2.11.2. PR <a href="https://github.com/grelinfo/grelmicro/pull/89">#89</a>.</li>
@@ -3160,7 +3414,7 @@
 <ul>
 <li>✨ Add <code>health</code> module with health check registry, concurrent checker execution, and FastAPI integration for liveness/readiness probes. PR <a href="https://github.com/grelinfo/grelmicro/pull/84">#84</a>.</li>
 </ul>
-<h3 id="internal_1">Internal</h3>
+<h3 id="internal_2">Internal</h3>
 <ul>
 <li>⬆️ Bump orjson from 3.11.7 to 3.11.8. PR <a href="https://github.com/grelinfo/grelmicro/pull/72">#72</a>.</li>
 <li>⬆️ Bump ty from 0.0.26 to 0.0.27. PR <a href="https://github.com/grelinfo/grelmicro/pull/74">#74</a>.</li>
@@ -3285,13 +3539,13 @@
 <li>♻️ Simplify token generation from UUID-based to string concatenation.</li>
 <li>♻️ Harden TaskLock token nonce and error handling.</li>
 </ul>
-<h3 id="internal_2">Internal</h3>
+<h3 id="internal_3">Internal</h3>
 <ul>
 <li>✅ Achieve 100% library code coverage.</li>
 <li>💚 Fix flaky integration test timeout in CI.</li>
 <li>⬆️ Bump dependencies and fix ty v0.0.26 type errors.</li>
 </ul>
-<h3 id="docs_1">Docs</h3>
+<h3 id="docs_2">Docs</h3>
 <ul>
 <li>📝 Add <a href="../cache/">cache module</a> documentation with usage guide and API reference.</li>
 <li>📝 Add <a href="../architecture/kubernetes/">Kubernetes Backend Architecture</a> page.</li>
@@ -3313,11 +3567,11 @@
 <ul>
 <li>♻️ Consolidate distributed lock and leader gating into the <code>interval()</code> decorator via <code>max_lock_seconds</code> and <code>leader</code> parameters. PR <a href="https://github.com/grelinfo/grelmicro/pull/54">#54</a>.</li>
 </ul>
-<h3 id="docs_2">Docs</h3>
+<h3 id="docs_3">Docs</h3>
 <ul>
 <li>📝 Add <a href="../architecture/sync/">Synchronization Architecture</a> page. PR <a href="https://github.com/grelinfo/grelmicro/pull/57">#57</a>.</li>
 </ul>
-<h3 id="internal_3">Internal</h3>
+<h3 id="internal_4">Internal</h3>
 <ul>
 <li>⬆️ Bump redis, fastapi, pydantic, and pydantic-settings. PR <a href="https://github.com/grelinfo/grelmicro/pull/55">#55</a>.</li>
 <li>⬆️ Update pre-commit hooks. PR <a href="https://github.com/grelinfo/grelmicro/pull/50">#50</a>.</li>
@@ -3354,11 +3608,11 @@
 <p>Existing locks stored in Redis or PostgreSQL will no longer match after upgrading. A running instance on the old version and one on the new version will <strong>not</strong> see each other's locks.</p>
 <p>Upgrade all running instances together so they use the same key format. Old keys expire automatically via their lease duration (Redis <code>PEXPIRE</code> / PostgreSQL <code>expire_at</code>).</p>
 <h2 id="041-2026-03-13">0.4.1 - 2026-03-13</h2>
-<h3 id="docs_3">Docs</h3>
+<h3 id="docs_4">Docs</h3>
 <ul>
 <li>📝 Add Task Lock to synchronization primitives guide.</li>
 </ul>
-<h3 id="internal_4">Internal</h3>
+<h3 id="internal_5">Internal</h3>
 <ul>
 <li>⬆️ Bump actions/checkout to v6 and astral-sh/setup-uv to v7.</li>
 </ul>
@@ -3371,17 +3625,17 @@
 <li>✨ Add <code>structlog</code> as alternative logging backend.</li>
 <li>✨ Add configurable JSON serializer (<code>json</code> / <code>orjson</code>) for logging.</li>
 </ul>
-<h3 id="docs_4">Docs</h3>
+<h3 id="docs_5">Docs</h3>
 <ul>
 <li>📝 Add logging benchmark and performance documentation.</li>
 </ul>
-<h3 id="internal_5">Internal</h3>
+<h3 id="internal_6">Internal</h3>
 <ul>
 <li>⬆️ Bump orjson from 3.11.5 to 3.11.6. PR <a href="https://github.com/grelinfo/grelmicro/pull/51">#51</a>.</li>
 <li>⬆️ Bump freezegun from 1.5.2 to 1.5.5. PR <a href="https://github.com/grelinfo/grelmicro/pull/33">#33</a>.</li>
 </ul>
 <h2 id="032-2026-01-27">0.3.2 - 2026-01-27</h2>
-<h3 id="internal_6">Internal</h3>
+<h3 id="internal_7">Internal</h3>
 <ul>
 <li>👷 Migrate from mypy to Astral ty for type checking. PR <a href="https://github.com/grelinfo/grelmicro/pull/45">#45</a>.</li>
 <li>🔧 Add Python 3.14 support. PR <a href="https://github.com/grelinfo/grelmicro/pull/47">#47</a>.</li>
@@ -3389,11 +3643,11 @@
 <li>💚 Simplify CI and release workflow. PR <a href="https://github.com/grelinfo/grelmicro/pull/24">#24</a>.</li>
 </ul>
 <h2 id="031-2025-06-05">0.3.1 - 2025-06-05</h2>
-<h3 id="docs_5">Docs</h3>
+<h3 id="docs_6">Docs</h3>
 <ul>
 <li>📝 Add resilience patterns section and update links in README and index.</li>
 </ul>
-<h3 id="internal_7">Internal</h3>
+<h3 id="internal_8">Internal</h3>
 <ul>
 <li>💚 Fix release pipeline and GitHub Pages deployment permissions.</li>
 </ul>
@@ -3402,11 +3656,11 @@
 <ul>
 <li>✨ Add Circuit Breaker resilience pattern. PR <a href="https://github.com/grelinfo/grelmicro/pull/18">#18</a>.</li>
 </ul>
-<h3 id="docs_6">Docs</h3>
+<h3 id="docs_7">Docs</h3>
 <ul>
 <li>📝 Refactor code examples to use snippets.</li>
 </ul>
-<h3 id="internal_8">Internal</h3>
+<h3 id="internal_9">Internal</h3>
 <ul>
 <li>👷 Add Dependabot configuration for weekly updates.</li>
 <li>🔒️ Fix workflow permission issues. PR <a href="https://github.com/grelinfo/grelmicro/pull/21">#21</a>, <a href="https://github.com/grelinfo/grelmicro/pull/22">#22</a>.</li>
@@ -3422,12 +3676,12 @@
 <ul>
 <li>✨ Add PostgreSQL backend configuration from environment variables.</li>
 </ul>
-<h3 id="internal_9">Internal</h3>
+<h3 id="internal_10">Internal</h3>
 <ul>
 <li>🐛 Fix release workflow. PR <a href="https://github.com/grelinfo/grelmicro/pull/7">#7</a>, <a href="https://github.com/grelinfo/grelmicro/pull/9">#9</a>.</li>
 </ul>
 <h2 id="021-2024-11-26">0.2.1 - 2024-11-26</h2>
-<h3 id="internal_10">Internal</h3>
+<h3 id="internal_11">Internal</h3>
 <ul>
 <li>💚 Set up release workflow with version tagging.</li>
 </ul>
@@ -3441,11 +3695,11 @@
 <li>✨ Add Redis, PostgreSQL, and in-memory synchronization backends.</li>
 <li>✨ Add logging module with JSON and TEXT formatting via <code>LOG_LEVEL</code> and <code>LOG_FORMAT</code> environment variables.</li>
 </ul>
-<h3 id="docs_7">Docs</h3>
+<h3 id="docs_8">Docs</h3>
 <ul>
 <li>📝 Add MkDocs documentation site with Material theme.</li>
 </ul>
-<h3 id="internal_11">Internal</h3>
+<h3 id="internal_12">Internal</h3>
 <ul>
 <li>👷 Add unified CI workflow with linting, testing, and coverage.</li>
 </ul>
@@ -3489,6 +3743,27 @@
     Made with
     <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
       Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/grelinfo/grelmicro" target="_blank" rel="noopener" title="grelmicro on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/grelmicro/" target="_blank" rel="noopener" title="grelmicro on PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
     </a>
   
 </div>

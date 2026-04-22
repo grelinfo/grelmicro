@@ -14,13 +14,13 @@
       
       
       
-        <link rel="next" href="cache/">
+        <link rel="next" href="installation/">
       
       
         
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="img/logo/favicon-192.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
@@ -53,6 +53,8 @@
     
       <link rel="stylesheet" href="assets/_mkdocstrings.css">
     
+      <link rel="stylesheet" href="css/overrides.css">
+    
     <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -64,10 +66,12 @@
   
     
     
+      
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="green" data-md-color-accent="light-green">
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -76,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#grelmicro" class="md-skip">
+        <a href="#why-grelmicro" class="md-skip">
           Skip to content
         </a>
       
@@ -94,8 +98,7 @@
   <nav class="md-header__inner md-grid" aria-label="Header">
     <a href="." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+  <img src="img/logo/favicon-48.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -120,7 +123,33 @@
     </div>
     
       
+        <form class="md-header__option" data-md-component="palette">
+  
     
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
     
     
     
@@ -204,8 +233,7 @@
   <label class="md-nav__title" for="__drawer">
     <a href="." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+  <img src="img/logo/favicon-48.png" alt="logo">
 
     </a>
     grelmicro
@@ -237,8 +265,6 @@
       
       <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
       
-      
-        
       
       
         <label class="md-nav__link md-nav__link--active" for="__toc">
@@ -282,8 +308,6 @@
   
   
   
-    
-  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -292,10 +316,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#vision" class="md-nav__link">
+  <a href="#why-grelmicro" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Vision
+        Why grelmicro
       
     </span>
   </a>
@@ -303,85 +327,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#modules" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        Modules
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Overview">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#cache" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cache
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#synchronization-primitives" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Synchronization Primitives
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#task-scheduler" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Task Scheduler
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#resilience" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Resilience
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#logging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Logging
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tracing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tracing
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -412,57 +364,7 @@
   <a href="#fastapi-integration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        FastAPI Integration
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Dependencies
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Dependencies">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#standard-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        standard Dependencies
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#redis-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        redis Dependencies
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#postgres-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        postgres Dependencies
+        FastAPI integration
       
     </span>
   </a>
@@ -489,6 +391,33 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -526,10 +455,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -547,8 +476,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -704,15 +633,81 @@
   
   
   
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="resilience/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resilience
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Resilience
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
     <li class="md-nav__item">
-      <a href="resilience/" class="md-nav__link">
+      <a href="resilience/circuit-breaker/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Resilience Patterns
+    Circuit Breaker
   
 
     
@@ -721,6 +716,42 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="resilience/rate-limiter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rate Limiter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -820,10 +851,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -841,8 +872,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1088,7 +1119,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1110,14 +1141,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1375,8 +1406,6 @@
   
   
   
-    
-  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -1385,10 +1414,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#vision" class="md-nav__link">
+  <a href="#why-grelmicro" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Vision
+        Why grelmicro
       
     </span>
   </a>
@@ -1396,85 +1425,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#modules" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        Modules
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Overview">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#cache" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cache
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#synchronization-primitives" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Synchronization Primitives
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#task-scheduler" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Task Scheduler
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#resilience" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Resilience
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#logging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Logging
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tracing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tracing
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1505,57 +1462,7 @@
   <a href="#fastapi-integration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        FastAPI Integration
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Dependencies
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Dependencies">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#standard-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        standard Dependencies
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#redis-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        redis Dependencies
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#postgres-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        postgres Dependencies
+        FastAPI integration
       
     </span>
   </a>
@@ -1598,62 +1505,98 @@
   
 
 
-<h1 id="grelmicro">grelmicro</h1>
-<p>grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes, workers, or services.</p>
+  <h1>grelmicro</h1>
+
+<p align="center">
+  <a href="https://grelinfo.github.io/grelmicro">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="img/logo/wordmark-dark.svg">
+      <img alt="grelmicro" src="img/logo/wordmark.svg" width="520">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <em>Micro by design. Fast by default. Import only what you need.</em>
+</p>
+
+<p align="center">
+  A toolkit of Python primitives built for production needs, for services that coordinate work across processes, workers, or clusters.
+</p>
+
 <p><a href="https://pypi.org/project/grelmicro/"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/grelmicro" /></a>
 <a href="https://pypi.org/project/grelmicro/"><img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/grelmicro" /></a>
+<a href="https://github.com/grelinfo/grelmicro/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg" /></a>
 <a href="https://codecov.io/gh/grelinfo/grelmicro"><img alt="codecov" src="https://codecov.io/gh/grelinfo/grelmicro/graph/badge.svg?token=GDFY0AEFWR" /></a>
 <a href="https://github.com/astral-sh/uv"><img alt="uv" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json" /></a>
 <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" /></a>
 <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json" /></a></p>
+<blockquote>
+<p><strong>Project status: Active development.</strong> grelmicro is pre-1.0, so APIs can change between minor releases. Every change ships with a clear deprecation path: <code>DeprecationWarning</code>, PEP 702 <code>@deprecated</code>, and a one-minor removal window.</p>
+</blockquote>
 <hr />
 <p><strong>Documentation</strong>: <a href="https://grelinfo.github.io/grelmicro">https://grelinfo.github.io/grelmicro/</a></p>
 <p><strong>Source Code</strong>: <a href="https://github.com/grelinfo/grelmicro">https://github.com/grelinfo/grelmicro</a></p>
 <hr />
-<h2 id="vision">Vision</h2>
-<p>grelmicro is for any Python application that needs to coordinate work across multiple processes: microservices, modular monoliths, multi-worker deployments, or traditional applications scaling beyond a single process.</p>
+<h2 id="why-grelmicro">Why grelmicro</h2>
+<p>grelmicro gives you the building blocks every Python service needs: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Each is a small, focused module with a pluggable backend.</p>
+<p>It is built for any Python application, from a standalone script to full <strong>microservice patterns</strong> and <strong>self-contained systems</strong>, with a strong focus on solving <strong>distributed system</strong> problems. It fits naturally into <strong>cloud-native applications</strong>, <strong>containerized apps</strong>, and <strong>Kubernetes</strong> deployments.</p>
 <ul>
-<li>
-<p><strong>Easy to use.</strong> Simple decorators and context managers that do the right thing out of the box. No boilerplate, no complex configuration.</p>
-</li>
-<li>
-<p><strong>Async by default.</strong> All I/O operations use <code>async</code>/<code>await</code>. Async is the natural fit for applications that spend most of their time waiting on network and disk, and it integrates cleanly with FastAPI and FastStream.</p>
-</li>
-<li>
-<p><strong>Backend-agnostic.</strong> Every feature is defined by a protocol, not tied to a specific technology. Swap Redis for PostgreSQL, or use the in-memory backend for tests, without changing application code.</p>
-</li>
-<li>
-<p><strong>Lightweight.</strong> A toolkit, not a framework. Pick the modules you need, ignore the rest. Minimal configuration: just register a backend and start using it.</p>
-</li>
+<li><strong>Micro</strong>: one focused primitive per module. Import only what your code touches. Nothing else is loaded.</li>
+<li><strong>Fast</strong>: thin wrappers with low per-call overhead. Redis operations are server-side Lua scripts; in-memory paths skip I/O entirely.</li>
+<li><strong>Async-first</strong>: every I/O call is <code>async</code> / <code>await</code>. Drops into FastAPI, FastStream, and any AnyIO-based stack.</li>
+<li><strong>Backend-agnostic</strong>: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.</li>
+<li><strong>Production-ready</strong>: 100% test coverage, full type hints, and explicit deprecation paths (<code>DeprecationWarning</code> + PEP 702 <code>@deprecated</code>) with a one-minor-version removal window.</li>
 </ul>
-<p>The long-term goal is to grow grelmicro into an enterprise-grade toolkit, and eventually rewrite performance-critical components in Rust for better throughput and safety.</p>
-<h2 id="overview">Overview</h2>
-<h3 id="cache"><a href="cache/">Cache</a></h3>
-<p>The <code>cache</code> module provides a <code>@cached</code> decorator with per-key stampede protection. Choose the cache that fits your use case: <code>TTLCache</code> for fast in-memory caching within a single process, or <code>RedisCache</code> for shared caching across multiple processes.</p>
-<h3 id="synchronization-primitives"><a href="sync/">Synchronization Primitives</a></h3>
-<p>The <code>sync</code> module provides distributed coordination primitives, technology-agnostic across Redis, PostgreSQL, SQLite, Kubernetes, and in-memory backends.</p>
-<ul>
-<li><strong>Lock</strong>: Distributed lock for synchronizing access to shared resources.</li>
-<li><strong>Task Lock</strong>: Distributed lock for scheduled tasks with minimum and maximum hold times.</li>
-<li><strong>Leader Election</strong>: Single-leader election for running tasks only once in a cluster.</li>
-</ul>
-<h3 id="task-scheduler"><a href="task/">Task Scheduler</a></h3>
-<p>The <code>task</code> module provides periodic task execution with optional distributed locking for at-most-once semantics across workers. Not a replacement for Celery or APScheduler: it is lightweight, easy to use, and built for coordination.</p>
-<h3 id="resilience"><a href="resilience/">Resilience</a></h3>
-<p>The <code>resilience</code> module provides patterns to protect services from failures and overload.</p>
-<ul>
-<li><strong>Circuit Breaker</strong>: Automatically detects repeated failures and temporarily blocks calls to unstable services.</li>
-<li><strong>Rate Limiter</strong>: Limits the number of requests per time window using the GCRA algorithm with Redis or in-memory backends.</li>
-</ul>
-<h3 id="logging"><a href="logging/">Logging</a></h3>
-<p>The <code>logging</code> module provides 12-factor-compliant logging with JSON/text formatting, configurable timezone, and environment variable configuration (<code>LOG_LEVEL</code>, <code>LOG_FORMAT</code>, <code>LOG_TIMEZONE</code>).</p>
-<h3 id="tracing"><a href="tracing/">Tracing</a></h3>
-<p>The <code>tracing</code> module provides unified instrumentation inspired by Rust's <code>tracing</code> crate. The <code>@instrument</code> decorator creates OTel spans and enriches log records with structured context automatically.</p>
+<h2 id="modules">Modules</h2>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Summary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="cache/"><strong>Cache</strong></a></td>
+<td><code>@cached</code> decorator with per-key stampede protection. In-memory <code>TTLCache</code> or <code>RedisCacheBackend</code>.</td>
+</tr>
+<tr>
+<td><a href="sync/"><strong>Synchronization</strong></a></td>
+<td>Distributed <code>Lock</code>, <code>TaskLock</code>, <code>LeaderElection</code>. Redis, PostgreSQL, SQLite, Kubernetes, in-memory.</td>
+</tr>
+<tr>
+<td><a href="task/"><strong>Task Scheduler</strong></a></td>
+<td>Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement.</td>
+</tr>
+<tr>
+<td><a href="resilience/"><strong>Resilience</strong></a></td>
+<td><a href="resilience/circuit-breaker/">Circuit Breaker</a> and <a href="resilience/rate-limiter/">Rate Limiter</a> with pluggable algorithms (<code>TokenBucket</code>, <code>GCRA</code>).</td>
+</tr>
+<tr>
+<td><a href="logging/"><strong>Logging</strong></a></td>
+<td>12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context.</td>
+</tr>
+<tr>
+<td><a href="tracing/"><strong>Tracing</strong></a></td>
+<td>Unified instrumentation. <code>@instrument</code> creates OpenTelemetry spans and enriches log records with structured context.</td>
+</tr>
+<tr>
+<td><a href="health/"><strong>Health</strong></a></td>
+<td>Health check registry with concurrent runners and FastAPI liveness / readiness integration.</td>
+</tr>
+<tr>
+<td><a href="json/"><strong>JSON</strong></a></td>
+<td>Fast JSON via <code>orjson</code> when available, with automatic fallback to stdlib <code>json</code>.</td>
+</tr>
+</tbody>
+</table>
 <h2 id="installation">Installation</h2>
 <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>grelmicro
 </code></pre></div>
+<p>See the <a href="https://grelinfo.github.io/grelmicro/installation/">Installation guide</a> for <code>uv</code> and <code>poetry</code> commands, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, and structlog.</p>
 <h2 id="example">Example</h2>
-<h3 id="fastapi-integration">FastAPI Integration</h3>
+<h3 id="fastapi-integration">FastAPI integration</h3>
 <p>Create a file <code>main.py</code> with:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
@@ -1663,6 +1606,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">JsonSerializer</span><span class="p">,</span> <span class="n">TTLCache</span><span class="p">,</span> <span class="n">cached</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisCacheBackend</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">GCRA</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitExceededError</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.ratelimiter</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
@@ -1717,7 +1661,7 @@
 
 
 <span class="c1"># --- Rate Limiter: protect endpoints from overload ---</span>
-<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">GCRA</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">))</span>
 
 
 <span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/api&quot;</span><span class="p">)</span>
@@ -1760,25 +1704,8 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">leader_only_task</span><span class="p">():</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;leader task&quot;</span><span class="p">)</span>
 </code></pre></div>
-<h2 id="dependencies">Dependencies</h2>
-<p>grelmicro depends on Pydantic v2+, AnyIO v4+, and FastDepends.</p>
-<h3 id="standard-dependencies"><code>standard</code> Dependencies</h3>
-<p>When you install grelmicro with <code>pip install grelmicro[standard]</code> it comes with:</p>
-<ul>
-<li><code>orjson</code>: A fast, correct JSON library for Python.</li>
-</ul>
-<h3 id="redis-dependencies"><code>redis</code> Dependencies</h3>
-<p>When you install grelmicro with <code>pip install grelmicro[redis]</code> it comes with:</p>
-<ul>
-<li><code>redis-py</code>: The Python interface to the Redis key-value store (the async interface depends on <code>asyncio</code>).</li>
-</ul>
-<h3 id="postgres-dependencies"><code>postgres</code> Dependencies</h3>
-<p>When you install grelmicro with <code>pip install grelmicro[postgres]</code> it comes with:</p>
-<ul>
-<li><code>asyncpg</code>: The Python <code>asyncio</code> interface for PostgreSQL.</li>
-</ul>
 <h2 id="license">License</h2>
-<p>This project is licensed under the terms of the MIT license.</p>
+<p>This project is licensed under the terms of the <a href="https://github.com/grelinfo/grelmicro/blob/main/LICENSE">MIT license</a>.</p>
 
 
 
@@ -1819,6 +1746,27 @@
     Made with
     <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
       Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/grelinfo/grelmicro" target="_blank" rel="noopener" title="grelmicro on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/grelmicro/" target="_blank" rel="noopener" title="grelmicro on PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
     </a>
   
 </div>

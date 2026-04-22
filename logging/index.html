@@ -22,7 +22,7 @@
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../img/logo/favicon-192.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
@@ -55,6 +55,8 @@
     
       <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
+      <link rel="stylesheet" href="../css/overrides.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -66,10 +68,12 @@
   
     
     
+      
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="green" data-md-color-accent="light-green">
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -96,8 +100,7 @@
   <nav class="md-header__inner md-grid" aria-label="Header">
     <a href=".." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+  <img src="../img/logo/favicon-48.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -122,7 +125,33 @@
     </div>
     
       
+        <form class="md-header__option" data-md-component="palette">
+  
     
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
     
     
     
@@ -206,8 +235,7 @@
   <label class="md-nav__title" for="__drawer">
     <a href=".." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+  <img src="../img/logo/favicon-48.png" alt="logo">
 
     </a>
     grelmicro
@@ -258,6 +286,33 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -289,10 +344,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -310,8 +365,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_2">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -802,15 +857,81 @@
   
   
   
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../resilience/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resilience
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Resilience
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
     <li class="md-nav__item">
-      <a href="../resilience/" class="md-nav__link">
+      <a href="../resilience/circuit-breaker/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Resilience Patterns
+    Circuit Breaker
   
 
     
@@ -819,6 +940,42 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resilience/rate-limiter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rate Limiter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -918,10 +1075,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -939,8 +1096,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1186,7 +1343,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1208,14 +1365,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1884,14 +2041,13 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 </div>
 </div>
 <h2 id="log-formats">Log Formats</h2>
-<p>grelmicro provides <strong>five format options</strong>, inspired by the Rust <a href="https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/index.html">tracing</a> ecosystem and Go <a href="https://pkg.go.dev/log/slog">slog</a>:</p>
+<p>grelmicro provides <strong>five format options</strong>, following common structured-logging conventions:</p>
 <table>
 <thead>
 <tr>
 <th>Format</th>
 <th>Use Case</th>
 <th>Machine-Parseable</th>
-<th>Inspired By</th>
 </tr>
 </thead>
 <tbody>
@@ -1899,31 +2055,26 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 <td><code>AUTO</code></td>
 <td><strong>Default</strong>. Adapts to environment</td>
 <td>Depends</td>
-<td>zerolog, pino</td>
 </tr>
 <tr>
 <td><code>JSON</code></td>
 <td>Production, log aggregation</td>
 <td>Yes</td>
-<td>pino, tracing JSON, slog JSON</td>
 </tr>
 <tr>
 <td><code>LOGFMT</code></td>
 <td>Structured + human-readable</td>
 <td>Yes</td>
-<td>Go slog TextHandler, tracing-logfmt</td>
 </tr>
 <tr>
 <td><code>TEXT</code></td>
 <td>Local development</td>
 <td>No</td>
-<td>tracing Full, loguru</td>
 </tr>
 <tr>
 <td><code>PRETTY</code></td>
 <td>Verbose debugging</td>
 <td>No</td>
-<td>tracing Pretty, structlog ConsoleRenderer</td>
 </tr>
 </tbody>
 </table>
@@ -2368,9 +2519,9 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
     <span class="n">stack</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># Optional: full traceback string</span>
 </code></pre></div>
 <h3 id="design-decisions">Design Decisions</h3>
-<p><strong>Level casing</strong>: UPPERCASE (<code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code>), following Go slog, Java Log4j2, Rust tracing conventions.</p>
-<p><strong>Field naming</strong>: Core field names (<code>time</code>, <code>level</code>, <code>msg</code>, <code>logger</code>, <code>caller</code>, <code>error</code>) follow slog/zap/Caddy conventions. <code>logger</code> is the logger name; <code>caller</code> is the call site (<code>function:line</code>).</p>
-<p><strong>Caller opt-in</strong>: <code>caller</code> is disabled by default, following slog/zap/zerolog/Caddy conventions where caller info is opt-in. Enable with <code>LOG_CALLER_ENABLED=true</code>. Uvicorn formatters never include <code>caller</code> (points to uvicorn internals, not application code).</p>
+<p><strong>Level casing</strong>: UPPERCASE (<code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code>), following common structured-logging conventions.</p>
+<p><strong>Field naming</strong>: Core field names (<code>time</code>, <code>level</code>, <code>msg</code>, <code>logger</code>, <code>caller</code>, <code>error</code>) follow common structured-logging conventions. <code>logger</code> is the logger name, <code>caller</code> is the call site (<code>function:line</code>).</p>
+<p><strong>Caller opt-in</strong>: <code>caller</code> is disabled by default, as in many structured-logging libraries. Enable with <code>LOG_CALLER_ENABLED=true</code>. Uvicorn formatters never include <code>caller</code> (points to uvicorn internals, not application code).</p>
 <p><strong>Collision protection</strong>: Core fields cannot be overwritten by user-supplied extra context.</p>
 <h2 id="deduplicating-noisy-logs">Deduplicating Noisy Logs</h2>
 <p><code>DuplicateFilter</code> is a <code>logging.Filter</code> that silences repeated log records.</p>
@@ -2381,12 +2532,12 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <span class="n">logger</span> <span class="o">=</span> <span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;grelmicro.health&quot;</span><span class="p">)</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">())</span>
 </code></pre></div>
-<p>After <strong>5</strong> identical records the filter silently drops further occurrences. Up to <strong>100</strong> distinct keys are tracked in an LRU.</p>
-<p><code>key_mode="template"</code> (default) keys on the raw format string: <code>%</code>-style calls with different arguments share one counter, and it is <strong>~3× faster</strong> than rendered keying. Use <code>key_mode="rendered"</code> to distinguish each rendered message, or pass <code>key=</code> for a custom fingerprint:</p>
+<p>After <strong>5</strong> identical records, the filter silently drops any further occurrences. It tracks up to <strong>100</strong> distinct keys in an LRU cache.</p>
+<p><code>key_mode="template"</code> (default) uses the raw format string as the key, so <code>%</code>-style calls with different arguments share one counter. It is also about <strong>3 times faster</strong> than rendered keying. Use <code>key_mode="rendered"</code> to track each rendered message separately, or pass <code>key=</code> for a custom fingerprint:</p>
 <div class="highlight"><pre><span></span><code><span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">(</span><span class="n">key_mode</span><span class="o">=</span><span class="s2">&quot;rendered&quot;</span><span class="p">))</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">exc_info</span><span class="p">)))</span>
 </code></pre></div>
-<p>Set <code>ttl_seconds</code> to re-emit a burst of <code>allowed_repetitions</code> records every window during sustained floods, so operators keep getting periodic reminders:</p>
+<p>Set <code>ttl_seconds</code> to re-emit a burst of <code>allowed_repetitions</code> records every window during sustained floods, so operators continue to receive periodic reminders:</p>
 <div class="highlight"><pre><span></span><code><span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">(</span><span class="n">allowed_repetitions</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">ttl_seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">))</span>
 </code></pre></div>
 <p>State is in-process only. There is no cross-process sharing and no explicit reset API: construct a new filter if you need to wipe counters.</p>
@@ -2395,7 +2546,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <p><code>DuplicateFilter</code> attaches to any stdlib logger, so it works with every <code>LOG_BACKEND</code>. For code using <code>from loguru import logger</code> or <code>structlog.get_logger()</code> directly, use those libraries' native filtering.</p>
 </div>
 <h2 id="rate-limiting-noisy-logs">Rate-Limiting Noisy Logs</h2>
-<p><code>RateLimitFilter</code> is a <code>logging.Filter</code> that drops records when a token bucket is empty. Burst-friendly: allow up to <code>capacity</code> records in a burst, then refill at <code>refill_rate</code> records per second sustained.</p>
+<p><code>RateLimitFilter</code> is a <code>logging.Filter</code> that drops records when a token bucket is empty. It allows bursts: up to <code>capacity</code> records can pass through at once, and the bucket then refills at <code>refill_rate</code> records per second.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">getLogger</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitFilter</span>
@@ -2417,7 +2568,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <tr>
 <td><code>"logger"</code> (default)</td>
 <td>One bucket per logger name</td>
-<td>Noisy third-party libraries that hammer a single logger</td>
+<td>Noisy third-party libraries that flood a single logger</td>
 </tr>
 <tr>
 <td><code>"level"</code></td>
@@ -2462,7 +2613,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <p>Use <code>cost=</code> when a record should spend multiple tokens (e.g. on a verbose-level handler):</p>
 <div class="highlight"><pre><span></span><code><span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">RateLimitFilter</span><span class="p">(</span><span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">cost</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
 </code></pre></div>
-<p>State is in-process only, backed by [<code>MemoryTokenBucket</code>][grelmicro.resilience.MemoryTokenBucket]. Call <code>filter.reset(key)</code> to clear one key, or construct a new filter to wipe all state.</p>
+<p>State is in-process only, backed by <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MemoryTokenBucket&lt;/span&gt;" href="../reference/resilience/#grelmicro.resilience.MemoryTokenBucket"><code>MemoryTokenBucket</code></a>. Call <code>filter.reset(key)</code> to clear one key, or construct a new filter to wipe all state.</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p><code>RateLimitFilter</code> and <code>DuplicateFilter</code> compose well: attach the dedup filter first to collapse true duplicates, then the rate-limit filter to cap the sustained flow.</p>
@@ -2568,6 +2719,27 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
     Made with
     <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
       Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/grelinfo/grelmicro" target="_blank" rel="noopener" title="grelmicro on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/grelmicro/" target="_blank" rel="noopener" title="grelmicro on PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
     </a>
   
 </div>

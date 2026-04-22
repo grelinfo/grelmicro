@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/reference/json/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/resilience/circuit-breaker/">
       
       
-        <link rel="prev" href="../health/">
+        <link rel="prev" href="../">
       
       
-        <link rel="next" href="../logging/">
+        <link rel="next" href="../rate-limiter/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>JSON - grelmicro</title>
+        <title>Circuit Breaker - grelmicro</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#json" class="md-skip">
+        <a href="#circuit-breaker" class="md-skip">
           Skip to content
         </a>
       
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              JSON
+              Circuit Breaker
             
           </span>
         </div>
@@ -313,8 +313,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -338,11 +340,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -363,7 +365,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -518,6 +520,8 @@
                 
   
   
+    
+  
   
   
     
@@ -535,15 +539,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../resilience/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -567,7 +571,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -584,10 +588,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../resilience/circuit-breaker/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Circuit Breaker
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -603,6 +634,48 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#state-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State machine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -615,7 +688,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../resilience/rate-limiter/" class="md-nav__link">
+      <a href="../rate-limiter/" class="md-nav__link">
         
   
   
@@ -711,10 +784,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -736,11 +807,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -761,7 +832,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -779,7 +850,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../cache/" class="md-nav__link">
+      <a href="../../reference/cache/" class="md-nav__link">
         
   
   
@@ -807,7 +878,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../health/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
@@ -832,37 +903,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/json/" class="md-nav__link">
         
   
   
@@ -878,120 +922,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#grelmicro.json" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;json
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label=" json">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.JSONEncodable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;JSONEncodable
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.JSONDecodable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;JSONDecodable
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.json_dumps_bytes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;json_dumps_bytes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.json_dumps_str" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;json_dumps_str
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.json_loads" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;json_loads
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.json_default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;json_default
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.has_orjson" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;has_orjson
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1004,7 +934,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../logging/" class="md-nav__link">
+      <a href="../../reference/logging/" class="md-nav__link">
         
   
   
@@ -1032,7 +962,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/" class="md-nav__link">
+      <a href="../../reference/resilience/" class="md-nav__link">
         
   
   
@@ -1060,7 +990,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../../reference/sync/" class="md-nav__link">
         
   
   
@@ -1088,7 +1018,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../task/" class="md-nav__link">
+      <a href="../../reference/task/" class="md-nav__link">
         
   
   
@@ -1446,96 +1376,24 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#grelmicro.json" class="md-nav__link">
+  <a href="#state-machine" class="md-nav__link">
     <span class="md-ellipsis">
       
-        <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;json
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label=" json">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.JSONEncodable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;JSONEncodable
+        State machine
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.JSONDecodable" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;JSONDecodable
+        Usage
       
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.json_dumps_bytes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;json_dumps_bytes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.json_dumps_str" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;json_dumps_str
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.json_loads" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;json_loads
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.json_default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;json_default
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.json.has_orjson" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;has_orjson
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1559,242 +1417,85 @@
   
 
 
-<h1 id="json">JSON</h1>
+<h1 id="circuit-breaker">Circuit Breaker</h1>
+<p>A <strong>Circuit Breaker</strong> prevents repeated failures when calling an unreliable downstream. It watches call outcomes and, after too many consecutive failures, <strong>opens</strong> to block further calls for a cool-down period so the dependency can recover.</p>
+<p><strong>Why</strong></p>
+<ul>
+<li>Prevent cascading failures across services.</li>
+<li>Stop a failing dependency from exhausting every thread or connection in your pool.</li>
+<li>Expose the health of a dependency at the breaker boundary, so each caller does not have to track it.</li>
+</ul>
+<h2 id="state-machine">State machine</h2>
+<p>Three normal states (<code>CLOSED</code>, <code>OPEN</code>, <code>HALF_OPEN</code>) plus two manual overrides (<code>FORCED_OPEN</code>, <code>FORCED_CLOSED</code>).</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    direction LR
+    [*] --&gt; CLOSED
+    CLOSED --&gt; OPEN: failure threshold reached
+    OPEN --&gt; HALF_OPEN: after reset_timeout
+    HALF_OPEN --&gt; CLOSED: probes succeed
+    HALF_OPEN --&gt; OPEN: probe fails</code></pre>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CLOSED</strong></td>
+<td>Normal operation. Calls are allowed.</td>
+</tr>
+<tr>
+<td><strong>OPEN</strong></td>
+<td>Calls are blocked to let the dependency recover.</td>
+</tr>
+<tr>
+<td><strong>HALF_OPEN</strong></td>
+<td>A limited number of probe calls test whether the dependency is back.</td>
+</tr>
+<tr>
+<td><strong>FORCED_OPEN</strong></td>
+<td>Manual override that blocks every call.</td>
+</tr>
+<tr>
+<td><strong>FORCED_CLOSED</strong></td>
+<td>Manual override that allows every call.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="usage">Usage</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
 
-
-<div class="doc doc-object doc-module">
-
-
-
-<h2 id="grelmicro.json" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">grelmicro.json</span>
-
-
-</h2>
-
-    <div class="doc doc-contents first">
-
-        <p>JSON serialization utilities.</p>
-<p>Fast JSON encoding and decoding using <code>orjson</code> when available,
-with automatic fallback to the standard library <code>json</code> module.</p>
-<p><code>orjson</code> is roughly 7x faster than stdlib <code>json</code> and is included
-in the <code>grelmicro[standard]</code> extra.</p>
-<p>Example::</p>
-<div class="highlight"><pre><span></span><code>from grelmicro.cache import TTLCache, JsonSerializer
-
-cache = TTLCache(ttl=300, serializer=JsonSerializer())
-</code></pre></div>
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h3 id="grelmicro.json.JSONEncodable" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">JSONEncodable</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
-  </span>
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">JSONEncodable</span><span class="p">:</span> <span class="n"><span title="typing.TypeAlias">TypeAlias</span></span> <span class="o">=</span> <span class="p">(</span>
-    <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="str">str</span></span>
-    <span class="o">|</span> <span class="n"><span title="int">int</span></span>
-    <span class="o">|</span> <span class="n"><span title="float">float</span></span>
-    <span class="o">|</span> <span class="n"><span title="bool">bool</span></span>
-    <span class="o">|</span> <span class="n"><span title="datetime.datetime">datetime</span></span>
-    <span class="o">|</span> <span class="kc">None</span>
+<span class="n">circuit_breaker</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span>
+    <span class="s2">&quot;system_name&quot;</span><span class="p">,</span> <span class="n">ignore_exceptions</span><span class="o">=</span><span class="ne">FileNotFoundError</span>
 <span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">async_context_manager</span><span class="p">():</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">circuit_breaker</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service...&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@circuit_breaker</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">async_call</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service...&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">sync_context_manager</span><span class="p">():</span>
+    <span class="k">with</span> <span class="n">circuit_breaker</span><span class="o">.</span><span class="n">from_thread</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service from AnyIO worker thread...&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@circuit_breaker</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sync_call</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service from AnyIO worker thread...&quot;</span><span class="p">)</span>
 </code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Types accepted by <code>json_dumps_bytes</code> and <code>json_dumps_str</code>.</p>
-
-    </div>
-
+<div class="admonition warning">
+<p class="admonition-title">Thread safety</p>
+<p>The Circuit Breaker is not thread-safe. Decorated sync functions or <code>from_thread</code> methods ensure state changes run safely within the async event loop. Threaded usage is supported only in AnyIO worker threads and may be slower than pure async usage.</p>
 </div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h3 id="grelmicro.json.JSONDecodable" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">JSONDecodable</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
-  </span>
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">JSONDecodable</span><span class="p">:</span> <span class="n"><span title="typing.TypeAlias">TypeAlias</span></span> <span class="o">=</span> <span class="p">(</span>
-    <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="str">str</span></span>
-    <span class="o">|</span> <span class="n"><span title="int">int</span></span>
-    <span class="o">|</span> <span class="n"><span title="float">float</span></span>
-    <span class="o">|</span> <span class="n"><span title="bool">bool</span></span>
-    <span class="o">|</span> <span class="kc">None</span>
-<span class="p">)</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Types returned by <code>json_loads</code>.</p>
-
-    </div>
-
-</div>
-
-
-
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="grelmicro.json.json_dumps_bytes" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">json_dumps_bytes</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">json_dumps_bytes</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;JSONEncodable&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro._json.JSONEncodable&lt;/code&gt;)" href="#grelmicro.json.JSONEncodable">JSONEncodable</a></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="bytes">bytes</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Serialize object to JSON bytes using stdlib json.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="grelmicro.json.json_dumps_str" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">json_dumps_str</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">json_dumps_str</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;JSONEncodable&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro._json.JSONEncodable&lt;/code&gt;)" href="#grelmicro.json.JSONEncodable">JSONEncodable</a></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="str">str</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Serialize object to JSON string using stdlib json.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="grelmicro.json.json_loads" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">json_loads</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">json_loads</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n"><span title="bytes">bytes</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;JSONDecodable&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro._json.JSONDecodable&lt;/code&gt;)" href="#grelmicro.json.JSONDecodable">JSONDecodable</a></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Deserialize JSON bytes or string using stdlib json.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="grelmicro.json.json_default" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">json_default</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">json_default</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n"><span title="object">object</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="str">str</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Handle non-serializable types for stdlib json.</p>
-<p>Converts <code>datetime</code> instances to ISO 8601 strings.
-Raises <code>TypeError</code> for all other non-serializable types.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="grelmicro.json.has_orjson" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">has_orjson</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">has_orjson</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Check if orjson is available.</p>
-
-
-    </div>
-
-</div>
-
-
-
-  </div>
-
-    </div>
-
-</div>
+<p>See the <a href="../../reference/resilience/#grelmicro.resilience.CircuitBreaker">API reference</a> for every option.</p>
 
 
 
