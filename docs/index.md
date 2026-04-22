@@ -1,7 +1,6 @@
 <p align="center">
   <a href="https://grelinfo.github.io/grelmicro">
-    <img alt="grelmicro" class="grel-wordmark-light" src="img/logo/wordmark.svg#gh-light-mode-only" width="520">
-    <img alt="grelmicro" class="grel-wordmark-dark" src="img/logo/wordmark-dark.svg#gh-dark-mode-only" width="520">
+    <img alt="grelmicro" src="img/logo/wordmark.svg" width="520">
   </a>
 </p>
 

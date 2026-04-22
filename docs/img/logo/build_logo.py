@@ -228,7 +228,17 @@ def _svg_header(vw: int | float, vh: int | float, title: str) -> str:
 
 
 def build_wordmark(font: TTFont, m: dict, *, dark: bool) -> str:
-    """Tight-padded wordmark with transparent background."""
+    """Tight-padded wordmark with transparent background.
+
+    The SVG ships a ``<style>`` block with ``@media (prefers-color-scheme)``
+    so the same file renders ink letters on a light surface and paper
+    letters on a dark surface. That works for ``<img src>`` on GitHub,
+    PyPI, and the docs site without requiring ``<picture>`` tag support,
+    and collapses the need for a separate ``-dark.svg``.
+
+    ``dark=True`` still emits a pinned-paper fallback (no media query),
+    in case a consumer explicitly wants a dark-only asset.
+    """
     font_size = 110
     scale = font_size / m["upem"]
     letter_spacing_em = 0.005
@@ -251,13 +261,23 @@ def build_wordmark(font: TTFont, m: dict, *, dark: bool) -> str:
     g_cx = xs[text.index("g")] + m["g_stem_cx"] * scale
     tit_side = m["square"] * scale
     tit_y = baseline - m["ascender"] * scale
-    fill_text = PAPER if dark else INK
 
     lines = [_svg_header(vw, vh, "grelmicro")]
-    for idx, ch in enumerate(text):
-        fill = fill_text if idx < 4 else RED
+    if dark:
+        text_fill_attr = f'fill="{PAPER}"'
+    else:
         lines.append(
-            f'  <path d="{_glyph_path(font, ch)}" fill="{fill}" '
+            "  <style>"
+            f".g-letter {{ fill: {INK}; }}"
+            f" @media (prefers-color-scheme: dark) "
+            f"{{ .g-letter {{ fill: {PAPER}; }} }}"
+            "</style>"
+        )
+        text_fill_attr = 'class="g-letter"'
+    for idx, ch in enumerate(text):
+        attr = text_fill_attr if idx < 4 else f'fill="{RED}"'
+        lines.append(
+            f'  <path d="{_glyph_path(font, ch)}" {attr} '
             f'transform="translate({xs[idx]:.3f} {baseline:.3f}) '
             f'scale({scale:.6f} -{scale:.6f})"/>'
         )
