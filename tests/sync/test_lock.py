@@ -43,13 +43,20 @@ async def backend() -> AsyncGenerator[SyncBackend]:
 
 @pytest.fixture
 def locks(backend: SyncBackend) -> list[Lock]:
-    """Locks of multiple workers."""
+    """Locks of multiple workers.
+
+    ``lease_duration`` is set to 500 ms so that reentrant / context-manager
+    tests never race with lease expiry (a 10 ms lease is shorter than Python
+    3.12 thread-scheduling jitter under CI load, which caused
+    ``test_lock_reentrant_from_thread`` to flake). Expiry tests read
+    ``config.lease_duration`` and sleep through it, so they stay correct.
+    """
     return [
         Lock(
             backend=backend,
             name=LOCK_NAME,
             worker=f"worker_{i}",
-            lease_duration=0.01,
+            lease_duration=0.5,
             retry_interval=0.001,
         )
         for i in range(WORKER_COUNT)
