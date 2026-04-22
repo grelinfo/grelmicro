@@ -1,3 +1,92 @@
+/* grelmicro brand palette: ink chrome, red as a thin accent.
+   Swiss-design restraint: the red signals, it doesn't fill the frame. */
+
+:root {
+  --grel-red: #e30613;
+  --grel-red-dark: #b30410;
+  --grel-ink: #0f0f10;
+  --grel-paper: #fafaf7;
+  --grel-mute: #6b6b6b;
+}
+
+/* Light mode: paper background, ink chrome, red accent. */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: var(--grel-ink);
+  --md-primary-fg-color--light: var(--grel-ink);
+  --md-primary-fg-color--dark: #000;
+  --md-primary-bg-color: var(--grel-paper);
+  --md-primary-bg-color--light: rgba(250, 250, 247, 0.7);
+
+  --md-accent-fg-color: var(--grel-red);
+  --md-accent-fg-color--transparent: rgba(227, 6, 19, 0.1);
+
+  --md-typeset-a-color: var(--grel-red);
+  --md-default-bg-color: var(--grel-paper);
+}
+
+/* Dark mode: ink background, paper chrome, same red accent. */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #1a1a1c;
+  --md-primary-fg-color--light: #1a1a1c;
+  --md-primary-fg-color--dark: var(--grel-ink);
+  --md-primary-bg-color: var(--grel-paper);
+  --md-primary-bg-color--light: rgba(250, 250, 247, 0.7);
+
+  --md-accent-fg-color: var(--grel-red);
+  --md-accent-fg-color--transparent: rgba(227, 6, 19, 0.15);
+
+  --md-typeset-a-color: #ff4a55;
+  --md-default-bg-color: var(--grel-ink);
+  --md-default-bg-color--light: #1a1a1c;
+}
+
+/* Thin red accent strip at the very top of the viewport. */
+.md-header::before {
+  content: "";
+  display: block;
+  height: 3px;
+  background: var(--grel-red);
+}
+
+/* Header icon: constrain the favicon tile so it doesn't resample. */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+/* Wordmark logo on the landing page: swap variant with the active Material
+   colour scheme. The <picture> media-query approach only tracks the OS
+   preference, so it breaks when users manually toggle the theme. */
+.grel-wordmark-light,
+.grel-wordmark-dark {
+  max-width: 100%;
+  height: auto;
+}
+
+[data-md-color-scheme="default"] .grel-wordmark-dark {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .grel-wordmark-light {
+  display: none;
+}
+
+/* Tabs bar: red underline on the active tab. */
+.md-tabs {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.md-tabs__link--active {
+  box-shadow: inset 0 -2px 0 var(--grel-red);
+}
+
+/* Section header on nav / sidebar sections: thin red rule. */
+.md-nav__title {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  padding-bottom: 0.4rem;
+}
+
 /* Tables span the full content width. */
 .md-typeset table:not([class]) {
   display: table;

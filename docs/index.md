@@ -1,8 +1,19 @@
-# grelmicro
+<p align="center">
+  <a href="https://grelinfo.github.io/grelmicro">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="img/logo/wordmark-dark.svg">
+      <img alt="grelmicro" src="img/logo/wordmark.svg" width="520">
+    </picture>
+  </a>
+</p>
 
-**Micro by design. Fast by default. Import what you need.**
+<p align="center">
+  <em>Micro by design. Fast by default. Import only what you need.</em>
+</p>
 
-A toolkit of Python primitives built for production needs, for services that coordinate work across processes, workers, or clusters.
+<p align="center">
+  A toolkit of Python primitives built for production needs, for services that coordinate work across processes, workers, or clusters.
+</p>
 
 [![PyPI - Version](https://img.shields.io/pypi/v/grelmicro)](https://pypi.org/project/grelmicro/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/grelmicro)](https://pypi.org/project/grelmicro/)
@@ -28,11 +39,11 @@ grelmicro gives you the building blocks every Python service needs: locks, rate 
 
 It is built for any Python application, from a standalone script to full **microservice patterns** and **self-contained systems**, with a strong focus on solving **distributed system** problems. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
 
-- **Micro**: a small, focused API in the microframework and microservice tradition. Import only the primitives you need.
-- **Fast**: low runtime overhead per call. Easy to build with: a clean API, sensible defaults, and typed parameters IDEs can complete.
-- **Async by default**: all I/O uses `async` / `await`, integrating cleanly with FastAPI, FastStream, and any AnyIO-based stack.
-- **Backend-agnostic**: every primitive is defined by a protocol, not a specific technology. Swap Redis for PostgreSQL without changing application code.
-- **Production-focused**: 100% test coverage, strict typing, pluggable backends covering Redis, PostgreSQL, SQLite, Kubernetes, and in-memory.
+- **Micro**: one focused primitive per module. Import only what your code touches. Nothing else is loaded.
+- **Fast**: thin wrappers with low per-call overhead. Redis operations are server-side Lua scripts; in-memory paths skip I/O entirely.
+- **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any AnyIO-based stack.
+- **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
+- **Production-ready**: 100% test coverage, full type hints, and explicit deprecation paths (`DeprecationWarning` + PEP 702 `@deprecated`) with a one-minor-version removal window.
 
 ## Modules
 

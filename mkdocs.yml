@@ -3,12 +3,26 @@ site_description: grelmicro is a lightweight toolkit for building Python applica
 site_url: https://grelinfo.github.io/grelmicro
 theme:
   name: material
+  logo: img/logo/favicon-48.png
+  favicon: img/logo/favicon-192.png
   palette:
-    primary: green
-    accent:  light green
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   font:
-    text: 'Roboto'
-    code: 'Roboto Mono'
+    text: Roboto
+    code: Roboto Mono
   features:
     - content.tabs.link
     - content.code.copy
@@ -23,6 +37,19 @@ theme:
 
 repo_name: grelinfo/grelmicro
 repo_url: https://github.com/grelinfo/grelmicro
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/grelinfo/grelmicro
+      name: grelmicro on GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/grelmicro/
+      name: grelmicro on PyPI
+
+exclude_docs: |
+  img/logo/README.md
+  img/logo/build_logo.py
 
 validation:
   omitted_files: warn
