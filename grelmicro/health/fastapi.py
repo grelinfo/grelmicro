@@ -33,8 +33,6 @@ class CheckResultResponse(BaseModel):
     status: HealthStatus
     critical: bool = True
     error: str | None = None
-    # ``Any`` here: Pydantic can't schema-ify the recursive
-    # ``JSONEncodable`` alias. Strict typing lives on ``HealthCheckFunc``.
     details: dict[str, Any] | None = None
 
 
