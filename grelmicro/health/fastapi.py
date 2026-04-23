@@ -6,11 +6,13 @@ from pydantic import BaseModel
 from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_bytes
-from grelmicro.health._models import CheckResult, HealthReport, HealthStatus
+from grelmicro.health._models import HealthStatus
 from grelmicro.health._registry import HealthRegistry
 
 if TYPE_CHECKING:
-    from fastapi import APIRouter, Request
+    from collections.abc import Callable
+
+    from fastapi import APIRouter
     from fastapi.params import Depends
 
 
@@ -51,7 +53,7 @@ def health_router(
         Doc("URL prefix for health endpoints (e.g. '/api/v1')."),
     ] = "",
     show_details: Annotated[
-        "bool | list[Depends]",
+        "bool | Depends",
         Doc(
             "Whether ``/healthz`` includes each check's verbose "
             "``details`` field (versions, hostnames, pool stats, ...):\n\n"
@@ -59,12 +61,13 @@ def health_router(
             "public endpoints.\n"
             "- ``True``: details are always included. Use only if "
             "``/healthz`` is private.\n"
-            "- ``list[Depends]``: details are included only when "
-            "every listed dependency passes (returns without "
-            "raising). A failing dependency strips details; the "
-            "endpoint still returns ``200``/``503`` with the base "
-            "fields. Use this to expose verbose details to admins "
-            "while keeping basic status public."
+            "- ``Depends(fn)`` where ``fn`` returns ``bool``: wires "
+            "``fn`` into FastAPI's DI graph, so ``Depends`` chains, "
+            "``yield`` cleanup, ``Security``, ``Request`` injection, "
+            "and async all work naturally. Return ``True`` to show "
+            "details, ``False`` to strip them. Raising "
+            "``HTTPException`` blocks the endpoint, so return "
+            "``False`` instead when you want a soft strip."
         ),
     ] = False,
     healthz_dependencies: Annotated[
@@ -92,10 +95,12 @@ def health_router(
 
     Raises:
         DependencyNotFoundError: If ``fastapi`` is not installed.
+        TypeError: If ``show_details`` is neither a bool nor a
+            ``Depends(...)`` value.
     """
     try:
         from fastapi import APIRouter as _APIRouter  # noqa: PLC0415
-        from fastapi import Query, Request  # noqa: PLC0415
+        from fastapi import Depends, Query  # noqa: PLC0415
         from fastapi.responses import Response  # noqa: PLC0415
         from starlette.status import (  # noqa: PLC0415
             HTTP_200_OK,
@@ -112,23 +117,10 @@ def health_router(
         get_health_registry,
     )
 
-    # Normalize ``show_details`` once. ``always`` -> show unconditionally,
-    # ``never`` -> strip, ``guarded`` -> include only when every dep passes.
-    if show_details is True:
-        details_mode = "always"
-        details_deps: list[Depends] = []
-    elif isinstance(show_details, list) and show_details:
-        details_mode = "guarded"
-        details_deps = list(show_details)
-    else:  # False, None, or empty list
-        details_mode = "never"
-        details_deps = []
+    show_details_dep = _resolve_show_details_dep(show_details)
 
     router = _APIRouter(prefix=prefix, tags=["health"])
     healthz_deps = list(healthz_dependencies or ())
-    # Registry is resolved lazily per request so the router can be built
-    # before the registry exists (FastAPI app-factory + lifespan pattern).
-    # ``BackendRegistry.get`` is a single attribute check: ~100ns.
 
     @router.get("/livez", status_code=HTTP_200_OK)
     @router.head("/livez", include_in_schema=False)
@@ -181,7 +173,7 @@ def health_router(
     )
     @router.head("/healthz", include_in_schema=False, dependencies=healthz_deps)
     async def healthz(
-        request: Request,
+        include_details: Annotated[bool, Depends(show_details_dep)],
         exclude: Annotated[
             str | None,
             Query(
@@ -194,13 +186,21 @@ def health_router(
             critical_only=False,
             exclude=_parse_exclude(exclude),
         )
-        if details_mode == "always":
-            include_details = True
-        elif details_mode == "guarded":
-            include_details = await _all_deps_pass(request, details_deps)
-        else:
-            include_details = False
-        body = _render_report(report, include_details=include_details)
+        body: Any = (
+            report
+            if include_details
+            else {
+                "status": report["status"],
+                "checks": {
+                    name: {
+                        "status": r["status"],
+                        "critical": r["critical"],
+                        "error": r["error"],
+                    }
+                    for name, r in report["checks"].items()
+                },
+            }
+        )
         status_code = (
             HTTP_200_OK
             if report["status"] == HealthStatus.OK
@@ -216,70 +216,33 @@ def health_router(
     return router
 
 
+def _resolve_show_details_dep(show_details: Any) -> "Callable[..., Any]":  # noqa: ANN401
+    """Return the FastAPI dependency callable for ``show_details``.
+
+    Booleans collapse to constant-returning lambdas. ``Depends(fn)``
+    yields the underlying ``fn`` so FastAPI wires it through its DI
+    graph on the route.
+    """
+    from fastapi.params import Depends as _DependsParam  # noqa: PLC0415
+
+    if show_details is True:
+        return lambda: True
+    if show_details is False:
+        return lambda: False
+    if isinstance(show_details, _DependsParam):
+        if show_details.dependency is None:
+            msg = "show_details=Depends(None) is not allowed"
+            raise TypeError(msg)
+        return show_details.dependency
+    msg = (
+        "show_details must be bool or Depends(fn) where fn returns "
+        f"bool, got {type(show_details).__name__}"
+    )
+    raise TypeError(msg)
+
+
 def _parse_exclude(raw: str | None) -> set[str]:
     """Split a comma-separated exclude list into a set of names."""
     if not raw:
         return set()
     return {name.strip() for name in raw.split(",") if name.strip()}
-
-
-async def _all_deps_pass(request: "Request", deps: "list[Depends]") -> bool:
-    """Return True if every dep runs without raising."""
-    import inspect  # noqa: PLC0415
-
-    from fastapi import HTTPException  # noqa: PLC0415
-
-    for dep in deps:
-        call = dep.dependency
-        if call is None:
-            continue
-        try:
-            sig = inspect.signature(call)
-            kwargs: dict[str, Any] = {}
-            for param_name, param in sig.parameters.items():
-                if param_name == "request" or _is_request_type(
-                    param.annotation
-                ):
-                    kwargs[param_name] = request
-            result = call(**kwargs)
-            if inspect.iscoroutine(result):
-                await result
-        except HTTPException:
-            return False
-        except Exception:  # noqa: BLE001
-            return False
-    return True
-
-
-def _is_request_type(annotation: Any) -> bool:  # noqa: ANN401
-    """Check whether the annotation resolves to ``fastapi.Request``."""
-    from fastapi import Request  # noqa: PLC0415
-
-    return annotation is Request
-
-
-def _render_report(
-    report: HealthReport, *, include_details: bool
-) -> dict[str, Any]:
-    """Shape the report for JSON serialization."""
-    return {
-        "status": report["status"],
-        "checks": {
-            name: _render_check(result, include_details=include_details)
-            for name, result in report["checks"].items()
-        },
-    }
-
-
-def _render_check(
-    result: CheckResult, *, include_details: bool
-) -> dict[str, Any]:
-    """Shape a single check result for JSON serialization."""
-    rendered: dict[str, Any] = {
-        "status": result["status"],
-        "critical": result["critical"],
-        "error": result["error"],
-    }
-    if include_details:
-        rendered["details"] = result["details"]
-    return rendered

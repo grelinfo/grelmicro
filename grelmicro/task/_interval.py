@@ -3,7 +3,6 @@
 import warnings
 from collections.abc import Awaitable, Callable
 from functools import partial
-from inspect import iscoroutinefunction
 from logging import getLogger
 from typing import Any
 from uuid import UUID
@@ -12,6 +11,7 @@ from anyio import TASK_STATUS_IGNORED, WouldBlock, sleep, to_thread
 from anyio.abc import TaskStatus
 from fast_depends import inject
 
+from grelmicro._async import is_async_callable
 from grelmicro.sync.abc import SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import LockNotOwnedError
 from grelmicro.sync.leaderelection import LeaderElection
@@ -208,7 +208,7 @@ class IntervalTask(Task):
         function = inject(function)
         return (
             function
-            if iscoroutinefunction(function)
+            if is_async_callable(function)
             else partial(to_thread.run_sync, function)
         )
 

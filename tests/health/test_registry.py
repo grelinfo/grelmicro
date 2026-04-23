@@ -331,6 +331,56 @@ async def test_shared_cache_between_readyz_and_healthz_paths() -> None:
     assert non_critical.calls == 1
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "DB",
+        "db redis",
+        "db.redis",
+        "db/redis",
+        "-db",
+        "_db",
+        ":db",
+    ],
+)
+async def test_invalid_name_rejected(name: str) -> None:
+    """Names must match ^[a-z0-9][a-z0-9:_-]*$."""
+    registry = HealthRegistry(auto_register=False)
+    with pytest.raises(ValueError, match="Invalid health check name"):
+        registry.add(name, healthy())
+
+
+async def test_namespaced_name_accepted() -> None:
+    """Colon-separated names are allowed for namespacing."""
+    registry = HealthRegistry(auto_register=False, cache_ttl=0)
+    registry.add("weather:circuitbreaker", healthy())
+    report = await registry.run()
+    assert "weather:circuitbreaker" in report["checks"]
+
+
+async def test_digit_leading_name_accepted() -> None:
+    """Digits are valid as the leading character."""
+    registry = HealthRegistry(auto_register=False, cache_ttl=0)
+    registry.add("0-primary", healthy())
+    assert "0-primary" in (await registry.run())["checks"]
+
+
+async def test_name_too_long_rejected() -> None:
+    """Names longer than 64 chars are rejected."""
+    registry = HealthRegistry(auto_register=False)
+    with pytest.raises(ValueError, match="Invalid health check name"):
+        registry.add("a" * 65, healthy())
+
+
+async def test_name_at_max_len_accepted() -> None:
+    """A name of exactly 64 chars is accepted."""
+    registry = HealthRegistry(auto_register=False, cache_ttl=0)
+    registry.add("a" * 64, healthy())
+    report = await registry.run()
+    assert "a" * 64 in report["checks"]
+
+
 async def test_duplicate_name_raises_for_add() -> None:
     """Registering two checks with the same name via add() raises."""
     registry = HealthRegistry(auto_register=False)

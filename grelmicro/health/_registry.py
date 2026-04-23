@@ -1,6 +1,6 @@
 """Health Check Registry."""
 
-import inspect
+import re
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -11,6 +11,7 @@ import anyio
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
 
+from grelmicro._async import is_async_callable
 from grelmicro.health._backends import health_registry
 from grelmicro.health._models import (
     CheckResult,
@@ -25,6 +26,14 @@ from grelmicro.health._types import (
 from grelmicro.health.errors import HealthError
 
 logger = getLogger("grelmicro.health")
+
+# Check names are exposed via the ``?exclude=`` query parameter on
+# ``/readyz`` and ``/healthz``. Restrict to a URL-safe, lower-case
+# charset so the query-string matches the registered name byte-for-byte
+# (no case folding, no whitespace trimming, no percent-encoding
+# surprises). Colon is allowed for namespacing (e.g. "weather:circuitbreaker").
+_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9:_-]*$")
+_NAME_MAX_LEN = 64
 
 
 class HealthRegistryConfig(BaseModel, frozen=True, extra="forbid"):
@@ -66,16 +75,8 @@ def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
     """Return an async callable. Sync funcs are wrapped via ``to_thread``.
 
     The sync/async decision is made once at registration, not per call.
-    Handles both plain coroutine functions and callable instances whose
-    ``__call__`` is async.
     """
-    # We use ``__call__`` directly (not ``callable()``) because we
-    # need to inspect whether the dunder itself is a coroutine
-    # function, not just whether the object is callable.
-    call = getattr(func, "__call__", None)  # noqa: B004
-    if inspect.iscoroutinefunction(func) or (
-        call is not None and inspect.iscoroutinefunction(call)
-    ):
+    if is_async_callable(func):
         return func  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     sync_func: Callable[[], HealthDetails | None] = func  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
@@ -160,9 +161,22 @@ class HealthRegistry:
         """Register a health check function.
 
         Raises:
-            ValueError: If a check with the same name is already
-                registered.
+            ValueError: If ``name`` is already registered, or does not
+                match ``^[a-z0-9][a-z0-9:_-]*$`` (max 64 chars).
+                Colon is allowed for namespacing, e.g.
+                ``"weather:circuitbreaker"``.
         """
+        if (
+            not name
+            or len(name) > _NAME_MAX_LEN
+            or not _NAME_PATTERN.match(name)
+        ):
+            msg = (
+                f"Invalid health check name {name!r}: must match "
+                f"^[a-z0-9][a-z0-9:_-]*$ and be at most "
+                f"{_NAME_MAX_LEN} chars"
+            )
+            raise ValueError(msg)
         if name in self._entries:
             msg = f"Health check '{name}' is already registered"
             raise ValueError(msg)
@@ -249,36 +263,35 @@ class HealthRegistry:
         """Return a cached or freshly computed result for one check.
 
         Respects ``cache_ttl`` and serializes concurrent calls via a
-        shared ``anyio.Event``.
+        shared ``anyio.Event``. If the single-flight leader is
+        cancelled before it produces a result, waiters take the lead
+        themselves instead of failing.
         """
         ttl = self._config.cache_ttl
-        now = time.monotonic()
-        if (
-            ttl > 0
-            and entry.cached_result is not None
-            and now - entry.cached_at < ttl
-        ):
-            return entry.cached_result
+        while True:
+            now = time.monotonic()
+            if (
+                ttl > 0
+                and entry.cached_result is not None
+                and now - entry.cached_at < ttl
+            ):
+                return entry.cached_result
 
-        if entry.inflight is not None:
-            await entry.inflight.wait()
-            if entry.cached_result is None:  # pragma: no cover
-                # Invariant: the single-flight leader always writes
-                # ``cached_result`` before calling ``event.set()``.
-                msg = f"single-flight leader produced no result for '{entry.name}'"
-                raise RuntimeError(msg)
-            return entry.cached_result
+            if entry.inflight is not None:
+                await entry.inflight.wait()
+                # Leader may have been cancelled before writing a result: loop.
+                continue
 
-        event = anyio.Event()
-        entry.inflight = event
-        try:
-            result = await _run_check(entry)
-            entry.cached_result = result
-            entry.cached_at = time.monotonic()
-            return result
-        finally:
-            entry.inflight = None
-            event.set()
+            event = anyio.Event()
+            entry.inflight = event
+            try:
+                result = await _run_check(entry)
+                entry.cached_result = result
+                entry.cached_at = time.monotonic()
+                return result
+            finally:
+                entry.inflight = None
+                event.set()
 
     @staticmethod
     def _aggregate_status(results: Iterable[CheckResult]) -> HealthStatus:

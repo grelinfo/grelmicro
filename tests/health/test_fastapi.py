@@ -240,146 +240,122 @@ def test_healthz_details_true_always_shown() -> None:
     assert response.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
 
 
-def test_healthz_details_guarded_denied() -> None:
-    """Failing dep strips details, endpoint still returns 200."""
+def test_healthz_details_dep_returns_false_strips() -> None:
+    """A dep returning False strips details, endpoint returns 200."""
     registry = HealthRegistry(cache_ttl=0)
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
-    def deny() -> None:
+    def allow() -> bool:
+        return False
+
+    app = FastAPI()
+    app.include_router(health_router(show_details=Depends(allow)))
+    client = TestClient(app)
+
+    response = client.get("/healthz")
+
+    assert response.status_code == HTTP_200_OK
+    assert "details" not in response.json()["checks"]["redis"]
+
+
+def test_healthz_details_dep_returns_true_shows() -> None:
+    """A dep returning True includes details."""
+    registry = HealthRegistry(cache_ttl=0)
+    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+
+    def allow() -> bool:
+        return True
+
+    app = FastAPI()
+    app.include_router(health_router(show_details=Depends(allow)))
+    client = TestClient(app)
+
+    response = client.get("/healthz")
+
+    assert response.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
+
+
+def test_healthz_details_async_dep_shows() -> None:
+    """An async dep is awaited by FastAPI's DI."""
+    registry = HealthRegistry(cache_ttl=0)
+    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+
+    async def allow_async() -> bool:
+        return True
+
+    app = FastAPI()
+    app.include_router(health_router(show_details=Depends(allow_async)))
+    client = TestClient(app)
+
+    response = client.get("/healthz")
+
+    assert response.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
+
+
+def test_healthz_details_dep_with_request() -> None:
+    """A Request-annotated dep receives the request via FastAPI DI."""
+    registry = HealthRegistry(cache_ttl=0)
+    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+
+    def allow_if_admin(request: _Request) -> bool:
+        return request.headers.get("x-admin") == "yes"
+
+    app = FastAPI()
+    app.include_router(health_router(show_details=Depends(allow_if_admin)))
+    client = TestClient(app)
+
+    assert "details" not in client.get("/healthz").json()["checks"]["redis"]
+    allowed = client.get("/healthz", headers={"x-admin": "yes"})
+    assert allowed.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
+
+
+def test_healthz_details_dep_with_sub_dependency() -> None:
+    """FastAPI sub-dependencies resolve through ``Depends`` chains."""
+    registry = HealthRegistry(cache_ttl=0)
+    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+
+    def current_role(request: _Request) -> str:
+        return request.headers.get("x-role", "guest")
+
+    def is_admin(role: str = Depends(current_role)) -> bool:
+        return role == "admin"
+
+    app = FastAPI()
+    app.include_router(health_router(show_details=Depends(is_admin)))
+    client = TestClient(app)
+
+    assert "details" not in client.get("/healthz").json()["checks"]["redis"]
+    allowed = client.get("/healthz", headers={"x-role": "admin"})
+    assert allowed.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
+
+
+def test_healthz_details_dep_http_exception_blocks_endpoint() -> None:
+    """Raising HTTPException in the dep blocks the endpoint (documented)."""
+    registry = HealthRegistry(cache_ttl=0)
+    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+
+    def deny() -> bool:
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
 
     app = FastAPI()
-    app.include_router(health_router(show_details=[Depends(deny)]))
+    app.include_router(health_router(show_details=Depends(deny)))
     client = TestClient(app)
 
     response = client.get("/healthz")
 
-    assert response.status_code == HTTP_200_OK
-    assert "details" not in response.json()["checks"]["redis"]
+    assert response.status_code == HTTP_401_UNAUTHORIZED
 
 
-def test_healthz_details_guarded_allowed() -> None:
-    """Passing dep allows details."""
-    registry = HealthRegistry(cache_ttl=0)
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
-
-    def allow() -> None:
-        return None
-
-    app = FastAPI()
-    app.include_router(health_router(show_details=[Depends(allow)]))
-    client = TestClient(app)
-
-    response = client.get("/healthz")
-
-    assert response.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
+def test_healthz_details_dep_none_rejected() -> None:
+    """``Depends(None)`` is rejected at router build time."""
+    with pytest.raises(TypeError, match="Depends\\(None\\)"):
+        health_router(show_details=_DependsParam(dependency=None))
 
 
-def test_healthz_details_empty_list_strips() -> None:
-    """show_details=[] behaves like False (safe default)."""
-    registry = HealthRegistry(cache_ttl=0)
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
-    app = FastAPI()
-    app.include_router(health_router(show_details=[]))
-    client = TestClient(app)
-
-    response = client.get("/healthz")
-
-    assert response.status_code == HTTP_200_OK
-    assert "details" not in response.json()["checks"]["redis"]
-
-
-def test_healthz_details_guarded_async_dep() -> None:
-    """Async deps are awaited."""
-    registry = HealthRegistry(cache_ttl=0)
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
-
-    async def allow_async() -> None:
-        return None
-
-    app = FastAPI()
-    app.include_router(health_router(show_details=[Depends(allow_async)]))
-    client = TestClient(app)
-
-    response = client.get("/healthz")
-
-    assert response.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
-
-
-def test_healthz_details_guarded_dep_receives_request() -> None:
-    """A Request-annotated dep receives the request."""
-    registry = HealthRegistry(cache_ttl=0)
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
-
-    def require_header(request: _Request) -> None:
-        if request.headers.get("x-admin") != "yes":
-            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
-
-    app = FastAPI()
-    app.include_router(health_router(show_details=[Depends(require_header)]))
-    client = TestClient(app)
-
-    denied = client.get("/healthz")
-    assert "details" not in denied.json()["checks"]["redis"]
-
-    allowed = client.get("/healthz", headers={"x-admin": "yes"})
-    assert allowed.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
-
-
-def test_healthz_details_guarded_dep_request_non_standard_name() -> None:
-    """A Request-typed dep param not named 'request' still works."""
-    registry = HealthRegistry(cache_ttl=0)
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
-
-    def require_header(req: _Request) -> None:
-        if req.headers.get("x-admin") != "yes":
-            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
-
-    app = FastAPI()
-    app.include_router(health_router(show_details=[Depends(require_header)]))
-    client = TestClient(app)
-
-    denied = client.get("/healthz")
-    assert "details" not in denied.json()["checks"]["redis"]
-
-    allowed = client.get("/healthz", headers={"x-admin": "yes"})
-    assert allowed.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
-
-
-def test_healthz_details_guarded_generic_exception_denies() -> None:
-    """A dep raising a non-HTTPException is treated as failure."""
-    registry = HealthRegistry(cache_ttl=0)
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
-
-    def boom() -> None:
-        msg = "boom"
-        raise RuntimeError(msg)
-
-    app = FastAPI()
-    app.include_router(health_router(show_details=[Depends(boom)]))
-    client = TestClient(app)
-
-    response = client.get("/healthz")
-
-    assert response.status_code == HTTP_200_OK
-    assert "details" not in response.json()["checks"]["redis"]
-
-
-def test_healthz_details_guarded_dep_none_callable() -> None:
-    """Depends(None) is skipped in the loop (call is None)."""
-    registry = HealthRegistry(cache_ttl=0)
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
-
-    app = FastAPI()
-    app.include_router(
-        health_router(show_details=[_DependsParam(dependency=None)])
-    )
-    client = TestClient(app)
-
-    response = client.get("/healthz")
-
-    # None-dep is skipped -> all effective deps pass -> details included
-    assert response.json()["checks"]["redis"]["details"] == {"latency_ms": 1.5}
+def test_healthz_details_invalid_type_rejected() -> None:
+    """An invalid ``show_details`` value is rejected at router build time."""
+    with pytest.raises(TypeError, match="show_details"):
+        health_router(show_details="yes")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_healthz_exclude_checker(

@@ -155,9 +155,9 @@ The `show_details` parameter controls visibility with three forms:
 |---|---|---|
 | `False` (default) | nobody | Safe default for a public `/healthz` |
 | `True` | everyone | `/healthz` is on a private network only |
-| `[Depends(...)]` | requests that pass every listed dependency | Public `/healthz`, admin-only details |
+| `Depends(fn)` | requests for which `fn()` returns `True` | Public `/healthz`, admin-only details |
 
-With `show_details=[Depends(...)]`, every dependency must pass (return without raising) for the response to include details. If any fails, details are stripped but the endpoint still returns `200`/`503` with status and check names. This is intentional: uptime monitors without credentials still get actionable aggregate status, while admin tools with credentials get the full diagnostic payload.
+With `show_details=Depends(fn)`, `fn` is wired into FastAPI's dependency-injection graph. Return `True` to include details for that request, `False` to strip them. Everything FastAPI supports works: `Depends` sub-dependencies, `Security`, `Request` injection, async functions, `yield` cleanup. Returning `False` strips details but the endpoint still returns `200`/`503` with status and check names. This way, uptime monitors without credentials still get actionable aggregate status while admin tools with credentials get the full payload. Raising `HTTPException` blocks the endpoint, so prefer returning `False` for a soft strip.
 
 ```python
 --8<-- "health/show_details.py"
@@ -186,7 +186,7 @@ Two independent gates sit in front of `/healthz`:
 | Parameter | Failure effect | Typical use |
 |---|---|---|
 | `healthz_dependencies` | Blocks the entire endpoint (`401`/`403`) | Keep `/healthz` entirely private |
-| `show_details=[...]` | Strips the `details` field. Endpoint still returns `200`/`503` | Keep aggregate status public, hide verbose metadata |
+| `show_details=Depends(fn)` | When `fn()` returns `False`, strips the `details` field. Endpoint still returns `200`/`503` | Keep aggregate status public, hide verbose metadata |
 
 For stricter setups, gate the whole `/healthz` endpoint behind authentication while leaving `/livez` and `/readyz` open (most orchestrators and load balancers cannot carry credentials):
 
