@@ -244,6 +244,9 @@ class HealthRegistry:
             if name not in excluded and (not critical_only or entry.critical)
         ]
 
+        if not selected:
+            return HealthReport(status=HealthStatus.OK, checks={})
+
         results: dict[str, CheckResult] = {}
 
         async def _run(name: str, entry: _Entry) -> None:
