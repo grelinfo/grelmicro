@@ -8,13 +8,13 @@ from grelmicro._json import JSONEncodable
 HealthDetails: TypeAlias = dict[str, JSONEncodable]
 """Per-check details payload. JSON-serializable dict keyed by string."""
 
-SyncHealthCheckFunc = Callable[[], HealthDetails | None]
+SyncHealthCheckFunc: TypeAlias = Callable[[], HealthDetails | None]
 """Sync health check. Executed in a worker thread via ``anyio.to_thread``."""
 
-AsyncHealthCheckFunc = Callable[[], Awaitable[HealthDetails | None]]
+AsyncHealthCheckFunc: TypeAlias = Callable[[], Awaitable[HealthDetails | None]]
 """Async health check. Awaited directly."""
 
-HealthCheckFunc = SyncHealthCheckFunc | AsyncHealthCheckFunc
+HealthCheckFunc: TypeAlias = SyncHealthCheckFunc | AsyncHealthCheckFunc
 """Any callable acceptable as a health check.
 
 Returns:

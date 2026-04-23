@@ -19,6 +19,14 @@ if TYPE_CHECKING:
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
 
+def _always_true() -> bool:
+    return True
+
+
+def _always_false() -> bool:
+    return False
+
+
 class CheckResultResponse(BaseModel):
     """Health status of a single check."""
 
@@ -219,16 +227,17 @@ def health_router(
 def _resolve_show_details_dep(show_details: Any) -> "Callable[..., Any]":  # noqa: ANN401
     """Return the FastAPI dependency callable for ``show_details``.
 
-    Booleans collapse to constant-returning lambdas. ``Depends(fn)``
-    yields the underlying ``fn`` so FastAPI wires it through its DI
-    graph on the route.
+    Booleans collapse to shared constant-returning helpers (identity
+    stable across router builds, so FastAPI's DI can reuse them).
+    ``Depends(fn)`` yields the underlying ``fn`` so FastAPI wires it
+    through its DI graph on the route.
     """
     from fastapi.params import Depends as _DependsParam  # noqa: PLC0415
 
     if show_details is True:
-        return lambda: True
+        return _always_true
     if show_details is False:
-        return lambda: False
+        return _always_false
     if isinstance(show_details, _DependsParam):
         if show_details.dependency is None:
             msg = "show_details=Depends(None) is not allowed"
