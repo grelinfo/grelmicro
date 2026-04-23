@@ -1,26 +1,28 @@
 # Health Checks
 
-The `health` module provides a health check registry with concurrent checker execution and FastAPI integration for liveness, readiness, and aggregate health endpoints.
+The `health` module provides a health check registry with concurrent execution and FastAPI integration for liveness, readiness, and aggregate health endpoints.
 
-- **[HealthRegistry](#registry)**: Manages health checkers, runs them concurrently with per-checker timeouts, caches results for a short TTL.
+- **[HealthRegistry](#registry)**: Register check functions with a FastAPI-style decorator, run them concurrently with per-check timeouts and caching.
 - **[health_router](#fastapi-integration)**: FastAPI router with `/livez`, `/readyz`, and `/healthz` endpoints.
 
-## Health Checker
+## Health Check
 
-A health checker is any class with a `name` property and an async `check` method. No base class to inherit from: the `HealthChecker` protocol uses structural subtyping.
+A health check is a function returning `None` (healthy) or a `HealthDetails` dict (also healthy, with metrics attached). Raising an exception signals failure.
 
 ```python
 --8<-- "health/checker.py"
 ```
 
-- Return `None`: healthy, with no details.
-- Return a `dict`: healthy, with details such as latency, version, or connection count.
-- Raise a `HealthError`: unhealthy. The exception message appears in the `error` field.
-- Raise any other exception: unhealthy, with a generic `"Health check failed"` message. The full details are logged on the server to avoid leaking internal information.
+- Return `None`: healthy, no details.
+- Return a `HealthDetails` dict: healthy, with details. Values can be primitives, `datetime`, nested dicts, lists, or tuples.
+- Raise `HealthError`: unhealthy. The exception message appears in the `error` field.
+- Raise any other exception: unhealthy, with a generic `"Health check failed"` message. The traceback is logged server-side to avoid leaking internal information.
+
+`HealthDetails` is a type alias for `dict[str, JSONEncodable]`. Both sync and async check functions are supported. Sync functions run in a worker thread via `anyio.to_thread.run_sync` so they never block the event loop.
 
 ## Registry
 
-Create a `HealthRegistry` and register checkers:
+Create a `HealthRegistry` and register checks with the `@registry.check(name)` decorator:
 
 ```python
 --8<-- "health/basic.py"
@@ -28,43 +30,61 @@ Create a `HealthRegistry` and register checkers:
 
 The registry auto-registers as the global singleton. The router resolves it automatically.
 
-### Critical vs Non-Critical
-
-Every checker is either **critical** (default) or **non-critical**. The distinction only affects the aggregated status:
-
-| Scenario | Overall status | HTTP on `/readyz` |
-|---|---|---|
-| All checkers healthy | `healthy` | `200` |
-| Non-critical checker failed | `degraded` | `200` |
-| Critical checker failed | `unhealthy` | `503` |
+For imperative registration (without a decorator), use `registry.add(name, func)`:
 
 ```python
-registry.add(DatabaseChecker())                        # critical (default)
-registry.add(ExternalAPIChecker(), critical=False)     # non-critical
+--8<-- "health/add.py"
 ```
 
-Non-critical checkers still run on every `/readyz` and `/healthz` request (the result is cached and shared between the two), and they appear in the `/healthz` body. Their failures do not remove the instance from the load balancer. Use this for optional dependencies (analytics sinks, recommendation APIs) that should not prevent your app from serving traffic.
+### Critical vs Non-Critical
+
+By default, all checks are **critical**: a failure flips the aggregate to `error` and returns `503` on `/readyz` and `/healthz`. Pass `critical=False` for optional dependencies:
+
+```python
+--8<-- "health/non_critical.py"
+```
+
+| Scenario | Aggregate status on `/healthz` | `/readyz` | `/healthz` |
+|---|---|---|---|
+| All critical pass | `ok` | `200` | `200` |
+| Non-critical failed | `ok` | `200` | `200` |
+| Critical failed | `error` | `503` | `503` |
+
+Non-critical checks do not pull the instance from the load balancer. They are not run on `/readyz` (which runs critical only). Their status appears per-check in the `/healthz` body so operators and dashboards can see degraded dependencies without triggering traffic removal.
 
 ### Timeout
 
-Checkers that exceed the timeout are reported as unhealthy:
+Checks that exceed their timeout are reported as failed:
 
 ```python
 --8<-- "health/timeout.py"
 ```
 
-Timeout detection uses `anyio.move_on_after`. It correctly separates registry timeouts from a `TimeoutError` raised inside the checker itself, for example a socket timeout.
+The registry has a global default `timeout` (5.0 seconds). Per-check overrides are set on registration:
+
+```python
+--8<-- "health/per_check_timeout.py"
+```
+
+A slow non-critical check hits the timeout and is reported with `status: "error"` in the response body, but the aggregate stays `ok` and `/readyz` stays `200`.
+
+Timeout detection uses `anyio.move_on_after`. It correctly separates registry timeouts from a `TimeoutError` raised inside the check itself (for example a socket timeout).
 
 ### Caching
 
-The registry caches the last report for `cache_ttl` seconds (default `1.0`) and coalesces concurrent calls via single-flight. Without caching, each Kubernetes probe cycle (typically every 10s per replica, multiplied by liveness + readiness + load balancer health checks + dashboards) would re-run every checker, amplifying probe traffic onto your database.
+The registry caches each check's result for `cache_ttl` seconds (default `1.0`) and coalesces concurrent calls via single-flight per check. A given check runs at most once per TTL regardless of how many endpoints or concurrent requests are in flight. This prevents probe traffic from amplifying onto your database.
 
 ```python
-HealthRegistry(timeout=5.0, cache_ttl=1.0)   # default
-HealthRegistry(cache_ttl=0)                  # disable caching
+--8<-- "health/caching.py"
 ```
 
-A 1.0s TTL is shorter than any realistic probe period, so probes still reflect reality within one cycle while bursts collapse to a single check run.
+### Returning Details with an Error
+
+Raise `HealthError(message, details=...)` to attach a diagnostic payload to a failing check. The payload appears under `details` on the check entry, subject to `show_details`:
+
+```python
+--8<-- "health/error_details.py"
+```
 
 ## FastAPI Integration
 
@@ -78,78 +98,94 @@ This creates three endpoints:
 
 | Endpoint | Purpose | Success | Failure | Body |
 |---|---|---|---|---|
-| `GET /livez` | Liveness probe. Never runs checkers. | `200` | no response (timeout) | `ok` (`text/plain`) |
-| `GET /readyz` | Readiness probe. Runs all registered checkers. | `200` | `503` | `ok` / `fail` (`text/plain`) |
-| `GET /healthz` | Aggregate report for humans and dashboards. | `200` | `503` | JSON report |
+| `GET /livez` | Liveness probe. Never runs checks. | `200` | no response (timeout) | empty |
+| `GET /readyz` | Readiness probe. Runs critical checks only. | `200` | `503` | empty |
+| `GET /healthz` | Aggregate JSON report for humans and dashboards. Runs all checks. | `200` | `503` | JSON `{status, checks}` |
 
-All three also accept `HEAD` for cheap polling by uptime monitors and Prometheus-style scrapers. All responses set `Cache-Control: no-store`.
+All three also accept `HEAD`. All responses set `Cache-Control: no-store`. Probe endpoints return an empty body. The HTTP status code is the entire signal.
 
-### Path choice
+Paths follow the z-pages convention (`/livez`, `/readyz`, `/healthz`). The trailing `z` avoids collisions with application routes like `/health`.
 
-Paths use the Google z-pages convention (`/livez`, `/readyz`, `/healthz`) adopted by Kubernetes, etcd, and Spring Boot 3.x. The trailing `z` avoids collisions with application routes like `/health` in a healthcare app. Paths are configurable via `prefix` (see [URL prefix](#url-prefix)).
+### Using with Docker, Compose, and other Orchestrators
 
-### Liveness vs readiness
+Different orchestrators consume different probes. grelmicro exposes all three endpoints, pick the ones that fit:
 
-- **Liveness** answers "is the process alive?". It never checks dependencies. If the process can respond, it is alive. If it cannot, the orchestrator (Kubernetes, Nomad, load balancer) will restart it. A failing dependency must never restart your pod.
-- **Readiness** answers "can this instance serve traffic?". It runs all registered checkers concurrently. If any critical checker fails, the instance is removed from the load balancer until the next probe succeeds.
+| Orchestrator | Uses |
+|---|---|
+| Kubernetes, OpenShift | `livenessProbe` → `/livez`, `readinessProbe` → `/readyz`, `startupProbe` → `/livez` |
+| Docker (`HEALTHCHECK`), Docker Compose, Docker Swarm | single healthcheck → `/livez` (restart on failure) |
+| Nomad (`check` stanza) | `/livez` for liveness, `/readyz` for routing |
+| systemd (`WatchdogSec`) | `/livez` (restart on failure) |
+| Reverse proxies (Traefik, nginx, HAProxy, Envoy), load balancers (AWS ALB, GCP LB) | `/readyz` for upstream health |
+| Dashboards, uptime monitors (Prometheus, Pingdom) | `/healthz` for full report |
 
-### Aggregate `/healthz` response
+Docker Compose example:
 
-`/healthz` returns the full report:
-
-```json
-{
-  "status": "unhealthy",
-  "components": [
-    {"name": "database", "status": "unhealthy", "critical": true, "error": "connection refused"},
-    {"name": "redis", "status": "healthy", "critical": true, "error": null}
-  ]
-}
+```yaml
+services:
+  app:
+    image: myapp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/livez"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
 ```
 
-Probe endpoints (`/livez`, `/readyz`) intentionally return plaintext only. Body-based reporting is for humans and dashboards.
+Docker and Docker Swarm only model a single healthcheck per container, so point it at `/livez`. Route readiness through a reverse proxy that probes `/readyz`.
+
+### Exclude Checks
+
+Both `/readyz` and `/healthz` accept an `?exclude` query parameter with a comma-separated list of check names. Useful for temporarily muting a known-flaky check without redeploy:
+
+```text
+GET /readyz?exclude=analytics,recommendations
+GET /healthz?exclude=analytics
+```
+
+Excluded checks are not run and do not appear in the response.
 
 ### Details
 
-Checker details (metrics, version info, connection counts) are hidden by default for security. A verbose `/healthz` can leak framework versions, library versions, or internal hostnames, see for example [CVE-2026-29787](https://nvd.nist.gov/vuln/detail/CVE-2026-29787). Control visibility with the `show_details` parameter and the `?details` query parameter:
+Check details (metrics, version info, connection counts) are hidden by default for security. A verbose `/healthz` can leak framework versions or internal hostnames. The `show_details` parameter takes three values:
+
+| Value | Behavior |
+|---|---|
+| `"never"` (default) | Details always stripped. |
+| `"always"` | Details always included. |
+| `"when-authorized"` | Details included only if the request passes `details_dependencies`. |
+
+The `?details=true|false` query parameter overrides the router default per request.
 
 ```python
-from grelmicro.health.fastapi import health_router
-
-router = health_router()                        # details hidden; ?details=true to show
-router = health_router(show_details=True)       # details shown; ?details=false to hide
+--8<-- "health/show_details.py"
 ```
 
-With details enabled:
+With details enabled, each check entry includes a `details` field:
 
 ```json
 {
-  "status": "healthy",
-  "components": [
-    {
-      "name": "redis",
-      "status": "healthy",
+  "status": "ok",
+  "checks": {
+    "redis": {
+      "status": "ok",
       "critical": true,
       "error": null,
       "details": {"latency_ms": 1.2, "version": "7.2"}
     }
-  ]
+  }
 }
 ```
 
-For stricter production setups, gate `/healthz` behind authentication while leaving `/livez` and `/readyz` open (kubelet and most load balancers cannot carry credentials):
+For stricter setups, gate the whole `/healthz` endpoint behind authentication while leaving `/livez` and `/readyz` open (most orchestrators and load balancers cannot carry credentials):
 
 ```python
-from fastapi import Depends
-from grelmicro.health.fastapi import health_router
-
-router = health_router(
-    show_details=True,
-    healthz_dependencies=[Depends(require_admin)],   # applied only to /healthz
-)
+--8<-- "health/healthz_auth.py"
 ```
 
-### URL prefix
+`healthz_dependencies` blocks the endpoint (401/403 on failure). `details_dependencies` only strips details on failure, the endpoint still returns.
+
+### URL Prefix
 
 Mount the health endpoints under a custom prefix:
 
@@ -159,41 +195,39 @@ Mount the health endpoints under a custom prefix:
 
 ## Design
 
-### Status vocabulary
+### Why Three Endpoints
+
+Each endpoint serves a different audience:
+
+| Endpoint | Audience | Answers |
+|---|---|---|
+| `/livez` | Orchestrator (Kubernetes, Docker, Nomad, systemd) | Is the process alive? Should it be restarted? |
+| `/readyz` | Load balancer, reverse proxy, service mesh | Can this instance serve traffic? |
+| `/healthz` | Operators, dashboards, uptime monitors | What is the state of each component? |
+
+Liveness never checks dependencies. A failing database must never restart your container. Readiness runs all critical checks concurrently. If any fails, the instance is removed from the load balancer. Aggregate also runs non-critical checks and returns a JSON report for humans. Probe bodies stay empty to keep the wire minimal and the signal unambiguous. The HTTP status code is the only thing orchestrators read.
+
+### Status Vocabulary
+
+Binary status, used for both components and the aggregate:
+
+| Status | Meaning |
+|---|---|
+| `ok` | The check passed. At the aggregate level: every critical check passed. |
+| `error` | The check failed. At the aggregate level: at least one critical check failed. |
+
+Non-critical failures produce `status: "error"` on the individual check but do not flip the aggregate. The aggregate only goes to `error` when at least one **critical** check fails.
+
+### Function-Based API
+
+Checks are plain functions. No base class to inherit from.
 
 ```python
-class HealthStatus(StrEnum):
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"     # at least one non-critical checker failed
-    UNHEALTHY = "unhealthy"   # at least one critical checker failed
+--8<-- "health/checker.py"
 ```
 
-Three values, one enum, used for both components and the aggregate. The three-state shape matches ASP.NET Core HealthChecks (`Healthy`, `Degraded`, `Unhealthy`). grelmicro does not claim conformance with [draft-inadarei-api-health-check](https://datatracker.ietf.org/doc/html/draft-inadarei-api-health-check) (expired April 2022, never ratified) or with Spring Actuator's `UP`/`DOWN` vocabulary.
+This mirrors FastAPI's own `@app.get("/path")` routing style and keeps grelmicro small. Return types are statically checked. `JSONEncodable` (recursive) includes primitives, `datetime`, nested `dict` / `list` / `tuple`, and any `Mapping` subclass. Type checkers (mypy, ty) catch non-serializable returns like `bytes` or custom objects at authoring time.
 
-### Protocol-based
+### Concurrent Execution
 
-Checkers use structural subtyping (no inheritance required). Any object with `name: str` and `async check() -> dict[str, Any] | None` works:
-
-```python
-class MyChecker:
-    @property
-    def name(self) -> str:
-        return "my-check"
-
-    async def check(self) -> dict[str, Any] | None:
-        return None
-```
-
-### Concurrent execution
-
-All checkers run in parallel via an `anyio` task group. A slow checker does not block other checkers. Each checker has an individual timeout.
-
-### Why three endpoints
-
-The split is established: Kubernetes kube-apiserver exposes `/livez`, `/readyz`, `/healthz`; MicroProfile Health 4.0 mandates the split; Spring Boot Actuator 3.x promotes the same shape via `management.endpoint.health.probes.add-additional-paths`. Each endpoint serves a distinct audience:
-
-- `/livez` serves the kubelet, which only needs to know whether to restart the pod.
-- `/readyz` serves the load balancer, which only needs to know whether to route traffic.
-- `/healthz` serves operators and dashboards, which need component-level detail.
-
-Returning rich JSON on `/livez` and `/readyz` costs bytes, risks information leakage, and confuses the role of each probe. Returning empty `204 No Content` looks cleaner but is not compatible with the default AWS ALB matcher (`200`), so grelmicro returns `200` with a two-byte plaintext body.
+All selected checks run in parallel via an `anyio` task group. A slow check does not block other checks. Each check runs with its own timeout (falling back to the registry default).

@@ -1,5 +1,6 @@
 """Shared test helpers for health checks."""
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import anyio
@@ -7,93 +8,84 @@ import anyio
 from grelmicro.health.errors import HealthError
 
 
-class HealthyChecker:
-    """A checker that always returns healthy (None)."""
+def healthy() -> Callable[[], Awaitable[dict[str, Any] | None]]:
+    """Return a check function that always reports healthy (None)."""
 
-    def __init__(self, name: str = "healthy") -> None:
-        """Initialize the checker."""
-        self._name = name
-
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> dict[str, Any] | None:
-        """Return None (healthy, no details)."""
+    async def _check() -> dict[str, Any] | None:
         return None
 
-
-class HealthyCheckerWithDetails:
-    """A checker that returns healthy with details."""
-
-    def __init__(
-        self, name: str = "detailed", details: dict[str, Any] | None = None
-    ) -> None:
-        """Initialize the checker."""
-        self._name = name
-        self._details = details or {"latency_ms": 1.5}
-
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> dict[str, Any] | None:
-        """Return details dict."""
-        return self._details
+    return _check
 
 
-class UnhealthyChecker:
-    """A checker that always raises."""
+def healthy_with_details(
+    details: dict[str, Any] | None = None,
+) -> Callable[[], Awaitable[dict[str, Any] | None]]:
+    """Return a check function that reports healthy with details."""
+    payload = details if details is not None else {"latency_ms": 1.5}
 
-    def __init__(self, name: str = "unhealthy") -> None:
-        """Initialize the checker."""
-        self._name = name
+    async def _check() -> dict[str, Any] | None:
+        return payload
 
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
+    return _check
 
-    async def check(self) -> dict[str, Any] | None:
-        """Raise ConnectionError."""
+
+def unhealthy() -> Callable[[], Awaitable[dict[str, Any] | None]]:
+    """Return a check that raises ``ConnectionError`` (generic failure)."""
+
+    async def _check() -> dict[str, Any] | None:
         msg = "Connection refused"
         raise ConnectionError(msg)
 
+    return _check
 
-class UnhealthyCheckerWithHealthError:
-    """A checker that raises a HealthError subclass."""
 
-    def __init__(self, name: str = "health-error") -> None:
-        """Initialize the checker."""
-        self._name = name
+def unhealthy_with_health_error() -> Callable[
+    [], Awaitable[dict[str, Any] | None]
+]:
+    """Return a check that raises a HealthError with a safe message."""
 
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> dict[str, Any] | None:
-        """Raise a HealthError with a safe message."""
+    async def _check() -> dict[str, Any] | None:
         msg = "Database connection pool exhausted"
         raise HealthError(msg)
 
+    return _check
 
-class SlowChecker:
-    """A checker that takes longer than the timeout."""
 
-    def __init__(self, name: str = "slow", delay: float = 10.0) -> None:
-        """Initialize the checker."""
-        self._name = name
+def slow(
+    delay: float = 10.0,
+) -> Callable[[], Awaitable[dict[str, Any] | None]]:
+    """Return a check that sleeps for ``delay`` seconds then returns healthy."""
+
+    async def _check() -> dict[str, Any] | None:
+        await anyio.sleep(delay)
+        return None
+
+    return _check
+
+
+class Counting:
+    """Callable health check that counts invocations."""
+
+    def __init__(self) -> None:
+        """Initialize counter."""
+        self.calls = 0
+
+    async def __call__(self) -> dict[str, Any] | None:
+        """Record the call and return healthy."""
+        self.calls += 1
+        return None
+
+
+class SlowCounting:
+    """Callable health check that sleeps and counts invocations."""
+
+    def __init__(self, *, delay: float) -> None:
+        """Initialize counter and delay."""
         self._delay = delay
+        self.calls = 0
 
-    @property
-    def name(self) -> str:
-        """Return the checker name."""
-        return self._name
-
-    async def check(self) -> dict[str, Any] | None:
-        """Sleep for the configured delay then return healthy."""
+    async def __call__(self) -> dict[str, Any] | None:
+        """Record the call, sleep, return healthy."""
+        self.calls += 1
         await anyio.sleep(self._delay)
         return None

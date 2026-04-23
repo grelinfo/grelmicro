@@ -1,32 +1,24 @@
-from typing import Any
+from grelmicro.health import HealthDetails, HealthRegistry
 
-from grelmicro.health import HealthRegistry
-
-# Create the registry (auto-registers as the global singleton)
-registry = HealthRegistry()
+# Create the health (auto-registers as the global singleton)
+health = HealthRegistry()
 
 
-# Define health checkers using the HealthChecker protocol
-class DatabaseChecker:
-    @property
-    def name(self) -> str:
-        return "database"
-
-    async def check(self) -> dict[str, Any] | None:
-        # Replace with actual database ping
-        return None
+# Register checks with the @health.check(name) decorator
+@health.check("database")
+async def check_database() -> HealthDetails | None:
+    # Return None on success, raise on failure
+    return None
 
 
-class RedisChecker:
-    @property
-    def name(self) -> str:
-        return "redis"
-
-    async def check(self) -> dict[str, Any] | None:
-        # Return details (metrics, version, etc.)
-        return {"latency_ms": 1.2}
+@health.check("redis")
+async def check_redis() -> HealthDetails | None:
+    # Return a dict to include details
+    return {"latency_ms": 1.2}
 
 
-# Register checkers
-registry.add(DatabaseChecker())
-registry.add(RedisChecker())
+# Optional dependency: mark non-critical so its failure doesn't
+# take the instance out of the load balancer.
+@health.check("external-api", critical=False)
+async def check_external_api() -> HealthDetails | None:
+    return None
