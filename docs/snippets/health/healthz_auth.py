@@ -11,6 +11,6 @@ def require_admin(request: Request) -> None:
 # Gate /healthz behind auth. /livez and /readyz remain open for
 # orchestrators and load balancers.
 router = health_router(
-    show_details="always",
+    show_details=True,
     healthz_dependencies=[Depends(require_admin)],
 )

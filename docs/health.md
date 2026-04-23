@@ -145,17 +145,19 @@ GET /healthz?exclude=analytics
 
 Excluded checks are not run and do not appear in the response.
 
-### Details
+### Verbose Details
 
-Check details (metrics, version info, connection counts) are hidden by default for security. A verbose `/healthz` can leak framework versions or internal hostnames. The `show_details` parameter takes three values:
+Each check can return verbose metadata (versions, internal hostnames, pool stats, latencies). Exposing it publicly on `/healthz` leaks infrastructure fingerprints to anyone who can reach the endpoint, so by default grelmicro strips every `details` field from the response.
 
-| Value | Behavior |
-|---|---|
-| `"never"` (default) | Details always stripped. |
-| `"always"` | Details always included. |
-| `"when-authorized"` | Details included only if the request passes `details_dependencies`. |
+The `show_details` parameter controls visibility with three forms:
 
-The `?details=true|false` query parameter overrides the router default per request.
+| `show_details` | Who sees details | Use when |
+|---|---|---|
+| `False` (default) | nobody | Safe default for a public `/healthz` |
+| `True` | everyone | `/healthz` is on a private network only |
+| `[Depends(...)]` | requests that pass every listed dependency | Public `/healthz`, admin-only details |
+
+With `show_details=[Depends(...)]`, every dependency must pass (return without raising) for the response to include details. If any fails, details are stripped but the endpoint still returns `200`/`503` with status and check names. This is intentional: uptime monitors without credentials still get actionable aggregate status, while admin tools with credentials get the full diagnostic payload.
 
 ```python
 --8<-- "health/show_details.py"
@@ -177,13 +179,20 @@ With details enabled, each check entry includes a `details` field:
 }
 ```
 
+#### `show_details` vs `healthz_dependencies`
+
+Two independent gates sit in front of `/healthz`:
+
+| Parameter | Failure effect | Typical use |
+|---|---|---|
+| `healthz_dependencies` | Blocks the entire endpoint (`401`/`403`) | Keep `/healthz` entirely private |
+| `show_details=[...]` | Strips the `details` field. Endpoint still returns `200`/`503` | Keep aggregate status public, hide verbose metadata |
+
 For stricter setups, gate the whole `/healthz` endpoint behind authentication while leaving `/livez` and `/readyz` open (most orchestrators and load balancers cannot carry credentials):
 
 ```python
 --8<-- "health/healthz_auth.py"
 ```
-
-`healthz_dependencies` blocks the endpoint (401/403 on failure). `details_dependencies` only strips details on failure, the endpoint still returns.
 
 ### URL Prefix
 

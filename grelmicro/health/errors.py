@@ -21,13 +21,3 @@ class HealthError(GrelmicroError):
         """Initialize with a message and optional details dict."""
         super().__init__(message)
         self.details = details
-
-
-class HealthCheckTimeoutError(HealthError):
-    """Raised when a health check exceeds its timeout."""
-
-    def __init__(self, *, name: str, timeout: float) -> None:
-        """Initialize the error."""
-        self.name = name
-        self.timeout = timeout
-        super().__init__(f"Health check '{name}' timed out after {timeout:g}s")

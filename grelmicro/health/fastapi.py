@@ -1,6 +1,6 @@
 """FastAPI Health Check Router."""
 
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import BaseModel
 from typing_extensions import Doc
@@ -13,8 +13,6 @@ if TYPE_CHECKING:
     from fastapi import APIRouter, Request
     from fastapi.params import Depends
 
-
-ShowDetails = Literal["never", "always", "when-authorized"]
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
@@ -53,31 +51,30 @@ def health_router(
         Doc("URL prefix for health endpoints (e.g. '/api/v1')."),
     ] = "",
     show_details: Annotated[
-        ShowDetails,
+        "bool | list[Depends]",
         Doc(
-            "Visibility of the per-checker ``details`` field on "
-            "``/healthz``. ``'never'`` strips details. ``'always'`` "
-            "includes them. ``'when-authorized'`` includes them only "
-            "when ``details_dependencies`` pass. Per-request override "
-            "via ``?details=true|false``."
+            "Whether ``/healthz`` includes each check's verbose "
+            "``details`` field (versions, hostnames, pool stats, ...):\n\n"
+            "- ``False`` (default): details are stripped. Safe for "
+            "public endpoints.\n"
+            "- ``True``: details are always included. Use only if "
+            "``/healthz`` is private.\n"
+            "- ``list[Depends]``: details are included only when "
+            "every listed dependency passes (returns without "
+            "raising). A failing dependency strips details; the "
+            "endpoint still returns ``200``/``503`` with the base "
+            "fields. Use this to expose verbose details to admins "
+            "while keeping basic status public."
         ),
-    ] = "never",
+    ] = False,
     healthz_dependencies: Annotated[
         "list[Depends] | None",
         Doc(
-            "FastAPI dependencies applied to ``/healthz`` only. "
-            "Use to auth-gate the aggregate endpoint while leaving "
+            "FastAPI dependencies applied to ``/healthz``. A failing "
+            "dependency blocks the entire endpoint (``401``/``403``). "
+            "Use to hide ``/healthz`` from the public while leaving "
             "``/livez`` and ``/readyz`` open to orchestrators and "
-            "load balancers."
-        ),
-    ] = None,
-    details_dependencies: Annotated[
-        "list[Depends] | None",
-        Doc(
-            "Dependencies that determine whether details are "
-            "included on ``/healthz`` when ``show_details`` is "
-            "``'when-authorized'``. Failing dependencies strip "
-            "details but do not block the endpoint."
+            "load balancers. Independent of ``show_details``."
         ),
     ] = None,
 ) -> "APIRouter":
@@ -115,21 +112,29 @@ def health_router(
         get_health_registry,
     )
 
+    # Normalize ``show_details`` once. ``always`` -> show unconditionally,
+    # ``never`` -> strip, ``guarded`` -> include only when every dep passes.
+    if show_details is True:
+        details_mode = "always"
+        details_deps: list[Depends] = []
+    elif isinstance(show_details, list) and show_details:
+        details_mode = "guarded"
+        details_deps = list(show_details)
+    else:  # False, None, or empty list
+        details_mode = "never"
+        details_deps = []
+
     router = _APIRouter(prefix=prefix, tags=["health"])
-    details_deps = list(details_dependencies or ())
     healthz_deps = list(healthz_dependencies or ())
-
-    def _resolve_registry() -> HealthRegistry:
-        return registry if registry is not None else get_health_registry()
-
-    def _empty_probe(status_code: int) -> Response:
-        return Response(status_code=status_code, headers=_NO_STORE_HEADERS)
+    # Registry is resolved lazily per request so the router can be built
+    # before the registry exists (FastAPI app-factory + lifespan pattern).
+    # ``BackendRegistry.get`` is a single attribute check: ~100ns.
 
     @router.get("/livez", status_code=HTTP_200_OK)
     @router.head("/livez", include_in_schema=False)
     async def livez() -> Response:
         """Liveness probe. Always returns ``200`` with an empty body."""
-        return _empty_probe(HTTP_200_OK)
+        return Response(status_code=HTTP_200_OK, headers=_NO_STORE_HEADERS)
 
     @router.get(
         "/readyz",
@@ -152,7 +157,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Readiness probe. Runs critical checkers only."""
-        report = await _resolve_registry().run(
+        report = await (registry or get_health_registry()).run(
             critical_only=True,
             exclude=_parse_exclude(exclude),
         )
@@ -161,7 +166,7 @@ def health_router(
             if report["status"] == HealthStatus.OK
             else HTTP_503_SERVICE_UNAVAILABLE
         )
-        return _empty_probe(status_code)
+        return Response(status_code=status_code, headers=_NO_STORE_HEADERS)
 
     @router.get(
         "/healthz",
@@ -177,12 +182,6 @@ def health_router(
     @router.head("/healthz", include_in_schema=False, dependencies=healthz_deps)
     async def healthz(
         request: Request,
-        details: Annotated[
-            bool | None,
-            Query(
-                description="Include per-checker details in the response.",
-            ),
-        ] = None,
         exclude: Annotated[
             str | None,
             Query(
@@ -191,16 +190,16 @@ def health_router(
         ] = None,
     ) -> Response:
         """Aggregate JSON report of all checker results."""
-        report = await _resolve_registry().run(
+        report = await (registry or get_health_registry()).run(
             critical_only=False,
             exclude=_parse_exclude(exclude),
         )
-        include_details = await _resolve_details(
-            details=details,
-            show_details=show_details,
-            request=request,
-            deps=details_deps,
-        )
+        if details_mode == "always":
+            include_details = True
+        elif details_mode == "guarded":
+            include_details = await _all_deps_pass(request, details_deps)
+        else:
+            include_details = False
         body = _render_report(report, include_details=include_details)
         status_code = (
             HTTP_200_OK
@@ -224,32 +223,12 @@ def _parse_exclude(raw: str | None) -> set[str]:
     return {name.strip() for name in raw.split(",") if name.strip()}
 
 
-async def _resolve_details(
-    *,
-    details: bool | None,
-    show_details: ShowDetails,
-    request: "Request",
-    deps: "list[Depends]",
-) -> bool:
-    """Decide whether to include per-checker details."""
-    if show_details == "always":
-        return details if details is not None else True
-    if show_details == "never":
-        return details if details is not None else False
-    # when-authorized
-    if details is False:
-        return False
-    return await _run_details_deps(request, deps)
-
-
-async def _run_details_deps(request: "Request", deps: "list[Depends]") -> bool:
-    """Run each details dependency and return whether all pass."""
+async def _all_deps_pass(request: "Request", deps: "list[Depends]") -> bool:
+    """Return True if every dep runs without raising."""
     import inspect  # noqa: PLC0415
 
     from fastapi import HTTPException  # noqa: PLC0415
 
-    if not deps:
-        return False
     for dep in deps:
         call = dep.dependency
         if call is None:

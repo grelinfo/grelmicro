@@ -1,6 +1,6 @@
 """Health Check Registry."""
 
-from grelmicro.health._backends import get_health_registry, health_registry
+from grelmicro.health._backends import get_health_registry
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
@@ -8,12 +8,11 @@ from grelmicro.health._models import (
 )
 from grelmicro.health._registry import HealthRegistry, HealthRegistryConfig
 from grelmicro.health._types import HealthCheckFunc, HealthDetails
-from grelmicro.health.errors import HealthCheckTimeoutError, HealthError
+from grelmicro.health.errors import HealthError
 
 __all__ = [
     "CheckResult",
     "HealthCheckFunc",
-    "HealthCheckTimeoutError",
     "HealthDetails",
     "HealthError",
     "HealthRegistry",
@@ -21,5 +20,4 @@ __all__ = [
     "HealthReport",
     "HealthStatus",
     "get_health_registry",
-    "health_registry",
 ]

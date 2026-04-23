@@ -8,14 +8,13 @@ def require_admin(request: Request) -> None:
     return None
 
 
-# Default: details always stripped. Use ?details=true to show per-request.
+# Default: hide details from everyone.
 router = health_router()
 
-# Always include details in the response.
-router = health_router(show_details="always")
+# Show details to everyone (only safe on private /healthz).
+router = health_router(show_details=True)
 
-# Include details only when the request passes `details_dependencies`.
-router = health_router(
-    show_details="when-authorized",
-    details_dependencies=[Depends(require_admin)],
-)
+# Show details only to requests that pass every listed dependency.
+# A failing dependency strips details; the endpoint still returns
+# 200/503 with the base fields.
+router = health_router(show_details=[Depends(require_admin)])

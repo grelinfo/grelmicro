@@ -11,6 +11,7 @@ import anyio
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
 
+from grelmicro.health._backends import health_registry
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
@@ -21,7 +22,7 @@ from grelmicro.health._types import (
     HealthCheckFunc,
     HealthDetails,
 )
-from grelmicro.health.errors import HealthCheckTimeoutError, HealthError
+from grelmicro.health.errors import HealthError
 
 logger = getLogger("grelmicro.health")
 
@@ -124,10 +125,6 @@ class HealthRegistry:
         )
         self._entries: dict[str, _Entry] = {}
         if auto_register:
-            from grelmicro.health._backends import (  # noqa: PLC0415
-                health_registry,
-            )
-
             health_registry.set(self)
 
     def add(
@@ -312,13 +309,13 @@ async def _run_check(entry: _Entry) -> CheckResult:
                 entry.name,
                 entry.timeout,
             )
-            error = HealthCheckTimeoutError(
-                name=entry.name, timeout=entry.timeout
-            )
             return CheckResult(
                 status=HealthStatus.ERROR,
                 critical=entry.critical,
-                error=str(error),
+                error=(
+                    f"Health check '{entry.name}' timed out "
+                    f"after {entry.timeout:g}s"
+                ),
                 details=None,
             )
         return CheckResult(

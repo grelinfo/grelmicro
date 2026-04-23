@@ -1,7 +1,13 @@
 """Health Registry Backend."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from grelmicro._backends import BackendRegistry
-from grelmicro.health._registry import HealthRegistry
+
+if TYPE_CHECKING:
+    from grelmicro.health._registry import HealthRegistry
 
 health_registry: BackendRegistry[HealthRegistry] = BackendRegistry(
     name="health"

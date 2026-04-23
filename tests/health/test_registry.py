@@ -13,7 +13,6 @@ from grelmicro.health._backends import get_health_registry, health_registry
 from grelmicro.health._models import HealthStatus
 from grelmicro.health._registry import HealthRegistry
 from grelmicro.health._types import HealthDetails
-from grelmicro.health.errors import HealthCheckTimeoutError
 
 from .conftest import (
     Counting,
@@ -427,16 +426,6 @@ async def test_timeout_logs_warning(
     assert record.levelno == logging.WARNING
     assert record.args == ("slow", 0.05)
     assert record.exc_info is None
-
-
-def test_health_check_timeout_error() -> None:
-    """HealthCheckTimeoutError carries the name and timeout."""
-    timeout_seconds = 5.0
-    error = HealthCheckTimeoutError(name="db", timeout=timeout_seconds)
-
-    assert error.name == "db"
-    assert error.timeout == timeout_seconds
-    assert "db" in str(error)
 
 
 def test_timeout_zero_raises() -> None:
