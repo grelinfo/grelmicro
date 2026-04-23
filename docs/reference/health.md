@@ -4,22 +4,17 @@
     options:
       show_submodules: true
       members:
-        - ComponentHealth
-        - HealthCheckTimeoutError
-        - HealthChecker
+        - CheckResult
+        - HealthCheckFunc
+        - HealthDetails
         - HealthError
         - HealthRegistry
         - HealthRegistryConfig
-        - HealthRegistryNotLoadedError
         - HealthReport
         - HealthStatus
-        - OverallStatus
         - get_health_registry
 
 ::: grelmicro.health.fastapi
     options:
       members:
-        - ComponentHealthResponse
-        - LivenessResponse
-        - ReadinessResponse
         - health_router

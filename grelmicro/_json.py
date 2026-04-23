@@ -14,17 +14,18 @@ from datetime import datetime
 from typing import Any, TypeAlias
 
 JSONEncodable: TypeAlias = (
-    Mapping[str, Any]
-    | list[Any]
-    | tuple[Any, ...]
-    | str
+    str
     | int
     | float
     | bool
     | datetime
     | None
+    | Mapping[str, "JSONEncodable"]
+    | list["JSONEncodable"]
+    | tuple["JSONEncodable", ...]
 )
-"""Types accepted by ``json_dumps_bytes`` and ``json_dumps_str``."""
+"""Recursive JSON-encodable value. ``datetime`` is serialized as ISO 8601 string."""
+
 
 JSONDecodable: TypeAlias = (
     dict[str, Any] | list[Any] | str | int | float | bool | None

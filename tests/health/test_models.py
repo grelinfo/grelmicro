@@ -1,135 +1,108 @@
 """Tests for Health Check Models."""
 
 from grelmicro.health._models import (
-    ComponentHealth,
+    CheckResult,
     HealthReport,
     HealthStatus,
-    OverallStatus,
 )
+from grelmicro.health._types import HealthDetails  # noqa: TC001
 
 
 def test_health_status_values() -> None:
-    """Test that HealthStatus has the expected string values."""
-    assert HealthStatus.HEALTHY == "healthy"
-    assert HealthStatus.UNHEALTHY == "unhealthy"
+    """HealthStatus is binary: ok and error."""
+    assert HealthStatus.OK == "ok"
+    assert HealthStatus.ERROR == "error"
 
 
-def test_overall_status_values() -> None:
-    """Test that OverallStatus has the expected string values."""
-    assert OverallStatus.HEALTHY == "healthy"
-    assert OverallStatus.DEGRADED == "degraded"
-
-
-def test_component_health_creation() -> None:
-    """Test creating a ComponentHealth dict."""
-    component = ComponentHealth(
-        name="db",
-        status=HealthStatus.HEALTHY,
+def test_check_result_ok() -> None:
+    """CheckResult carries status, critical flag, error, details."""
+    result = CheckResult(
+        status=HealthStatus.OK,
         critical=True,
         error=None,
         details=None,
     )
 
-    assert component["name"] == "db"
-    assert component["status"] == HealthStatus.HEALTHY
-    assert component["critical"] is True
-    assert component["error"] is None
-    assert component["details"] is None
+    assert result["status"] == HealthStatus.OK
+    assert result["critical"] is True
+    assert result["error"] is None
+    assert result["details"] is None
 
 
-def test_component_health_with_error() -> None:
-    """Test ComponentHealth with error."""
-    component = ComponentHealth(
-        name="redis",
-        status=HealthStatus.UNHEALTHY,
+def test_check_result_error_with_message() -> None:
+    """A failing CheckResult carries the error message."""
+    result = CheckResult(
+        status=HealthStatus.ERROR,
         critical=True,
         error="Connection refused",
         details=None,
     )
 
-    assert component["status"] == HealthStatus.UNHEALTHY
-    assert component["error"] == "Connection refused"
+    assert result["status"] == HealthStatus.ERROR
+    assert result["error"] == "Connection refused"
 
 
-def test_component_health_with_details() -> None:
-    """Test ComponentHealth with details."""
-    component = ComponentHealth(
-        name="redis",
-        status=HealthStatus.HEALTHY,
+def test_check_result_with_details() -> None:
+    """CheckResult preserves the details dict."""
+    details: HealthDetails = {"latency_ms": 1.5, "version": "7.2"}
+    result = CheckResult(
+        status=HealthStatus.OK,
         critical=True,
         error=None,
-        details={"latency_ms": 1.5, "version": "7.2"},
+        details=details,
     )
 
-    assert component["status"] == HealthStatus.HEALTHY
-    assert component["details"] == {"latency_ms": 1.5, "version": "7.2"}
+    assert result["details"] == details
 
 
-def test_component_health_non_critical() -> None:
-    """Test ComponentHealth with critical=False."""
-    component = ComponentHealth(
-        name="external-api",
-        status=HealthStatus.UNHEALTHY,
+def test_check_result_non_critical() -> None:
+    """critical=False is preserved."""
+    result = CheckResult(
+        status=HealthStatus.ERROR,
         critical=False,
         error="timeout",
         details=None,
     )
 
-    assert component["critical"] is False
+    assert result["critical"] is False
 
 
-def test_health_report_healthy() -> None:
-    """Test creating a healthy HealthReport."""
+def test_health_report_ok() -> None:
+    """HealthReport uses checks keyed by name."""
     report = HealthReport(
-        status=OverallStatus.HEALTHY,
-        components=[
-            ComponentHealth(
-                name="db",
-                status=HealthStatus.HEALTHY,
+        status=HealthStatus.OK,
+        checks={
+            "db": CheckResult(
+                status=HealthStatus.OK,
                 critical=True,
                 error=None,
                 details=None,
             ),
-        ],
+        },
     )
 
-    assert report["status"] == OverallStatus.HEALTHY
-    assert len(report["components"]) == 1
+    assert report["status"] == HealthStatus.OK
+    assert list(report["checks"]) == ["db"]
 
 
-def test_health_report_degraded() -> None:
-    """Test creating a degraded HealthReport."""
+def test_health_report_error() -> None:
+    """A failing aggregate carries its component in checks."""
     report = HealthReport(
-        status=OverallStatus.DEGRADED,
-        components=[
-            ComponentHealth(
-                name="db",
-                status=HealthStatus.HEALTHY,
-                critical=True,
-                error=None,
-                details=None,
-            ),
-            ComponentHealth(
-                name="redis",
-                status=HealthStatus.UNHEALTHY,
+        status=HealthStatus.ERROR,
+        checks={
+            "db": CheckResult(
+                status=HealthStatus.ERROR,
                 critical=True,
                 error="timeout",
                 details=None,
             ),
-        ],
+        },
     )
 
-    assert report["status"] == OverallStatus.DEGRADED
-    assert [c["name"] for c in report["components"]] == ["db", "redis"]
+    assert report["status"] == HealthStatus.ERROR
 
 
 def test_health_status_serializes_as_string() -> None:
-    """Test that HealthStatus values serialize as strings."""
-    assert str(HealthStatus.HEALTHY) == "healthy"
-    assert str(HealthStatus.UNHEALTHY) == "unhealthy"
-
-
-def test_overall_status_serializes_as_string() -> None:
-    """Test that OverallStatus values serialize as strings."""
-    assert str(OverallStatus.HEALTHY) == "healthy"
-    assert str(OverallStatus.DEGRADED) == "degraded"
+    """HealthStatus values serialize as their string form."""
+    assert str(HealthStatus.OK) == "ok"
+    assert str(HealthStatus.ERROR) == "error"
