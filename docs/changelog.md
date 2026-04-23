@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+* ✨ Redesign the `health` module around plain function checks, `@health.check("name")` decorator, binary `ok`/`error` status, and `/livez` + `/readyz` + `/healthz` endpoints with empty probe bodies and per-check caching. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+
 ## 0.14.3 - 2026-04-22
 
 ### Docs
