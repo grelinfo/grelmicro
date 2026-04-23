@@ -30,6 +30,4 @@ class HealthCheckTimeoutError(HealthError):
         """Initialize the error."""
         self.name = name
         self.timeout = timeout
-        super().__init__(
-            f"Health check '{name}' timed out after {timeout:.1f}s"
-        )
+        super().__init__(f"Health check '{name}' timed out after {timeout:g}s")

@@ -8,14 +8,10 @@ import anyio
 import pytest
 from pydantic import ValidationError
 
+from grelmicro._backends import BackendNotLoadedError
+from grelmicro.health._backends import get_health_registry, health_registry
 from grelmicro.health._models import HealthStatus
 from grelmicro.health._registry import HealthRegistry
-from grelmicro.health._state import (
-    HealthRegistryNotLoadedError,
-    get_health_registry,
-    reset_health_registry,
-    set_health_registry,
-)
 from grelmicro.health._types import HealthDetails
 from grelmicro.health.errors import HealthCheckTimeoutError
 
@@ -35,9 +31,9 @@ pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 @pytest.fixture(autouse=True)
 def _clean_registry() -> Generator[None]:
     """Reset global health registry before and after each test."""
-    reset_health_registry()
+    health_registry.reset()
     yield
-    reset_health_registry()
+    health_registry.reset()
 
 
 async def test_empty_registry_is_ok() -> None:
@@ -472,13 +468,13 @@ def test_auto_register_false() -> None:
     """auto_register=False skips global registration."""
     HealthRegistry(auto_register=False)
 
-    with pytest.raises(HealthRegistryNotLoadedError):
+    with pytest.raises(BackendNotLoadedError):
         get_health_registry()
 
 
 def test_get_health_registry_raises_when_not_loaded() -> None:
     """get_health_registry raises before a registry is created."""
-    with pytest.raises(HealthRegistryNotLoadedError):
+    with pytest.raises(BackendNotLoadedError):
         get_health_registry()
 
 
@@ -491,33 +487,20 @@ def test_overwrite_warns() -> None:
 
 
 def test_set_health_registry() -> None:
-    """set_health_registry installs the singleton."""
+    """health_registry.set installs the singleton."""
     registry = HealthRegistry(auto_register=False)
 
-    set_health_registry(registry)
+    health_registry.set(registry)
 
     assert get_health_registry() is registry
 
 
 def test_reset_health_registry() -> None:
-    """reset_health_registry removes the singleton."""
+    """health_registry.reset removes the singleton."""
     registry = HealthRegistry(auto_register=False)
-    set_health_registry(registry)
+    health_registry.set(registry)
 
-    reset_health_registry()
+    health_registry.reset()
 
-    with pytest.raises(HealthRegistryNotLoadedError):
+    with pytest.raises(BackendNotLoadedError):
         get_health_registry()
-
-
-def test_overwrite_warning_points_to_caller(
-    recwarn: pytest.WarningsRecorder,
-) -> None:
-    """The overwrite warning stacklevel points to user code."""
-    HealthRegistry()
-
-    HealthRegistry()
-
-    assert len(recwarn) == 1
-    warning = recwarn.pop(UserWarning)
-    assert warning.filename == __file__

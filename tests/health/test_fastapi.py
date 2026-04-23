@@ -17,8 +17,8 @@ from starlette.status import (
 )
 
 from grelmicro.errors import DependencyNotFoundError
+from grelmicro.health._backends import health_registry
 from grelmicro.health._registry import HealthRegistry
-from grelmicro.health._state import reset_health_registry
 from grelmicro.health.fastapi import health_router
 
 from .conftest import healthy, healthy_with_details, unhealthy
@@ -29,9 +29,9 @@ pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 @pytest.fixture(autouse=True)
 def _clean_registry() -> Generator[None]:
     """Reset global health registry before and after each test."""
-    reset_health_registry()
+    health_registry.reset()
     yield
-    reset_health_registry()
+    health_registry.reset()
 
 
 @pytest.fixture

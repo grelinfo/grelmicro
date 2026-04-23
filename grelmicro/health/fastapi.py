@@ -7,6 +7,7 @@ from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_bytes
 from grelmicro.health._models import CheckResult, HealthReport, HealthStatus
+from grelmicro.health._registry import HealthRegistry
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, Request
@@ -37,6 +38,15 @@ class HealthzResponse(BaseModel):
 
 
 def health_router(
+    registry: Annotated[
+        HealthRegistry | None,
+        Doc(
+            "Health registry whose checks the router runs. When "
+            "omitted, the router resolves the global registry "
+            "(the most recent ``HealthRegistry`` created with "
+            "``auto_register=True``)."
+        ),
+    ] = None,
     *,
     prefix: Annotated[
         str,
@@ -101,11 +111,16 @@ def health_router(
 
         raise DependencyNotFoundError(module="fastapi")  # noqa: B904
 
-    from grelmicro.health._state import get_health_registry  # noqa: PLC0415
+    from grelmicro.health._backends import (  # noqa: PLC0415
+        get_health_registry,
+    )
 
     router = _APIRouter(prefix=prefix, tags=["health"])
     details_deps = list(details_dependencies or ())
     healthz_deps = list(healthz_dependencies or ())
+
+    def _resolve_registry() -> HealthRegistry:
+        return registry if registry is not None else get_health_registry()
 
     def _empty_probe(status_code: int) -> Response:
         return Response(status_code=status_code, headers=_NO_STORE_HEADERS)
@@ -137,7 +152,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Readiness probe. Runs critical checkers only."""
-        report = await get_health_registry().run(
+        report = await _resolve_registry().run(
             critical_only=True,
             exclude=_parse_exclude(exclude),
         )
@@ -176,7 +191,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Aggregate JSON report of all checker results."""
-        report = await get_health_registry().run(
+        report = await _resolve_registry().run(
             critical_only=False,
             exclude=_parse_exclude(exclude),
         )

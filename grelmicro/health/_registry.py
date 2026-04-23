@@ -124,9 +124,11 @@ class HealthRegistry:
         )
         self._entries: dict[str, _Entry] = {}
         if auto_register:
-            from grelmicro.health._state import set_health_registry  # noqa: I001, PLC0415
+            from grelmicro.health._backends import (  # noqa: PLC0415
+                health_registry,
+            )
 
-            set_health_registry(self, stacklevel=3)
+            health_registry.set(self)
 
     def add(
         self,
@@ -263,7 +265,11 @@ class HealthRegistry:
 
         if entry.inflight is not None:
             await entry.inflight.wait()
-            assert entry.cached_result is not None  # noqa: S101
+            if entry.cached_result is None:  # pragma: no cover
+                # Invariant: the single-flight leader always writes
+                # ``cached_result`` before calling ``event.set()``.
+                msg = f"single-flight leader produced no result for '{entry.name}'"
+                raise RuntimeError(msg)
             return entry.cached_result
 
         event = anyio.Event()
