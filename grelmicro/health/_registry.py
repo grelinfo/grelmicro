@@ -237,7 +237,10 @@ class HealthRegistry:
             A HealthReport with the aggregate status and per-check
             results.
         """
-        excluded = set(exclude or ())
+        if exclude is None:
+            excluded: frozenset[str] = frozenset()
+        else:
+            excluded = frozenset(exclude)
         selected = [
             (name, entry)
             for name, entry in self._entries.items()

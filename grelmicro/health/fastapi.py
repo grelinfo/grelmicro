@@ -248,8 +248,13 @@ def _resolve_show_details_dep(show_details: Any) -> "Callable[..., Any]":  # noq
     raise TypeError(msg)
 
 
-def _parse_exclude(raw: str | None) -> set[str]:
-    """Split a comma-separated exclude list into a set of names."""
+def _parse_exclude(raw: str | None) -> frozenset[str]:
+    """Split a comma-separated exclude list into a frozenset of names.
+
+    ``frozenset`` so the registry's ``run(exclude=...)`` can adopt it
+    without copying (CPython short-circuits ``frozenset(frozenset)``
+    to the same object).
+    """
     if not raw:
-        return set()
-    return {name.strip() for name in raw.split(",") if name.strip()}
+        return frozenset()
+    return frozenset(name.strip() for name in raw.split(",") if name.strip())
