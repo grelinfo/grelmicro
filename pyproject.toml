@@ -201,8 +201,15 @@ max-args = 10
 # The logo build script is an adhoc PEP 723 utility (``uv run`` pulls its
 # deps into an ephemeral env). Project-level type checking can't see
 # ``resvg_py`` or ``fontTools`` and has no reason to.
+#
+# The lock configuration snippets illustrate the three-path API defined
+# in ``docs/architecture/config.md``. The ``config=`` constructor kwarg
+# ships in step 2 of the rollout plan; until then these examples describe
+# the planned shape. Remove the exclusions when step 2 lands.
 exclude = [
     "docs/img/logo/build_logo.py",
+    "docs/snippets/sync/lock_declarative.py",
+    "docs/snippets/sync/lock_app_settings.py",
 ]
 
 [tool.pytest.ini_options]
