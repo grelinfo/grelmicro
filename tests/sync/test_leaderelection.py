@@ -235,19 +235,22 @@ async def test_leader_election_single_worker(
 
 async def test_leadership_abandon_on_renew_deadline_reached(
     leader_election: LeaderElection,
+    mocker: MockerFixture,
 ) -> None:
     """Test leader election abandons leadership when renew deadline is reached."""
-    # Act
+    # Arrange: stop the renew loop after leadership is acquired so the
+    # renew deadline elapses without state updates.
     is_leader_before_start = leader_election.is_leader()
+
+    # Act
     async with create_task_group() as tg:
         await tg.start(leader_election)
         await leader_election.wait_for_leader()
         is_leader_after_start = leader_election.is_leader()
-        # Swap the frozen config for one with an effectively infinite
-        # retry interval so renewal stalls and the renew deadline
-        # is reached.
-        leader_election._config = leader_election._config.model_copy(
-            update={"retry_interval": math.inf}
+        mocker.patch.object(
+            leader_election,
+            "_try_acquire_or_renew",
+            side_effect=lambda: sleep(math.inf),
         )
         await leader_election.wait_lose_leader()
         is_leader_after_not_renewed = leader_election.is_leader()
@@ -435,26 +438,44 @@ async def test_leader_transition(
 
 async def test_error_interval(
     backend: SyncBackend,
-    leader_elections: list[LeaderElection],
     caplog: pytest.LogCaptureFixture,
     mocker: MockerFixture,
 ) -> None:
     """Test leader election on worker with error cooldown."""
-    # Arrange
+    # Arrange: build two leader elections with distinct error_interval values
+    # so we can compare the log-throttling behaviour between them.
     caplog.set_level("ERROR")
-    leader_elections[WORKER_1]._config = leader_elections[
-        WORKER_1
-    ]._config.model_copy(update={"error_interval": 1})
-    leader_elections[WORKER_2]._config = leader_elections[
-        WORKER_2
-    ]._config.model_copy(update={"error_interval": 0.001})
+    leader_election_high_cooldown = LeaderElection.from_config(
+        LEADER_NAME,
+        LeaderElectionConfig(
+            worker="worker_high",
+            lease_duration=0.02,
+            renew_deadline=0.015,
+            retry_interval=0.005,
+            error_interval=1,
+            backend_timeout=0.005,
+        ),
+        backend=backend,
+    )
+    leader_election_low_cooldown = LeaderElection.from_config(
+        LEADER_NAME,
+        LeaderElectionConfig(
+            worker="worker_low",
+            lease_duration=0.02,
+            renew_deadline=0.015,
+            retry_interval=0.005,
+            error_interval=0.001,
+            backend_timeout=0.005,
+        ),
+        backend=backend,
+    )
     mocker.patch.object(
         backend, "acquire", side_effect=Exception("Backend Unreachable")
     )
 
     # Act
     async with create_task_group() as tg:
-        await tg.start(leader_elections[WORKER_1])
+        await tg.start(leader_election_high_cooldown)
         await sleep(0.01)
         tg.cancel_scope.cancel()
     leader_election1_nb_errors = sum(
@@ -463,7 +484,7 @@ async def test_error_interval(
     caplog.clear()
 
     async with create_task_group() as tg:
-        await tg.start(leader_elections[WORKER_2])
+        await tg.start(leader_election_low_cooldown)
         await sleep(0.01)
         tg.cancel_scope.cancel()
     leader_election2_nb_errors = sum(
