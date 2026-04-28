@@ -32,7 +32,6 @@ def configs() -> list[LeaderElectionConfig]:
     """Leader election Config."""
     return [
         LeaderElectionConfig(
-            name=LEADER_NAME,
             worker=f"worker_{i}",
             lease_duration=0.02,
             renew_deadline=0.015,
@@ -50,7 +49,7 @@ def leader_elections(
 ) -> list[LeaderElection]:
     """Leader elections."""
     return [
-        LeaderElection(backend=backend, **configs[i].model_dump())
+        LeaderElection.from_config(LEADER_NAME, configs[i], backend=backend)
         for i in range(WORKERS)
     ]
 
@@ -60,7 +59,9 @@ def leader_election(
     backend: SyncBackend, configs: list[LeaderElectionConfig]
 ) -> LeaderElection:
     """Leader election."""
-    return LeaderElection(backend=backend, **configs[WORKER_1].model_dump())
+    return LeaderElection.from_config(
+        LEADER_NAME, configs[WORKER_1], backend=backend
+    )
 
 
 async def wait_first_leader(leader_elections: list[LeaderElection]) -> None:
@@ -83,7 +84,6 @@ def test_leader_election_config() -> None:
     """Test leader election Config."""
     # Arrange
     config = LeaderElectionConfig(
-        name=LEADER_NAME,
         worker="worker_1",
         lease_duration=0.01,
         renew_deadline=0.008,
@@ -94,7 +94,6 @@ def test_leader_election_config() -> None:
 
     # Assert
     assert config.model_dump() == {
-        "name": "test_leader_election",
         "worker": "worker_1",
         "lease_duration": 0.01,
         "renew_deadline": 0.008,
@@ -107,11 +106,10 @@ def test_leader_election_config() -> None:
 def test_leader_election_config_defaults() -> None:
     """Test leader election Config Defaults."""
     # Arrange
-    config = LeaderElectionConfig(name=LEADER_NAME, worker="worker_1")
+    config = LeaderElectionConfig(worker="worker_1")
 
     # Assert
     assert config.model_dump() == {
-        "name": "test_leader_election",
         "worker": "worker_1",
         "lease_duration": 15,
         "renew_deadline": 10,
@@ -129,7 +127,6 @@ def test_leader_election_config_validation_errors() -> None:
         match="Renew deadline must be shorter than lease duration",
     ):
         LeaderElectionConfig(
-            name=LEADER_NAME,
             worker="worker_1",
             lease_duration=15,
             renew_deadline=20,
@@ -139,7 +136,6 @@ def test_leader_election_config_validation_errors() -> None:
         match="Retry interval must be shorter than renew deadline",
     ):
         LeaderElectionConfig(
-            name=LEADER_NAME,
             worker="worker_1",
             renew_deadline=10,
             retry_interval=15,
@@ -149,7 +145,6 @@ def test_leader_election_config_validation_errors() -> None:
         match="Backend timeout must be shorter than renew deadline",
     ):
         LeaderElectionConfig(
-            name=LEADER_NAME,
             worker="worker_1",
             renew_deadline=10,
             backend_timeout=15,
@@ -248,7 +243,12 @@ async def test_leadership_abandon_on_renew_deadline_reached(
         await tg.start(leader_election)
         await leader_election.wait_for_leader()
         is_leader_after_start = leader_election.is_leader()
-        leader_election.config.retry_interval = math.inf
+        # Swap the frozen config for one with an effectively infinite
+        # retry interval so renewal stalls and the renew deadline
+        # is reached.
+        leader_election._config = leader_election._config.model_copy(
+            update={"retry_interval": math.inf}
+        )
         await leader_election.wait_lose_leader()
         is_leader_after_not_renewed = leader_election.is_leader()
         tg.cancel_scope.cancel()
@@ -442,8 +442,12 @@ async def test_error_interval(
     """Test leader election on worker with error cooldown."""
     # Arrange
     caplog.set_level("ERROR")
-    leader_elections[WORKER_1].config.error_interval = 1
-    leader_elections[WORKER_2].config.error_interval = 0.001
+    leader_elections[WORKER_1]._config = leader_elections[
+        WORKER_1
+    ]._config.model_copy(update={"error_interval": 1})
+    leader_elections[WORKER_2]._config = leader_elections[
+        WORKER_2
+    ]._config.model_copy(update={"error_interval": 0.001})
     mocker.patch.object(
         backend, "acquire", side_effect=Exception("Backend Unreachable")
     )
