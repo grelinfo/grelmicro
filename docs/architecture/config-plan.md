@@ -11,12 +11,12 @@ Sibling document to [Configuration](config.md). That document defines the contra
 
 ## Scope in this pass
 
-Docs only, on branch `docs/config-architecture`:
+Docs only, on branch `docs/config-architecture`.
 
-1. `docs/architecture/config.md` — this architecture doc.
-2. `docs/architecture/config-plan.md` — this plan.
-3. `docs/sync.md` — pilot user-facing docs for `Lock` showing the three paths.
-4. `docs/snippets/sync/` — new example files demonstrating programmatic, declarative, and environmental paths.
+1. `docs/architecture/config.md` is this architecture doc.
+2. `docs/architecture/config-plan.md` is this plan.
+3. `docs/sync.md` carries the pilot user-facing docs for `Lock` showing the three paths.
+4. `docs/snippets/sync/` adds new example files demonstrating programmatic, declarative, and environmental paths.
 
 No Python changes. No test changes. No changelog entry yet. The plan reaches stable shape first.
 
@@ -24,7 +24,7 @@ No Python changes. No test changes. No changelog entry yet. The plan reaches sta
 
 Each step is its own PR, merged before the next starts.
 
-### Step 1 — shared helper
+### Step 1, shared helper
 Introduce `grelmicro/_config.py::resolve_config`. Pure function, no component code depends on it yet. Unit-tested in isolation. Roughly 25 lines.
 
 Acceptance:
@@ -34,8 +34,8 @@ Acceptance:
 - `env_prefix` override and `read_env=False` are covered.
 - `resolve_config` is private (`_config.py`), not exported.
 
-### Step 2 — Lock pilot
-Drop `name` from `BaseLockConfig` (Config carries settings only). Wire `Lock.__init__` to `resolve_config` for the kwargs-and-env path. Add `env_prefix` and `read_env` kwargs. Add `Lock.from_config(name, config, *, backend=None)` classmethod for the declarative path. Add `Lock.name` property. Existing positional `Lock(name, ...)` call sites unchanged.
+### Step 2, Lock pilot
+Drop `name` from `BaseLockConfig` so the Config carries settings only. Wire `Lock.__init__` to `resolve_config` for the kwargs-and-env path. Add `env_prefix` and `read_env` kwargs. Add `Lock.from_config(name, config, *, backend=None)` classmethod for the declarative path. Add `Lock.name` property. Existing positional `Lock(name, ...)` call sites unchanged.
 
 Acceptance:
 
@@ -46,21 +46,21 @@ Acceptance:
 - Benchmark re-run shows no regression in `RateLimitFilter` path (unrelated, but sanity check).
 - Changelog entry added.
 
-### Step 3 — other multi-instance components
-Mechanical application of the Lock pattern:
+### Step 3, other multi-instance components
+Mechanical application of the Lock pattern.
 
-- `TaskLock` — prefix `GREL_TASK_LOCK_{NAME_UPPER}_`.
-- `RateLimiter` — prefix `GREL_RATE_LIMITER_{NAME_UPPER}_`.
-- `LeaderElection` — prefix `GREL_LEADER_ELECTION_{NAME_UPPER}_`.
+- `TaskLock` uses prefix `GREL_TASK_LOCK_{NAME_UPPER}_`.
+- `RateLimiter` uses prefix `GREL_RATE_LIMITER_{NAME_UPPER}_`.
+- `LeaderElection` uses prefix `GREL_LEADER_ELECTION_{NAME_UPPER}_`.
 
 Each ships in its own PR with the same acceptance checks as Lock.
 
-### Step 4 — single-instance components
-- `RateLimitFilter` — no name in constructor today, so either treat `capacity`/`key_mode` as the config and use prefix `GREL_RATE_LIMIT_FILTER_`, or introduce an optional name for parity with the other filters. Pick during the PR.
-- `DuplicateFilter` — same pattern as `RateLimitFilter`. Prefix `GREL_DUPLICATE_FILTER_`.
-- `HealthRegistry` — prefix `GREL_HEALTH_`.
+### Step 4, single-instance components
+- `RateLimitFilter` has no name in its constructor today. Either treat `capacity`/`key_mode` as the config and use prefix `GREL_RATE_LIMIT_FILTER_`, or introduce an optional name for parity with the other filters. Pick during the PR.
+- `DuplicateFilter` follows the same pattern as `RateLimitFilter` with prefix `GREL_DUPLICATE_FILTER_`.
+- `HealthRegistry` uses prefix `GREL_HEALTH_`.
 
-### Step 5 — logging realignment
+### Step 5, logging realignment
 Split `LoggingSettings` into `LoggingConfig(BaseModel)` (canonical, lowercase fields, no env) and keep `LoggingSettings(LoggingConfig, BaseSettings)` as the opt-in convenience with `env_prefix="GREL_LOG_"`. Field names move from `LOG_BACKEND`/`LOG_LEVEL` uppercase to lowercase `backend`/`level`. Env vars move from `LOG_*` to `GREL_LOG_*` to align with the rest of the library.
 
 Migration is the only breaking change in this initiative. It is split across two releases.
@@ -84,17 +84,17 @@ Acceptance for release N:
 - `LoggingSettings()` instance shape matches `LoggingConfig` (lowercase attrs).
 - `configure_logging()` signature keeps its current shape.
 
-### Step 6 — unified user docs
+### Step 6, unified user docs
 Top-level `docs/configuration.md` page indexing the three paths with one example per component. Link from every component page. Snippets live in `docs/snippets/configuration/`.
 
 This step also revisits the YAML-loading ergonomics. The current pilot snippet shows env-only composition with `pydantic-settings`. YAML composition through `settings_customise_sources` + `YamlConfigSettingsSource` is verbose enough that a grelmicro convenience (for example a `from_yaml(path)` helper or a documented one-liner using `yaml.safe_load` + `LockConfig`) is worth shipping at this stage. Pick the lighter option during the PR.
 
-### Step 7 — close issue #113
+### Step 7, close issue #113
 With the architecture doc committed, close #113 with a reference to the decision rationale section. Include a link to `benchmarks/config_attr_benchmark.py` and the measured numbers.
 
 ## Out of scope for this initiative
 
-- `reconfigure()` method — design stays compatible, implementation deferred until a concrete use case (ConfigMap reload, file watcher, refresh endpoint) lands.
+- `reconfigure()` method. The design stays compatible, the implementation is deferred until a concrete use case (ConfigMap reload, file watcher, refresh endpoint) lands.
 - Rust / PyO3 hot-path ports.
 - File watcher or signal-based reloaders.
 - Registry lookup for `backend="redis"` string alias.

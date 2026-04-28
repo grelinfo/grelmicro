@@ -304,7 +304,7 @@ class RateLimiter:
             Doc("Number of tokens to consume."),
         ] = 1,
     ) -> RateLimitResult:
-        """Check rate limit; raise if exceeded.
+        """Check rate limit, raise if exceeded.
 
         Returns:
             RateLimitResult if allowed.
@@ -392,7 +392,7 @@ def _resolve_algorithm(
         return algorithm
     if limit is not None and window is not None:
         warnings.warn(
-            "RateLimiter(name, limit=..., window=...) is deprecated; "
+            "RateLimiter(name, limit=..., window=...) is deprecated. "
             "use RateLimiter(name, algorithm=GCRA(limit=..., "
             "window=...)). Will be removed in 0.15.0.",
             DeprecationWarning,

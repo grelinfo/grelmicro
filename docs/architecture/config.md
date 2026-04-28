@@ -15,10 +15,10 @@ This document specifies how grelmicro components are configured. It defines the 
 
 Each component has two construction entry points, physically separate:
 
-- **`Component(name, **kwargs)`** — the constructor. Accepts kwargs for each field, optionally consults environment variables, falls back to `Config` defaults.
-- **`Component.from_config(name, config)`** — a classmethod factory. Accepts a positional name and a pre-built `Config` instance. Bypasses kwargs and env entirely.
+- **`Component(name, **kwargs)`**: the constructor. Accepts kwargs for each field, optionally consults environment variables, falls back to `Config` defaults.
+- **`Component.from_config(name, config)`**: a classmethod factory. Accepts a positional name and a pre-built `Config` instance. Bypasses kwargs and env entirely.
 
-The `Config` classes carry settings only; the instance identity lives on the component itself. This matches the `Map<String, Settings>` shape used by every major declarative-config framework.
+The `Config` classes carry settings only. The instance identity lives on the component itself. This matches the `Map<String, Settings>` shape used by every major declarative-config framework.
 
 ### Resolution inside `__init__`
 
@@ -28,7 +28,7 @@ When constructing via `__init__`, the final config merges these sources, top win
 2. **Environment variables** matching the component's derived prefix (only when `read_env=True`).
 3. **Defaults** declared on the `Config` class.
 
-`None` kwarg values are treated as unset — they fall through to the env or default layers.
+`None` kwarg values are treated as unset. They fall through to the env or default layers.
 
 ### When to use each path
 
@@ -38,9 +38,9 @@ When constructing via `__init__`, the final config merges these sources, top win
 | **Environmental** | `Lock("cart")` | Zero-boilerplate 12-factor deployments. Fields resolve from env, fall back to defaults. |
 | **Declarative** | `Lock.from_config("cart", cfg)` | Production where a settings tree is assembled at startup from YAML, Vault, or any central source. |
 
-The first two share `__init__`; only their inputs differ. The declarative path is the classmethod.
+The first two share `__init__`. Only their inputs differ. The declarative path is the classmethod.
 
-A layered shape — kwarg overrides on top of an explicit config — is **not** offered. If you want a config baseline with overrides, build the new config explicitly: `cfg2 = cfg.model_copy(update={"lease_duration": 30})`, then `Lock.from_config("cart", cfg2)`.
+A layered shape (kwarg overrides on top of an explicit config) is **not** offered. If you want a config baseline with overrides, build the new config explicitly: `cfg2 = cfg.model_copy(update={"lease_duration": 30})`, then `Lock.from_config("cart", cfg2)`.
 
 ## Name as namespace
 
@@ -110,8 +110,8 @@ No redundant `name: cart` field in YAML, no `*_NAME=cart` env var to populate.
 
 Two constructor kwargs customise env behaviour:
 
-- **`env_prefix: str | None = None`** — override the auto-derived prefix. Use when the app wants its own convention, for example `MYAPP_LOCK_CART_*` instead of `GREL_LOCK_CART_*`.
-- **`read_env: bool = True`** — disable env reading entirely. Use when the caller wants to guarantee the environment has no influence on construction, for example when every field is already supplied via kwargs or via an explicit `config=`.
+- **`env_prefix: str | None = None`**: override the auto-derived prefix. Use when the app wants its own convention, for example `MYAPP_LOCK_CART_*` instead of `GREL_LOCK_CART_*`.
+- **`read_env: bool = True`**: disable env reading entirely. Use when the caller wants to guarantee the environment has no influence on construction, for example when every field is already supplied via kwargs or via an explicit `config=`.
 
 Example:
 
@@ -211,7 +211,7 @@ Atomicity holds because Python attribute assignment is atomic under the GIL and 
 Copy each config field to a plain instance attribute at construction time to shave ~2 ns per field read. Rejected because:
 
 - Benchmarks show ~1% of call time in the tightest synchronous hot path (`RateLimitFilter.filter`) and zero measurable impact on network-backed paths (lock, rate limiter).
-- Breaks atomic-swap for future `reconfigure()` — multiple pointer swaps, torn reads possible.
+- Breaks atomic-swap for future `reconfigure()`. Multiple pointer swaps means torn reads are possible.
 - Adds 43 duplication sites that must stay in sync on every new field.
 
 ### Drop Pydantic in favour of `@dataclass(frozen=True, slots=True)`
@@ -234,8 +234,8 @@ Rejected because it eliminates the Environmental path. Zero-config 12-factor dep
 
 ## Relationship to related work
 
-- **Pydantic** — `Model(**data)` and `Model.model_validate(data)` are the two canonical construction paths. grelmicro mirrors that split with `Component(name, **kwargs)` and `Component.from_config(name, cfg)`, keeping each path single-purpose.
-- **Spring Boot** — `@ConfigurationProperties(prefix="myapp.locks.cart")` declares the prefix on a bean class. grelmicro derives the prefix from the positional identity argument instead.
-- **FastAPI** — ships `Request`, `Response`, `APIRouter` with single-signature `__init__` plus rich `Annotated` types, no `@overload` stubs. grelmicro follows the same approach: one signature per method, `Annotated[..., Doc(...)]` for parameter docs.
-- **uvicorn / gunicorn / celery / django** — ship `UVICORN_*`, `GUNICORN_*`, `CELERY_*`, `DJANGO_*` env namespaces for their own settings. grelmicro's `GREL_*` is the same pattern.
-- **pydantic-settings** — carries the env, file, and secrets loading story. grelmicro depends on the existing project dependency and adds no loader code of its own.
+- **Pydantic**: `Model(**data)` and `Model.model_validate(data)` are the two canonical construction paths. grelmicro mirrors that split with `Component(name, **kwargs)` and `Component.from_config(name, cfg)`, keeping each path single-purpose.
+- **Spring Boot**: `@ConfigurationProperties(prefix="myapp.locks.cart")` declares the prefix on a bean class. grelmicro derives the prefix from the positional identity argument instead.
+- **FastAPI**: ships `Request`, `Response`, `APIRouter` with single-signature `__init__` plus rich `Annotated` types, no `@overload` stubs. grelmicro follows the same approach: one signature per method, `Annotated[..., Doc(...)]` for parameter docs.
+- **uvicorn / gunicorn / celery / django**: ship `UVICORN_*`, `GUNICORN_*`, `CELERY_*`, `DJANGO_*` env namespaces for their own settings. grelmicro's `GREL_*` is the same pattern.
+- **pydantic-settings**: carries the env, file, and secrets loading story. grelmicro depends on the existing project dependency and adds no loader code of its own.
