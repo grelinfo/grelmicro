@@ -25,8 +25,14 @@ logger = logging.getLogger(__name__)
 class RateLimiter:
     """Rate limiter with a pluggable algorithm.
 
-    Construct it with the instance name and a discriminated
-    algorithm configuration:
+    Most Python call sites should use the factory classmethods:
+    [`RateLimiter.token_bucket`][grelmicro.resilience.RateLimiter.token_bucket]
+    for burst-friendly semantics or
+    [`RateLimiter.gcra`][grelmicro.resilience.RateLimiter.gcra] for
+    precise sliding-window semantics.
+
+    Construct it directly with the instance name and a discriminated
+    algorithm configuration when a config object already exists:
     [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
     for burst-friendly semantics, or
     [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig] for
@@ -40,11 +46,11 @@ class RateLimiter:
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiter, TokenBucketConfig
+    from grelmicro.resilience import RateLimiter
     from grelmicro.resilience.memory import MemoryRateLimiterBackend
 
     MemoryRateLimiterBackend()
-    api = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
+    api = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
 
 
     async def handle(user_id: str) -> None:
@@ -75,6 +81,13 @@ class RateLimiter:
             Doc(
                 """
                 The algorithm configuration.
+
+                Most callers should prefer the
+                [`RateLimiter.token_bucket`][grelmicro.resilience.RateLimiter.token_bucket]
+                or [`RateLimiter.gcra`][grelmicro.resilience.RateLimiter.gcra]
+                factory classmethods. Pass a config directly when it
+                is already assembled elsewhere, for example from YAML
+                or a `pydantic-settings` tree.
 
                 Pass a
                 [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
@@ -146,8 +159,9 @@ class RateLimiter:
         """Construct a `RateLimiter` from a name and a pre-built config.
 
         Equivalent to ``RateLimiter(name, config, backend=backend)``.
-        Provided for cross-component grep parity with other
-        primitives' declarative entry points.
+        Use this when configuration is assembled declaratively at
+        startup and the simple factory classmethods are not the right
+        fit.
         """
         return cls(name, config, backend=backend)
 

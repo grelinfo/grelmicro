@@ -8,6 +8,22 @@ A **Rate Limiter** caps how many requests a client can make inside a time window
 - Enforce fair usage across clients.
 - Produce HTTP 429 responses with [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) `RateLimit-*` or legacy `X-RateLimit-*` headers.
 
+## Construction
+
+For day-to-day Python code, use the factory classmethods. They keep the call site explicit and short:
+
+```python
+--8<-- "resilience/ratelimiter_factories.py"
+```
+
+Use `RateLimiter.from_config(name, config)` when the algorithm config already comes from a settings tree, YAML, or another declarative source.
+
+```python
+--8<-- "resilience/ratelimiter_from_config.py"
+```
+
+`RateLimiter` intentionally does not flatten both algorithms into one generic kwargs constructor. Token bucket and GCRA have different parameter vocabularies, and keeping one explicit entry point per behaviour makes the public API easier to read.
+
 ## Choosing an algorithm
 
 Pick the algorithm whose behaviour matches how **operators describe the limit** in runbooks and API docs. Both algorithms share the same Python API, backends, and `RateLimitResult` shape, so you can switch later.

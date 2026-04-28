@@ -2,7 +2,7 @@
 
 Exposes :func:`resolve_config`, a helper that merges three sources of
 configuration into one validated Pydantic model: explicit kwargs, an
-optional pre-built ``config=`` instance, and environment variables.
+optional pre-built config instance, and environment variables.
 
 The full contract, including the precedence rules and the
 name-as-namespace convention, is documented in
@@ -54,7 +54,7 @@ def resolve_config(
 
     if explicit is not None:
         if provided:
-            msg = "pass `config=` OR individual kwargs, not both"
+            msg = "pass a pre-built config OR individual kwargs, not both"
             raise TypeError(msg)
         return explicit
 

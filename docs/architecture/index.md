@@ -3,7 +3,7 @@
 This section documents the internal design decisions and guarantees of grelmicro.
 
 - **[Backend Registry](backends.md)**: Shared registry pattern for swappable backends.
-- **[Configuration](config.md)**: Three-path resolution (kwargs, `config=`, env), name-as-namespace, and the library-not-app boundary.
+- **[Configuration](config.md)**: Explicit construction paths, `from_config(...)`, optional env resolution where it fits, and the library-not-app boundary.
 - **[Configuration rollout plan](config-plan.md)**: How the configuration contract ships across components, component by component.
 - **[Import Strategy](imports.md)**: Why backends are imported from submodules, not re-exported.
 - **[Synchronization](sync.md)**: Worker identity, token generation, lock design, and cleanup strategy.

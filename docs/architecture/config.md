@@ -5,24 +5,24 @@ This document specifies how grelmicro components are configured. It defines the 
 ## Goals
 
 1. **Library, not application.** grelmicro ships typed Pydantic config classes with clean field names. Config classes themselves carry no environment bindings. Components expose an opt-in Environmental path that reads from a narrow, grelmicro-scoped env namespace (`GREL_*`) which the app can always override or disable.
-2. **Three complete paths.** Every component can be configured programmatically (kwargs), declaratively (a pre-built `Config` instance), or environmentally (12-factor). All three reach the same validated state.
+2. **Small, explicit paths.** Config-shaped components expose programmatic, declarative, and environmental paths. Variant-driven components such as `RateLimiter` expose simple factory methods for programmatic use and keep config objects for declarative composition.
 3. **One rule across components.** The resolution order is identical for every component. Learn it once, apply everywhere.
 4. **Identity stays visible.** For multi-instance components (lock, rate limiter, leader election), the instance name is always a required positional argument. It is grep-friendly and never hidden inside a config object.
 5. **Runtime reconfiguration is not blocked.** The design keeps `self._config` as a single Pydantic pointer so an atomic swap remains feasible in the future.
 6. **Hot path is untouched.** All merging, env reading, and validation happens once at construction. Runtime reads stay on the Pydantic model, consistent with the `RateLimitFilter.filter` benchmark showing per-field access costs ~2 ns and accounts for ~1% of a 255 ns call.
 
-## The two construction paths
+## Construction shapes
 
-Each component has two construction entry points, physically separate:
+Grelmicro uses two public patterns, chosen per component:
 
-- **`Component(name, **kwargs)`**: the constructor. Accepts kwargs for each field, optionally consults environment variables, falls back to `Config` defaults.
-- **`Component.from_config(name, config)`**: a classmethod factory. Accepts a positional name and a pre-built `Config` instance. Bypasses kwargs and env entirely.
+- **Config-shaped components** such as `Lock` and `TaskLock`: `Component(name, **kwargs)` for code-first and environmental construction, plus `Component.from_config(name, config)` for declarative composition.
+- **Variant-driven components** such as `RateLimiter`: factory classmethods for the simple Python path, plus `Component.from_config(name, config)` for declarative composition.
 
 The `Config` classes carry settings only. The instance identity lives on the component itself. This matches the `Map<String, Settings>` shape used by every major declarative-config framework.
 
 ### Resolution inside `__init__`
 
-When constructing via `__init__`, the final config merges these sources, top wins:
+When a config-shaped component constructs via `__init__`, the final config merges these sources, top wins:
 
 1. **kwargs** from the caller (explicit values).
 2. **Environment variables** matching the component's derived prefix (only when `read_env=True`).
@@ -34,9 +34,9 @@ When constructing via `__init__`, the final config merges these sources, top win
 
 | Path | Call | When to use |
 |------|------|-------------|
-| **Programmatic** | `Lock("cart", lease_duration=60)` | Scripts, notebooks, and code-first setups where all values are known inline. |
-| **Environmental** | `Lock("cart")` | Zero-boilerplate 12-factor deployments. Fields resolve from env, fall back to defaults. |
-| **Declarative** | `Lock.from_config("cart", cfg)` | Production where a settings tree is assembled at startup from YAML, Vault, or any central source. |
+| **Programmatic** | `Lock("cart", lease_duration=60)` or `RateLimiter.token_bucket("api", capacity=10, refill_rate=1)` | Scripts, notebooks, and code-first setups where all values are known inline. |
+| **Environmental** | `Lock("cart")` | Zero-boilerplate 12-factor deployments for config-shaped components. Fields resolve from env, fall back to defaults. |
+| **Declarative** | `Lock.from_config("cart", cfg)` or `RateLimiter.from_config("api", cfg)` | Production where a settings tree is assembled at startup from YAML, Vault, or any central source. |
 
 The first two share `__init__`. Only their inputs differ. The declarative path is the classmethod.
 
@@ -55,7 +55,6 @@ Examples:
 ```
 GREL_LOCK_CART_LEASE_DURATION=60
 GREL_LOCK_PAYMENTS_LEASE_DURATION=120
-GREL_RATE_LIMITER_API_ALGORITHM__LIMIT=5000
 GREL_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS=300
 GREL_LEADER_ELECTION_CRON_RETRY_INTERVAL=5
 ```
@@ -77,7 +76,6 @@ This is a deliberate parallel to Spring Boot's `@ConfigurationProperties(prefix=
 |-----------|---------------------|
 | `Lock` | `GREL_LOCK_{NAME_UPPER}_` |
 | `TaskLock` | `GREL_TASK_LOCK_{NAME_UPPER}_` |
-| `RateLimiter` | `GREL_RATE_LIMITER_{NAME_UPPER}_` |
 | `LeaderElection` | `GREL_LEADER_ELECTION_{NAME_UPPER}_` |
 | `RateLimitFilter` | `GREL_RATE_LIMIT_FILTER_` |
 | `DuplicateFilter` | `GREL_DUPLICATE_FILTER_` |
@@ -108,10 +106,10 @@ No redundant `name: cart` field in YAML, no `*_NAME=cart` env var to populate.
 
 ## Env prefix override and escape hatch
 
-Two constructor kwargs customise env behaviour:
+Two constructor kwargs customise env behaviour on components that expose the Environmental path:
 
 - **`env_prefix: str | None = None`**: override the auto-derived prefix. Use when the app wants its own convention, for example `MYAPP_LOCK_CART_*` instead of `GREL_LOCK_CART_*`.
-- **`read_env: bool = True`**: disable env reading entirely. Use when the caller wants to guarantee the environment has no influence on construction, for example when every field is already supplied via kwargs or via an explicit `config=`.
+- **`read_env: bool = True`**: disable env reading entirely. Use when the caller wants to guarantee the environment has no influence on construction, for example when every field is already supplied via kwargs or when construction happens via `from_config(...)`.
 
 Example:
 
@@ -125,7 +123,7 @@ Lock("cart", read_env=False, lease_duration=10) # env ignored entirely
 | Layer | grelmicro | The application |
 |-------|-----------|-----------------|
 | Pydantic `Config` classes (`LockConfig`, `RateLimiterConfig`, ...) | yes, no env bindings | no |
-| Component constructors that accept kwargs, `config=`, or env | yes | no |
+| Component entry points for programmatic use, plus `from_config(...)` for declarative composition | yes | no |
 | `GREL_*` as the default env namespace for the Environmental path | yes | no |
 | Docs showing YAML + pydantic-settings recipes | yes | no |
 | `AppSettings(BaseSettings)` wrapper | no | yes |
@@ -174,9 +172,9 @@ Each is its own class with its own `__init__`, its own `from_config`, and its ow
 
 This rule is what tells `RateLimiter.token_bucket(...)` apart from `ReentrantLock(...)`.
 
-## Public API surface per component
+## Public API surface
 
-Every component follows the same shape: a single `__init__` for the kwargs-and-env path plus a `from_config` classmethod for the declarative path.
+Config-shaped components follow one clear shape: a single `__init__` for the kwargs-and-env path plus a `from_config` classmethod for the declarative path.
 
 ```python
 class Component:
@@ -204,6 +202,23 @@ class Component:
 ```
 
 `__init__` derives `env_prefix` when not supplied and delegates to the shared `resolve_config` helper. `from_config` wires the instance directly via `cls.__new__` plus a private `_setup` helper. Neither path needs `@overload` stubs because the two are physically separate methods.
+
+Variant-driven components keep the same declarative entry point but use factories for the simple Python path:
+
+```python
+class VariantComponent:
+    @classmethod
+    def token_bucket(cls, name: str, *, capacity: int, refill_rate: float) -> Self:
+        ...
+
+    @classmethod
+    def gcra(cls, name: str, *, limit: int, window: float) -> Self:
+        ...
+
+    @classmethod
+    def from_config(cls, name: str, config: ComponentConfig) -> Self:
+        ...
+```
 
 ## Single-instance variant
 

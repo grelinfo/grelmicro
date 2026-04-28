@@ -68,7 +68,7 @@ def test_explicit_returned_as_is() -> None:
 def test_explicit_with_non_none_kwarg_raises() -> None:
     """Mixing ``explicit`` with a real kwarg is rejected."""
     explicit = _Sample(name="seed")
-    with pytest.raises(TypeError, match="config="):
+    with pytest.raises(TypeError, match="pre-built config"):
         resolve_config(
             _Sample,
             explicit=explicit,

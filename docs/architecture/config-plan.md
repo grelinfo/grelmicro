@@ -6,7 +6,7 @@ Sibling document to [Configuration](config.md). That document defines the contra
 
 - **Docs first.** No production code lands before the architecture and user-facing docs are approved. The Lock component is the pilot and the only one with docs in this pass.
 - **One component at a time.** After Lock lands and bakes, the other components follow with mechanical copies of the same pattern. Each gets its own PR.
-- **Additive, never breaking.** Every existing call site continues to work unchanged. The `config=`, `env_prefix=`, `read_env=` kwargs are all new and optional. Existing kwargs keep their current defaults.
+- **Additive, never breaking.** Every existing call site continues to work unchanged. New entry points (`from_config(...)`, `env_prefix=`, `read_env=`) are additive and optional. Existing kwargs keep their current defaults.
 - **Benchmark before and after.** The `benchmarks/config_attr_benchmark.py` script stays in the repo. Any perf-sensitive change requires a before/after run with the numbers linked in the PR.
 
 ## Scope in this pass
@@ -50,7 +50,7 @@ Acceptance:
 Mechanical application of the Lock pattern.
 
 - `TaskLock` uses prefix `GREL_TASK_LOCK_{NAME_UPPER}_`.
-- `RateLimiter` uses prefix `GREL_RATE_LIMITER_{NAME_UPPER}_`.
+- `RateLimiter` keeps the config-plus-factory surface: `RateLimiter.token_bucket(...)`, `RateLimiter.gcra(...)`, and `RateLimiter.from_config(name, cfg)`. No env path is added because the algorithm variants do not share one flat kw surface.
 - `LeaderElection` uses prefix `GREL_LEADER_ELECTION_{NAME_UPPER}_`.
 
 Each ships in its own PR with the same acceptance checks as Lock.

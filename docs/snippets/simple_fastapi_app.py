@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro.logging import configure_logging
-from grelmicro.resilience.circuitbreaker import CircuitBreaker
+from grelmicro.resilience import CircuitBreaker
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncBackend
 from grelmicro.task import TaskManager

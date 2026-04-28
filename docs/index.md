@@ -80,10 +80,11 @@ from fastapi import FastAPI, HTTPException, Request
 from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.logging import configure_logging
-from grelmicro.resilience import GCRA
-from grelmicro.resilience.circuitbreaker import CircuitBreaker
-from grelmicro.resilience.errors import RateLimitExceededError
-from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience import (
+    CircuitBreaker,
+    RateLimitExceededError,
+    RateLimiter,
+)
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncBackend
@@ -135,7 +136,7 @@ async def read_root():
 
 
 # --- Rate Limiter: protect endpoints from overload ---
-api_limiter = RateLimiter("api", algorithm=GCRA(limit=100, window=60))
+api_limiter = RateLimiter.gcra("api", limit=100, window=60)
 
 
 @app.get("/api")

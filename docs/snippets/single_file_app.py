@@ -7,8 +7,7 @@ import typer
 from fast_depends import Depends
 from fastapi import FastAPI
 
-from grelmicro.sync.leaderelection import LeaderElection
-from grelmicro.sync.lock import Lock
+from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.task import TaskManager
 

@@ -179,9 +179,9 @@ GREL_LOCK_CART_RETRY_INTERVAL=0.2
 ```
 
 !!! tip "Override the env prefix"
-    The derived prefix is only the zero-config default. Apps that want their own convention (for example `MYAPP_LOCK_CART_*`) pass `env_prefix=` explicitly. Pass `read_env=False` to skip env reading entirely when every field is already supplied via kwargs or via `config=`.
+    The derived prefix is only the zero-config default. Apps that want their own convention (for example `MYAPP_LOCK_CART_*`) pass `env_prefix=` explicitly. Pass `read_env=False` to skip env reading entirely when every field is already supplied via kwargs or when construction happens via `Lock.from_config(...)`.
 
 !!! info "Composing with the wider settings tree"
-    grelmicro does not ship a `BaseSettings` wrapper. Apps own the env namespace, the YAML path, and the aggregation strategy. Compose `LockConfig` into `pydantic-settings`, load it from YAML, secrets files, Vault, or any other source, then call `Lock.from_config(cfg)`.
+    grelmicro does not ship a `BaseSettings` wrapper. Apps own the env namespace, the YAML path, and the aggregation strategy. Compose `LockConfig` into `pydantic-settings`, load it from YAML, secrets files, Vault, or any other source, then call `Lock.from_config("cart", cfg)`.
 
     See the [Configuration architecture](architecture/config.md) doc for the full resolution rules and the rationale behind the construction split.
