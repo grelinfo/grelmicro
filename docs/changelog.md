@@ -7,6 +7,7 @@
 * ✨ Redesign the `health` module around plain function checks, `@health.check("name")` decorator, binary `ok`/`error` status, and `/livez` + `/readyz` + `/healthz` endpoints with empty probe bodies and per-check caching. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
 * ✨ `Lock` reads environment variables under `GREL_LOCK_{NAME_UPPER}_*` and exposes `Lock.from_config(name, config)` for declarative construction. `LockConfig` no longer carries a `name` field — identity is the positional `name` on the `Lock` itself. `LockConfig.lease_duration` and `LockConfig.retry_interval` now default to `60` and `0.1`; `worker` defaults to a generated UUIDv1.
 * ✨ `TaskLock` reads environment variables under `GREL_TASK_LOCK_{NAME_UPPER}_*` and exposes `TaskLock.from_config(name, config)` for declarative construction. `TaskLockConfig` no longer carries a `name` field, inherits `worker` from `BaseLockConfig`, and now defaults `min_lock_seconds` to `1` and `max_lock_seconds` to `60`.
+* ✨ `RateLimiter` exposes `RateLimiter.from_config(name, config)` for declarative construction. `RateLimiterConfig` no longer carries a `name` field — identity is the positional `name` on the `RateLimiter`. Environment-driven configuration of the discriminated `algorithm` union is deferred to a future iteration.
 
 ## 0.14.3 - 2026-04-22
 

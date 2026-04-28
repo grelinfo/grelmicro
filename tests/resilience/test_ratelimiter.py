@@ -86,7 +86,7 @@ def test_gcra_properties() -> None:
     rl = RateLimiter("auth", algorithm=GCRA(limit=LIMIT, window=WINDOW))
 
     # Assert
-    assert rl.config.name == "auth"
+    assert rl.name == "auth"
     assert isinstance(rl.config.algorithm, GCRA)
     assert rl.config.algorithm.limit == LIMIT
     assert rl.config.algorithm.window == WINDOW
@@ -102,7 +102,7 @@ def test_token_bucket_properties() -> None:
     )
 
     # Assert
-    assert rl.config.name == "api"
+    assert rl.name == "api"
     assert isinstance(rl.config.algorithm, TokenBucket)
     assert rl.config.algorithm.capacity == CAPACITY
     assert rl.config.algorithm.refill_rate == REFILL_RATE

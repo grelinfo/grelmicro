@@ -2,7 +2,7 @@
 
 import logging
 import warnings
-from typing import Annotated, assert_never
+from typing import Annotated, Self, assert_never
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc, deprecated
@@ -22,10 +22,6 @@ logger = logging.getLogger(__name__)
 class RateLimiterConfig(BaseModel, frozen=True, extra="forbid"):
     """Rate Limiter Config."""
 
-    name: Annotated[
-        str,
-        Doc("The name of the rate limiter instance."),
-    ]
     algorithm: Annotated[
         Algorithm,
         Doc(
@@ -157,11 +153,84 @@ class RateLimiter:
     ) -> None:
         """Initialize the rate limiter."""
         resolved = _resolve_algorithm(algorithm, limit, window)
-        self._config = RateLimiterConfig(name=name, algorithm=resolved)
+        config = RateLimiterConfig(algorithm=resolved)
+        self._setup(name, config, backend=backend, fail_open=fail_open)
+
+    @classmethod
+    def from_config(
+        cls,
+        name: Annotated[
+            str,
+            Doc(
+                """
+                The name of the rate limiter instance.
+
+                Acts as the instance identity. Used as the key
+                prefix on the backend and exposed via the `name`
+                property.
+                """
+            ),
+        ],
+        config: Annotated[
+            RateLimiterConfig,
+            Doc(
+                """
+                The pre-built rate limiter configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a `pydantic-settings` aggregator).
+                """
+            ),
+        ],
+        *,
+        backend: Annotated[
+            RateLimiterBackend | None,
+            Doc(
+                """
+                An explicit backend instance. When `None` (the
+                default), the registered backend is used.
+                """
+            ),
+        ] = None,
+        fail_open: Annotated[
+            bool,
+            Doc(
+                """
+                When `True`, the rate limiter returns an allowed
+                result if the backend raises an error, instead of
+                re-raising the error.
+                """
+            ),
+        ] = False,
+    ) -> Self:
+        """Construct a `RateLimiter` from a name and a pre-built `RateLimiterConfig`."""
+        instance = cls.__new__(cls)
+        instance._setup(name, config, backend=backend, fail_open=fail_open)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        name: str,
+        config: RateLimiterConfig,
+        *,
+        backend: RateLimiterBackend | None,
+        fail_open: bool,
+    ) -> None:
+        """Wire the validated config and runtime deps onto the instance."""
+        self._name = name
+        self._config = config
         self._backend = backend or get_rate_limiter_backend()
-        self._strategy: RateLimiterStrategy = self._backend.bind(resolved)
+        self._strategy: RateLimiterStrategy = self._backend.bind(
+            config.algorithm
+        )
         self._fail_open = fail_open
-        self._fallback = _build_fallback(resolved)
+        self._fallback = _build_fallback(config.algorithm)
+
+    @property
+    def name(self) -> str:
+        """Return the rate limiter identity."""
+        return self._name
 
     @property
     def config(self) -> RateLimiterConfig:
@@ -176,13 +245,13 @@ class RateLimiter:
         """Log a fail-open warning for a backend error."""
         logger.warning(
             "Rate limiter '%s' backend error, failing open for key '%s'",
-            self._config.name,
+            self._name,
             key,
             exc_info=exc,
         )
 
     def _full_key(self, key: str) -> str:
-        return f"{self._config.name}:{key}"
+        return f"{self._name}:{key}"
 
     async def acquire(
         self,
