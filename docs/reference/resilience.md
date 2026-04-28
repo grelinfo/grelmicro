@@ -4,13 +4,12 @@
     options:
       show_submodules: true
       members:
-        - Algorithm
         - CircuitBreaker
         - CircuitBreakerError
         - CircuitBreakerMetrics
         - CircuitBreakerState
         - ErrorDetails
-        - GCRA
+        - GCRAConfig
         - MemoryTokenBucket
         - RateLimiter
         - RateLimiterBackend
@@ -20,7 +19,7 @@
         - RateLimitResult
         - ResilienceError
         - ResilienceSettingsValidationError
-        - TokenBucket
+        - TokenBucketConfig
 
 ::: grelmicro.resilience.memory
     options:

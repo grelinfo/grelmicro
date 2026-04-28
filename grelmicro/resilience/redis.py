@@ -14,7 +14,11 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import GCRA, Algorithm, TokenBucket
+from grelmicro.resilience.algorithms import (
+    GCRAConfig,
+    RateLimiterConfig,
+    TokenBucketConfig,
+)
 from grelmicro.resilience.errors import ResilienceSettingsValidationError
 
 
@@ -22,13 +26,14 @@ class RedisRateLimiterBackend(RateLimiterBackend):
     """Redis rate limiter backend.
 
     Supports both
-    [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket] and
-    [`GCRA`][grelmicro.resilience.algorithms.GCRA] algorithms via
-    atomic Lua scripts. Safe across processes and machines.
+    [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+    and [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]
+    algorithm configs via atomic Lua scripts. Safe across processes
+    and machines.
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiter, TokenBucket
+    from grelmicro.resilience import RateLimiter, TokenBucketConfig
     from grelmicro.resilience.redis import RedisRateLimiterBackend
 
 
@@ -36,7 +41,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         async with RedisRateLimiterBackend("redis://localhost:6379/0"):
             rl = RateLimiter(
                 "api",
-                algorithm=TokenBucket(capacity=10, refill_rate=1),
+                TokenBucketConfig(capacity=10, refill_rate=1),
             )
             await rl.acquire(key="u1")
     ```
@@ -104,18 +109,18 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         """Close the rate limiter backend."""
         await self._redis.aclose()
 
-    def bind(self, algorithm: Algorithm) -> RateLimiterStrategy:
-        """Build a strategy for the given algorithm.
+    def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
+        """Build a strategy for the given algorithm config.
 
         Each strategy has its own Lua scripts. It registers them
         with the Redis client when the strategy is created.
         """
-        match algorithm:
-            case TokenBucket():
-                return _RedisTokenBucket(self._redis, self._prefix, algorithm)
-            case GCRA():
-                return _RedisGCRA(self._redis, self._prefix, algorithm)
-        assert_never(algorithm)
+        match config:
+            case TokenBucketConfig():
+                return _RedisTokenBucket(self._redis, self._prefix, config)
+            case GCRAConfig():
+                return _RedisGCRA(self._redis, self._prefix, config)
+        assert_never(config)
 
 
 class _RedisGCRA(RateLimiterStrategy):
@@ -211,14 +216,14 @@ class _RedisGCRA(RateLimiterStrategy):
         self,
         redis: Redis,
         prefix: str,
-        algorithm: GCRA,
+        config: GCRAConfig,
     ) -> None:
         self._redis = redis
         self._key_prefix = f"{prefix}{self._ALGO_PREFIX}"
         self._lua_acquire = redis.register_script(self._LUA_ACQUIRE)
         self._lua_peek = redis.register_script(self._LUA_PEEK)
-        self._limit = algorithm.limit
-        self._window = algorithm.window
+        self._limit = config.limit
+        self._window = config.window
 
     async def acquire(self, *, key: str, cost: int) -> RateLimitResult:
         """Async acquire (GCRA)."""
@@ -357,14 +362,14 @@ class _RedisTokenBucket(RateLimiterStrategy):
         self,
         redis: Redis,
         prefix: str,
-        algorithm: TokenBucket,
+        config: TokenBucketConfig,
     ) -> None:
         self._redis = redis
         self._key_prefix = f"{prefix}{self._ALGO_PREFIX}"
         self._lua_acquire = redis.register_script(self._LUA_ACQUIRE)
         self._lua_peek = redis.register_script(self._LUA_PEEK)
-        self._capacity = algorithm.capacity
-        self._refill_rate = algorithm.refill_rate
+        self._capacity = config.capacity
+        self._refill_rate = config.refill_rate
 
     async def acquire(self, *, key: str, cost: int) -> RateLimitResult:
         """Async acquire (token bucket)."""

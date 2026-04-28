@@ -135,6 +135,45 @@ Lock("cart", read_env=False, lease_duration=10) # env ignored entirely
 
 `GREL_*` is the **default** when the Environmental path is used. It is not a claim on any other namespace, and `env_prefix=` always lets the app pick its own. The Config classes themselves stay env-free so they compose freely into the app's own settings tree.
 
+## Variants: one class with factories vs separate components
+
+Some primitives have variants. The rule for shaping the API:
+
+- **Interchangeable variants** (same public interface, same observable behaviour, only the internals differ): one class. Variants are factory classmethods, named after the discriminator value.
+- **Distinct variants** (different semantics, callers must know which one they hold): separate classes. Each variant is its own component.
+
+### Interchangeable: one class, factory classmethods
+
+A token bucket and a GCRA rate limiter both expose `acquire`, `peek`, `reset`. Swapping the algorithm does not require changing the caller. The choice is a tuning parameter.
+
+```python
+RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
+RateLimiter.gcra("auth", limit=5, window=60)
+```
+
+One class (`RateLimiter`), one config-typed declarative path (`RateLimiter.from_config(name, cfg)`), and one factory classmethod per variant.
+
+### Distinct: separate classes
+
+A reentrant lock allows the same task to acquire it twice. A regular lock raises on the second acquire. Swapping them silently breaks correctness, so the caller must hold the right type.
+
+```python
+Lock("cart", lease_duration=60)
+SpinLock("config", max_spins=100)
+ReentrantLock("recursive", lease_duration=60)
+```
+
+Each is its own class with its own `__init__`, its own `from_config`, and its own type. The type checker stops a `ReentrantLock` from being used where a `Lock` is expected.
+
+### Quick test
+
+> Can a caller use one variant where another was specified, without touching the call site?
+
+- **Yes**: interchangeable. One class with factory classmethods.
+- **No**: distinct. Separate classes.
+
+This rule is what tells `RateLimiter.token_bucket(...)` apart from `ReentrantLock(...)`.
+
 ## Public API surface per component
 
 Every component follows the same shape: a single `__init__` for the kwargs-and-env path plus a `from_config` classmethod for the declarative path.

@@ -9,7 +9,11 @@ from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
 )
-from grelmicro.resilience.algorithms import GCRA, Algorithm, TokenBucket
+from grelmicro.resilience.algorithms import (
+    GCRAConfig,
+    RateLimiterConfig,
+    TokenBucketConfig,
+)
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 
@@ -75,19 +79,19 @@ async def backend(
 
 
 @pytest.fixture(params=["gcra", "token_bucket"])
-def algorithm(request: pytest.FixtureRequest) -> Algorithm:
-    """Algorithm instance (parametrized)."""
+def config(request: pytest.FixtureRequest) -> RateLimiterConfig:
+    """Algorithm config instance (parametrized)."""
     if request.param == "gcra":
-        return GCRA(limit=LIMIT, window=WINDOW)
-    return TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE)
+        return GCRAConfig(limit=LIMIT, window=WINDOW)
+    return TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
 
 
 @pytest.fixture
 def strategy(
-    backend: RateLimiterBackend, algorithm: Algorithm
+    backend: RateLimiterBackend, config: RateLimiterConfig
 ) -> RateLimiterStrategy:
-    """Strategy produced by ``backend.bind(algorithm)``."""
-    return backend.bind(algorithm)
+    """Strategy produced by ``backend.bind(config)``."""
+    return backend.bind(config)
 
 
 # --- Shared tests (run against all backend x algorithm combinations) ---

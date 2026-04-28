@@ -1,11 +1,9 @@
 """Rate Limiter."""
 
 import logging
-import warnings
-from typing import Annotated, Self, assert_never
+from typing import Annotated, assert_never
 
-from pydantic import BaseModel, PositiveFloat, PositiveInt
-from typing_extensions import Doc, deprecated
+from typing_extensions import Doc
 
 from grelmicro.resilience._backends import get_rate_limiter_backend
 from grelmicro.resilience._protocol import (
@@ -13,53 +11,39 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import GCRA, Algorithm, TokenBucket
+from grelmicro.resilience.algorithms import (
+    GCRAConfig,
+    RateLimiterConfig,
+    TokenBucketConfig,
+)
 from grelmicro.resilience.errors import RateLimitExceededError
 
 logger = logging.getLogger(__name__)
 
 
-class RateLimiterConfig(BaseModel, frozen=True, extra="forbid"):
-    """Rate Limiter Config."""
-
-    algorithm: Annotated[
-        Algorithm,
-        Doc(
-            """
-            The rate-limit algorithm: an instance of
-            [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]
-            or [`GCRA`][grelmicro.resilience.algorithms.GCRA].
-            """
-        ),
-    ]
-
-
 class RateLimiter:
     """Rate limiter with a pluggable algorithm.
 
-    Supports multiple algorithms via the required `algorithm`
-    parameter: pass a
-    [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]
-    for burst-friendly semantics, or a
-    [`GCRA`][grelmicro.resilience.algorithms.GCRA] for precise
-    sliding-window semantics.
+    Construct it with the instance name and a discriminated
+    algorithm configuration:
+    [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+    for burst-friendly semantics, or
+    [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig] for
+    precise sliding-window semantics.
 
-    The algorithm is attached to the backend once when the
-    rate limiter is created. It uses
+    The algorithm is bound to the backend once at construction via
     [`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind].
-    Each call to `acquire`, `peek`, or `reset` then runs the
-    attached algorithm directly. There is no extra algorithm
-    lookup on each call.
+    Each call to `acquire`, `peek`, or `reset` then runs the bound
+    strategy directly. There is no extra algorithm lookup on each
+    call.
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiter, TokenBucket
+    from grelmicro.resilience import RateLimiter, TokenBucketConfig
     from grelmicro.resilience.memory import MemoryRateLimiterBackend
 
     MemoryRateLimiterBackend()
-    api = RateLimiter(
-        "api", algorithm=TokenBucket(capacity=10, refill_rate=1)
-    )
+    api = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
 
 
     async def handle(user_id: str) -> None:
@@ -73,92 +57,6 @@ class RateLimiter:
 
     def __init__(
         self,
-        name: Annotated[
-            str,
-            Doc("Name of the rate limiter instance."),
-        ],
-        *,
-        algorithm: Annotated[
-            Algorithm | None,
-            Doc(
-                """
-                The rate-limit algorithm. Use
-                [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]
-                or
-                [`GCRA`][grelmicro.resilience.algorithms.GCRA].
-
-                Required, unless you use the deprecated `limit`
-                and `window` shortcut for GCRA. That shortcut
-                will be removed in 0.15.0.
-                """
-            ),
-        ] = None,
-        backend: Annotated[
-            RateLimiterBackend | None,
-            Doc(
-                """
-                An explicit backend instance. When `None` (the
-                default), the registered backend is used.
-
-                Set this to skip the global registry, for example
-                in tests or when running several backends at the
-                same time.
-                """
-            ),
-        ] = None,
-        fail_open: Annotated[
-            bool,
-            Doc(
-                """
-                When `True`, the rate limiter returns an allowed
-                result if the backend raises an error, instead of
-                re-raising the error.
-
-                Use this for rate limiters where availability
-                matters more than strict enforcement. For example,
-                analytics events.
-                """
-            ),
-        ] = False,
-        limit: Annotated[
-            PositiveInt | None,
-            Doc(
-                """
-                Legacy shorthand for
-                `algorithm=GCRA(limit=..., window=...)`.
-
-                Pairs with `window`.
-                """
-            ),
-            deprecated(
-                "Use `algorithm=GCRA(limit=..., window=...)` instead. "
-                "Will be removed in 0.15.0."
-            ),
-        ] = None,
-        window: Annotated[
-            PositiveFloat | None,
-            Doc(
-                """
-                Legacy shorthand for
-                `algorithm=GCRA(limit=..., window=...)`.
-
-                Pairs with `limit`.
-                """
-            ),
-            deprecated(
-                "Use `algorithm=GCRA(limit=..., window=...)` instead. "
-                "Will be removed in 0.15.0."
-            ),
-        ] = None,
-    ) -> None:
-        """Initialize the rate limiter."""
-        resolved = _resolve_algorithm(algorithm, limit, window)
-        config = RateLimiterConfig(algorithm=resolved)
-        self._setup(name, config, backend=backend, fail_open=fail_open)
-
-    @classmethod
-    def from_config(
-        cls,
         name: Annotated[
             str,
             Doc(
@@ -175,11 +73,17 @@ class RateLimiter:
             RateLimiterConfig,
             Doc(
                 """
-                The pre-built rate limiter configuration.
+                The algorithm configuration.
 
-                Use this path when the configuration is assembled at
-                startup from a settings tree (for example YAML, Vault,
-                or a `pydantic-settings` aggregator).
+                Pass a
+                [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+                or a
+                [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig].
+                Both carry algorithm parameters plus the shared
+                `fail_open` setting. The classes share a
+                discriminated `type` field so serialization
+                round-trips and pydantic-settings composition both
+                work.
                 """
             ),
         ],
@@ -190,42 +94,21 @@ class RateLimiter:
                 """
                 An explicit backend instance. When `None` (the
                 default), the registered backend is used.
+
+                Set this to skip the global registry, for example
+                in tests or when running several backends at the
+                same time.
                 """
             ),
         ] = None,
-        fail_open: Annotated[
-            bool,
-            Doc(
-                """
-                When `True`, the rate limiter returns an allowed
-                result if the backend raises an error, instead of
-                re-raising the error.
-                """
-            ),
-        ] = False,
-    ) -> Self:
-        """Construct a `RateLimiter` from a name and a pre-built `RateLimiterConfig`."""
-        instance = cls.__new__(cls)
-        instance._setup(name, config, backend=backend, fail_open=fail_open)  # noqa: SLF001
-        return instance
-
-    def _setup(
-        self,
-        name: str,
-        config: RateLimiterConfig,
-        *,
-        backend: RateLimiterBackend | None,
-        fail_open: bool,
     ) -> None:
-        """Wire the validated config and runtime deps onto the instance."""
+        """Initialize the rate limiter."""
         self._name = name
         self._config = config
         self._backend = backend or get_rate_limiter_backend()
-        self._strategy: RateLimiterStrategy = self._backend.bind(
-            config.algorithm
-        )
-        self._fail_open = fail_open
-        self._fallback = _build_fallback(config.algorithm)
+        self._strategy: RateLimiterStrategy = self._backend.bind(config)
+        self._fail_open = config.fail_open
+        self._fallback = _build_fallback(config)
 
     @property
     def name(self) -> str:
@@ -234,7 +117,7 @@ class RateLimiter:
 
     @property
     def config(self) -> RateLimiterConfig:
-        """Return the config."""
+        """Return the algorithm configuration."""
         return self._config
 
     def _log_fail_open(
@@ -370,62 +253,19 @@ class RateLimiter:
             raise
 
 
-def _resolve_algorithm(
-    algorithm: Algorithm | None,
-    limit: PositiveInt | None,
-    window: PositiveFloat | None,
-) -> Algorithm:
-    """Resolve the algorithm from explicit or legacy kwargs.
-
-    Emits a `DeprecationWarning` when the legacy `limit` or
-    `window` arguments are used. Raises `TypeError` for
-    incompatible combinations.
-    """
-    legacy_used = limit is not None or window is not None
-    if algorithm is not None:
-        if legacy_used:
-            msg = (
-                "Pass either `algorithm=` or legacy `limit=`/`window=`, "
-                "not both."
-            )
-            raise TypeError(msg)
-        return algorithm
-    if limit is not None and window is not None:
-        warnings.warn(
-            "RateLimiter(name, limit=..., window=...) is deprecated. "
-            "use RateLimiter(name, algorithm=GCRA(limit=..., "
-            "window=...)). Will be removed in 0.15.0.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        return GCRA(limit=limit, window=window)
-    if legacy_used:
-        msg = (
-            "Legacy `limit` and `window` must be provided together. "
-            "Pass both, or migrate to "
-            "`algorithm=GCRA(limit=..., window=...)`."
-        )
-        raise TypeError(msg)
-    msg = (
-        "RateLimiter requires `algorithm=` "
-        "(or the deprecated `limit=` and `window=` shorthand for GCRA)."
-    )
-    raise TypeError(msg)
-
-
-def _build_fallback(algorithm: Algorithm) -> RateLimitResult:
-    """Build the fail-open fallback result for the given algorithm.
+def _build_fallback(config: RateLimiterConfig) -> RateLimitResult:
+    """Build the fail-open fallback result for the given algorithm config.
 
     Called once when
-    [`RateLimiter`][grelmicro.resilience.RateLimiter] is
-    created. The result is cached on the instance and reused
-    on every fail-open path.
+    [`RateLimiter`][grelmicro.resilience.RateLimiter] is created.
+    The result is cached on the instance and reused on every
+    fail-open path.
     """
-    match algorithm:
-        case TokenBucket():
-            limit_value = algorithm.capacity
-        case GCRA():
-            limit_value = algorithm.limit
+    match config:
+        case TokenBucketConfig():
+            limit_value = config.capacity
+        case GCRAConfig():
+            limit_value = config.limit
         case _ as unknown:  # pragma: no cover
             assert_never(unknown)
     return RateLimitResult(

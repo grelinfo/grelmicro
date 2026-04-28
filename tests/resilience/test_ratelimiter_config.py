@@ -1,11 +1,10 @@
-"""Tests for the RateLimiter configuration paths."""
+"""Tests for RateLimiter configuration paths."""
 
 import pytest
 
 from grelmicro.resilience import RateLimiter
-from grelmicro.resilience.algorithms import GCRA, TokenBucket
+from grelmicro.resilience.algorithms import GCRAConfig, TokenBucketConfig
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
-from grelmicro.resilience.ratelimiter import RateLimiterConfig
 
 LIMIT = 10
 WINDOW = 60.0
@@ -20,29 +19,32 @@ def _sync_backend() -> MemoryRateLimiterBackend:
 
 
 @pytest.mark.usefixtures("_sync_backend")
-def test_programmatic_path() -> None:
-    """Plain kwargs build a RateLimiter directly."""
+def test_token_bucket_config() -> None:
+    """`RateLimiter` accepts a `TokenBucketConfig` positional config."""
     rl = RateLimiter(
-        "api", algorithm=TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE)
+        "api", TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
     )
     assert rl.name == "api"
-    assert isinstance(rl.config.algorithm, TokenBucket)
+    assert isinstance(rl.config, TokenBucketConfig)
+    assert rl.config.capacity == CAPACITY
+    assert rl.config.refill_rate == REFILL_RATE
 
 
 @pytest.mark.usefixtures("_sync_backend")
-def test_declarative_path_uses_from_config() -> None:
-    """`RateLimiter.from_config()` constructs from a name and a config."""
-    cfg = RateLimiterConfig(algorithm=GCRA(limit=LIMIT, window=WINDOW))
-    rl = RateLimiter.from_config("auth", cfg)
+def test_gcra_config() -> None:
+    """`RateLimiter` accepts a `GCRAConfig` positional config."""
+    rl = RateLimiter("auth", GCRAConfig(limit=LIMIT, window=WINDOW))
     assert rl.name == "auth"
-    assert rl.config is cfg
+    assert isinstance(rl.config, GCRAConfig)
+    assert rl.config.limit == LIMIT
+    assert rl.config.window == WINDOW
 
 
 @pytest.mark.usefixtures("_sync_backend")
-def test_from_config_passes_fail_open() -> None:
-    """`fail_open=` is honoured on the declarative path."""
-    cfg = RateLimiterConfig(
-        algorithm=TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE)
+def test_fail_open_in_config() -> None:
+    """`fail_open` set on the algorithm config flows to the rate limiter."""
+    cfg = TokenBucketConfig(
+        capacity=CAPACITY, refill_rate=REFILL_RATE, fail_open=True
     )
-    rl = RateLimiter.from_config("api", cfg, fail_open=True)
+    rl = RateLimiter("api", cfg)
     assert rl._fail_open is True

@@ -1,10 +1,10 @@
-"""Rate-limiter algorithms.
+"""Rate-limiter algorithm configurations.
 
-Algorithms are pure [Pydantic](https://docs.pydantic.dev/) configs
-(no logic). A [`RateLimiter`][grelmicro.resilience.RateLimiter]
-binds an algorithm to a backend once at construction via
-[`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind];
-at runtime the bound strategy is called directly, with no algorithm
+Algorithm configurations are pure [Pydantic](https://docs.pydantic.dev/)
+data classes. A [`RateLimiter`][grelmicro.resilience.RateLimiter]
+binds an algorithm config to a backend once at construction via
+[`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind].
+At runtime the bound strategy is called directly, with no algorithm
 dispatch on the hot path.
 """
 
@@ -12,10 +12,13 @@ from typing import Annotated
 
 from pydantic import Discriminator
 
-from grelmicro.resilience.algorithms.gcra import GCRA
-from grelmicro.resilience.algorithms.tokenbucket import TokenBucket
+from grelmicro.resilience.algorithms.gcra import GCRAConfig
+from grelmicro.resilience.algorithms.tokenbucket import TokenBucketConfig
 
-Algorithm = Annotated[TokenBucket | GCRA, Discriminator("type")]
-"""Discriminated union of supported rate-limiter algorithms."""
+RateLimiterConfig = Annotated[
+    TokenBucketConfig | GCRAConfig,
+    Discriminator("type"),
+]
+"""Discriminated union of supported rate-limiter algorithm configurations."""
 
-__all__ = ["GCRA", "Algorithm", "TokenBucket"]
+__all__ = ["GCRAConfig", "RateLimiterConfig", "TokenBucketConfig"]

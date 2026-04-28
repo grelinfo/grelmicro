@@ -3,7 +3,7 @@
 from types import TracebackType
 from typing import NamedTuple, Protocol, Self
 
-from grelmicro.resilience.algorithms import Algorithm
+from grelmicro.resilience.algorithms import RateLimiterConfig
 
 
 class RateLimitResult(NamedTuple):
@@ -21,7 +21,7 @@ class RateLimitResult(NamedTuple):
     """Whether the request is permitted."""
 
     limit: int
-    """Total quota (`capacity` for TokenBucket, `limit` for GCRA)."""
+    """Total quota (`capacity` for TokenBucketConfig, `limit` for GCRAConfig)."""
 
     remaining: int
     """Remaining tokens or requests."""
@@ -117,9 +117,9 @@ class RateLimiterBackend(Protocol):
 
     def bind(
         self,
-        algorithm: Algorithm,
+        config: RateLimiterConfig,
     ) -> RateLimiterStrategy:
-        """Build a strategy for the given algorithm.
+        """Build a strategy for the given algorithm config.
 
         Called exactly once per
         [`RateLimiter`][grelmicro.resilience.RateLimiter] when
@@ -128,11 +128,10 @@ class RateLimiterBackend(Protocol):
         directly, with no extra algorithm lookup.
 
         Args:
-            algorithm: The algorithm configuration
-                (`TokenBucket` or `GCRA`).
+            config: The algorithm configuration
+                (`TokenBucketConfig` or `GCRAConfig`).
 
         Returns:
-            A strategy bound to `algorithm` and this backend's
-            storage.
+            A strategy bound to `config` and this backend's storage.
         """
         ...
