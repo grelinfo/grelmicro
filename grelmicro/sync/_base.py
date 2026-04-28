@@ -4,9 +4,10 @@ from types import TracebackType
 from typing import Annotated, Protocol, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Doc
 
+from grelmicro.sync._tokens import generate_worker_id
 from grelmicro.sync.abc import SyncPrimitive
 
 
@@ -15,19 +16,14 @@ class BaseLockConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    name: Annotated[
-        str,
-        Doc("""
-            The name of the resource to lock.
-            """),
-    ]
     worker: Annotated[
         str | UUID,
         Doc("""
             The worker identity.
 
-            By default, use a UUIDv1.
+            By default, a UUIDv1 is generated.
             """),
+        Field(default_factory=generate_worker_id),
     ]
 
 

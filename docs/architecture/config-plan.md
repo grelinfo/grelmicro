@@ -35,14 +35,14 @@ Acceptance:
 - `resolve_config` is private (`_config.py`), not exported.
 
 ### Step 2 — Lock pilot
-Wire `Lock.__init__` to `resolve_config`. Add `@overload` stubs. Add `env_prefix` and `read_env` kwargs. The positional `name` remains required. Existing call sites unchanged.
+Drop `name` from `BaseLockConfig` (Config carries settings only). Wire `Lock.__init__` to `resolve_config` for the kwargs-and-env path. Add `env_prefix` and `read_env` kwargs. Add `Lock.from_config(name, config, *, backend=None)` classmethod for the declarative path. Add `Lock.name` property. Existing positional `Lock(name, ...)` call sites unchanged.
 
 Acceptance:
 
 - All three call shapes from the user-facing doc work end-to-end.
 - `Lock("cart")` with `GREL_LOCK_CART_LEASE_DURATION=60` in env yields `config.lease_duration == 60`.
-- `Lock("cart", config=cfg, lease_duration=30)` raises `TypeError`.
-- `Lock("cart", config=LockConfig(name="payments", ...))` raises `ValueError`.
+- `Lock.from_config("cart", cfg)` ignores matching `GREL_LOCK_*` env vars.
+- `lock.name` returns the positional name. `lock.config` returns settings only.
 - Benchmark re-run shows no regression in `RateLimitFilter` path (unrelated, but sanity check).
 - Changelog entry added.
 
@@ -86,6 +86,8 @@ Acceptance for release N:
 
 ### Step 6 — unified user docs
 Top-level `docs/configuration.md` page indexing the three paths with one example per component. Link from every component page. Snippets live in `docs/snippets/configuration/`.
+
+This step also revisits the YAML-loading ergonomics. The current pilot snippet shows env-only composition with `pydantic-settings`. YAML composition through `settings_customise_sources` + `YamlConfigSettingsSource` is verbose enough that a grelmicro convenience (for example a `from_yaml(path)` helper or a documented one-liner using `yaml.safe_load` + `LockConfig`) is worth shipping at this stage. Pick the lighter option during the PR.
 
 ### Step 7 — close issue #113
 With the architecture doc committed, close #113 with a reference to the decision rationale section. Include a link to `benchmarks/config_attr_benchmark.py` and the measured numbers.

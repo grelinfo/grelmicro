@@ -5,6 +5,7 @@
 ### Breaking
 
 * ✨ Redesign the `health` module around plain function checks, `@health.check("name")` decorator, binary `ok`/`error` status, and `/livez` + `/readyz` + `/healthz` endpoints with empty probe bodies and per-check caching. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* ✨ `Lock` reads environment variables under `GREL_LOCK_{NAME_UPPER}_*` and exposes `Lock.from_config(name, config)` for declarative construction. `LockConfig` no longer carries a `name` field — identity is the positional `name` on the `Lock` itself. `LockConfig.lease_duration` and `LockConfig.retry_interval` now default to `60` and `0.1`; `worker` defaults to a generated UUIDv1.
 
 ## 0.14.3 - 2026-04-22
 

@@ -11,26 +11,36 @@ This document specifies how grelmicro components are configured. It defines the 
 5. **Runtime reconfiguration is not blocked.** The design keeps `self._config` as a single Pydantic pointer so an atomic swap remains feasible in the future.
 6. **Hot path is untouched.** All merging, env reading, and validation happens once at construction. Runtime reads stay on the Pydantic model, consistent with the `RateLimitFilter.filter` benchmark showing per-field access costs ~2 ns and accounts for ~1% of a 255 ns call.
 
-## The one rule — resolution order
+## The two construction paths
 
-For each component, the final config is built from these sources, top wins on conflict:
+Each component has two construction entry points, physically separate:
 
-1. **kwargs** passed to the component constructor (most explicit).
-2. **`config=`** — a pre-built `Config` instance. When present, sources 1 and 3 are ignored.
-3. **Environment variables** matching the component's derived prefix.
-4. **Defaults** declared on the `Config` class (least explicit).
+- **`Component(name, **kwargs)`** — the constructor. Accepts kwargs for each field, optionally consults environment variables, falls back to `Config` defaults.
+- **`Component.from_config(name, config)`** — a classmethod factory. Accepts a positional name and a pre-built `Config` instance. Bypasses kwargs and env entirely.
 
-Mixing `config=` with any other config-valued kwarg raises `TypeError`. `backend=` and identity kwargs (`name`) are always allowed alongside `config=` since they are not part of the serializable config.
+The `Config` classes carry settings only; the instance identity lives on the component itself. This matches the `Map<String, Settings>` shape used by every major declarative-config framework.
 
-## The three paths
+### Resolution inside `__init__`
+
+When constructing via `__init__`, the final config merges these sources, top wins:
+
+1. **kwargs** from the caller (explicit values).
+2. **Environment variables** matching the component's derived prefix (only when `read_env=True`).
+3. **Defaults** declared on the `Config` class.
+
+`None` kwarg values are treated as unset — they fall through to the env or default layers.
+
+### When to use each path
 
 | Path | Call | When to use |
 |------|------|-------------|
 | **Programmatic** | `Lock("cart", lease_duration=60)` | Scripts, notebooks, and code-first setups where all values are known inline. |
-| **Declarative** | `Lock("cart", config=cfg)` | Production where a settings tree is assembled at startup (YAML, Vault, central settings). |
 | **Environmental** | `Lock("cart")` | Zero-boilerplate 12-factor deployments. Fields resolve from env, fall back to defaults. |
+| **Declarative** | `Lock.from_config("cart", cfg)` | Production where a settings tree is assembled at startup from YAML, Vault, or any central source. |
 
-A fourth shape is the layered override — `Lock("cart", config=base_cfg, lease_duration=30)` — which is rejected. If you want a config baseline with kwarg overrides, derive a new config via `base_cfg.model_copy(update={"lease_duration": 30})` and pass that.
+The first two share `__init__`; only their inputs differ. The declarative path is the classmethod.
+
+A layered shape — kwarg overrides on top of an explicit config — is **not** offered. If you want a config baseline with overrides, build the new config explicitly: `cfg2 = cfg.model_copy(update={"lease_duration": 30})`, then `Lock.from_config("cart", cfg2)`.
 
 ## Name as namespace
 
@@ -76,17 +86,25 @@ This is a deliberate parallel to Spring Boot's `@ConfigurationProperties(prefix=
 
 The `GREL_` prefix makes grelmicro ownership explicit, avoids collision with unrelated environment variables, and follows the same pattern as `UVICORN_*`, `GUNICORN_*`, `CELERY_*`, `DJANGO_*`. Apps that want their own convention pass `env_prefix=` explicitly on construction.
 
-## Positional name is authoritative
+## Identity belongs in the call, not in the config
 
-When both a positional `name` and a `config` with a `name` field are present:
+`Config` classes carry settings only. Identity is the positional `name` on the component. YAML and env aggregations key by name naturally:
 
-| Positional `name` | `config.name` | Behaviour |
-|-------------------|---------------|-----------|
-| `"cart"` | `"cart"` | Match. Use config as is. |
-| `"cart"` | unset | Fill `config.name` from the positional. |
-| `"cart"` | `"payments"` | `ValueError` on the mismatch. |
+```yaml
+locks:
+  cart:    { lease_duration: 60 }
+  payments: { lease_duration: 120 }
+```
 
-The positional wins because it is the identity argument, not a config field. This keeps call sites readable and lets YAML dict keys act as implicit names.
+```python
+locks = {n: Lock.from_config(n, cfg) for n, cfg in settings.locks.items()}
+```
+
+```bash
+GREL_LOCKS__CART__LEASE_DURATION=60
+```
+
+No redundant `name: cart` field in YAML, no `*_NAME=cart` env var to populate.
 
 ## Env prefix override and escape hatch
 
@@ -119,20 +137,10 @@ Lock("cart", read_env=False, lease_duration=10) # env ignored entirely
 
 ## Public API surface per component
 
-Every component follows the same shape:
+Every component follows the same shape: a single `__init__` for the kwargs-and-env path plus a `from_config` classmethod for the declarative path.
 
 ```python
 class Component:
-    @overload
-    def __init__(
-        self,
-        name: str,
-        *,
-        config: ComponentConfig,
-        backend: Backend | None = None,
-    ) -> None: ...
-
-    @overload
     def __init__(
         self,
         name: str,
@@ -142,10 +150,21 @@ class Component:
         field_b: ... | None = None,
         env_prefix: str | None = None,
         read_env: bool = True,
-    ) -> None: ...
+    ) -> None:
+        """Construct from kwargs, optionally consulting environment variables."""
+
+    @classmethod
+    def from_config(
+        cls,
+        name: str,
+        config: ComponentConfig,
+        *,
+        backend: Backend | None = None,
+    ) -> Self:
+        """Construct from a name and a pre-built Config. Bypasses kwargs and env."""
 ```
 
-The runtime `__init__` enforces mutual exclusion, derives `env_prefix` when not supplied, and delegates to a shared `resolve_config` helper.
+`__init__` derives `env_prefix` when not supplied and delegates to the shared `resolve_config` helper. `from_config` wires the instance directly via `cls.__new__` plus a private `_setup` helper. Neither path needs `@overload` stubs because the two are physically separate methods.
 
 ## Single-instance variant
 
@@ -215,7 +234,8 @@ Rejected because it eliminates the Environmental path. Zero-config 12-factor dep
 
 ## Relationship to related work
 
+- **Pydantic** — `Model(**data)` and `Model.model_validate(data)` are the two canonical construction paths. grelmicro mirrors that split with `Component(name, **kwargs)` and `Component.from_config(name, cfg)`, keeping each path single-purpose.
 - **Spring Boot** — `@ConfigurationProperties(prefix="myapp.locks.cart")` declares the prefix on a bean class. grelmicro derives the prefix from the positional identity argument instead.
-- **FastAPI** — ships `Request`, `Response`, `APIRouter` and leaves application settings to the app. grelmicro follows the same split for Config classes. The opt-in Environmental path is the one pragmatic deviation.
+- **FastAPI** — ships `Request`, `Response`, `APIRouter` with single-signature `__init__` plus rich `Annotated` types, no `@overload` stubs. grelmicro follows the same approach: one signature per method, `Annotated[..., Doc(...)]` for parameter docs.
 - **uvicorn / gunicorn / celery / django** — ship `UVICORN_*`, `GUNICORN_*`, `CELERY_*`, `DJANGO_*` env namespaces for their own settings. grelmicro's `GREL_*` is the same pattern.
 - **pydantic-settings** — carries the env, file, and secrets loading story. grelmicro depends on the existing project dependency and adds no loader code of its own.

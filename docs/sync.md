@@ -134,7 +134,7 @@ The lock supports the following features:
 
 ### Configuration
 
-The lock accepts configuration through three paths, all reaching the same validated `LockConfig`. The positional `name` is always required and acts as the instance identity.
+The lock has two construction entry points, each one-purpose. The positional `name` is always required and acts as the instance identity.
 
 === "Programmatic"
 
@@ -144,20 +144,20 @@ The lock accepts configuration through three paths, all reaching the same valida
     --8<-- "sync/lock_programmatic.py"
     ```
 
-=== "Declarative"
-
-    Pass a pre-built `LockConfig`. Use this when a settings tree is assembled at startup from YAML, Vault, or a central store. The positional `name` must match `config.name` or fill it in when `config.name` is unset.
-
-    ```python
-    --8<-- "sync/lock_declarative.py"
-    ```
-
 === "Environmental"
 
     Omit the kwargs and let the lock resolve fields from environment variables. Unset fields fall back to `LockConfig` defaults. The derived prefix is `GREL_LOCK_{NAME_UPPER}_`.
 
     ```python
     --8<-- "sync/lock_environmental.py"
+    ```
+
+=== "Declarative"
+
+    Use `Lock.from_config(name, config)` to construct from a name and a pre-built `LockConfig`. The env path is bypassed entirely.
+
+    ```python
+    --8<-- "sync/lock_declarative.py"
     ```
 
 ### Environment variables
@@ -181,11 +181,7 @@ GREL_LOCK_CART_RETRY_INTERVAL=0.2
 !!! tip "Override the env prefix"
     The derived prefix is only the zero-config default. Apps that want their own convention (for example `MYAPP_LOCK_CART_*`) pass `env_prefix=` explicitly. Pass `read_env=False` to skip env reading entirely when every field is already supplied via kwargs or via `config=`.
 
-!!! info "Composing with `pydantic-settings`"
-    grelmicro does not ship a `BaseSettings` wrapper. The app owns the env namespace, the YAML path, and the aggregation strategy. Here is a typical `AppSettings` pattern that loads a dictionary of named locks from YAML with env overrides.
+!!! info "Composing with the wider settings tree"
+    grelmicro does not ship a `BaseSettings` wrapper. Apps own the env namespace, the YAML path, and the aggregation strategy. Compose `LockConfig` into `pydantic-settings`, load it from YAML, secrets files, Vault, or any other source, then call `Lock.from_config(cfg)`.
 
-    ```python
-    --8<-- "sync/lock_app_settings.py"
-    ```
-
-    See the [Configuration architecture](architecture/config.md) doc for the full resolution rules, the name-as-namespace derivation, and the rationale behind the three-path design.
+    See the [Configuration architecture](architecture/config.md) doc for the full resolution rules and the rationale behind the construction split.
