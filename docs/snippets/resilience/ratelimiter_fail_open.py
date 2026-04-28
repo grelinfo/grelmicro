@@ -1,9 +1,11 @@
-from grelmicro.resilience import RateLimiter, TokenBucketConfig
+from grelmicro.resilience import RateLimiter
 
 # Non-critical limiter: prefer availability over strictness
-limiter = RateLimiter(
+limiter = RateLimiter.token_bucket(
     "analytics",
-    TokenBucketConfig(capacity=100, refill_rate=10, fail_open=True),
+    capacity=100,
+    refill_rate=10,
+    fail_open=True,
 )
 
 

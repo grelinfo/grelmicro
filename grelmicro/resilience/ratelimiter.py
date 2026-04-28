@@ -1,8 +1,9 @@
 """Rate Limiter."""
 
 import logging
-from typing import Annotated, assert_never
+from typing import Annotated, Self, assert_never
 
+from pydantic import PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro.resilience._backends import get_rate_limiter_backend
@@ -119,6 +120,130 @@ class RateLimiter:
     def config(self) -> RateLimiterConfig:
         """Return the algorithm configuration."""
         return self._config
+
+    @classmethod
+    def from_config(
+        cls,
+        name: Annotated[
+            str,
+            Doc("The name of the rate limiter instance."),
+        ],
+        config: Annotated[
+            RateLimiterConfig,
+            Doc("The pre-built algorithm configuration."),
+        ],
+        *,
+        backend: Annotated[
+            RateLimiterBackend | None,
+            Doc(
+                """
+                An explicit backend instance. When `None` (the
+                default), the registered backend is used.
+                """
+            ),
+        ] = None,
+    ) -> Self:
+        """Construct a `RateLimiter` from a name and a pre-built config.
+
+        Equivalent to ``RateLimiter(name, config, backend=backend)``.
+        Provided for cross-component grep parity with other
+        primitives' declarative entry points.
+        """
+        return cls(name, config, backend=backend)
+
+    @classmethod
+    def token_bucket(
+        cls,
+        name: Annotated[
+            str,
+            Doc("The name of the rate limiter instance."),
+        ],
+        *,
+        capacity: Annotated[
+            PositiveInt,
+            Doc(
+                "Maximum burst size. The bucket holds at most `capacity` tokens."
+            ),
+        ],
+        refill_rate: Annotated[
+            PositiveFloat,
+            Doc("Tokens replenished per second, up to `capacity`."),
+        ],
+        fail_open: Annotated[
+            bool,
+            Doc(
+                """
+                When `True`, the rate limiter returns an allowed
+                result if the backend raises an error.
+                """
+            ),
+        ] = False,
+        backend: Annotated[
+            RateLimiterBackend | None,
+            Doc(
+                """
+                An explicit backend instance. When `None` (the
+                default), the registered backend is used.
+                """
+            ),
+        ] = None,
+    ) -> Self:
+        """Construct a token-bucket rate limiter.
+
+        Convenience factory for the common case. Builds a
+        [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+        internally and forwards to the constructor.
+        """
+        config = TokenBucketConfig(
+            capacity=capacity,
+            refill_rate=refill_rate,
+            fail_open=fail_open,
+        )
+        return cls(name, config, backend=backend)
+
+    @classmethod
+    def gcra(
+        cls,
+        name: Annotated[
+            str,
+            Doc("The name of the rate limiter instance."),
+        ],
+        *,
+        limit: Annotated[
+            PositiveInt,
+            Doc("Maximum number of requests allowed per window."),
+        ],
+        window: Annotated[
+            PositiveFloat,
+            Doc("Window duration in seconds."),
+        ],
+        fail_open: Annotated[
+            bool,
+            Doc(
+                """
+                When `True`, the rate limiter returns an allowed
+                result if the backend raises an error.
+                """
+            ),
+        ] = False,
+        backend: Annotated[
+            RateLimiterBackend | None,
+            Doc(
+                """
+                An explicit backend instance. When `None` (the
+                default), the registered backend is used.
+                """
+            ),
+        ] = None,
+    ) -> Self:
+        """Construct a GCRA (sliding-window) rate limiter.
+
+        Convenience factory for the common case. Builds a
+        [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]
+        internally and forwards to the constructor.
+        """
+        config = GCRAConfig(limit=limit, window=window, fail_open=fail_open)
+        return cls(name, config, backend=backend)
 
     def _log_fail_open(
         self,

@@ -48,3 +48,45 @@ def test_fail_open_in_config() -> None:
     )
     rl = RateLimiter("api", cfg)
     assert rl._fail_open is True
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_token_bucket_factory() -> None:
+    """`RateLimiter.token_bucket` builds a token-bucket rate limiter."""
+    rl = RateLimiter.token_bucket(
+        "api", capacity=CAPACITY, refill_rate=REFILL_RATE
+    )
+    assert rl.name == "api"
+    assert isinstance(rl.config, TokenBucketConfig)
+    assert rl.config.capacity == CAPACITY
+    assert rl.config.refill_rate == REFILL_RATE
+    assert rl.config.fail_open is False
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_gcra_factory() -> None:
+    """`RateLimiter.gcra` builds a GCRA rate limiter."""
+    rl = RateLimiter.gcra("auth", limit=LIMIT, window=WINDOW)
+    assert rl.name == "auth"
+    assert isinstance(rl.config, GCRAConfig)
+    assert rl.config.limit == LIMIT
+    assert rl.config.window == WINDOW
+    assert rl.config.fail_open is False
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_factory_passes_fail_open() -> None:
+    """Factory classmethods forward `fail_open` into the built config."""
+    rl = RateLimiter.token_bucket(
+        "api", capacity=CAPACITY, refill_rate=REFILL_RATE, fail_open=True
+    )
+    assert rl._fail_open is True
+
+
+@pytest.mark.usefixtures("_sync_backend")
+def test_from_config_classmethod() -> None:
+    """`RateLimiter.from_config` mirrors the positional constructor."""
+    cfg = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
+    rl = RateLimiter.from_config("api", cfg)
+    assert rl.name == "api"
+    assert rl.config is cfg
