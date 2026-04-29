@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from grelmicro.logging import RateLimitFilter
+from grelmicro.log import RateLimitFilter
 
 if TYPE_CHECKING:
     from collections.abc import Callable

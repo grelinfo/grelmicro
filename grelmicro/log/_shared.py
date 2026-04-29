@@ -9,15 +9,13 @@ from datetime import datetime, tzinfo
 from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
-
+from grelmicro._config import resolve_config
 from grelmicro.errors import DependencyNotFoundError
-from grelmicro.logging.config import (
+from grelmicro.log.config import (
+    LoggingConfig,
     LoggingFormatType,
     LoggingSerializerType,
-    LoggingSettings,
 )
-from grelmicro.logging.errors import LoggingSettingsValidationError
 
 try:
     from opentelemetry import trace
@@ -335,38 +333,44 @@ def _resolve_format(
 class LoadedSettings(NamedTuple):
     """Validated logging settings."""
 
-    settings: LoggingSettings
+    settings: LoggingConfig
     timezone: tzinfo
     resolved_format: LoggingFormatType | str
     json_dumps: Callable[[Mapping[str, Any]], str]
     colors: bool
 
 
-def load_settings() -> LoadedSettings:
-    """Load and validate logging settings.
+def load_settings(settings: LoggingConfig | None = None) -> LoadedSettings:
+    """Validate and prepare runtime values from a logging config.
+
+    When `settings` is `None`, reads `GREL_LOG_*` environment
+    variables via `resolve_config`.
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
-        LoggingSettingsValidationError: If environment variables are invalid.
+        pydantic.ValidationError: If environment variables are invalid.
     """
-    try:
-        settings = LoggingSettings()
-    except ValidationError as error:
-        raise LoggingSettingsValidationError(error) from None
+    if settings is None:
+        settings = resolve_config(
+            LoggingConfig,
+            explicit=None,
+            kwargs={},
+            env_prefix="GREL_LOG_",
+        )
 
     json_dumps: Callable[[Mapping[str, Any]], str]
-    if settings.LOG_JSON_SERIALIZER == LoggingSerializerType.ORJSON:
+    if settings.json_serializer == LoggingSerializerType.ORJSON:
         if not has_orjson():
             raise DependencyNotFoundError(module="orjson")
         json_dumps = json_dumps_str
     else:
         json_dumps = _stdlib_json_dumps
 
-    if settings.LOG_OTEL_ENABLED and not has_opentelemetry():
+    if settings.otel_enabled and not has_opentelemetry():
         raise DependencyNotFoundError(module="opentelemetry")
 
-    timezone = ZoneInfo(str(settings.LOG_TIMEZONE))
-    resolved_format = _resolve_format(settings.LOG_FORMAT)
+    timezone = ZoneInfo(str(settings.timezone))
+    resolved_format = _resolve_format(settings.format)
     colors = (
         should_colorize()
         if resolved_format in (LoggingFormatType.TEXT, LoggingFormatType.PRETTY)

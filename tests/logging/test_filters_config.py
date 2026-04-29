@@ -2,8 +2,8 @@
 
 import pytest
 
-from grelmicro.logging._dedup import DuplicateFilter, DuplicateFilterConfig
-from grelmicro.logging._ratelimit import (
+from grelmicro.log._dedup import DuplicateFilter, DuplicateFilterConfig
+from grelmicro.log._ratelimit import (
     RateLimitFilter,
     RateLimitFilterConfig,
 )

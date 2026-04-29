@@ -1,6 +1,6 @@
 from logging import getLogger
 
-from grelmicro.logging import RateLimitFilter
+from grelmicro.log import RateLimitFilter
 
 # Allow a burst of 10 records per logger, then 1 record/sec sustained.
 logger = getLogger("grelmicro.ingest")

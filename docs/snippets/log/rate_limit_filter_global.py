@@ -1,6 +1,6 @@
 from logging import getLogger
 
-from grelmicro.logging import RateLimitFilter
+from grelmicro.log import RateLimitFilter
 
 # One shared bucket across every record the handler sees.
 # Useful on the root or app-level handler as a global safety net.

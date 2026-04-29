@@ -8,8 +8,8 @@ import pytest
 from freezegun import freeze_time
 from pydantic import ValidationError
 
-from grelmicro.logging import DuplicateFilter, configure_logging
-from grelmicro.logging._dedup import _key_by_rendered
+from grelmicro.log import DuplicateFilter, configure
+from grelmicro.log._dedup import _key_by_rendered
 from tests.logging.conftest import BACKENDS
 
 
@@ -252,10 +252,10 @@ def test_works_under_every_backend(
 ) -> None:
     """Filter behavior is identical across stdlib/loguru/structlog."""
     allowed = 2
-    monkeypatch.setenv("LOG_BACKEND", backend)
-    monkeypatch.setenv("LOG_LEVEL", "WARNING")
-    configure_logging()
-    # configure_logging() under LOG_BACKEND=stdlib clears root handlers,
+    monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+    monkeypatch.setenv("GREL_LOG_LEVEL", "WARNING")
+    configure()
+    # configure() under GREL_LOG_BACKEND=stdlib clears root handlers,
     # removing caplog's capture handler. Re-attach it so records emitted
     # through dedup_logger still reach caplog.records via propagation.
     logging.getLogger().addHandler(caplog.handler)

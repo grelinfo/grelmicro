@@ -7,7 +7,7 @@ from datetime import UTC, datetime, tzinfo
 from typing import TYPE_CHECKING, Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
-from grelmicro.logging._shared import (
+from grelmicro.log._shared import (
     _stdlib_json_dumps,
     get_otel_trace_context,
     load_settings,
@@ -15,8 +15,8 @@ from grelmicro.logging._shared import (
     render_pretty_lines,
     render_text_line,
 )
-from grelmicro.logging.config import LoggingFormatType
-from grelmicro.logging.types import ErrorDict
+from grelmicro.log.config import LoggingConfig, LoggingFormatType
+from grelmicro.log.types import ErrorDict
 
 try:
     import loguru
@@ -235,7 +235,7 @@ def _make_pretty_formatter(
     return _formatter
 
 
-def configure_logging() -> None:
+def configure(config: LoggingConfig | None = None) -> None:
     """Configure logging with loguru.
 
     Simple twelve-factor app logging configuration that logs to stdout.
@@ -250,10 +250,12 @@ def configure_logging() -> None:
 
     Raises:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
-        LoggingSettingsValidationError: If environment variables are invalid.
+        pydantic.ValidationError: If environment variables are invalid.
     """
-    settings, timezone, resolved_format, json_dumps, colors = load_settings()
-    caller = settings.LOG_CALLER_ENABLED
+    settings, timezone, resolved_format, json_dumps, colors = load_settings(
+        config
+    )
+    caller = settings.caller_enabled
 
     logger = loguru.logger
     log_format: str | FormatFunction = resolved_format
@@ -282,19 +284,14 @@ def configure_logging() -> None:
         needs_logfmt = "extra[logfmt_serialized]" in log_format
         needs_localtime = "extra[localtime]" in log_format
 
-    if (
-        needs_localtime
-        or needs_json
-        or needs_logfmt
-        or settings.LOG_OTEL_ENABLED
-    ):
+    if needs_localtime or needs_json or needs_logfmt or settings.otel_enabled:
         patcher = _LoguruPatcher(
             timezone=timezone,
             enable_localtime=needs_localtime,
             enable_json=needs_json,
             enable_logfmt=needs_logfmt,
             enable_caller=caller,
-            enable_otel=settings.LOG_OTEL_ENABLED,
+            enable_otel=settings.otel_enabled,
             json_dumps=json_dumps,
         )
         logger.configure(patcher=patcher)
@@ -304,6 +301,6 @@ def configure_logging() -> None:
     logger.remove()
     logger.add(
         sys.stdout,
-        level=settings.LOG_LEVEL,
+        level=settings.level,
         format=log_format,
     )

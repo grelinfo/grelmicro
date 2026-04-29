@@ -80,7 +80,7 @@ This is a deliberate parallel to Spring Boot's `@ConfigurationProperties(prefix=
 | `RateLimitFilter` | `GREL_RATE_LIMIT_FILTER_` |
 | `DuplicateFilter` | `GREL_DUPLICATE_FILTER_` |
 | `HealthRegistry` | `GREL_HEALTH_` |
-| `LoggingSettings` | `GREL_LOG_` |
+| `log.configure` | `GREL_LOG_` |
 
 The `GREL_` prefix makes grelmicro ownership explicit, avoids collision with unrelated environment variables, and follows the same pattern as `UVICORN_*`, `GUNICORN_*`, `CELERY_*`, `DJANGO_*`. Apps that want their own convention pass `env_prefix=` explicitly on construction.
 
@@ -326,7 +326,7 @@ class MyLoggingSettings(LoggingConfig, BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MYAPP_LOG_")
 ```
 
-Field names on every `Config` stay lowercase and PEP 8 compliant. The `env_prefix` on the opt-in `Settings` subclass produces the uppercase env vars. This keeps Python code readable (`settings.level`, not `settings.LOG_LEVEL`) while the env stays ops-friendly (`GREL_LOG_LEVEL`).
+Field names on every `Config` stay lowercase and PEP 8 compliant. The `env_prefix` on the opt-in `Settings` subclass produces the uppercase env vars. This keeps Python code readable (`settings.level`, not `settings.GREL_LOG_LEVEL`) while the env stays ops-friendly (`GREL_LOG_LEVEL`).
 
 ## Runtime reconfiguration (future)
 
@@ -354,10 +354,10 @@ Copy each config field to a plain instance attribute at construction time to sha
 Loses `PositiveFloat`, `PositiveInt`, and `@model_validator` constraints. The grelmicro style is consistently Pydantic. The inconsistency cost outweighs the ~1 ns per field saved.
 
 ### Uppercase field names on Config classes (today's `LoggingSettings`)
-Today's `LoggingSettings` bakes field names like `LOG_BACKEND` to match env var names directly. Rejected going forward because:
+Today's `LoggingSettings` bakes field names like `GREL_LOG_BACKEND` to match env var names directly. Rejected going forward because:
 
-- Python access is non-idiomatic (`settings.LOG_LEVEL` violates PEP 8).
-- Programmatic construction reads as `LoggingSettings(LOG_LEVEL=...)` which is awkward.
+- Python access is non-idiomatic (`settings.GREL_LOG_LEVEL` violates PEP 8).
+- Programmatic construction reads as `LoggingSettings(GREL_LOG_LEVEL=...)` which is awkward.
 - Field names cannot encode runtime instance names, so the pattern breaks entirely for multi-instance components (`GREL_LOCK_CART_LEASE_DURATION` cannot be a class field).
 
 The replacement is lowercase Config field names + `env_prefix` on an opt-in `Settings` subclass. `LoggingSettings` migrates to this shape in step 5 of the rollout plan with a deprecation window for `LOG_*` env vars.

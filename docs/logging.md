@@ -7,10 +7,10 @@ Logs go to stdout. Format is selected automatically. Configuration is done via e
 ## Quick Start
 
 ```python
---8<-- "logging/configure_logging.py"
+--8<-- "log/configure.py"
 ```
 
-With no environment variables set, `configure_logging()` detects your terminal:
+With no environment variables set, `configure()` detects your terminal:
 
 - **Terminal (TTY)**: human-readable colored text
 - **Piped / CI / container**: structured JSON
@@ -51,13 +51,13 @@ grelmicro supports three logging backends. All backends produce **identical outp
 
 ### Usage
 
-Select the backend with the `LOG_BACKEND` environment variable, then use the corresponding logger:
+Select the backend with the `GREL_LOG_BACKEND` environment variable, then use the corresponding logger:
 
 === "Loguru"
     ```python
     from loguru import logger
 
-    configure_logging()
+    configure()
     logger.info("Hello, World!", user_id=123)
     ```
 
@@ -65,7 +65,7 @@ Select the backend with the `LOG_BACKEND` environment variable, then use the cor
     ```python
     import structlog
 
-    configure_logging()
+    configure()
     log = structlog.get_logger()
     log.info("Hello, World!", user_id=123)
     ```
@@ -74,7 +74,7 @@ Select the backend with the `LOG_BACKEND` environment variable, then use the cor
     ```python
     import logging
 
-    configure_logging()
+    configure()
     logger = logging.getLogger(__name__)
     logger.info("Hello, World!", extra={"user_id": 123})
     ```
@@ -103,7 +103,7 @@ Detects the output target and selects the best format automatically:
 | `NO_COLOR` env var set | `JSON` |
 
 ```python
---8<-- "logging/auto_format.py"
+--8<-- "log/auto_format.py"
 ```
 
 In your terminal:
@@ -117,18 +117,18 @@ In a container or CI:
 ```
 
 !!! tip "Zero Config"
-    `AUTO` is the default. Most users never need to set `LOG_FORMAT`.
+    `AUTO` is the default. Most users never need to set `GREL_LOG_FORMAT`.
 
 ### JSON
 
 Structured newline-delimited JSON. Ideal for production, log aggregation (Datadog, Loki, ELK).
 
 ```
-LOG_FORMAT=JSON
+GREL_LOG_FORMAT=JSON
 ```
 
 ```python
---8<-- "logging/json_format.py"
+--8<-- "log/json_format.py"
 ```
 
 Output:
@@ -141,11 +141,11 @@ Output:
 Key-value pairs following the [logfmt](https://brandur.org/logfmt) convention. 30-40% smaller than JSON, grep-friendly, parseable by Grafana Loki and most log tools.
 
 ```
-LOG_FORMAT=LOGFMT
+GREL_LOG_FORMAT=LOGFMT
 ```
 
 ```python
---8<-- "logging/logfmt_format.py"
+--8<-- "log/logfmt_format.py"
 ```
 
 Output:
@@ -163,11 +163,11 @@ error.type=ValueError error.message="invalid input"
 Single-line, human-readable output. Includes extra fields as `key=value` pairs. Colors are enabled when output is a TTY.
 
 ```
-LOG_FORMAT=TEXT
+GREL_LOG_FORMAT=TEXT
 ```
 
 ```python
---8<-- "logging/text_format.py"
+--8<-- "log/text_format.py"
 ```
 
 Output:
@@ -180,11 +180,11 @@ Output:
 Multi-line format with indented fields. Best for debugging with low log volume.
 
 ```
-LOG_FORMAT=PRETTY
+GREL_LOG_FORMAT=PRETTY
 ```
 
 ```python
---8<-- "logging/pretty_format.py"
+--8<-- "log/pretty_format.py"
 ```
 
 Output:
@@ -215,13 +215,13 @@ All configuration is done via environment variables:
 
 | Variable | Values | Default |
 |----------|--------|---------|
-| `LOG_BACKEND` | `stdlib`, `loguru`, `structlog` | `stdlib` |
-| `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
-| `LOG_FORMAT` | `AUTO`, `JSON`, `LOGFMT`, `TEXT`, `PRETTY` | `AUTO` |
-| `LOG_TIMEZONE` | IANA timezone (e.g., `UTC`, `Europe/Zurich`) | `UTC` |
-| `LOG_JSON_SERIALIZER` | `stdlib`, `orjson` | `stdlib` |
-| `LOG_CALLER_ENABLED` | `true`, `false` | `false` |
-| `LOG_OTEL_ENABLED` | `true`, `false` | auto-detected |
+| `GREL_LOG_BACKEND` | `stdlib`, `loguru`, `structlog` | `stdlib` |
+| `GREL_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
+| `GREL_LOG_FORMAT` | `AUTO`, `JSON`, `LOGFMT`, `TEXT`, `PRETTY` | `AUTO` |
+| `GREL_LOG_TIMEZONE` | IANA timezone (e.g., `UTC`, `Europe/Zurich`) | `UTC` |
+| `GREL_LOG_JSON_SERIALIZER` | `stdlib`, `orjson` | `stdlib` |
+| `GREL_LOG_CALLER_ENABLED` | `true`, `false` | `false` |
+| `GREL_LOG_OTEL_ENABLED` | `true`, `false` | auto-detected |
 | `NO_COLOR` | any value | (unset) |
 | `FORCE_COLOR` | any value | (unset) |
 
@@ -232,10 +232,10 @@ All configuration is done via environment variables:
 
 ### Timezone
 
-The `LOG_TIMEZONE` setting controls timestamps in all formats:
+The `GREL_LOG_TIMEZONE` setting controls timestamps in all formats:
 
 ```
-LOG_TIMEZONE=Europe/Zurich
+GREL_LOG_TIMEZONE=Europe/Zurich
 ```
 
 **JSON / LOGFMT**: ISO 8601 with timezone offset
@@ -253,7 +253,7 @@ LOG_TIMEZONE=Europe/Zurich
 Extra context fields are passed as keyword arguments and appear as flat top-level fields:
 
 ```python
---8<-- "logging/structured_logging.py"
+--8<-- "log/structured_logging.py"
 ```
 
 Output:
@@ -266,7 +266,7 @@ Output:
 Exceptions are automatically captured as structured `ErrorDict`:
 
 ```python
---8<-- "logging/exception_logging.py"
+--8<-- "log/exception_logging.py"
 ```
 
 JSON output:
@@ -297,7 +297,7 @@ PRETTY output:
 When [OpenTelemetry](https://opentelemetry.io/) is installed, `trace_id` and `span_id` are automatically added to logs:
 
 ```python
---8<-- "logging/opentelemetry_example.py"
+--8<-- "log/opentelemetry_example.py"
 ```
 
 Output:
@@ -315,23 +315,23 @@ Output:
 
 Trace fields follow the OpenTelemetry standard and are placed at the JSON root level for compatibility with observability platforms (Jaeger, Zipkin, DataDog, Grafana Tempo).
 
-To disable: `LOG_OTEL_ENABLED=false`
+To disable: `GREL_LOG_OTEL_ENABLED=false`
 
 ## FastAPI Integration
 
 ```python
---8<-- "logging/fastapi.py"
+--8<-- "log/fastapi.py"
 ```
 
 !!! warning
-    Call `configure_logging` during the lifespan of the FastAPI application. The FastAPI CLI may reset the logging configuration otherwise.
+    Call `configure` during the lifespan of the FastAPI application. The FastAPI CLI may reset the logging configuration otherwise.
 
 ## Uvicorn Integration
 
 Uvicorn has its own logging system separate from your application. To get consistent output between uvicorn and your app, use the format-aware uvicorn formatters via a log config file:
 
 ```json
---8<-- "logging/uvicorn_log_config.json"
+--8<-- "log/uvicorn_log_config.json"
 ```
 
 Then start uvicorn with:
@@ -340,7 +340,7 @@ Then start uvicorn with:
 uvicorn app:app --log-config uvicorn_log_config.json
 ```
 
-`UvicornFormatter` and `UvicornAccessFormatter` read `LOG_FORMAT` at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.
+`UvicornFormatter` and `UvicornAccessFormatter` read `GREL_LOG_FORMAT` at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.
 
 `UvicornAccessFormatter` additionally parses uvicorn's access log arguments into structured fields: `client_addr`, `method`, `full_path`, `http_version`, `status_code`.
 
@@ -349,11 +349,11 @@ uvicorn app:app --log-config uvicorn_log_config.json
 You can provide a custom [loguru format template](https://loguru.readthedocs.io/en/stable/api/logger.html#message):
 
 ```
-LOG_FORMAT="{level} | {message}"
+GREL_LOG_FORMAT="{level} | {message}"
 ```
 
 ```python
---8<-- "logging/custom_format.py"
+--8<-- "log/custom_format.py"
 ```
 
 Output:
@@ -375,7 +375,7 @@ class JSONRecordDict:
     level: str             # DEBUG, INFO, WARNING, ERROR, CRITICAL
     msg: str               # Log message
     logger: str            # Logger name (e.g., "myapp.api")
-    # Optional (opt-in via LOG_CALLER_ENABLED=true)
+    # Optional (opt-in via GREL_LOG_CALLER_ENABLED=true)
     caller: str            # function:line (e.g., "handle:45")
     # Optional
     trace_id: str          # OpenTelemetry trace ID (32 hex chars)
@@ -398,7 +398,7 @@ class ErrorDict:
 
 **Field naming**: Core field names (`time`, `level`, `msg`, `logger`, `caller`, `error`) follow common structured-logging conventions. `logger` is the logger name, `caller` is the call site (`function:line`).
 
-**Caller opt-in**: `caller` is disabled by default, as in many structured-logging libraries. Enable with `LOG_CALLER_ENABLED=true`. Uvicorn formatters never include `caller` (points to uvicorn internals, not application code).
+**Caller opt-in**: `caller` is disabled by default, as in many structured-logging libraries. Enable with `GREL_LOG_CALLER_ENABLED=true`. Uvicorn formatters never include `caller` (points to uvicorn internals, not application code).
 
 **Collision protection**: Core fields cannot be overwritten by user-supplied extra context.
 
@@ -407,7 +407,7 @@ class ErrorDict:
 `DuplicateFilter` is a `logging.Filter` that silences repeated log records.
 
 ```python
---8<-- "logging/duplicate_filter.py"
+--8<-- "log/duplicate_filter.py"
 ```
 
 After **5** identical records, the filter silently drops any further occurrences. It tracks up to **100** distinct keys in an LRU cache.
@@ -428,14 +428,14 @@ logger.addFilter(DuplicateFilter(allowed_repetitions=5, ttl_seconds=300))
 State is in-process only. There is no cross-process sharing and no explicit reset API: construct a new filter if you need to wipe counters.
 
 !!! tip
-    `DuplicateFilter` attaches to any stdlib logger, so it works with every `LOG_BACKEND`. For code using `from loguru import logger` or `structlog.get_logger()` directly, use those libraries' native filtering.
+    `DuplicateFilter` attaches to any stdlib logger, so it works with every `GREL_LOG_BACKEND`. For code using `from loguru import logger` or `structlog.get_logger()` directly, use those libraries' native filtering.
 
 ## Rate-Limiting Noisy Logs
 
 `RateLimitFilter` is a `logging.Filter` that drops records when a token bucket is empty. It allows bursts: up to `capacity` records can pass through at once, and the bucket then refills at `refill_rate` records per second.
 
 ```python
---8<-- "logging/rate_limit_filter.py"
+--8<-- "log/rate_limit_filter.py"
 ```
 
 By default the filter buckets **per logger**: each logger has its own burst budget. Swap `key_mode` for different grouping:
@@ -449,7 +449,7 @@ By default the filter buckets **per logger**: each logger has its own burst budg
 | `"rendered"` | One bucket per (logger, level, `record.getMessage()`) | Distinguishes fully-rendered messages |
 
 ```python
---8<-- "logging/rate_limit_filter_global.py"
+--8<-- "log/rate_limit_filter_global.py"
 ```
 
 Pass a custom `key=` callable for any other grouping:
@@ -497,7 +497,7 @@ Benchmark results (50,000 iterations):
 | loguru | stdlib | 147,185 | 48.7% |
 
 !!! tip "Performance Recommendation"
-    For high-throughput applications, use `LOG_JSON_SERIALIZER=orjson` with `structlog` or `stdlib` backend.
+    For high-throughput applications, use `GREL_LOG_JSON_SERIALIZER=orjson` with `structlog` or `stdlib` backend.
 
 Run the benchmark:
 ```bash

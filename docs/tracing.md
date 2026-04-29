@@ -5,11 +5,11 @@ The `tracing` module provides unified instrumentation inspired by Rust's [tracin
 ## Quick Start
 
 ```python
-from grelmicro.logging import configure_logging
-from grelmicro.tracing import instrument, span, add_context
+from grelmicro.log import configure
+from grelmicro.trace import instrument, span, add_context
 import logging
 
-configure_logging()
+configure()
 logger = logging.getLogger(__name__)
 
 @instrument
@@ -94,7 +94,7 @@ When OpenTelemetry is installed, `@instrument` and `span()` also create OTel spa
 
 ```python
 # Logging only (no OTel dependency needed)
-configure_logging()
+configure()
 
 # Logging + OTel: install opentelemetry and configure your exporter separately.
 # @instrument and span() will automatically create OTel spans when opentelemetry

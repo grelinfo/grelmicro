@@ -15,12 +15,12 @@ from grelmicro._context import (
 from grelmicro._context import (
     push_context as _push_context,
 )
-from grelmicro.tracing._context import (
+from grelmicro.trace._context import (
     add_context,
     get_context,
 )
-from grelmicro.tracing._instrument import _record_exception, instrument
-from grelmicro.tracing._span import span as tracing_span
+from grelmicro.trace._instrument import _record_exception, instrument
+from grelmicro.trace._span import span as tracing_span
 
 
 class TestGetContext:
@@ -120,7 +120,7 @@ class TestAddContext:
         mock_span.is_recording.return_value = True
 
         mocker.patch(
-            "grelmicro.tracing._context._otel_trace.get_current_span",
+            "grelmicro.trace._context._otel_trace.get_current_span",
             return_value=mock_span,
         )
 
@@ -141,7 +141,7 @@ class TestAddContext:
         mock_span.is_recording.return_value = False
 
         mocker.patch(
-            "grelmicro.tracing._context._otel_trace.get_current_span",
+            "grelmicro.trace._context._otel_trace.get_current_span",
             return_value=mock_span,
         )
 
@@ -232,7 +232,7 @@ class TestExtractFieldsFallback:
     ) -> None:
         """Test _extract_fields returns {} when sig.bind raises."""
         mocker.patch(
-            "grelmicro.tracing._instrument.inspect.signature",
+            "grelmicro.trace._instrument.inspect.signature",
             return_value=MagicMock(
                 bind=MagicMock(side_effect=TypeError("bad bind"))
             ),
@@ -265,7 +265,7 @@ class TestSpanExceptionRecording:
         )
 
         mocker.patch(
-            "grelmicro.tracing._span._otel_trace.get_tracer",
+            "grelmicro.trace._span._otel_trace.get_tracer",
             return_value=mock_tracer,
         )
 
@@ -289,7 +289,7 @@ class TestInstrumentNoOtel:
         mocker: pytest_mock.MockerFixture,
     ) -> None:
         """Test sync @instrument works when tracer is None."""
-        mocker.patch("grelmicro.tracing._instrument.trace", None)
+        mocker.patch("grelmicro.trace._instrument.trace", None)
 
         @instrument
         def process(order_id: str) -> str:  # noqa: ARG001
@@ -302,7 +302,7 @@ class TestInstrumentNoOtel:
         mocker: pytest_mock.MockerFixture,
     ) -> None:
         """Test async @instrument works when tracer is None."""
-        mocker.patch("grelmicro.tracing._instrument.trace", None)
+        mocker.patch("grelmicro.trace._instrument.trace", None)
 
         @instrument
         async def async_process(order_id: str) -> str:  # noqa: ARG001

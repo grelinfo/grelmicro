@@ -52,10 +52,10 @@ def _reset_logging() -> None:
 
 
 def _reload_modules() -> types.ModuleType:
-    """Reload grelmicro.logging modules to pick up env changes."""
-    import grelmicro.logging as logging_module  # noqa: PLC0415
-    import grelmicro.logging._shared as shared_module  # noqa: PLC0415
-    import grelmicro.logging.config as config_module  # noqa: PLC0415
+    """Reload grelmicro.log modules to pick up env changes."""
+    import grelmicro.log as logging_module  # noqa: PLC0415
+    import grelmicro.log._shared as shared_module  # noqa: PLC0415
+    import grelmicro.log.config as config_module  # noqa: PLC0415
 
     importlib.reload(config_module)
     importlib.reload(shared_module)
@@ -93,7 +93,7 @@ def _run_benchmark(backend: str, serializer: str, iterations: int) -> float:
     sys.stdout = null_sink  # type: ignore[assignment,misc]
 
     try:
-        grelmicro_logging.configure_logging()
+        grelmicro_logging.configure()
         log = _get_logger(backend)
 
         # Warmup

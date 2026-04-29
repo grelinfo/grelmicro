@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from grelmicro.logging import configure_logging
+from grelmicro.log import configure
 from grelmicro.resilience import CircuitBreaker
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncBackend
@@ -21,7 +21,7 @@ task.add_task(leader_election)
 # === FastAPI ===
 @asynccontextmanager
 async def lifespan(app):
-    configure_logging()
+    configure()
     async with sync_backend, task:
         yield
 

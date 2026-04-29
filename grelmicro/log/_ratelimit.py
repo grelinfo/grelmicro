@@ -117,14 +117,14 @@ class RateLimitFilter(Filter):
     State is kept in the current process only. It is not shared
     between processes. Create a new filter to clear all counters,
     or call
-    [`reset`][grelmicro.logging.RateLimitFilter.reset] for a
+    [`reset`][grelmicro.log.RateLimitFilter.reset] for a
     single key.
 
     Example:
     ```python
     import logging
 
-    from grelmicro.logging import RateLimitFilter
+    from grelmicro.log import RateLimitFilter
 
     logger = logging.getLogger("grelmicro.ingest")
     logger.addFilter(RateLimitFilter(capacity=10, refill_rate=1))

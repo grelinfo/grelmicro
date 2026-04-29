@@ -145,7 +145,7 @@ Use `fail_open=True` when availability matters more than strictness. On backend 
 
 ## Standalone `MemoryTokenBucket`
 
-`MemoryTokenBucket` is a **standalone, synchronous, thread-safe** in-memory token-bucket primitive. Unlike `RateLimiter`, it is not pluggable and not async. Use it when you need a raw, zero-I/O bucket on a synchronous performance-critical path. It powers [`grelmicro.logging.RateLimitFilter`][grelmicro.logging.RateLimitFilter], which is the recommended way to use it for rate-limiting log records. Call it directly for any other use case.
+`MemoryTokenBucket` is a **standalone, synchronous, thread-safe** in-memory token-bucket primitive. Unlike `RateLimiter`, it is not pluggable and not async. Use it when you need a raw, zero-I/O bucket on a synchronous performance-critical path. It powers [`grelmicro.log.RateLimitFilter`][grelmicro.log.RateLimitFilter], which is the recommended way to use it for rate-limiting log records. Call it directly for any other use case.
 
 ### Usage
 

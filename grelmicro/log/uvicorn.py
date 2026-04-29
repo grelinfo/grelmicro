@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from grelmicro.logging._shared import (
+from grelmicro.log._shared import (
     load_settings,
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
 )
-from grelmicro.logging._stdlib import _STANDARD_LOG_RECORD_ATTRS, _BaseFormatter
-from grelmicro.logging.config import LoggingFormatType
+from grelmicro.log._stdlib import _STANDARD_LOG_RECORD_ATTRS, _BaseFormatter
+from grelmicro.log.config import LoggingFormatType
 
 if TYPE_CHECKING:
     import logging
@@ -45,7 +45,7 @@ class UvicornFormatter(_UvicornBaseFormatter):
         super().__init__(
             timezone=timezone,
             caller_enabled=False,
-            otel_enabled=settings.LOG_OTEL_ENABLED,
+            otel_enabled=settings.otel_enabled,
         )
 
         match resolved_format:

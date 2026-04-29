@@ -1,6 +1,6 @@
 # Logging
 
-::: grelmicro.logging
+::: grelmicro.log
     options:
       show_submodules: true
       members:
@@ -8,13 +8,14 @@
         - DuplicateFilterConfig
         - ErrorDict
         - JSONRecordDict
+        - LoggingConfig
         - LoggingError
-        - LoggingSettingsValidationError
         - RateLimitFilter
         - RateLimitFilterConfig
-        - configure_logging
+        - configure
+        - configure_with
 
-::: grelmicro.logging.uvicorn
+::: grelmicro.log.uvicorn
     options:
       members:
         - UvicornFormatter
