@@ -327,8 +327,8 @@ Every breaking change appears under **Breaking** in
 Deprecation shims are optional on `0.x`.
 
 After `1.0.0`, standard semver applies: breaking changes only on
-`MAJOR`, and removals go through one `MINOR` with a
-`DeprecationWarning` first.
+`MAJOR`, and removals go through at least two `MINOR` releases
+with a `DeprecationWarning` first.
 
 ## Before opening a PR
 
