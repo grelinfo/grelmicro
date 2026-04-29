@@ -39,7 +39,7 @@ grelmicro gives you the building blocks every Python service needs: locks, rate 
 It is built for any Python application, from a standalone script to full **microservice patterns** and **self-contained systems**, with a strong focus on solving **distributed system** problems. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
 
 - **Micro**: one focused primitive per module. Import only what your code touches. Nothing else is loaded.
-- **Fast**: thin wrappers with low per-call overhead. Redis operations are server-side Lua scripts; in-memory paths skip I/O entirely.
+- **Fast**: small footprint by design. We keep the layers thin so your code stays quick.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any AnyIO-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
 - **Production-ready**: 100% test coverage and full type hints. Pre-1.0 API may shift on minor bumps. `1.x` will commit to standard semver.
