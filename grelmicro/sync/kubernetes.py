@@ -111,6 +111,7 @@ class KubernetesSyncBackend(SyncBackend):
         self._prefix = prefix
         self._kubeconfig = kubeconfig
         self._client: AsyncClient | None = None
+        self._auto_registered = auto_register
         if auto_register:
             sync_backend_registry.set(self)
 
@@ -152,6 +153,12 @@ class KubernetesSyncBackend(SyncBackend):
                             raise
             await self._client.close()
             self._client = None
+        if (
+            self._auto_registered
+            and sync_backend_registry.is_loaded
+            and sync_backend_registry.get() is self
+        ):
+            sync_backend_registry.reset()
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""

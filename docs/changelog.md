@@ -6,6 +6,11 @@
 
 * ✨ Redesign the `health` module around plain function checks, `@health.check("name")` decorator, binary `ok`/`error` status, and `/livez` + `/readyz` + `/healthz` endpoints with empty probe bodies and per-check caching. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
 
+### Fixed
+
+* 🐛 Auto-registered backends now clear themselves from the registry on `__aexit__`, but only when the registry slot still points to the same instance. Affected backends: `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `KubernetesSyncBackend`, `SQLiteSyncBackend`, `RedisCacheBackend`, `MemoryRateLimiterBackend`, `RedisRateLimiterBackend`. Previously a stale registry entry survived shutdown, causing later default-backend lookups to resolve a closed instance.
+* 🐛 `Lock.release` and the threaded variant now clear local ownership state only after the backend has confirmed the release. A backend error preserves the held marker so callers can retry, while a "not owned" answer from the backend clears it.
+
 ## 0.14.3 - 2026-04-22
 
 ### Docs

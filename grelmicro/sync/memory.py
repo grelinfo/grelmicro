@@ -29,6 +29,7 @@ class MemorySyncBackend(SyncBackend):
     ) -> None:
         """Initialize the lock backend."""
         self._locks: dict[str, tuple[str | None, float]] = {}
+        self._auto_registered = auto_register
         if auto_register:
             sync_backend_registry.set(self)
 
@@ -44,6 +45,12 @@ class MemorySyncBackend(SyncBackend):
     ) -> None:
         """Exit the lock backend."""
         self._locks.clear()
+        if (
+            self._auto_registered
+            and sync_backend_registry.is_loaded
+            and sync_backend_registry.get() is self
+        ):
+            sync_backend_registry.reset()
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire the lock."""

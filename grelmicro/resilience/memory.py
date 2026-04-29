@@ -208,6 +208,7 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         self._token_bucket_state: dict[str, tuple[float, float]] = {}
         self._gcra_state: dict[str, float] = {}
         self._lock = Lock()
+        self._auto_registered = auto_register
         if auto_register:
             rate_limiter_backend_registry.set(self)
 
@@ -225,6 +226,12 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         with self._lock:
             self._token_bucket_state.clear()
             self._gcra_state.clear()
+        if (
+            self._auto_registered
+            and rate_limiter_backend_registry.is_loaded
+            and rate_limiter_backend_registry.get() is self
+        ):
+            rate_limiter_backend_registry.reset()
 
     def bind(self, algorithm: Algorithm) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm.

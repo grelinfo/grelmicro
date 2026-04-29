@@ -114,6 +114,7 @@ class SQLiteSyncBackend(SyncBackend):
         self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
         self._conn: aiosqlite.Connection | None = None
+        self._auto_registered = auto_register
         if auto_register:
             sync_backend_registry.set(self)
 
@@ -145,6 +146,12 @@ class SQLiteSyncBackend(SyncBackend):
             await self._conn.commit()
             await self._conn.close()
             self._conn = None
+        if (
+            self._auto_registered
+            and sync_backend_registry.is_loaded
+            and sync_backend_registry.get() is self
+        ):
+            sync_backend_registry.reset()
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""
