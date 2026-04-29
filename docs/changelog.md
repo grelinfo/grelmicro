@@ -19,6 +19,10 @@
 * ♻️ Add `grelmicro/_types.py` for shared lightweight type aliases (`LogLevel`). PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 * ♻️ Add `grelmicro/_config.py::parse_csv_or_json` shared utility for env var list parsing. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 
+### Docs
+
+* 🎨 Switch logo typeface from Funnel Sans to Funnel Display.
+
 ## 0.16.1 - 2026-04-29
 
 ### Internal
