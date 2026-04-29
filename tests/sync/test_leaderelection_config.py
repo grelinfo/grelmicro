@@ -23,7 +23,7 @@ def backend() -> SyncBackend:
 
 def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
     """`LeaderElection("svc")` performs zero registry calls at construction."""
-    spy = mocker.spy(LeaderElection, "_resolve_backend")
+    spy = mocker.patch("grelmicro.sync.leaderelection.get_sync_backend")
     LeaderElection("svc")
     assert spy.call_count == 0
 

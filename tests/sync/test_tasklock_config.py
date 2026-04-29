@@ -23,7 +23,7 @@ def backend() -> SyncBackend:
 
 def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
     """`TaskLock("cart")` performs zero registry calls at construction."""
-    spy = mocker.spy(TaskLock, "_resolve_backend")
+    spy = mocker.patch("grelmicro.sync.tasklock.get_sync_backend")
     TaskLock("cart")
     assert spy.call_count == 0
 

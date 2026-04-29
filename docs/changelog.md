@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-04-29
+
 ### Breaking
 
 * 💥 `LockConfig`, `TaskLockConfig`, `LeaderElectionConfig`, and `RateLimiterConfig` no longer carry a `name` field. Pass the name positionally: `Lock("cart", LockConfig(lease_duration=30))`. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
