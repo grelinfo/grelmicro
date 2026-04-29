@@ -56,9 +56,19 @@ Mechanical application of the Lock pattern.
 Each ships in its own PR with the same acceptance checks as Lock.
 
 ### Step 4, single-instance components
-- `RateLimitFilter` has no name in its constructor today. Either treat `capacity`/`key_mode` as the config and use prefix `GREL_RATE_LIMIT_FILTER_`, or introduce an optional name for parity with the other filters. Pick during the PR.
-- `DuplicateFilter` follows the same pattern as `RateLimitFilter` with prefix `GREL_DUPLICATE_FILTER_`.
-- `HealthRegistry` uses prefix `GREL_HEALTH_`.
+- `RateLimitFilter` has no name. Treat `capacity`/`key_mode` as the config under prefix `GREL_RATE_LIMIT_FILTER_`. Done.
+- `DuplicateFilter` follows the same pattern under `GREL_DUPLICATE_FILTER_`. Done.
+- `HealthRegistry` uses prefix `GREL_HEALTH_`. Done.
+
+### Step 4b, CircuitBreaker (deferred)
+`CircuitBreaker` is scalar-shape and would normally fit step 4, but its existing public API exposes `cb.error_threshold`, `cb.success_threshold`, `cb.reset_timeout`, `cb.half_open_capacity`, and `cb.log_level` as **mutable** attributes. The current test suite mid-execution mutates these to drive specific scenarios. Migrating to a frozen `CircuitBreakerConfig` is therefore a breaking change for both tests and downstream callers.
+
+The migration ships in its own PR. Two paths are open:
+
+1. Break the mutable-attribute API. Tests refactor to re-construct a new `CircuitBreaker` per scenario, downstream users follow the same pattern.
+2. Land `reconfigure()` first, then migrate CircuitBreaker on top of it so mutation becomes `cb.reconfigure(cb.config.model_copy(update={...}))` everywhere.
+
+Pick during that PR.
 
 ### Step 5, logging realignment
 Split `LoggingSettings` into `LoggingConfig(BaseModel)` (canonical, lowercase fields, no env) and keep `LoggingSettings(LoggingConfig, BaseSettings)` as the opt-in convenience with `env_prefix="GREL_LOG_"`. Field names move from `LOG_BACKEND`/`LOG_LEVEL` uppercase to lowercase `backend`/`level`. Env vars move from `LOG_*` to `GREL_LOG_*` to align with the rest of the library.
