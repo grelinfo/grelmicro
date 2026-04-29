@@ -58,6 +58,7 @@ class RedisCacheBackend:
             url, CacheSettingsValidationError
         )
         self._prefix = prefix
+        self._auto_registered = auto_register
         if auto_register:
             cache_backend_registry.set(self)
 
@@ -73,6 +74,12 @@ class RedisCacheBackend:
     ) -> None:
         """Close the cache connection."""
         await self._redis.aclose()
+        if (
+            self._auto_registered
+            and cache_backend_registry.is_loaded
+            and cache_backend_registry.get() is self
+        ):
+            cache_backend_registry.reset()
 
     async def get(self, *, key: str) -> bytes | None:
         """Get raw bytes by key.

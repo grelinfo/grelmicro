@@ -209,9 +209,14 @@ class Lock(BaseLock):
             LockReleaseError: If the lock cannot be released due to an error on the backend.
 
         """
-        self._held_by_tasks.discard(get_current_task().id)
         token = generate_task_token(self._config.worker)
-        if not await self.do_release(token):
+        # Local ownership is cleared only after the backend has
+        # responded. A backend error keeps the marker so the caller
+        # can retry release; a "not owned" answer still clears it
+        # because the distributed truth is authoritative.
+        released = await self.do_release(token)
+        self._held_by_tasks.discard(get_current_task().id)
+        if not released:
             raise LockNotOwnedError(name=self._config.name)
 
     async def locked(self) -> bool:
@@ -335,9 +340,13 @@ class Lock(BaseLock):
             LockNotOwnedError: If the lock is not owned by the current token.
             LockReleaseError: If the lock cannot be released due to an error on the backend.
         """
-        self._held_by_threads.discard(thread_id)
         token = self._thread_token(thread_id)
-        if not await self.do_release(token):
+        # Local ownership is cleared only after the backend has
+        # responded. A backend error keeps the marker so the caller
+        # can retry release.
+        released = await self.do_release(token)
+        self._held_by_threads.discard(thread_id)
+        if not released:
             raise LockNotOwnedError(name=self._config.name)
 
 
