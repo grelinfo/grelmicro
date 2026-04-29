@@ -35,6 +35,7 @@ def test_resilience_module_exports() -> None:
     """Test resilience module __all__ contains expected symbols."""
     expected = {
         "CircuitBreaker",
+        "CircuitBreakerConfig",
         "CircuitBreakerError",
         "CircuitBreakerMetrics",
         "CircuitBreakerState",

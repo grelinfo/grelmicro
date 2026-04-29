@@ -40,3 +40,43 @@ stateDiagram-v2
     The Circuit Breaker is not thread-safe. Decorated sync functions or `from_thread` methods ensure state changes run safely within the async event loop. Threaded usage is supported only in AnyIO worker threads and may be slower than pure async usage.
 
 See the [API reference](../reference/resilience.md#grelmicro.resilience.CircuitBreaker) for every option.
+
+## Configuration
+
+`CircuitBreaker` follows the three-paths configuration contract.
+
+### Programmatic
+
+```python
+--8<-- "resilience/circuitbreaker_programmatic.py"
+```
+
+### Declarative
+
+```python
+--8<-- "resilience/circuitbreaker_declarative.py"
+```
+
+### Environmental
+
+Prefix: `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_`
+
+| Env var                                                  | Config field         | Type                | Default      |
+|----------------------------------------------------------|----------------------|---------------------|--------------|
+| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD`      | `error_threshold`    | `int` (> 0)         | `5`          |
+| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_SUCCESS_THRESHOLD`    | `success_threshold`  | `int` (> 0)         | `2`          |
+| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_RESET_TIMEOUT`        | `reset_timeout`      | `float` (> 0)       | `30.0`       |
+| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_HALF_OPEN_CAPACITY`   | `half_open_capacity` | `int` (> 0)         | `1`          |
+| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_LOG_LEVEL`            | `log_level`          | `str`               | `"WARNING"`  |
+| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_IGNORE_EXCEPTIONS`    | `ignore_exceptions`  | CSV or JSON list of FQN strings (e.g. `builtins.ValueError,my_app.errors.PaymentError` or `'["builtins.ValueError"]'`) | `[]`         |
+
+Concrete example for `CircuitBreaker("payments")`:
+
+```bash
+GREL_CIRCUIT_BREAKER_PAYMENTS_ERROR_THRESHOLD=10
+GREL_CIRCUIT_BREAKER_PAYMENTS_RESET_TIMEOUT=60
+```
+
+```python
+--8<-- "resilience/circuitbreaker_environmental.py"
+```

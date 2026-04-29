@@ -64,10 +64,22 @@ async def transition(cb: CircuitBreaker, state: CircuitBreakerState) -> None:
 
 async def create_circuit(
     state: CircuitBreakerState,
+    *,
     ignore_exceptions: type[Exception] | tuple[type[Exception], ...] = (),
+    error_threshold: int | None = None,
+    success_threshold: int | None = None,
+    reset_timeout: float | None = None,
+    half_open_capacity: int | None = None,
 ) -> CircuitBreaker:
     """Create a circuit breaker in the specified state."""
-    cb = CircuitBreaker("test", ignore_exceptions=ignore_exceptions)
+    cb = CircuitBreaker(
+        "test",
+        ignore_exceptions=ignore_exceptions,
+        error_threshold=error_threshold,
+        success_threshold=success_threshold,
+        reset_timeout=reset_timeout,
+        half_open_capacity=half_open_capacity,
+    )
     await transition(cb, state)
     return cb
 
@@ -103,8 +115,11 @@ async def circuit_call_not_permitted(
     request: pytest.FixtureRequest,
 ) -> CircuitBreaker:
     """Fixture for circuit breakers that do not permit calls."""
-    cb = await create_circuit(request.param)
-    cb.half_open_capacity = 0  # Ensure no calls are permitted
+    # `half_open_capacity=1` is the minimum. For HALF_OPEN, we saturate
+    # the slot below so any further call is rejected.
+    cb = await create_circuit(request.param, half_open_capacity=1)
+    if request.param == CircuitBreakerState.HALF_OPEN:
+        await cb._try_acquire_call()
     return cb
 
 
@@ -119,10 +134,11 @@ async def circuit_call_permitted(
     request: pytest.FixtureRequest,
 ) -> CircuitBreaker:
     """Fixture for circuit breakers that permit calls."""
-    cb = await create_circuit(request.param)
-    cb.error_threshold = sys.maxsize
-    cb.success_threshold = sys.maxsize
-    return cb
+    return await create_circuit(
+        request.param,
+        error_threshold=sys.maxsize,
+        success_threshold=sys.maxsize,
+    )
 
 
 def test_circuit_init() -> None:
@@ -365,9 +381,10 @@ async def test_circuit_transition_to_half_open_after_timeout(
 ) -> None:
     """Test circuit breaker transitions to half-open after reset timeout."""
     # Arrange
-    cb = await create_circuit(CircuitBreakerState.OPEN)
-    cb.success_threshold = 2  # Ensure it doesn't close immediately
-    frozen_time.tick(timedelta(seconds=cb.reset_timeout))
+    cb = await create_circuit(
+        CircuitBreakerState.OPEN, success_threshold=2
+    )  # Ensure it doesn't close immediately
+    frozen_time.tick(timedelta(seconds=cb.config.reset_timeout))
 
     # Act
     await generate_success(cb)
@@ -382,10 +399,11 @@ async def test_circuit_not_transition_to_half_open_before_timeout(
 ) -> None:
     """Test circuit breaker does not transition to half-open before reset timeout."""
     # Arrange
-    cb = await create_circuit(CircuitBreakerState.OPEN)
-    cb.reset_timeout = reset_timeout
+    cb = await create_circuit(
+        CircuitBreakerState.OPEN, reset_timeout=reset_timeout
+    )
     frozen_time.tick(
-        timedelta(seconds=cb.reset_timeout) - timedelta(milliseconds=1)
+        timedelta(seconds=cb.config.reset_timeout) - timedelta(milliseconds=1)
     )  # Ensure not enough time has passed
 
     # Act & Assert
@@ -398,8 +416,11 @@ async def test_circuit_not_transition_to_half_open_before_timeout(
 async def test_circuit_transition_to_closed(success_count: int) -> None:
     """Test circuit breaker closes after success threshold in half-open."""
     # Arrange
-    cb = await create_circuit(CircuitBreakerState.HALF_OPEN)
-    cb.success_threshold = success_count
+    cb = await create_circuit(
+        CircuitBreakerState.HALF_OPEN,
+        success_threshold=success_count,
+        half_open_capacity=success_count,
+    )
 
     # Act & Assert
     for _ in range(success_count):
@@ -414,8 +435,11 @@ async def test_circuit_transition_from_half_open_to_open(
 ) -> None:
     """Test circuit breaker transitions to open after errors in half-open."""
     # Arrange
-    cb = await create_circuit(CircuitBreakerState.HALF_OPEN)
-    cb.error_threshold = error_count
+    cb = await create_circuit(
+        CircuitBreakerState.HALF_OPEN,
+        error_threshold=error_count,
+        half_open_capacity=error_count,
+    )
 
     # Act & Assert
     for _ in range(error_count):
@@ -447,8 +471,11 @@ async def test_circuit_with_ignore_exceptions(
 ) -> None:
     """Test circuit breaker transitions to closed state when ignoring errors."""
     # Arrange
-    cb = await create_circuit(state, ignore_exceptions=ignore_exceptions)
-    cb.success_threshold = 1  # Avoid immediate closure
+    cb = await create_circuit(
+        state,
+        ignore_exceptions=ignore_exceptions,
+        success_threshold=1,
+    )  # success_threshold=1 avoids immediate closure
 
     # Act & Assert
     with pytest.raises(error):
@@ -479,8 +506,11 @@ async def test_circuit_from_thread_with_ignore_exceptions(
 ) -> None:
     """Test from_thread protect ignores specified error in various states."""
     # Arrange
-    cb = await create_circuit(state, ignore_exceptions=ignore_exceptions)
-    cb.success_threshold = 1  # Avoid immediate closure
+    cb = await create_circuit(
+        state,
+        ignore_exceptions=ignore_exceptions,
+        success_threshold=1,
+    )  # success_threshold=1 avoids immediate closure
 
     def sync() -> None:
         with cb.from_thread:
@@ -597,8 +627,11 @@ async def test_circuit_metrics_counters_with_ignore_exceptions(
 ) -> None:
     """Test metrics when errors are ignored."""
     # Arrange
-    cb = await create_circuit(state, ignore_exceptions=SentinelError)
-    cb.success_threshold = success_count + 1  # Avoid immediate closure
+    cb = await create_circuit(
+        state,
+        ignore_exceptions=SentinelError,
+        success_threshold=success_count + 1,
+    )  # success_threshold=count+1 avoids immediate closure
     for _ in range(success_count):
         with suppress(SentinelError):
             async with cb:
@@ -624,18 +657,31 @@ async def test_circuit_metrics_counters_with_ignore_exceptions(
     "call_count",
     [0, 1, 3, 5],
 )
+@pytest.mark.parametrize(
+    "state",
+    [
+        CircuitBreakerState.CLOSED,
+        CircuitBreakerState.HALF_OPEN,
+        CircuitBreakerState.FORCED_CLOSED,
+    ],
+)
 async def test_circuit_metrics_active_calls(
-    circuit_call_permitted: CircuitBreaker, call_count: int
+    state: CircuitBreakerState, call_count: int
 ) -> None:
     """Active call count is correct for each state."""
     # Arrange
-    circuit_call_permitted.half_open_capacity = call_count + 1
+    cb = await create_circuit(
+        state,
+        error_threshold=sys.maxsize,
+        success_threshold=sys.maxsize,
+        half_open_capacity=call_count + 1,
+    )
 
     # Act
     async with AsyncExitStack() as stack:
         for _ in range(call_count):
-            await stack.enter_async_context(circuit_call_permitted)
-        metrics = circuit_call_permitted.metrics()
+            await stack.enter_async_context(cb)
+        metrics = cb.metrics()
 
     # Assert
     assert metrics.active_calls == call_count
@@ -653,10 +699,17 @@ async def test_circuit_metrics_with_call_not_permitted(
     metrics = circuit_call_not_permitted.metrics()
 
     # Assert
+    # HALF_OPEN's slot is saturated by the fixture to make the call
+    # not permitted, so active_calls reflects the saturating call.
+    expected_active = (
+        1
+        if circuit_call_not_permitted.state == CircuitBreakerState.HALF_OPEN
+        else 0
+    )
     assert metrics == CircuitBreakerMetrics(
         name=circuit_call_not_permitted.name,
         state=circuit_call_not_permitted.state,
-        active_calls=0,
+        active_calls=expected_active,
         total_error_count=0,
         total_success_count=0,
         consecutive_error_count=0,
@@ -763,12 +816,9 @@ async def test_circuit_from_thread_state_transition(
 def test_circuitbreaker_log_level(
     level: Literal["WARNING", "DEBUG", "INFO", "ERROR", "CRITICAL"],
 ) -> None:
-    """Test log_level property getter and setter."""
-    # Arrange
-    cb = CircuitBreaker("test")
-
+    """`log_level` is read from the frozen config."""
     # Act
-    cb.log_level = level
+    cb = CircuitBreaker("test", log_level=level)
 
     # Assert
-    assert cb.log_level == level
+    assert cb.config.log_level == level

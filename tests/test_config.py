@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ConfigDict, PositiveFloat, ValidationError
 
-from grelmicro._config import env_segment, resolve_config
+from grelmicro._config import env_segment, parse_csv_or_json, resolve_config
 
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_RETRIES = 3
@@ -246,3 +246,27 @@ def test_env_segment_rejects_leading_digit(bad: str) -> None:
     """A name producing an env segment starting with a digit raises."""
     with pytest.raises(ValueError, match="starts with a digit"):
         env_segment(bad)
+
+
+# --- parse_csv_or_json ---
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("a,b,c", ["a", "b", "c"]),
+        (" a , b , c ", ["a", "b", "c"]),
+        ("a", ["a"]),
+        (",a,,b,", ["a", "b"]),
+        ('["a","b"]', ["a", "b"]),
+        ("[1, 2]", [1, 2]),
+        ("", []),
+        (["a", "b"], ["a", "b"]),
+        (("a", "b"), ("a", "b")),
+        (None, None),
+        (42, 42),
+    ],
+)
+def test_parse_csv_or_json(value: object, expected: object) -> None:
+    """CSV strings split on commas, JSON arrays parse, others pass through."""
+    assert parse_csv_or_json(value) == expected

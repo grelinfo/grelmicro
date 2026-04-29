@@ -12,18 +12,28 @@ from types import TracebackType
 from typing import (
     Annotated,
     Any,
-    Literal,
     Self,
 )
 
 from anyio import from_thread
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ImportString,
+    PositiveFloat,
+    PositiveInt,
+    field_validator,
+)
+from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
+from grelmicro._config import env_segment, parse_csv_or_json, resolve_config
+from grelmicro._types import LogLevel
 from grelmicro.resilience.errors import CircuitBreakerError
 
 __all__ = [
     "CircuitBreaker",
+    "CircuitBreakerConfig",
     "CircuitBreakerError",
     "CircuitBreakerMetrics",
     "CircuitBreakerState",
@@ -95,6 +105,60 @@ class CircuitBreakerMetrics(BaseModel, frozen=True, extra="forbid"):
     last_error: ErrorDetails | None
 
 
+class CircuitBreakerConfig(BaseModel, frozen=True, extra="forbid"):
+    """Circuit Breaker Config."""
+
+    ignore_exceptions: Annotated[
+        tuple[ImportString[type[Exception]], ...],
+        NoDecode,
+        BeforeValidator(parse_csv_or_json),
+        Doc(
+            """
+            Exceptions ignored by the breaker.
+
+            Errors of these types do not count toward `error_threshold`.
+            Accepts a single exception class, a tuple, or fully-qualified
+            import strings such as `"builtins.ValueError"` or
+            `"my_app.errors.PaymentError"` for YAML and env loading.
+
+            Env vars accept comma-separated values or JSON arrays.
+            """
+        ),
+    ] = ()
+    error_threshold: Annotated[
+        PositiveInt,
+        Doc("Consecutive errors before the breaker opens."),
+    ] = 5
+    success_threshold: Annotated[
+        PositiveInt,
+        Doc(
+            "Consecutive successes in `HALF_OPEN` state before the breaker closes."
+        ),
+    ] = 2
+    reset_timeout: Annotated[
+        PositiveFloat,
+        Doc(
+            "Seconds the breaker stays `OPEN` before transitioning to `HALF_OPEN`."
+        ),
+    ] = 30.0
+    half_open_capacity: Annotated[
+        PositiveInt,
+        Doc("Maximum concurrent calls allowed in the `HALF_OPEN` state."),
+    ] = 1
+    log_level: Annotated[
+        LogLevel,
+        Doc("Logging level for state-change messages."),
+    ] = "WARNING"
+
+    @field_validator("ignore_exceptions", mode="before")
+    @classmethod
+    def _wrap_single(cls, value: Any) -> Any:  # noqa: ANN401
+        """Wrap a single class into a one-tuple."""
+        if isinstance(value, type):
+            return (value,)
+        return value
+
+
 class CircuitBreaker:
     """Circuit Breaker.
 
@@ -110,67 +174,149 @@ class CircuitBreaker:
             Doc(
                 """
                 Name of the circuit breaker instance.
+
+                Acts as the instance identity. Used as the env var
+                prefix and exposed via the `name` property.
                 """
             ),
         ],
         *,
         ignore_exceptions: Annotated[
-            type[Exception] | tuple[type[Exception], ...],
+            type[Exception] | str | tuple[type[Exception] | str, ...] | None,
             Doc(
                 """
-                Exceptions that are ignored and do not count as errors.
+                Exceptions ignored by the breaker.
+
+                Errors of these types do not count toward `error_threshold`.
+                Accepts a single exception class, a tuple, or fully-qualified
+                import strings such as `"builtins.ValueError"` or
+                `"my_app.errors.PaymentError"`. When unset, resolves from the
+                env path or falls back to the `CircuitBreakerConfig` default
+                (empty tuple).
                 """
             ),
-        ] = (),
+        ] = None,
         error_threshold: Annotated[
-            int,
+            PositiveInt | None,
             Doc(
                 """
-                Number of consecutive errors before opening the circuit.
+                Consecutive errors before the breaker opens.
+
+                Default: 5. When unset, resolves from
+                `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD` if
+                present, otherwise falls back to the
+                `CircuitBreakerConfig` default.
                 """
             ),
-        ] = 5,
+        ] = None,
         success_threshold: Annotated[
-            int,
+            PositiveInt | None,
             Doc(
                 """
-                Number of consecutive successes in HALF_OPEN state before closing the circuit.
+                Consecutive successes in `HALF_OPEN` state before the breaker closes.
+
+                Default: 2.
                 """
             ),
-        ] = 2,
+        ] = None,
         reset_timeout: Annotated[
-            float,
+            PositiveFloat | None,
             Doc(
                 """
-                Seconds the circuit stays OPEN before transitioning to HALF_OPEN.
+                Seconds the breaker stays `OPEN` before transitioning to `HALF_OPEN`.
+
+                Default: 30.0.
                 """
             ),
-        ] = 30,
+        ] = None,
         half_open_capacity: Annotated[
-            int,
+            PositiveInt | None,
             Doc(
                 """
-                Maximum number of concurrent calls allowed in the HALF_OPEN state.
+                Maximum concurrent calls allowed in the `HALF_OPEN` state.
+
+                Default: 1.
                 """
             ),
-        ] = 1,
+        ] = None,
         log_level: Annotated[
-            Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            LogLevel | None,
             Doc(
                 """
-                Logging level for the circuit breaker. Defaults to INFO.
+                Logging level for state-change messages.
+
+                Default: `WARNING`.
                 """
             ),
-        ] = "WARNING",
+        ] = None,
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                """
+                Override the auto-derived environment variable prefix.
+
+                Default: `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_`.
+                """
+            ),
+        ] = None,
+        read_env: Annotated[
+            bool,
+            Doc(
+                """
+                Whether to read environment variables.
+
+                Default: True.
+                """
+            ),
+        ] = True,
     ) -> None:
         """Initialize the circuit breaker."""
-        self.error_threshold = error_threshold
-        self.success_threshold = success_threshold
-        self.reset_timeout = reset_timeout
-        self.half_open_capacity = half_open_capacity
-        self.ignore_exceptions = ignore_exceptions
+        config = resolve_config(
+            CircuitBreakerConfig,
+            explicit=None,
+            kwargs={
+                "ignore_exceptions": ignore_exceptions,
+                "error_threshold": error_threshold,
+                "success_threshold": success_threshold,
+                "reset_timeout": reset_timeout,
+                "half_open_capacity": half_open_capacity,
+                "log_level": log_level,
+            },
+            env_prefix=env_prefix
+            or f"GREL_CIRCUIT_BREAKER_{env_segment(name)}_",
+            read_env=read_env,
+        )
+        self._setup(name, config)
 
+    @classmethod
+    def from_config(
+        cls,
+        name: Annotated[
+            str,
+            Doc("Name of the circuit breaker instance."),
+        ],
+        config: Annotated[
+            CircuitBreakerConfig,
+            Doc(
+                """
+                The pre-built circuit breaker configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree. The environment path is
+                bypassed and the config is used as-is.
+                """
+            ),
+        ],
+    ) -> Self:
+        """Construct a `CircuitBreaker` from a name and a pre-built `CircuitBreakerConfig`."""
+        instance = cls.__new__(cls)
+        instance._setup(name, config)  # noqa: SLF001
+        return instance
+
+    def _setup(self, name: str, config: CircuitBreakerConfig) -> None:
+        """Wire the validated config and runtime deps onto the instance."""
         self._name = name
+        self._config = config
         self._state = CircuitBreakerState.CLOSED
         self._consecutive_error_count = 0
         self._consecutive_success_count = 0
@@ -181,7 +327,7 @@ class CircuitBreaker:
         self._open_until_time = 0.0
         self._active_call_count = 0
         self._logger = getLogger(f"grelmicro.circuitbreaker.{name}")
-        self._logger.setLevel(log_level)
+        self._logger.setLevel(config.log_level)
         self._from_thread: _ThreadAdapter | None = None
 
     def __call__(
@@ -226,7 +372,7 @@ class CircuitBreaker:
         """Exit the context manager."""
         await self._release_call()
 
-        if not exc_type or issubclass(exc_type, self.ignore_exceptions):
+        if not exc_type or issubclass(exc_type, self._config.ignore_exceptions):
             await self._on_success()
 
         elif isinstance(exc_value, Exception):
@@ -262,16 +408,9 @@ class CircuitBreaker:
         return self._last_error_time
 
     @property
-    def log_level(self) -> str:
-        """Return the logging level of the circuit breaker."""
-        return logging.getLevelName(self._logger.level)
-
-    @log_level.setter
-    def log_level(
-        self, level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    ) -> None:
-        """Set the logging level of the circuit breaker."""
-        self._logger.setLevel(level)
+    def config(self) -> CircuitBreakerConfig:
+        """Return the circuit breaker configuration."""
+        return self._config
 
     def metrics(self) -> CircuitBreakerMetrics:
         """Return current metrics for this circuit breaker."""
@@ -340,7 +479,7 @@ class CircuitBreaker:
 
         self._open_until_time = (
             monotonic()
-            + (self.reset_timeout if open_until is None else open_until)
+            + (self._config.reset_timeout if open_until is None else open_until)
             if state == CircuitBreakerState.OPEN
             else 0
         )
@@ -374,7 +513,7 @@ class CircuitBreaker:
 
         if (
             self._state == CircuitBreakerState.HALF_OPEN
-            and self._active_call_count < self.half_open_capacity
+            and self._active_call_count < self._config.half_open_capacity
         ):
             self._active_call_count += 1
             return True
@@ -395,7 +534,7 @@ class CircuitBreaker:
 
         if (
             self._state != CircuitBreakerState.OPEN
-            and self._consecutive_error_count >= self.error_threshold
+            and self._consecutive_error_count >= self._config.error_threshold
         ):
             self._do_transition_to_state(
                 CircuitBreakerState.OPEN, _TransitionCause.ERROR_THRESHOLD
@@ -409,7 +548,8 @@ class CircuitBreaker:
 
         if (
             self._state == CircuitBreakerState.HALF_OPEN
-            and self._consecutive_success_count >= self.success_threshold
+            and self._consecutive_success_count
+            >= self._config.success_threshold
         ):
             self._do_transition_to_state(
                 CircuitBreakerState.CLOSED, _TransitionCause.SUCCESS_THRESHOLD
@@ -453,7 +593,10 @@ class _ThreadAdapter:
         """Exit the context manager, releasing the circuit breaker lock."""
         from_thread.run(self._cb._release_call)  # noqa: SLF001
 
-        if not exc_type or issubclass(exc_type, self._cb.ignore_exceptions):
+        if not exc_type or issubclass(
+            exc_type,
+            self._cb._config.ignore_exceptions,  # noqa: SLF001
+        ):
             from_thread.run(self._cb._on_success)  # noqa: SLF001
 
         elif isinstance(exc_value, Exception):
