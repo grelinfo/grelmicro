@@ -1,8 +1,13 @@
-"""Configuration resolution for grelmicro components.
+"""Configuration helpers for grelmicro components.
 
-Exposes `resolve_config`, a helper that builds a validated Pydantic
-config from either a pre-built instance or kwargs merged with
-environment variables.
+Exposes:
+
+- `resolve_config`: build a validated Pydantic config from a pre-built
+  instance or from kwargs merged with environment variables.
+- `env_segment`: normalise an instance name into a POSIX env var
+  segment.
+- `parse_csv_or_json`: coerce an env var string into a list, accepting
+  comma-separated or JSON-array form.
 
 The full contract, including the precedence rules and the
 name-as-namespace convention, is documented in
@@ -12,10 +17,12 @@ name-as-namespace convention, is documented in
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from grelmicro._json import json_loads
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -24,6 +31,21 @@ C = TypeVar("C", bound=BaseModel)
 
 _NON_ENV_CHARS = re.compile(r"[^A-Z0-9_]+")
 _REPEATED_UNDERSCORES = re.compile(r"_+")
+
+
+def parse_csv_or_json(value: Any) -> Any:  # noqa: ANN401
+    """Coerce a string into a list, accepting CSV or JSON-array form.
+
+    Pass-through for any non-string value. Strings starting with `[`
+    are parsed as JSON arrays. Otherwise the string is split on commas
+    and each item is stripped. Empty items are dropped.
+    """
+    if isinstance(value, str):
+        s = value.strip()
+        if s.startswith("["):
+            return json_loads(s)
+        return [item.strip() for item in s.split(",") if item.strip()]
+    return value
 
 
 def env_segment(name: str) -> str:
