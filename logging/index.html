@@ -1981,11 +1981,11 @@
 <p>The <code>logging</code> package provides a simple, zero-config logging system following the <strong>12-factor app</strong> methodology.</p>
 <p>Logs go to stdout. Format is selected automatically. Configuration is done via environment variables.</p>
 <h2 id="quick-start">Quick Start</h2>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 </code></pre></div>
-<p>With no environment variables set, <code>configure_logging()</code> detects your terminal:</p>
+<p>With no environment variables set, <code>configure()</code> detects your terminal:</p>
 <ul>
 <li><strong>Terminal (TTY)</strong>: human-readable colored text</li>
 <li><strong>Piped / CI / container</strong>: structured JSON</li>
@@ -2042,20 +2042,20 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 </div>
 </div>
 <h3 id="usage">Usage</h3>
-<p>Select the backend with the <code>LOG_BACKEND</code> environment variable, then use the corresponding logger:</p>
+<p>Select the backend with the <code>GREL_LOG_BACKEND</code> environment variable, then use the corresponding logger:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Loguru</label><label for="__tabbed_2_2">structlog</label><label for="__tabbed_2_3">stdlib</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">structlog</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 <span class="n">log</span> <span class="o">=</span> <span class="n">structlog</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
 <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
 </code></pre></div>
@@ -2063,7 +2063,7 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="mi">123</span><span class="p">})</span>
 </code></pre></div>
@@ -2140,13 +2140,13 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
 <span class="c1"># AUTO is the default: TEXT in terminal, JSON when piped.</span>
 <span class="c1"># No LOG_FORMAT env var needed.</span>
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -2158,22 +2158,22 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 </code></pre></div></p>
 <div class="admonition tip">
 <p class="admonition-title">Zero Config</p>
-<p><code>AUTO</code> is the default. Most users never need to set <code>LOG_FORMAT</code>.</p>
+<p><code>AUTO</code> is the default. Most users never need to set <code>GREL_LOG_FORMAT</code>.</p>
 </div>
 <h3 id="json">JSON</h3>
 <p>Structured newline-delimited JSON. Ideal for production, log aggregation (Datadog, Loki, ELK).</p>
-<div class="highlight"><pre><span></span><code>LOG_FORMAT=JSON
+<div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=JSON
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: JSON format logging with timezone.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="c1"># Ensure clean state</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">,</span> <span class="n">environment</span><span class="o">=</span><span class="s2">&quot;production&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -2182,17 +2182,17 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 </code></pre></div></p>
 <h3 id="logfmt">LOGFMT</h3>
 <p>Key-value pairs following the <a href="https://brandur.org/logfmt">logfmt</a> convention. 30-40% smaller than JSON, grep-friendly, parseable by Grafana Loki and most log tools.</p>
-<div class="highlight"><pre><span></span><code>LOG_FORMAT=LOGFMT
+<div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=LOGFMT
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: LOGFMT format logging.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Request handled&quot;</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;GET&quot;</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;/health&quot;</span><span class="p">,</span> <span class="n">status</span><span class="o">=</span><span class="mi">200</span><span class="p">)</span>
 </code></pre></div>
@@ -2204,18 +2204,18 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 </code></pre></div></p>
 <h3 id="text">TEXT</h3>
 <p>Single-line, human-readable output. Includes extra fields as <code>key=value</code> pairs. Colors are enabled when output is a TTY.</p>
-<div class="highlight"><pre><span></span><code>LOG_FORMAT=TEXT
+<div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=TEXT
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: TEXT format logging with timezone.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="c1"># Ensure clean state</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -2224,17 +2224,17 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 </code></pre></div></p>
 <h3 id="pretty">PRETTY</h3>
 <p>Multi-line format with indented fields. Best for debugging with low log volume.</p>
-<div class="highlight"><pre><span></span><code>LOG_FORMAT=PRETTY
+<div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=PRETTY
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: PRETTY format logging.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Request handled&quot;</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;GET&quot;</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;/health&quot;</span><span class="p">,</span> <span class="n">status</span><span class="o">=</span><span class="mi">200</span><span class="p">)</span>
 </code></pre></div>
@@ -2268,37 +2268,37 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 </thead>
 <tbody>
 <tr>
-<td><code>LOG_BACKEND</code></td>
+<td><code>GREL_LOG_BACKEND</code></td>
 <td><code>stdlib</code>, <code>loguru</code>, <code>structlog</code></td>
 <td><code>stdlib</code></td>
 </tr>
 <tr>
-<td><code>LOG_LEVEL</code></td>
+<td><code>GREL_LOG_LEVEL</code></td>
 <td><code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code></td>
 <td><code>INFO</code></td>
 </tr>
 <tr>
-<td><code>LOG_FORMAT</code></td>
+<td><code>GREL_LOG_FORMAT</code></td>
 <td><code>AUTO</code>, <code>JSON</code>, <code>LOGFMT</code>, <code>TEXT</code>, <code>PRETTY</code></td>
 <td><code>AUTO</code></td>
 </tr>
 <tr>
-<td><code>LOG_TIMEZONE</code></td>
+<td><code>GREL_LOG_TIMEZONE</code></td>
 <td>IANA timezone (e.g., <code>UTC</code>, <code>Europe/Zurich</code>)</td>
 <td><code>UTC</code></td>
 </tr>
 <tr>
-<td><code>LOG_JSON_SERIALIZER</code></td>
+<td><code>GREL_LOG_JSON_SERIALIZER</code></td>
 <td><code>stdlib</code>, <code>orjson</code></td>
 <td><code>stdlib</code></td>
 </tr>
 <tr>
-<td><code>LOG_CALLER_ENABLED</code></td>
+<td><code>GREL_LOG_CALLER_ENABLED</code></td>
 <td><code>true</code>, <code>false</code></td>
 <td><code>false</code></td>
 </tr>
 <tr>
-<td><code>LOG_OTEL_ENABLED</code></td>
+<td><code>GREL_LOG_OTEL_ENABLED</code></td>
 <td><code>true</code>, <code>false</code></td>
 <td>auto-detected</td>
 </tr>
@@ -2321,8 +2321,8 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <code>FORCE_COLOR</code> takes precedence over <code>NO_COLOR</code>.</p>
 </div>
 <h3 id="timezone">Timezone</h3>
-<p>The <code>LOG_TIMEZONE</code> setting controls timestamps in all formats:</p>
-<div class="highlight"><pre><span></span><code>LOG_TIMEZONE=Europe/Zurich
+<p>The <code>GREL_LOG_TIMEZONE</code> setting controls timestamps in all formats:</p>
+<div class="highlight"><pre><span></span><code>GREL_LOG_TIMEZONE=Europe/Zurich
 </code></pre></div>
 <p><strong>JSON / LOGFMT</strong>: ISO 8601 with timezone offset
 <div class="highlight"><pre><span></span><code>&quot;time&quot;:&quot;2026-04-01T15:56:36.066922+01:00&quot;
@@ -2336,12 +2336,12 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="c1"># Ensure clean state</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;User logged in&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">,</span> <span class="n">ip_address</span><span class="o">=</span><span class="s2">&quot;192.168.1.1&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -2354,12 +2354,12 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="c1"># Ensure clean state</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="mi">1</span> <span class="o">/</span> <span class="mi">0</span>  <span class="c1"># noqa: B018</span>
@@ -2395,7 +2395,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
     <span class="n">SimpleSpanProcessor</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="c1"># Set up OpenTelemetry</span>
 <span class="n">provider</span> <span class="o">=</span> <span class="n">TracerProvider</span><span class="p">()</span>
@@ -2404,7 +2404,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <span class="n">trace</span><span class="o">.</span><span class="n">set_tracer_provider</span><span class="p">(</span><span class="n">provider</span><span class="p">)</span>
 
 <span class="c1"># Configure logging (auto-detects OpenTelemetry)</span>
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="c1"># Get a tracer</span>
 <span class="n">tracer</span> <span class="o">=</span> <span class="n">trace</span><span class="o">.</span><span class="n">get_tracer</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
@@ -2430,20 +2430,20 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <span class="p">}</span>
 </code></pre></div></p>
 <p>Trace fields follow the OpenTelemetry standard and are placed at the JSON root level for compatibility with observability platforms (Jaeger, Zipkin, DataDog, Grafana Tempo).</p>
-<p>To disable: <code>LOG_OTEL_ENABLED=false</code></p>
+<p>To disable: <code>GREL_LOG_OTEL_ENABLED=false</code></p>
 <h2 id="fastapi-integration">FastAPI Integration</h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 
 <span class="nd">@asynccontextmanager</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">lifespan_startup</span><span class="p">():</span>
     <span class="c1"># Ensure logging is configured during startup</span>
-    <span class="n">configure_logging</span><span class="p">()</span>
+    <span class="n">configure</span><span class="p">()</span>
     <span class="k">yield</span>
 
 
@@ -2457,7 +2457,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>Call <code>configure_logging</code> during the lifespan of the FastAPI application. The FastAPI CLI may reset the logging configuration otherwise.</p>
+<p>Call <code>configure</code> during the lifespan of the FastAPI application. The FastAPI CLI may reset the logging configuration otherwise.</p>
 </div>
 <h2 id="uvicorn-integration">Uvicorn Integration</h2>
 <p>Uvicorn has its own logging system separate from your application. To get consistent output between uvicorn and your app, use the format-aware uvicorn formatters via a log config file:</p>
@@ -2501,22 +2501,22 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <p>Then start uvicorn with:</p>
 <div class="highlight"><pre><span></span><code>uvicorn<span class="w"> </span>app:app<span class="w"> </span>--log-config<span class="w"> </span>uvicorn_log_config.json
 </code></pre></div>
-<p><code>UvicornFormatter</code> and <code>UvicornAccessFormatter</code> read <code>LOG_FORMAT</code> at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.</p>
+<p><code>UvicornFormatter</code> and <code>UvicornAccessFormatter</code> read <code>GREL_LOG_FORMAT</code> at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.</p>
 <p><code>UvicornAccessFormatter</code> additionally parses uvicorn's access log arguments into structured fields: <code>client_addr</code>, <code>method</code>, <code>full_path</code>, <code>http_version</code>, <code>status_code</code>.</p>
 <h2 id="custom-format-loguru-only">Custom Format (Loguru only)</h2>
 <p>You can provide a custom <a href="https://loguru.readthedocs.io/en/stable/api/logger.html#message">loguru format template</a>:</p>
-<div class="highlight"><pre><span></span><code>LOG_FORMAT=&quot;{level} | {message}&quot;
+<div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=&quot;{level} | {message}&quot;
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Custom format logging.&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
 <span class="c1"># Ensure clean state</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Custom format example&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -2535,7 +2535,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
     <span class="n">level</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># DEBUG, INFO, WARNING, ERROR, CRITICAL</span>
     <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span>               <span class="c1"># Log message</span>
     <span class="n">logger</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># Logger name (e.g., &quot;myapp.api&quot;)</span>
-    <span class="c1"># Optional (opt-in via LOG_CALLER_ENABLED=true)</span>
+    <span class="c1"># Optional (opt-in via GREL_LOG_CALLER_ENABLED=true)</span>
     <span class="n">caller</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># function:line (e.g., &quot;handle:45&quot;)</span>
     <span class="c1"># Optional</span>
     <span class="n">trace_id</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># OpenTelemetry trace ID (32 hex chars)</span>
@@ -2551,13 +2551,13 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <h3 id="design-decisions">Design Decisions</h3>
 <p><strong>Level casing</strong>: UPPERCASE (<code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code>), following common structured-logging conventions.</p>
 <p><strong>Field naming</strong>: Core field names (<code>time</code>, <code>level</code>, <code>msg</code>, <code>logger</code>, <code>caller</code>, <code>error</code>) follow common structured-logging conventions. <code>logger</code> is the logger name, <code>caller</code> is the call site (<code>function:line</code>).</p>
-<p><strong>Caller opt-in</strong>: <code>caller</code> is disabled by default, as in many structured-logging libraries. Enable with <code>LOG_CALLER_ENABLED=true</code>. Uvicorn formatters never include <code>caller</code> (points to uvicorn internals, not application code).</p>
+<p><strong>Caller opt-in</strong>: <code>caller</code> is disabled by default, as in many structured-logging libraries. Enable with <code>GREL_LOG_CALLER_ENABLED=true</code>. Uvicorn formatters never include <code>caller</code> (points to uvicorn internals, not application code).</p>
 <p><strong>Collision protection</strong>: Core fields cannot be overwritten by user-supplied extra context.</p>
 <h2 id="deduplicating-noisy-logs">Deduplicating Noisy Logs</h2>
 <p><code>DuplicateFilter</code> is a <code>logging.Filter</code> that silences repeated log records.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">getLogger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">DuplicateFilter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">DuplicateFilter</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;grelmicro.health&quot;</span><span class="p">)</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">())</span>
@@ -2573,13 +2573,13 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <p>State is in-process only. There is no cross-process sharing and no explicit reset API: construct a new filter if you need to wipe counters.</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
-<p><code>DuplicateFilter</code> attaches to any stdlib logger, so it works with every <code>LOG_BACKEND</code>. For code using <code>from loguru import logger</code> or <code>structlog.get_logger()</code> directly, use those libraries' native filtering.</p>
+<p><code>DuplicateFilter</code> attaches to any stdlib logger, so it works with every <code>GREL_LOG_BACKEND</code>. For code using <code>from loguru import logger</code> or <code>structlog.get_logger()</code> directly, use those libraries' native filtering.</p>
 </div>
 <h2 id="rate-limiting-noisy-logs">Rate-Limiting Noisy Logs</h2>
 <p><code>RateLimitFilter</code> is a <code>logging.Filter</code> that drops records when a token bucket is empty. It allows bursts: up to <code>capacity</code> records can pass through at once, and the bucket then refills at <code>refill_rate</code> records per second.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">getLogger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitFilter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitFilter</span>
 
 <span class="c1"># Allow a burst of 10 records per logger, then 1 record/sec sustained.</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;grelmicro.ingest&quot;</span><span class="p">)</span>
@@ -2624,7 +2624,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 </table>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">getLogger</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitFilter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitFilter</span>
 
 <span class="c1"># One shared bucket across every record the handler sees.</span>
 <span class="c1"># Useful on the root or app-level handler as a global safety net.</span>
@@ -2704,7 +2704,7 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 </table>
 <div class="admonition tip">
 <p class="admonition-title">Performance Recommendation</p>
-<p>For high-throughput applications, use <code>LOG_JSON_SERIALIZER=orjson</code> with <code>structlog</code> or <code>stdlib</code> backend.</p>
+<p>For high-throughput applications, use <code>GREL_LOG_JSON_SERIALIZER=orjson</code> with <code>structlog</code> or <code>stdlib</code> backend.</p>
 </div>
 <p>Run the benchmark:
 <div class="highlight"><pre><span></span><code>python<span class="w"> </span>benchmarks/logging_benchmark.py

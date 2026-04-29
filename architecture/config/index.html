@@ -1396,10 +1396,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#uppercase-field-names-on-config-classes-todays-loggingsettings" class="md-nav__link">
+  <a href="#uppercase-field-names-on-config-classes-legacy-loggingsettings" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Uppercase field names on Config classes (today's LoggingSettings)
+        Uppercase field names on Config classes (legacy LoggingSettings)
       
     </span>
   </a>
@@ -1931,10 +1931,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#uppercase-field-names-on-config-classes-todays-loggingsettings" class="md-nav__link">
+  <a href="#uppercase-field-names-on-config-classes-legacy-loggingsettings" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Uppercase field names on Config classes (today's LoggingSettings)
+        Uppercase field names on Config classes (legacy LoggingSettings)
       
     </span>
   </a>
@@ -2105,7 +2105,7 @@ GREL_DUPLICATE_FILTER_CACHE_SIZE=1024
 <td><code>GREL_HEALTH_</code></td>
 </tr>
 <tr>
-<td><code>LoggingSettings</code></td>
+<td><code>log.configure</code></td>
 <td><code>GREL_LOG_</code></td>
 </tr>
 </tbody>
@@ -2364,7 +2364,7 @@ from <code>CONTRIBUTING.md</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">MyLoggingSettings</span><span class="p">(</span><span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">BaseSettings</span><span class="p">):</span>
     <span class="n">model_config</span> <span class="o">=</span> <span class="n">SettingsConfigDict</span><span class="p">(</span><span class="n">env_prefix</span><span class="o">=</span><span class="s2">&quot;MYAPP_LOG_&quot;</span><span class="p">)</span>
 </code></pre></div>
-<p>Field names on every <code>Config</code> stay lowercase and PEP 8 compliant. The <code>env_prefix</code> on the opt-in <code>Settings</code> subclass produces the uppercase env vars. This keeps Python code readable (<code>settings.level</code>, not <code>settings.LOG_LEVEL</code>) while the env stays ops-friendly (<code>GREL_LOG_LEVEL</code>).</p>
+<p>Field names on every <code>Config</code> stay lowercase and PEP 8 compliant. The <code>env_prefix</code> on the opt-in <code>Settings</code> subclass produces the uppercase env vars. This keeps Python code readable (<code>settings.level</code>, not <code>settings.GREL_LOG_LEVEL</code>) while the env stays ops-friendly (<code>GREL_LOG_LEVEL</code>).</p>
 <h2 id="runtime-reconfiguration-future">Runtime reconfiguration (future)</h2>
 <p>The current design keeps <code>self._config</code> as a single immutable Pydantic model assigned in one step. This preserves a future extension:</p>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">reconfigure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">ComponentConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -2383,14 +2383,14 @@ from <code>CONTRIBUTING.md</code>.</p>
 </ul>
 <h3 id="drop-pydantic-in-favour-of-dataclassfrozentrue-slotstrue">Drop Pydantic in favour of <code>@dataclass(frozen=True, slots=True)</code></h3>
 <p>Loses <code>PositiveFloat</code>, <code>PositiveInt</code>, and <code>@model_validator</code> constraints. The grelmicro style is consistently Pydantic. The inconsistency cost outweighs the ~1 ns per field saved.</p>
-<h3 id="uppercase-field-names-on-config-classes-todays-loggingsettings">Uppercase field names on Config classes (today's <code>LoggingSettings</code>)</h3>
-<p>Today's <code>LoggingSettings</code> bakes field names like <code>LOG_BACKEND</code> to match env var names directly. Rejected going forward because:</p>
+<h3 id="uppercase-field-names-on-config-classes-legacy-loggingsettings">Uppercase field names on Config classes (legacy <code>LoggingSettings</code>)</h3>
+<p>The legacy <code>LoggingSettings</code> baked Python field names like <code>LOG_BACKEND</code> to match env var names directly. Rejected going forward because:</p>
 <ul>
 <li>Python access is non-idiomatic (<code>settings.LOG_LEVEL</code> violates PEP 8).</li>
 <li>Programmatic construction reads as <code>LoggingSettings(LOG_LEVEL=...)</code> which is awkward.</li>
-<li>Field names cannot encode runtime instance names, so the pattern breaks entirely for multi-instance components (<code>GREL_LOCK_CART_LEASE_DURATION</code> cannot be a class field).</li>
+<li>Field names cannot encode runtime instance names, so the pattern breaks entirely for multi-instance components (<code>LOCK_CART_LEASE_DURATION</code> cannot be a class field).</li>
 </ul>
-<p>The replacement is lowercase Config field names + <code>env_prefix</code> on an opt-in <code>Settings</code> subclass. <code>LoggingSettings</code> migrates to this shape in step 5 of the rollout plan with a deprecation window for <code>LOG_*</code> env vars.</p>
+<p>The replacement is lowercase Config field names plus <code>env_prefix</code> resolution. <code>LoggingSettings</code> is removed in favour of <code>LoggingConfig</code> with lowercase fields read via <code>GREL_LOG_*</code>.</p>
 <h3 id="bare-env-prefix-lock_-log_-with-no-namespace">Bare env prefix (<code>LOCK_*</code>, <code>LOG_*</code>) with no namespace</h3>
 <p>Rejected because <code>LOCK_*</code>, <code>LOG_*</code>, and similar collide with conventions other libraries and apps already use. <code>GREL_*</code> scopes grelmicro's defaults to a distinct namespace, matching <code>UVICORN_*</code>, <code>GUNICORN_*</code>, <code>CELERY_*</code>, <code>DJANGO_*</code>.</p>
 <h3 id="no-library-default-prefix-force-users-to-always-supply-env_prefix">No library default prefix (force users to always supply <code>env_prefix=</code>)</h3>

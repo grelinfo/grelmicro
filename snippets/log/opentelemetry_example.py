@@ -8,7 +8,7 @@ from opentelemetry.sdk.trace.export import (
     SimpleSpanProcessor,
 )
 
-from grelmicro.logging import configure_logging
+from grelmicro.log import configure
 
 # Set up OpenTelemetry
 provider = TracerProvider()
@@ -17,7 +17,7 @@ provider.add_span_processor(processor)
 trace.set_tracer_provider(provider)
 
 # Configure logging (auto-detects OpenTelemetry)
-configure_logging()
+configure()
 
 # Get a tracer
 tracer = trace.get_tracer(__name__)

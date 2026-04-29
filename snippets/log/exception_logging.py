@@ -2,12 +2,12 @@
 
 from loguru import logger
 
-from grelmicro.logging import configure_logging
+from grelmicro.log import configure
 
 # Ensure clean state
 logger.remove()
 
-configure_logging()
+configure()
 
 try:
     1 / 0  # noqa: B018

@@ -1570,11 +1570,11 @@
 <h1 id="tracing">Tracing</h1>
 <p>The <code>tracing</code> module provides unified instrumentation inspired by Rust's <a href="https://docs.rs/tracing/latest/tracing/">tracing</a> crate. A single <code>@instrument</code> decorator creates OTel spans and enriches log records with structured context automatically.</p>
 <h2 id="quick-start">Quick Start</h2>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.tracing</span><span class="w"> </span><span class="kn">import</span> <span class="n">instrument</span><span class="p">,</span> <span class="n">span</span><span class="p">,</span> <span class="n">add_context</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.trace</span><span class="w"> </span><span class="kn">import</span> <span class="n">instrument</span><span class="p">,</span> <span class="n">span</span><span class="p">,</span> <span class="n">add_context</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
 <span class="nd">@instrument</span>
@@ -1642,7 +1642,7 @@
 <p>OpenTelemetry integration needs the <code>opentelemetry</code> extra: <code>pip install "grelmicro[opentelemetry]"</code>. See the <a href="../installation/">installation guide</a> for <code>uv</code> and <code>poetry</code>.</p>
 </div>
 <div class="highlight"><pre><span></span><code><span class="c1"># Logging only (no OTel dependency needed)</span>
-<span class="n">configure_logging</span><span class="p">()</span>
+<span class="n">configure</span><span class="p">()</span>
 
 <span class="c1"># Logging + OTel: install opentelemetry and configure your exporter separately.</span>
 <span class="c1"># @instrument and span() will automatically create OTel spans when opentelemetry</span>

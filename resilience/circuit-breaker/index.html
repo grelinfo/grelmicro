@@ -672,6 +672,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#programmatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Programmatic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declarative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declarative
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environmental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1427,6 +1477,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#programmatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Programmatic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declarative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declarative
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environmental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1526,6 +1626,88 @@
 <p>The Circuit Breaker is not thread-safe. Decorated sync functions or <code>from_thread</code> methods ensure state changes run safely within the async event loop. Threaded usage is supported only in AnyIO worker threads and may be slower than pure async usage.</p>
 </div>
 <p>See the <a href="../../reference/resilience/#grelmicro.resilience.CircuitBreaker">API reference</a> for every option.</p>
+<h2 id="configuration">Configuration</h2>
+<p><code>CircuitBreaker</code> follows the three-paths configuration contract.</p>
+<h3 id="programmatic">Programmatic</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
+
+<span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span>
+    <span class="s2">&quot;payments&quot;</span><span class="p">,</span>
+    <span class="n">error_threshold</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+    <span class="n">success_threshold</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">reset_timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="declarative">Declarative</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">CircuitBreakerConfig</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="n">CircuitBreakerConfig</span><span class="p">(</span>
+    <span class="n">error_threshold</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+    <span class="n">reset_timeout</span><span class="o">=</span><span class="mf">60.0</span><span class="p">,</span>
+    <span class="n">ignore_exceptions</span><span class="o">=</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">,),</span>
+<span class="p">)</span>
+<span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="s2">&quot;payments&quot;</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="environmental">Environmental</h3>
+<p>Prefix: <code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_</code></p>
+<table>
+<thead>
+<tr>
+<th>Env var</th>
+<th>Config field</th>
+<th>Type</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD</code></td>
+<td><code>error_threshold</code></td>
+<td><code>int</code> (&gt; 0)</td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_SUCCESS_THRESHOLD</code></td>
+<td><code>success_threshold</code></td>
+<td><code>int</code> (&gt; 0)</td>
+<td><code>2</code></td>
+</tr>
+<tr>
+<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_RESET_TIMEOUT</code></td>
+<td><code>reset_timeout</code></td>
+<td><code>float</code> (&gt; 0)</td>
+<td><code>30.0</code></td>
+</tr>
+<tr>
+<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_HALF_OPEN_CAPACITY</code></td>
+<td><code>half_open_capacity</code></td>
+<td><code>int</code> (&gt; 0)</td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_LOG_LEVEL</code></td>
+<td><code>log_level</code></td>
+<td><code>str</code></td>
+<td><code>"WARNING"</code></td>
+</tr>
+<tr>
+<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_IGNORE_EXCEPTIONS</code></td>
+<td><code>ignore_exceptions</code></td>
+<td>CSV or JSON list of FQN strings (e.g. <code>builtins.ValueError,my_app.errors.PaymentError</code> or <code>'["builtins.ValueError"]'</code>)</td>
+<td><code>[]</code></td>
+</tr>
+</tbody>
+</table>
+<p>Concrete example for <code>CircuitBreaker("payments")</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">GREL_CIRCUIT_BREAKER_PAYMENTS_ERROR_THRESHOLD</span><span class="o">=</span><span class="m">10</span>
+<span class="nv">GREL_CIRCUIT_BREAKER_PAYMENTS_RESET_TIMEOUT</span><span class="o">=</span><span class="m">60</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
+
+<span class="c1"># GREL_CIRCUIT_BREAKER_PAYMENTS_ERROR_THRESHOLD=10</span>
+<span class="c1"># GREL_CIRCUIT_BREAKER_PAYMENTS_RESET_TIMEOUT=60</span>
+<span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;payments&quot;</span><span class="p">)</span>
+</code></pre></div>
 
 
 

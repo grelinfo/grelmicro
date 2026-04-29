@@ -986,61 +986,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.error_threshold" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;error_threshold
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.success_threshold" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;success_threshold
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.reset_timeout" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;reset_timeout
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.half_open_capacity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;half_open_capacity
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.ignore_exceptions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;ignore_exceptions
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#grelmicro.resilience.CircuitBreaker.from_thread" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1096,10 +1041,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.log_level" class="md-nav__link">
+  <a href="#grelmicro.resilience.CircuitBreaker.config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;log_level
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.CircuitBreaker.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
       
     </span>
   </a>
@@ -2537,61 +2493,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.error_threshold" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;error_threshold
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.success_threshold" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;success_threshold
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.reset_timeout" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;reset_timeout
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.half_open_capacity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;half_open_capacity
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.ignore_exceptions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;ignore_exceptions
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#grelmicro.resilience.CircuitBreaker.from_thread" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2647,10 +2548,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.log_level" class="md-nav__link">
+  <a href="#grelmicro.resilience.CircuitBreaker.config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;log_level
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.CircuitBreaker.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
       
     </span>
   </a>
@@ -3714,14 +3626,16 @@
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">ignore_exceptions</span><span class="p">:</span> <span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="Exception">Exception</span></span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="Exception">Exception</span></span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
-    <span class="n">error_threshold</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
-    <span class="n">success_threshold</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-    <span class="n">reset_timeout</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">=</span> <span class="mi">30</span><span class="p">,</span>
-    <span class="n">half_open_capacity</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-    <span class="n">log_level</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span>
-        <span class="s2">&quot;DEBUG&quot;</span><span class="p">,</span> <span class="s2">&quot;INFO&quot;</span><span class="p">,</span> <span class="s2">&quot;WARNING&quot;</span><span class="p">,</span> <span class="s2">&quot;ERROR&quot;</span><span class="p">,</span> <span class="s2">&quot;CRITICAL&quot;</span>
-    <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;WARNING&quot;</span><span class="p">,</span>
+    <span class="o">|</span> <span class="n"><span title="str">str</span></span>
+    <span class="o">|</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="Exception">Exception</span></span><span class="p">]</span> <span class="o">|</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">error_threshold</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">success_threshold</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">reset_timeout</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">half_open_capacity</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">log_level</span><span class="p">:</span> <span class="n"><span title="grelmicro._types.LogLevel">LogLevel</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -3752,6 +3666,8 @@ failing, to avoid cascading errors.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Name of the circuit breaker instance.</p>
+<p>Acts as the instance identity. Used as the env var
+prefix and exposed via the <code>name</code> property.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -3767,16 +3683,22 @@ failing, to avoid cascading errors.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Exceptions that are ignored and do not count as errors.</p>
+                <p>Exceptions ignored by the breaker.</p>
+<p>Errors of these types do not count toward <code>error_threshold</code>.
+Accepts a single exception class, a tuple, or fully-qualified
+import strings such as <code>"builtins.ValueError"</code> or
+<code>"my_app.errors.PaymentError"</code>. When unset, resolves from the
+env path or falls back to the <code>CircuitBreakerConfig</code> default
+(empty tuple).</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="type">type</span>[<span title="Exception">Exception</span>] | <span title="tuple">tuple</span>[<span title="type">type</span>[<span title="Exception">Exception</span>], ...]</code>
+                      <code><span title="type">type</span>[<span title="Exception">Exception</span>] | <span title="str">str</span> | <span title="tuple">tuple</span>[<span title="type">type</span>[<span title="Exception">Exception</span>] | <span title="str">str</span>, ...] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>()</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3787,16 +3709,20 @@ failing, to avoid cascading errors.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Number of consecutive errors before opening the circuit.</p>
+                <p>Consecutive errors before the breaker opens.</p>
+<p>Default: 5. When unset, resolves from
+<code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD</code> if
+present, otherwise falls back to the
+<code>CircuitBreakerConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="int">int</span></code>
+                      <code><span title="pydantic.PositiveInt">PositiveInt</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>5</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3807,16 +3733,17 @@ failing, to avoid cascading errors.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Number of consecutive successes in HALF_OPEN state before closing the circuit.</p>
+                <p>Consecutive successes in <code>HALF_OPEN</code> state before the breaker closes.</p>
+<p>Default: 2.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="int">int</span></code>
+                      <code><span title="pydantic.PositiveInt">PositiveInt</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>2</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3827,16 +3754,17 @@ failing, to avoid cascading errors.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Seconds the circuit stays OPEN before transitioning to HALF_OPEN.</p>
+                <p>Seconds the breaker stays <code>OPEN</code> before transitioning to <code>HALF_OPEN</code>.</p>
+<p>Default: 30.0.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="float">float</span></code>
+                      <code><span title="pydantic.PositiveFloat">PositiveFloat</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>30</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3847,16 +3775,17 @@ failing, to avoid cascading errors.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Maximum number of concurrent calls allowed in the HALF_OPEN state.</p>
+                <p>Maximum concurrent calls allowed in the <code>HALF_OPEN</code> state.</p>
+<p>Default: 1.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="int">int</span></code>
+                      <code><span title="pydantic.PositiveInt">PositiveInt</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>1</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3867,16 +3796,59 @@ failing, to avoid cascading errors.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Logging level for the circuit breaker. Defaults to INFO.</p>
+                <p>Logging level for state-change messages.</p>
+<p>Default: <code>WARNING</code>.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="typing.Literal">Literal</span>[&#39;DEBUG&#39;, &#39;INFO&#39;, &#39;WARNING&#39;, &#39;ERROR&#39;, &#39;CRITICAL&#39;]</code>
+                      <code><span title="grelmicro._types.LogLevel">LogLevel</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>&#39;WARNING&#39;</code>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>env_prefix</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Override the auto-derived environment variable prefix.</p>
+<p>Default: <code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_</code>.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span> | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>read_env</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Whether to read environment variables.</p>
+<p>Default: True.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="bool">bool</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>True</code>
                   </span>
               </p>
             </td>
@@ -3901,116 +3873,6 @@ failing, to avoid cascading errors.</p>
 
 
 
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h4 id="grelmicro.resilience.CircuitBreaker.error_threshold" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">error_threshold</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
-  </span>
-
-</h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">error_threshold</span> <span class="o">=</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreaker(error_threshold)">error_threshold</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h4 id="grelmicro.resilience.CircuitBreaker.success_threshold" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">success_threshold</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
-  </span>
-
-</h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">success_threshold</span> <span class="o">=</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreaker(success_threshold)">success_threshold</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h4 id="grelmicro.resilience.CircuitBreaker.reset_timeout" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">reset_timeout</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
-  </span>
-
-</h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">reset_timeout</span> <span class="o">=</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreaker(reset_timeout)">reset_timeout</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h4 id="grelmicro.resilience.CircuitBreaker.half_open_capacity" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">half_open_capacity</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
-  </span>
-
-</h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">half_open_capacity</span> <span class="o">=</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreaker(half_open_capacity)">half_open_capacity</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h4 id="grelmicro.resilience.CircuitBreaker.ignore_exceptions" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">ignore_exceptions</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
-  </span>
-
-</h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">ignore_exceptions</span> <span class="o">=</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreaker(ignore_exceptions)">ignore_exceptions</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-    </div>
-
-</div>
 
 <div class="doc doc-object doc-attribute">
 
@@ -4136,22 +3998,21 @@ failing, to avoid cascading errors.</p>
 
 
 
-<h4 id="grelmicro.resilience.CircuitBreaker.log_level" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">log_level</span>
+<h4 id="grelmicro.resilience.CircuitBreaker.config" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">config</span>
 
 
   <span class="doc doc-labels">
       <small class="doc doc-label doc-label-property"><code>property</code></small>
-      <small class="doc doc-label doc-label-writable"><code>writable</code></small>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">log_level</span><span class="p">:</span> <span class="n"><span title="str">str</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreakerConfig">CircuitBreakerConfig</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Return the logging level of the circuit breaker.</p>
+        <p>Return the circuit breaker configuration.</p>
 
     </div>
 
@@ -4159,6 +4020,79 @@ failing, to avoid cascading errors.</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.resilience.CircuitBreaker.from_config" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">from_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_config</span><span class="p">(</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreakerConfig">CircuitBreakerConfig</span></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Construct a <code>CircuitBreaker</code> from a name and a pre-built <code>CircuitBreakerConfig</code>.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>name</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Name of the circuit breaker instance.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The pre-built circuit breaker configuration.</p>
+<p>Use this path when the configuration is assembled at
+startup from a settings tree. The environment path is
+bypassed and the config is used as-is.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="grelmicro.resilience.circuitbreaker.CircuitBreakerConfig">CircuitBreakerConfig</span></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 
