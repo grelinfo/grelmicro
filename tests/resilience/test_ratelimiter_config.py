@@ -13,12 +13,12 @@ REFILL_RATE = 1.0
 
 
 @pytest.fixture
-def _sync_backend() -> MemoryRateLimiterBackend:
+def _rate_limiter_backend() -> MemoryRateLimiterBackend:
     """Register a memory backend for the test."""
     return MemoryRateLimiterBackend()
 
 
-@pytest.mark.usefixtures("_sync_backend")
+@pytest.mark.usefixtures("_rate_limiter_backend")
 def test_token_bucket_config() -> None:
     """`RateLimiter` accepts a `TokenBucketConfig` positional config."""
     rl = RateLimiter(
@@ -30,7 +30,7 @@ def test_token_bucket_config() -> None:
     assert rl.config.refill_rate == REFILL_RATE
 
 
-@pytest.mark.usefixtures("_sync_backend")
+@pytest.mark.usefixtures("_rate_limiter_backend")
 def test_gcra_config() -> None:
     """`RateLimiter` accepts a `GCRAConfig` positional config."""
     rl = RateLimiter("auth", GCRAConfig(limit=LIMIT, window=WINDOW))
@@ -40,7 +40,7 @@ def test_gcra_config() -> None:
     assert rl.config.window == WINDOW
 
 
-@pytest.mark.usefixtures("_sync_backend")
+@pytest.mark.usefixtures("_rate_limiter_backend")
 def test_fail_open_in_config() -> None:
     """`fail_open` set on the algorithm config flows to the rate limiter."""
     cfg = TokenBucketConfig(
@@ -50,7 +50,7 @@ def test_fail_open_in_config() -> None:
     assert rl._fail_open is True
 
 
-@pytest.mark.usefixtures("_sync_backend")
+@pytest.mark.usefixtures("_rate_limiter_backend")
 def test_token_bucket_factory() -> None:
     """`RateLimiter.token_bucket` builds a token-bucket rate limiter."""
     rl = RateLimiter.token_bucket(
@@ -63,7 +63,7 @@ def test_token_bucket_factory() -> None:
     assert rl.config.fail_open is False
 
 
-@pytest.mark.usefixtures("_sync_backend")
+@pytest.mark.usefixtures("_rate_limiter_backend")
 def test_gcra_factory() -> None:
     """`RateLimiter.gcra` builds a GCRA rate limiter."""
     rl = RateLimiter.gcra("auth", limit=LIMIT, window=WINDOW)
@@ -74,7 +74,7 @@ def test_gcra_factory() -> None:
     assert rl.config.fail_open is False
 
 
-@pytest.mark.usefixtures("_sync_backend")
+@pytest.mark.usefixtures("_rate_limiter_backend")
 def test_factory_passes_fail_open() -> None:
     """Factory classmethods forward `fail_open` into the built config."""
     rl = RateLimiter.token_bucket(
@@ -83,7 +83,7 @@ def test_factory_passes_fail_open() -> None:
     assert rl._fail_open is True
 
 
-@pytest.mark.usefixtures("_sync_backend")
+@pytest.mark.usefixtures("_rate_limiter_backend")
 def test_from_config_classmethod() -> None:
     """`RateLimiter.from_config` mirrors the positional constructor."""
     cfg = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)

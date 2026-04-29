@@ -41,7 +41,7 @@ single source of truth for what "passes CI": ruff, ty, pytest
   - `intention`: a single emoji from the
     [gitmoji list](https://gitmoji.dev/) that describes what the
     change does. The [full list](https://gitmoji.dev/) is the
-    source of truth; pick the one whose meaning fits best.
+    source of truth. Pick the one whose meaning fits best.
   - `scope` (optional): a short contextual string followed by `:`.
     Repo conventions accept either a Conventional-Commits type
     (`feat`, `docs`, `chore`, `ci`) or a module name
@@ -102,7 +102,7 @@ The rules below are the ones the tooling can't check:
   as a second `Annotated` entry so type-checkers and IDEs surface
   the deprecation inline. Keep a runtime `warnings.warn` alongside
   it.
-- Keep `__init__` bodies thin. Attribute assignment only; delegate
+- Keep `__init__` bodies thin. Attribute assignment only. Delegate
   validation to a frozen Pydantic config model.
 
 ### Pydantic models
@@ -125,12 +125,12 @@ The rules below are the ones the tooling can't check:
   (`RateLimiter`, `Lock`, `CircuitBreaker`).
 - Vendor- or product-specific names do **not** appear in public
   docstrings or user-facing docs. Industry conventions are OK
-  ("token bucket", "sliding window"); brand names are not.
+  ("token bucket", "sliding window"). Brand names are not.
   Attribution of adapted code belongs in `THIRD_PARTY_NOTICES.md`.
 
 ### Error messages
 
-- Always actionable; include the offending value where relevant
+- Always actionable. Include the offending value where relevant
   (`f"cost must be between 1 and {limit}, got {cost}"`).
 - Domain errors inherit from a package-specific base
   (`ResilienceError`, `LoggingError`, `SyncError`) which itself
@@ -164,7 +164,7 @@ docstring style.
   references. Double backticks are not required.
 - **Cross-references** use mkdocstrings syntax:
   `` [`Name`][grelmicro.full.path.Name] ``. The label may be
-  shortened to the local name; the target path must be fully
+  shortened to the local name. The target path must be fully
   qualified.
 - **External links** use plain markdown: `[Label](url)`.
 - **RFC and PEP references** link to their canonical page in
@@ -256,7 +256,7 @@ class RateLimiter:
 - Use **Arrange / Act / Assert** comments to separate phases.
 - Parametrize related cases with `pytest.mark.parametrize`.
 - Mark integration tests (those that require Docker / a live
-  service) with `pytest.mark.integration`; unit tests run by
+  service) with `pytest.mark.integration`. Unit tests run by
   default.
 - Prefer fixtures with a `_` prefix for side-effect-only setups
   (consumed via `@pytest.mark.usefixtures`). Fixtures returning a
@@ -288,7 +288,7 @@ If you adapt code from another project, even a snippet:
    repo and our root `LICENSE` must remain consistent.
 3. Add a comment near the adapted code pointing to the
    `THIRD_PARTY_NOTICES.md` section.
-4. Never use vendor-specific names in API documentation; keep
+4. Never use vendor-specific names in API documentation. Keep
    attribution in `THIRD_PARTY_NOTICES.md` only.
 
 ## Architectural conventions
@@ -300,47 +300,35 @@ If you adapt code from another project, even a snippet:
   `_protocol.py`, with at least a Memory and a Redis
   implementation.
 - Backends are registered in a shared registry
-  (`grelmicro/_backends.py::BackendRegistry`); user code picks a
+  (`grelmicro/_backends.py::BackendRegistry`). User code picks a
   backend either by initialising a concrete backend class with
   `auto_register=True` or by passing `backend=` explicitly to the
   primitive's constructor.
 - Primitives expose the `backend=` override even when they also
   fall back to the registry.
 
-### Smooth deprecations (pre-1.0 policy)
+### About grelmicro versions
 
-grelmicro is still on a `0.x` series. The explicit goal is to
-reach **1.0.0 with a stable, well-shaped API**, not to carry a
-long `0.x` tail. We follow the Pydantic playbook, where aggressive
-pre-1.0 deprecations produced a clean v1/v2, rather than the
-"endless 0.x minor bumps with full back-compat" approach some other
-projects take.
+grelmicro follows [Semantic Versioning](https://semver.org). The
+public API is **not stable** until `1.0.0`. The `0.x` line exists
+to converge on a design we want to commit to for `1.x`, the
+enterprise-ready line.
 
-Concretely:
+While on `0.x`, breaking changes are allowed on a `MINOR` bump
+(`0.14.0` → `0.15.0`) and never on a `PATCH` bump (`0.14.0` →
+`0.14.1`). Pin the minor:
 
-- Pre-1.0 we iterate on the public API freely. If a shape can be
-  improved, change it. Don't let "might break users" block a
-  better long-term design.
-- Every change still ships through a **smooth deprecation cycle**
-  so users get one release to migrate:
-  - Keep the old signature working and emit a `DeprecationWarning`
-    that names the new API and the removal version.
-  - Mark the old parameter with
-    [`typing_extensions.deprecated`](https://peps.python.org/pep-0702/)
-    so type-checkers and IDEs flag it inline.
-  - Reference the removal version in both the `DeprecationWarning`
-    message and the `Doc(...)` block.
-- **Target removal one minor release after the deprecation ships.**
-  For example, deprecated in `0.14.0` → removed in `0.15.0`.
-- Keep a "Deprecated" entry in `docs/changelog.md` under the
-  minor that introduces the deprecation **and** under the minor
-  that removes it.
+```text
+grelmicro>=0.14.0,<0.15.0
+```
 
-Post-1.0 this policy tightens (longer deprecation windows, no
-breaking changes outside major releases), but we're not there
-yet. If you're unsure whether a change is "aggressive enough",
-open an issue and ask; a slightly worse 0.x migration path is
-cheaper than a bad API we carry for years.
+Every breaking change appears under **Breaking** in
+[`docs/changelog.md`](docs/changelog.md) with a migration snippet.
+Deprecation shims are optional on `0.x`.
+
+After `1.0.0`, standard semver applies: breaking changes only on
+`MAJOR`, and removals go through at least two `MINOR` releases
+with a `DeprecationWarning` first.
 
 ## Before opening a PR
 

@@ -164,11 +164,11 @@ The lock has two construction entry points, each one-purpose. The positional `na
 
 Prefix: `GREL_LOCK_{NAME_UPPER}_`
 
-| Env var                                | Config field     | Type            | Default          |
-|----------------------------------------|------------------|-----------------|------------------|
-| `GREL_LOCK_{NAME}_WORKER`              | `worker`         | `str \| UUID`   | generated UUID   |
-| `GREL_LOCK_{NAME}_LEASE_DURATION`      | `lease_duration` | `float` (> 0)   | `60`             |
-| `GREL_LOCK_{NAME}_RETRY_INTERVAL`      | `retry_interval` | `float` (≥ 0.001) | `0.1`          |
+| Env var                                      | Config field     | Type            | Default          |
+|----------------------------------------------|------------------|-----------------|------------------|
+| `GREL_LOCK_{NAME_UPPER}_WORKER`              | `worker`         | `str \| UUID`   | generated UUID   |
+| `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION`      | `lease_duration` | `float` (> 0)   | `60`             |
+| `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL`      | `retry_interval` | `float` (≥ 0.001) | `0.1`          |
 
 Concrete example for `Lock("cart")`:
 

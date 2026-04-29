@@ -195,6 +195,7 @@ class DuplicateFilter(Filter):
             env_prefix=env_prefix or "GREL_DUPLICATE_FILTER_",
             read_env=read_env,
         )
+        Filter.__init__(self)
         self._setup(config, key)
 
     @classmethod
@@ -233,8 +234,6 @@ class DuplicateFilter(Filter):
         key: Callable[[LogRecord], Hashable] | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
-        if not hasattr(self, "_name"):
-            Filter.__init__(self)
         self._config = config
         self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
         self._counts: OrderedDict[Hashable, tuple[int, float]] = OrderedDict()

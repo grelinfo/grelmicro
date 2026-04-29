@@ -72,6 +72,7 @@ class RedisSyncBackend(SyncBackend):
         self._lua_acquire = self._redis.register_script(
             self._LUA_ACQUIRE_OR_EXTEND
         )
+        self._auto_registered = auto_register
         if auto_register:
             sync_backend_registry.set(self)
 
@@ -87,6 +88,12 @@ class RedisSyncBackend(SyncBackend):
     ) -> None:
         """Close the lock backend."""
         await self._redis.aclose()
+        if (
+            self._auto_registered
+            and sync_backend_registry.is_loaded
+            and sync_backend_registry.get() is self
+        ):
+            sync_backend_registry.reset()
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire the lock."""

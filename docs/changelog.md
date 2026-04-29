@@ -4,19 +4,38 @@
 
 ### Breaking
 
-* 🔥 Redesign the `health` module around `@health.check("name")` and binary `ok`/`error` probes. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
-* 🔥 `LockConfig`, `TaskLockConfig`, `LeaderElectionConfig`, and `RateLimiterConfig` no longer carry a `name` field. Identity is the positional `name` on the component.
-* 🔥 Rename `TokenBucket` to `TokenBucketConfig` and `GCRA` to `GCRAConfig`. `RateLimiterConfig` is now a type alias for the discriminated union of algorithm configs.
-* 🔥 `RateLimiter` constructor takes the config positionally: `RateLimiter(name, config, *, backend=None)`. The deprecated `algorithm=`, `limit=`, `window=` kwargs are removed.
-* 🔥 `fail_open` moves from `RateLimiter(...)` to the algorithm config so it round-trips with YAML and Vault loaders.
+* 💥 `LockConfig`, `TaskLockConfig`, `LeaderElectionConfig`, and `RateLimiterConfig` no longer carry a `name` field. Pass the name positionally: `Lock("cart", LockConfig(lease_duration=30))`. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* 💥 Rename `TokenBucket` to `TokenBucketConfig` and `GCRA` to `GCRAConfig`. `RateLimiterConfig` becomes the discriminated union of algorithm configs. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* 💥 `RateLimiter` takes the algorithm config positionally: `RateLimiter("api", GCRAConfig(limit=100, window=60))`. The `algorithm=`, `limit=`, `window=` kwargs are removed. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* 💥 `fail_open` moves from `RateLimiter(...)` to the algorithm config. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
 
 ### Features
 
-* ✨ Add `Component.from_config(name, config)` to every primitive (`Lock`, `TaskLock`, `LeaderElection`, `RateLimiter`, `HealthRegistry`, `RateLimitFilter`, `DuplicateFilter`) for declarative construction.
-* ✨ Read environment variables under `GREL_<COMPONENT>_<NAME>_*` for `Lock`, `TaskLock`, `LeaderElection`, `HealthRegistry`, `RateLimitFilter`, and `DuplicateFilter`.
-* ✨ Add `RateLimiter.token_bucket(name, *, capacity, refill_rate, ...)` and `RateLimiter.gcra(name, *, limit, window, ...)` factory classmethods.
-* ✨ Add `env_prefix=` and `read_env=` kwargs to every component that exposes the environmental path.
-* ✨ Normalise instance names like `payments-eu`, `cart.v2`, or `weather/svc` into POSIX env var segments (`PAYMENTS_EU`, `CART_V2`, `WEATHER_SVC`).
+* ✨ Add `Component.from_config(name, config)` to every primitive (`Lock`, `TaskLock`, `LeaderElection`, `RateLimiter`, `HealthRegistry`, `RateLimitFilter`, `DuplicateFilter`). PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* ✨ Read environment variables under `GREL_<COMPONENT>_<NAME>_*` for every component that supports the environmental path. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* ✨ Add `RateLimiter.token_bucket(name, ...)` and `RateLimiter.gcra(name, ...)` factory classmethods. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* ✨ Add `env_prefix=` and `read_env=` kwargs to every component that exposes the environmental path. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* ✨ Normalise instance names like `payments-eu`, `cart.v2`, or `weather/svc` into POSIX env var segments. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+
+## 0.15.0 - 2026-04-29
+
+### Breaking
+
+* 💥 Redesign the `health` module: `@health.check("name")` decorator, binary `ok`/`error` status, empty probe bodies, per-check caching. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 Endpoint renames: `/health/live` → `/livez`, `/health/ready` → `/readyz`. New `/healthz` returns the full check JSON. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 `HealthRegistry.check()` renamed to `run()`. The `check` name is now the decorator. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 `HealthChecker` Protocol removed. Use plain `def` or `async def` functions. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 `HealthReport.components: list` becomes `HealthReport.checks: dict[name, ...]`. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 `HealthCheckTimeoutError` and the three-state `HealthStatus` removed. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+
+### Fixed
+
+* 🐛 Auto-registered backends now identity-check before clearing the registry on `__aexit__`, so a replacement instance is left alone. PR [#122](https://github.com/grelinfo/grelmicro/pull/122).
+* 🐛 `Lock.release` clears local ownership only after the backend confirms the release. PR [#122](https://github.com/grelinfo/grelmicro/pull/122).
+
+### Docs
+
+* 📝 Restate the versioning policy: pre-1.0 `MINOR` may break, `PATCH` never. Post-1.0 deprecations get two `MINOR` releases.
 
 ## 0.14.3 - 2026-04-22
 

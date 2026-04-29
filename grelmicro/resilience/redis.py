@@ -93,6 +93,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
             url, ResilienceSettingsValidationError
         )
         self._prefix = prefix
+        self._auto_registered = auto_register
         if auto_register:
             rate_limiter_backend_registry.set(self)
 
@@ -108,6 +109,12 @@ class RedisRateLimiterBackend(RateLimiterBackend):
     ) -> None:
         """Close the rate limiter backend."""
         await self._redis.aclose()
+        if (
+            self._auto_registered
+            and rate_limiter_backend_registry.is_loaded
+            and rate_limiter_backend_registry.get() is self
+        ):
+            rate_limiter_backend_registry.reset()
 
     def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.

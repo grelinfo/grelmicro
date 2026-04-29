@@ -75,15 +75,14 @@ def resolve_config(
     env_prefix: str,
     read_env: bool = True,
 ) -> C:
-    """Build a validated ``config_cls`` from kwargs, an explicit instance, and env.
+    """Build a validated ``config_cls`` from an explicit instance or kwargs and env.
 
-    Three sources merge with strict precedence. Caller-supplied
-    ``kwargs`` win over an ``explicit`` pre-built instance, which
-    wins over environment variables, which win over defaults declared
-    on ``config_cls``. ``None`` kwarg values are treated as unset and
-    never reach the model. Mixing ``explicit`` with any non-None
-    kwarg raises ``TypeError`` since the two paths are mutually
-    exclusive by design.
+    Resolution has two mutually exclusive modes. If ``explicit`` is
+    provided, it is returned as-is and any non-``None`` value in
+    ``kwargs`` raises ``TypeError``. Otherwise, ``None`` kwarg values
+    are treated as unset and never reach the model, caller-supplied
+    non-``None`` kwargs win over environment variables, and
+    environment variables win over defaults declared on ``config_cls``.
 
     The env path constructs a one-off ``BaseSettings`` subclass that
     inherits ``config_cls`` so its validators, ``frozen``, and

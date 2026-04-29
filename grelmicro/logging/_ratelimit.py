@@ -223,6 +223,7 @@ class RateLimitFilter(Filter):
             env_prefix=env_prefix or "GREL_RATE_LIMIT_FILTER_",
             read_env=read_env,
         )
+        Filter.__init__(self)
         self._setup(config, key)
 
     @classmethod
@@ -261,11 +262,6 @@ class RateLimitFilter(Filter):
         key: Callable[[LogRecord], str] | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
-        # Initialize Filter base if not done already (only the
-        # ``__init__`` path needs it; ``from_config`` calls this
-        # after running Filter.__init__).
-        if not hasattr(self, "_name"):
-            Filter.__init__(self)
         self._config = config
         self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
         self._bucket = MemoryTokenBucket(
