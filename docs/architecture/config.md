@@ -353,14 +353,14 @@ Copy each config field to a plain instance attribute at construction time to sha
 ### Drop Pydantic in favour of `@dataclass(frozen=True, slots=True)`
 Loses `PositiveFloat`, `PositiveInt`, and `@model_validator` constraints. The grelmicro style is consistently Pydantic. The inconsistency cost outweighs the ~1 ns per field saved.
 
-### Uppercase field names on Config classes (today's `LoggingSettings`)
-Today's `LoggingSettings` bakes field names like `GREL_LOG_BACKEND` to match env var names directly. Rejected going forward because:
+### Uppercase field names on Config classes (legacy `LoggingSettings`)
+The legacy `LoggingSettings` baked Python field names like `LOG_BACKEND` to match env var names directly. Rejected going forward because:
 
-- Python access is non-idiomatic (`settings.GREL_LOG_LEVEL` violates PEP 8).
-- Programmatic construction reads as `LoggingSettings(GREL_LOG_LEVEL=...)` which is awkward.
-- Field names cannot encode runtime instance names, so the pattern breaks entirely for multi-instance components (`GREL_LOCK_CART_LEASE_DURATION` cannot be a class field).
+- Python access is non-idiomatic (`settings.LOG_LEVEL` violates PEP 8).
+- Programmatic construction reads as `LoggingSettings(LOG_LEVEL=...)` which is awkward.
+- Field names cannot encode runtime instance names, so the pattern breaks entirely for multi-instance components (`LOCK_CART_LEASE_DURATION` cannot be a class field).
 
-The replacement is lowercase Config field names + `env_prefix` on an opt-in `Settings` subclass. `LoggingSettings` migrates to this shape in step 5 of the rollout plan with a deprecation window for `LOG_*` env vars.
+The replacement is lowercase Config field names plus `env_prefix` resolution. `LoggingSettings` is removed in favour of `LoggingConfig` with lowercase fields read via `GREL_LOG_*`.
 
 ### Bare env prefix (`LOCK_*`, `LOG_*`) with no namespace
 Rejected because `LOCK_*`, `LOG_*`, and similar collide with conventions other libraries and apps already use. `GREL_*` scopes grelmicro's defaults to a distinct namespace, matching `UVICORN_*`, `GUNICORN_*`, `CELERY_*`, `DJANGO_*`.
