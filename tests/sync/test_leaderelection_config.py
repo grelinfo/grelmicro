@@ -3,6 +3,7 @@
 import pytest
 from pytest_mock import MockerFixture
 
+from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
 from grelmicro.sync.memory import MemorySyncBackend
@@ -30,7 +31,7 @@ async def test_release_is_noop_when_backend_was_never_resolved() -> None:
 
 def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
     """`LeaderElection("svc")` performs zero registry calls at construction."""
-    spy = mocker.patch("grelmicro.sync.leaderelection.get_sync_backend")
+    spy = mocker.patch.object(sync_backend_registry, "get")
     LeaderElection("svc")
     assert spy.call_count == 0
 
