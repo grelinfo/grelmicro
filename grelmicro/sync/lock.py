@@ -9,7 +9,7 @@ from anyio import WouldBlock, from_thread, get_current_task, sleep
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._config import resolve_config
+from grelmicro._config import env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLock, BaseLockConfig
 from grelmicro.sync._tokens import generate_task_token
@@ -158,7 +158,7 @@ class Lock(BaseLock):
                 "lease_duration": lease_duration,
                 "retry_interval": retry_interval,
             },
-            env_prefix=env_prefix or f"GREL_LOCK_{name.upper()}_",
+            env_prefix=env_prefix or f"GREL_LOCK_{env_segment(name)}_",
             read_env=read_env,
         )
         self._setup(name, config, backend)

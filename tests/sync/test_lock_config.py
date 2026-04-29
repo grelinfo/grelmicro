@@ -127,3 +127,24 @@ def test_worker_kwarg_passed_through(backend: SyncBackend) -> None:
     """An explicit worker kwarg overrides the default factory."""
     lock = Lock("cart", backend=backend, worker="web-1")
     assert lock.config.worker == "web-1"
+
+
+def test_name_with_punctuation_normalises_env_prefix(
+    backend: SyncBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A name with hyphens normalises into a valid env prefix."""
+    monkeypatch.setenv("GREL_LOCK_PAYMENTS_EU_LEASE_DURATION", str(LEASE_ENV))
+    lock = Lock("payments-eu", backend=backend)
+    assert lock.config.lease_duration == LEASE_ENV
+    assert lock.name == "payments-eu"
+
+
+def test_name_with_dots_normalises_env_prefix(
+    backend: SyncBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A name with dots normalises into a valid env prefix."""
+    monkeypatch.setenv("GREL_LOCK_CART_V2_LEASE_DURATION", str(LEASE_ENV))
+    lock = Lock("cart.v2", backend=backend)
+    assert lock.config.lease_duration == LEASE_ENV

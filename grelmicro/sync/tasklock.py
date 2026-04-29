@@ -15,7 +15,7 @@ from anyio import WouldBlock, from_thread
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._config import resolve_config
+from grelmicro._config import env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync._tokens import (
@@ -179,7 +179,7 @@ class TaskLock(SyncPrimitive):
                 "min_lock_seconds": min_lock_seconds,
                 "max_lock_seconds": max_lock_seconds,
             },
-            env_prefix=env_prefix or f"GREL_TASK_LOCK_{name.upper()}_",
+            env_prefix=env_prefix or f"GREL_TASK_LOCK_{env_segment(name)}_",
             read_env=read_env,
         )
         self._setup(name, config, backend)

@@ -84,6 +84,26 @@ This is a deliberate parallel to Spring Boot's `@ConfigurationProperties(prefix=
 
 The `GREL_` prefix makes grelmicro ownership explicit, avoids collision with unrelated environment variables, and follows the same pattern as `UVICORN_*`, `GUNICORN_*`, `CELERY_*`, `DJANGO_*`. Apps that want their own convention pass `env_prefix=` explicitly on construction.
 
+### Name normalisation
+
+Instance names are normalised before they enter an env prefix so that natural identifiers like `payments-eu`, `cart.v2`, or `weather/svc` produce valid POSIX environment variables. The rule, implemented as `grelmicro._config.env_segment`:
+
+- Upper-case the name.
+- Replace any character outside `[A-Z0-9_]` with `_`.
+- Collapse runs of underscores into one.
+- Strip leading and trailing underscores.
+
+| Name | Env segment |
+|------|-------------|
+| `cart` | `CART` |
+| `payments-eu` | `PAYMENTS_EU` |
+| `cart.v2` | `CART_V2` |
+| `foo:bar` | `FOO_BAR` |
+| `weather/svc` | `WEATHER_SVC` |
+| `svc:prod-1` | `SVC_PROD_1` |
+
+The rule is conservative: a name with no portable characters or a result that starts with a digit is rejected at construction with a clear error. Apps that need a different mapping pass `env_prefix=` explicitly to bypass derivation.
+
 ## Identity belongs in the call, not in the config
 
 `Config` classes carry settings only. Identity is the positional `name` on the component. YAML and env aggregations key by name naturally:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ConfigDict, PositiveFloat, ValidationError
 
-from grelmicro._config import resolve_config
+from grelmicro._config import env_segment, resolve_config
 
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_RETRIES = 3
@@ -204,3 +204,45 @@ def test_returns_correct_instance_type() -> None:
         read_env=True,
     )
     assert isinstance(cfg, _Sample)
+
+
+# --- env_segment ---
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("cart", "CART"),
+        ("Cart", "CART"),
+        ("cart_v2", "CART_V2"),
+        ("payments-eu", "PAYMENTS_EU"),
+        ("cart.v2", "CART_V2"),
+        ("foo:bar", "FOO_BAR"),
+        ("weather/svc", "WEATHER_SVC"),
+        ("a-b-c", "A_B_C"),
+        ("my--lock", "MY_LOCK"),
+        ("multi...dot", "MULTI_DOT"),
+        ("_under_", "UNDER"),
+        ("trail-", "TRAIL"),
+        ("-lead", "LEAD"),
+        ("svc:prod-1", "SVC_PROD_1"),
+        ("a", "A"),
+    ],
+)
+def test_env_segment_normalizes(name: str, expected: str) -> None:
+    """``env_segment`` produces a portable POSIX env var segment."""
+    assert env_segment(name) == expected
+
+
+@pytest.mark.parametrize("bad", ["", "-", ".", "::", "---", "_-_-_", "/"])
+def test_env_segment_rejects_empty_result(bad: str) -> None:
+    """A name with no portable characters raises ``ValueError``."""
+    with pytest.raises(ValueError, match="empty environment variable"):
+        env_segment(bad)
+
+
+@pytest.mark.parametrize("bad", ["1cart", "9-payments", "42"])
+def test_env_segment_rejects_leading_digit(bad: str) -> None:
+    """A name producing an env segment starting with a digit raises."""
+    with pytest.raises(ValueError, match="starts with a digit"):
+        env_segment(bad)

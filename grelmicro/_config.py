@@ -11,6 +11,7 @@ name-as-namespace convention, is documented in
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
@@ -20,6 +21,50 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 C = TypeVar("C", bound=BaseModel)
+
+_NON_ENV_CHARS = re.compile(r"[^A-Z0-9_]+")
+_REPEATED_UNDERSCORES = re.compile(r"_+")
+
+
+def env_segment(name: str) -> str:
+    """Normalise an instance ``name`` into a POSIX env var segment.
+
+    Returns the upper-cased name with every character outside
+    ``[A-Z0-9_]`` replaced by ``_`` and any run of underscores
+    collapsed to a single underscore. Leading and trailing
+    underscores are stripped. The result is suitable as a
+    component of an environment variable name on every POSIX
+    shell.
+
+    Examples:
+        ``cart`` -> ``CART``
+        ``payments-eu`` -> ``PAYMENTS_EU``
+        ``cart.v2`` -> ``CART_V2``
+        ``foo:bar`` -> ``FOO_BAR``
+        ``weather/svc`` -> ``WEATHER_SVC``
+        ``my--lock`` -> ``MY_LOCK``
+
+    Raises ``ValueError`` if the input produces an empty result
+    (every character was non-portable) or starts with a digit
+    (env var names must start with a letter or underscore).
+    """
+    upper = name.upper()
+    cleaned = _NON_ENV_CHARS.sub("_", upper)
+    cleaned = _REPEATED_UNDERSCORES.sub("_", cleaned).strip("_")
+    if not cleaned:
+        msg = (
+            f"name {name!r} produces an empty environment variable "
+            f"segment; pick a name with at least one letter or digit"
+        )
+        raise ValueError(msg)
+    if cleaned[0].isdigit():
+        msg = (
+            f"name {name!r} produces env segment {cleaned!r} that "
+            f"starts with a digit; env var names must start with a "
+            f"letter or underscore"
+        )
+        raise ValueError(msg)
+    return cleaned
 
 
 def resolve_config(

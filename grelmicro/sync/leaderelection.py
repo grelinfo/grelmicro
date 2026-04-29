@@ -20,7 +20,7 @@ from anyio.abc import TaskStatus
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._config import resolve_config
+from grelmicro._config import env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
@@ -243,7 +243,8 @@ class LeaderElection(SyncPrimitive, Task):
                 "backend_timeout": backend_timeout,
                 "error_interval": error_interval,
             },
-            env_prefix=env_prefix or f"GREL_LEADER_ELECTION_{name.upper()}_",
+            env_prefix=env_prefix
+            or f"GREL_LEADER_ELECTION_{env_segment(name)}_",
             read_env=read_env,
         )
         self._setup(name, config, backend)
