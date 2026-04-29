@@ -8,7 +8,7 @@
 
 ### Fixed
 
-* 🐛 Auto-registered backends now clear themselves from the registry on `__aexit__`, but only when the registry slot still points to the same instance. Affected backends: `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `KubernetesSyncBackend`, `SQLiteSyncBackend`, `RedisCacheBackend`, `MemoryRateLimiterBackend`, `RedisRateLimiterBackend`. Previously a stale registry entry survived shutdown, causing later default-backend lookups to resolve a closed instance.
+* 🐛 These auto-registered backends now clear themselves from the registry on `__aexit__`, identity-checked so a replacement is left alone: `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `KubernetesSyncBackend`, `SQLiteSyncBackend`, `MemoryCacheBackend`, `RedisCacheBackend`, `MemoryRateLimiterBackend`, `RedisRateLimiterBackend`. Previously a stale registry entry survived shutdown, causing later default-backend lookups to resolve a closed instance.
 * 🐛 `Lock.release` and the threaded variant now clear local ownership state only after the backend has confirmed the release. A backend error preserves the held marker so callers can retry, while a "not owned" answer from the backend clears it.
 
 ## 0.14.3 - 2026-04-22

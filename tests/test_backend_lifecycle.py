@@ -12,11 +12,13 @@ import pytest
 from pytest_mock import MockerFixture
 
 from grelmicro.cache._backends import cache_backend_registry
+from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync._backends import sync_backend_registry
+from grelmicro.sync.kubernetes import KubernetesSyncBackend
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.postgres import PostgresSyncBackend
 from grelmicro.sync.redis import RedisSyncBackend
@@ -199,3 +201,50 @@ async def test_cache_redis_backend_unregisters_on_exit(
     async with RedisCacheBackend("redis://localhost"):
         assert cache_backend_registry.is_loaded is True
     assert cache_backend_registry.is_loaded is False
+
+
+# --- Cache (Memory) ---
+
+
+async def test_cache_memory_backend_unregisters_on_exit() -> None:
+    """``async with MemoryCacheBackend()`` clears the registry on exit."""
+    async with MemoryCacheBackend():
+        assert cache_backend_registry.is_loaded is True
+    assert cache_backend_registry.is_loaded is False
+
+
+async def test_cache_memory_backend_does_not_evict_replacement() -> None:
+    """Exiting the first cache backend leaves a newer one in place."""
+    backend_1 = MemoryCacheBackend()
+    assert cache_backend_registry.get() is backend_1
+
+    backend_2 = MemoryCacheBackend()
+    assert cache_backend_registry.get() is backend_2
+
+    await backend_1.__aexit__(None, None, None)
+    assert cache_backend_registry.get() is backend_2
+
+
+# --- Sync (Kubernetes) ---
+
+
+async def test_sync_kubernetes_backend_unregisters_on_exit(
+    mocker: MockerFixture,
+) -> None:
+    """``async with KubernetesSyncBackend()`` clears the registry on exit."""
+    mock_client = MagicMock()
+    mock_client.close = AsyncMock()
+
+    async def _empty_list(*_args: object, **_kwargs: object):  # noqa: ANN202
+        return
+        yield  # pragma: no cover
+
+    mock_client.list = _empty_list
+    mocker.patch(
+        "grelmicro.sync.kubernetes.AsyncClient",
+        return_value=mock_client,
+    )
+
+    async with KubernetesSyncBackend(namespace="default"):
+        assert sync_backend_registry.is_loaded is True
+    assert sync_backend_registry.is_loaded is False

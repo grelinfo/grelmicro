@@ -29,6 +29,7 @@ class MemoryCacheBackend:
     ) -> None:
         """Initialize the memory cache backend."""
         self._data: dict[str, tuple[bytes, float]] = {}
+        self._auto_registered = auto_register
         if auto_register:
             cache_backend_registry.set(self)
 
@@ -44,6 +45,12 @@ class MemoryCacheBackend:
     ) -> None:
         """Close the cache backend."""
         self._data.clear()
+        if (
+            self._auto_registered
+            and cache_backend_registry.is_loaded
+            and cache_backend_registry.get() is self
+        ):
+            cache_backend_registry.reset()
 
     async def get(self, *, key: str) -> bytes | None:
         """Get raw bytes by key.
