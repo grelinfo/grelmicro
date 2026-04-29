@@ -2,16 +2,18 @@
 
 ## Unreleased
 
+## 0.17.0 - 2026-04-29
+
 ### Breaking
 
 * 💥 `CircuitBreaker` config moves to a frozen `CircuitBreakerConfig`. Read it via `cb.config`. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 * 💥 The mutable attributes `cb.error_threshold`, `cb.success_threshold`, `cb.reset_timeout`, `cb.half_open_capacity`, `cb.ignore_exceptions`, `cb.log_level` are removed. Construct a new `CircuitBreaker` to change config. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
-* 💥 Rename `grelmicro.logging` to `grelmicro.log` and `grelmicro.tracing` to `grelmicro.trace`. Avoids shadowing stdlib `logging` and aligns with the OpenTelemetry / `ddtrace` `trace` (singular) convention. Update imports: `from grelmicro import log, trace`. PR #118.
-* 💥 `configure_logging()` is renamed `log.configure()`. Use `log.configure_with(config)` for the declarative path. Both return the applied `LoggingConfig`. PR #118.
-* 💥 `LoggingSettings` (the `BaseSettings` shadow class) is removed. `LoggingConfig` is the canonical config class. Env reading happens inside `log.configure()`. PR #118.
-* 💥 `LoggingConfig` field names move to lowercase: `LOG_BACKEND` → `backend`, `LOG_LEVEL` → `level`, `LOG_FORMAT` → `format`, `LOG_TIMEZONE` → `timezone`, `LOG_JSON_SERIALIZER` → `json_serializer`, `LOG_CALLER_ENABLED` → `caller_enabled`, `LOG_OTEL_ENABLED` → `otel_enabled`. PR #118.
-* 💥 Env vars move from `LOG_*` to `GREL_LOG_*` to align with the rest of the library. PR #118.
-* 💥 `LoggingSettingsValidationError` is removed. `pydantic.ValidationError` propagates from `log.configure()` like every other component. PR #118.
+* 💥 Rename `grelmicro.logging` to `grelmicro.log` and `grelmicro.tracing` to `grelmicro.trace`. Avoids shadowing stdlib `logging` and aligns with the OpenTelemetry / `ddtrace` `trace` (singular) convention. Update imports: `from grelmicro import log, trace`. PR [#135](https://github.com/grelinfo/grelmicro/pull/135).
+* 💥 `configure_logging()` is renamed `log.configure()`. Use `log.configure_with(config)` for the declarative path. Both return the applied `LoggingConfig`. PR [#135](https://github.com/grelinfo/grelmicro/pull/135).
+* 💥 `LoggingSettings` (the `BaseSettings` shadow class) is removed. `LoggingConfig` is the canonical config class. Env reading happens inside `log.configure()`. PR [#135](https://github.com/grelinfo/grelmicro/pull/135).
+* 💥 `LoggingConfig` field names move to lowercase: `LOG_BACKEND` → `backend`, `LOG_LEVEL` → `level`, `LOG_FORMAT` → `format`, `LOG_TIMEZONE` → `timezone`, `LOG_JSON_SERIALIZER` → `json_serializer`, `LOG_CALLER_ENABLED` → `caller_enabled`, `LOG_OTEL_ENABLED` → `otel_enabled`. PR [#135](https://github.com/grelinfo/grelmicro/pull/135).
+* 💥 Env vars move from `LOG_*` to `GREL_LOG_*` to align with the rest of the library. PR [#135](https://github.com/grelinfo/grelmicro/pull/135).
+* 💥 `LoggingSettingsValidationError` is removed. `pydantic.ValidationError` propagates from `log.configure()` like every other component. PR [#135](https://github.com/grelinfo/grelmicro/pull/135).
 
 ### Features
 
@@ -19,8 +21,8 @@
 * ✨ `CircuitBreaker` reads `GREL_CIRCUIT_BREAKER_<NAME>_*` env vars and accepts `env_prefix=` / `read_env=`. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 * ✨ `ignore_exceptions` accepts fully-qualified import strings (`"builtins.ValueError"`) so YAML and env loaders can specify exception types. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 * ✨ Env vars for tuple/list fields accept comma-separated values in addition to JSON arrays. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
-* ✨ `log.configure(**kwargs)` accepts every `LoggingConfig` field as a kwarg, mirroring the three-paths contract used by other components. PR #118.
-* ✨ `log.configure_with(config)` is the declarative entry point. Returns the applied `LoggingConfig`. PR #118.
+* ✨ `log.configure(**kwargs)` accepts every `LoggingConfig` field as a kwarg, mirroring the three-paths contract used by other components. PR [#135](https://github.com/grelinfo/grelmicro/pull/135).
+* ✨ `log.configure_with(config)` is the declarative entry point. Returns the applied `LoggingConfig`. PR [#135](https://github.com/grelinfo/grelmicro/pull/135).
 
 ### Internal
 
