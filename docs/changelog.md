@@ -4,14 +4,19 @@
 
 ### Breaking
 
-* ✨ Redesign the `health` module around plain function checks, `@health.check("name")` decorator, binary `ok`/`error` status, and `/livez` + `/readyz` + `/healthz` endpoints with empty probe bodies and per-check caching. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
-* ✨ `Lock` reads environment variables under `GREL_LOCK_{NAME_UPPER}_*` and exposes `Lock.from_config(name, config)` for declarative construction. `LockConfig` no longer carries a `name` field. Identity is the positional `name` on the `Lock` itself. `LockConfig.lease_duration` and `LockConfig.retry_interval` now default to `60` and `0.1`. `worker` defaults to a generated UUIDv1.
-* ✨ `TaskLock` reads environment variables under `GREL_TASK_LOCK_{NAME_UPPER}_*` and exposes `TaskLock.from_config(name, config)` for declarative construction. `TaskLockConfig` no longer carries a `name` field, inherits `worker` from `BaseLockConfig`, and now defaults `min_lock_seconds` to `1` and `max_lock_seconds` to `60`.
-* ✨ `LeaderElection` reads environment variables under `GREL_LEADER_ELECTION_{NAME_UPPER}_*` and exposes `LeaderElection.from_config(name, config)` for declarative construction. `LeaderElectionConfig` no longer carries a `name` field and now inherits `worker` from `BaseLockConfig` (default UUIDv1). The `LeaderElection.config` attribute is now a property over a private frozen Pydantic instance.
-* ✨ `HealthRegistry` reads environment variables under `GREL_HEALTH_*` and exposes `HealthRegistry.from_config(config)` for declarative construction. The constructor gains `env_prefix` and `read_env` kwargs, defaults move from the signature to `HealthRegistryConfig`, and field resolution goes through the shared `resolve_config` helper. Existing `HealthRegistry(...)` call sites unchanged.
-* ✨ `RateLimitFilter` and `DuplicateFilter` read environment variables under `GREL_RATE_LIMIT_FILTER_*` and `GREL_DUPLICATE_FILTER_*` respectively. Both expose a `from_config(config, *, key=None)` classmethod for declarative construction, gain `env_prefix` and `read_env` constructor kwargs, and resolve fields through the shared `resolve_config` helper. The `key` callable override stays on the constructor and on `from_config` since it is runtime composition rather than configuration.
-* ✨ Auto-derived environment variable prefixes now normalise instance names with a shared `env_segment` helper. Names containing hyphens, dots, colons, or slashes (`payments-eu`, `cart.v2`, `weather/svc`, `svc:prod-1`) produce valid POSIX env vars (`GREL_LOCK_PAYMENTS_EU_*`, `GREL_LOCK_CART_V2_*`, etc.) instead of malformed identifiers. Names that yield an empty segment or a leading-digit identifier are rejected at construction. Apps that need a different mapping pass `env_prefix=` explicitly.
-* ✨ `RateLimiter` reshapes around the algorithm config. `TokenBucket` and `GCRA` are renamed to `TokenBucketConfig` and `GCRAConfig`. The `RateLimiterConfig` wrapper class is dropped. `RateLimiterConfig` is now a type alias for the discriminated union of algorithm configs. The constructor collapses to `RateLimiter(name, config, *, backend=None)` plus a `RateLimiter.from_config(name, config)` classmethod. Convenience factories `RateLimiter.token_bucket(name, *, capacity, refill_rate, ...)` and `RateLimiter.gcra(name, *, limit, window, ...)` build the right config and forward, so casual call sites need no algorithm import. The `fail_open` setting moves into the algorithm config (shared via `_BaseRateLimiterConfig`) so it round-trips with YAML/Vault loaders. The deprecated `algorithm=`, `limit=`, `window=` constructor kwargs are removed (was scheduled for 0.15.0).
+* 🔥 Redesign the `health` module around `@health.check("name")` and binary `ok`/`error` probes. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 🔥 `LockConfig`, `TaskLockConfig`, `LeaderElectionConfig`, and `RateLimiterConfig` no longer carry a `name` field. Identity is the positional `name` on the component.
+* 🔥 Rename `TokenBucket` to `TokenBucketConfig` and `GCRA` to `GCRAConfig`. `RateLimiterConfig` is now a type alias for the discriminated union of algorithm configs.
+* 🔥 `RateLimiter` constructor takes the config positionally: `RateLimiter(name, config, *, backend=None)`. The deprecated `algorithm=`, `limit=`, `window=` kwargs are removed.
+* 🔥 `fail_open` moves from `RateLimiter(...)` to the algorithm config so it round-trips with YAML and Vault loaders.
+
+### Features
+
+* ✨ Add `Component.from_config(name, config)` to every primitive (`Lock`, `TaskLock`, `LeaderElection`, `RateLimiter`, `HealthRegistry`, `RateLimitFilter`, `DuplicateFilter`) for declarative construction.
+* ✨ Read environment variables under `GREL_<COMPONENT>_<NAME>_*` for `Lock`, `TaskLock`, `LeaderElection`, `HealthRegistry`, `RateLimitFilter`, and `DuplicateFilter`.
+* ✨ Add `RateLimiter.token_bucket(name, *, capacity, refill_rate, ...)` and `RateLimiter.gcra(name, *, limit, window, ...)` factory classmethods.
+* ✨ Add `env_prefix=` and `read_env=` kwargs to every component that exposes the environmental path.
+* ✨ Normalise instance names like `payments-eu`, `cart.v2`, or `weather/svc` into POSIX env var segments (`PAYMENTS_EU`, `CART_V2`, `WEATHER_SVC`).
 
 ## 0.14.3 - 2026-04-22
 
