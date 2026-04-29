@@ -17,6 +17,10 @@
 * ✨ Add `env_prefix=` and `read_env=` kwargs to every component that exposes the environmental path. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
 * ✨ Normalise instance names like `payments-eu`, `cart.v2`, or `weather/svc` into POSIX env var segments. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
 
+### Changed
+
+* ♻️ `Lock`, `TaskLock`, `LeaderElection`, and `RateLimiter` now resolve the backend lazily on first use instead of at construction. `BackendNotLoadedError` surfaces on the first `acquire`/`peek`/`reset` call rather than in `__init__`. Each component exposes a public `backend` property. PR #115.
+
 ## 0.15.0 - 2026-04-29
 
 ### Breaking

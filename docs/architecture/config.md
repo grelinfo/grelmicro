@@ -153,6 +153,68 @@ Lock("cart", read_env=False, lease_duration=10) # env ignored entirely
 
 `GREL_*` is the **default** when the Environmental path is used. It is not a claim on any other namespace, and `env_prefix=` always lets the app pick its own. The Config classes themselves stay env-free so they compose freely into the app's own settings tree.
 
+## Backend resolution
+
+Components do not look up their backend during construction. The
+registry call is deferred to the first method that actually needs
+the backend, and the result is cached on the instance.
+
+```python
+class Lock:
+    def __init__(self, name, *, backend=None, ...):
+        ...
+        self._backend: SyncBackend | None = backend  # may be None
+
+    @property
+    def backend(self) -> SyncBackend:
+        return self._backend or self._resolve_backend()
+
+    def _resolve_backend(self) -> SyncBackend:
+        backend = get_sync_backend()
+        self._backend = backend
+        return backend
+```
+
+Internal hot-path methods read through the same short-circuit:
+
+```python
+backend = self._backend or self._resolve_backend()
+return await backend.acquire(...)
+```
+
+Three properties hold:
+
+- **Construction is pure.** `Lock("cart")` performs no registry
+  call. `BackendNotLoadedError` only ever surfaces on the first
+  operation, never at import or construction time.
+- **Cached after first use.** Resolution is `O(1)` per call. The
+  first call writes `self._backend`, subsequent calls hit the
+  attribute directly. Measured cost: about 33 ns per access in
+  steady state.
+- **Public `backend` property.** Each component exposes a
+  read-only `backend` property so callers and tests can introspect
+  the bound backend without reaching for private state.
+
+The same shape applies to `RateLimiter`, where a second lazy step
+binds the algorithm config into a strategy:
+
+```python
+@property
+def backend(self) -> RateLimiterBackend:
+    return self._backend or self._resolve_backend()
+
+def _resolve_strategy(self) -> RateLimiterStrategy:
+    strategy = self.backend.bind(self._config)
+    self._strategy = strategy
+    return strategy
+```
+
+The hot-path methods read `self._strategy or self._resolve_strategy()`
+so the bind step is paid exactly once and the strategy method is
+called directly thereafter, preserving the
+"resolve the choice once, forward directly on every call" rule
+from `CONTRIBUTING.md`.
+
 ## Variants: one class with factories vs separate components
 
 Some primitives have variants. The rule for shaping the API:
