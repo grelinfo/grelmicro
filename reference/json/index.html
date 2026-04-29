@@ -1616,21 +1616,21 @@ cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="n">JSONEncodable</span><span class="p">:</span> <span class="n"><span title="typing.TypeAlias">TypeAlias</span></span> <span class="o">=</span> <span class="p">(</span>
-    <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
-    <span class="o">|</span> <span class="n"><span title="str">str</span></span>
+    <span class="n"><span title="str">str</span></span>
     <span class="o">|</span> <span class="n"><span title="int">int</span></span>
     <span class="o">|</span> <span class="n"><span title="float">float</span></span>
     <span class="o">|</span> <span class="n"><span title="bool">bool</span></span>
     <span class="o">|</span> <span class="n"><span title="datetime.datetime">datetime</span></span>
     <span class="o">|</span> <span class="kc">None</span>
+    <span class="o">|</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="s2">&quot;JSONEncodable&quot;</span><span class="p">]</span>
+    <span class="o">|</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="s2">&quot;JSONEncodable&quot;</span><span class="p">]</span>
+    <span class="o">|</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="s2">&quot;JSONEncodable&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
 <span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Types accepted by <code>json_dumps_bytes</code> and <code>json_dumps_str</code>.</p>
+        <p>Recursive JSON-encodable value. <code>datetime</code> is serialized as ISO 8601 string.</p>
 
     </div>
 

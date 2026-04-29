@@ -1509,7 +1509,7 @@
 
 <p align="center">
   <a href="https://grelinfo.github.io/grelmicro">
-    <img alt="grelmicro" src="img/logo/wordmark.svg" width="520">
+    <img alt="grelmicro" class="grel-wordmark" src="img/logo/wordmark.svg" width="520">
   </a>
 </p>
 
@@ -1532,7 +1532,7 @@
 </p>
 
 <blockquote>
-<p><strong>Project status: Active development.</strong> grelmicro is pre-1.0, so APIs can change between minor releases. Every change ships with a clear deprecation path: <code>DeprecationWarning</code>, PEP 702 <code>@deprecated</code>, and a one-minor removal window.</p>
+<p><strong>Project status: Active development.</strong> grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on <code>MINOR</code> bumps (<code>0.14.0</code> → <code>0.15.0</code>) and never on <code>PATCH</code>. Pin the minor: <code>grelmicro&gt;=0.14.0,&lt;0.15.0</code>. After <code>1.0.0</code>, standard semver applies. See the <a href="CONTRIBUTING.md#about-grelmicro-versions">versioning policy</a>.</p>
 </blockquote>
 <hr />
 <p><strong>Documentation</strong>: <a href="https://grelinfo.github.io/grelmicro">https://grelinfo.github.io/grelmicro/</a></p>
@@ -1543,10 +1543,10 @@
 <p>It is built for any Python application, from a standalone script to full <strong>microservice patterns</strong> and <strong>self-contained systems</strong>, with a strong focus on solving <strong>distributed system</strong> problems. It fits naturally into <strong>cloud-native applications</strong>, <strong>containerized apps</strong>, and <strong>Kubernetes</strong> deployments.</p>
 <ul>
 <li><strong>Micro</strong>: one focused primitive per module. Import only what your code touches. Nothing else is loaded.</li>
-<li><strong>Fast</strong>: thin wrappers with low per-call overhead. Redis operations are server-side Lua scripts; in-memory paths skip I/O entirely.</li>
+<li><strong>Fast</strong>: small footprint by design. We keep the layers thin so your code stays quick.</li>
 <li><strong>Async-first</strong>: every I/O call is <code>async</code> / <code>await</code>. Drops into FastAPI, FastStream, and any AnyIO-based stack.</li>
 <li><strong>Backend-agnostic</strong>: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.</li>
-<li><strong>Production-ready</strong>: 100% test coverage, full type hints, and explicit deprecation paths (<code>DeprecationWarning</code> + PEP 702 <code>@deprecated</code>) with a one-minor-version removal window.</li>
+<li><strong>Production-ready</strong>: 100% test coverage and full type hints. Pre-1.0 API may shift on minor bumps. <code>1.x</code> will commit to standard semver.</li>
 </ul>
 <h2 id="modules">Modules</h2>
 <table>

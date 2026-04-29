@@ -4,4 +4,4 @@ from grelmicro.health.fastapi import health_router
 
 app = FastAPI()
 app.include_router(health_router(prefix="/api/v1"))
-# Endpoints: GET /api/v1/health/live, GET /api/v1/health/ready
+# Endpoints: GET /api/v1/livez, GET /api/v1/readyz, GET /api/v1/healthz
