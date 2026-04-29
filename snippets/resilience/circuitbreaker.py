@@ -1,4 +1,4 @@
-from grelmicro.resilience.circuitbreaker import CircuitBreaker
+from grelmicro.resilience import CircuitBreaker
 
 circuit_breaker = CircuitBreaker(
     "system_name", ignore_exceptions=FileNotFoundError

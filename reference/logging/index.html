@@ -958,6 +958,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilter.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.logging.DuplicateFilter.filter" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1228,6 +1239,17 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.logging.RateLimitFilter.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
       
     </span>
   </a>
@@ -1536,6 +1558,8 @@
       
         
       
+        
+      
     
     
     
@@ -1600,6 +1624,34 @@
     
   
     Backend Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
   
 
     
@@ -1869,6 +1921,17 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.logging.DuplicateFilter.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
       
     </span>
   </a>
@@ -2153,6 +2216,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.logging.RateLimitFilter.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.logging.RateLimitFilter.filter" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2396,11 +2470,13 @@
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">DuplicateFilter</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">allowed_repetitions</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
-    <span class="n">cache_size</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
-    <span class="n">key_mode</span><span class="p">:</span> <span class="n"><span title="grelmicro.logging._dedup.KeyMode">KeyMode</span></span> <span class="o">=</span> <span class="s2">&quot;template&quot;</span><span class="p">,</span>
+    <span class="n">allowed_repetitions</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">cache_size</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">key_mode</span><span class="p">:</span> <span class="n"><span title="grelmicro.logging._dedup.KeyMode">KeyMode</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">ttl_seconds</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">key</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><span title="logging.LogRecord">LogRecord</span></span><span class="p">],</span> <span class="n"><span title="collections.abc.Hashable">Hashable</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -2441,16 +2517,21 @@ reset method. Create a new filter to clear all counters.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Maximum number of records per key that pass the filter before subsequent records are dropped.</p>
+                <p>Maximum number of records per key that pass the
+filter before subsequent records are dropped.</p>
+<p>Default: 5. When unset, resolves from the environment
+variable <code>GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS</code>
+if present, otherwise falls back to the
+<code>DuplicateFilterConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="pydantic.PositiveInt">PositiveInt</span></code>
+                      <code><span title="pydantic.PositiveInt">PositiveInt</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>5</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -2461,16 +2542,18 @@ reset method. Create a new filter to clear all counters.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Maximum number of distinct keys tracked. When exceeded, the least-recently-seen key is evicted.</p>
+                <p>Maximum number of distinct keys tracked. When
+exceeded, the least-recently-seen key is evicted.</p>
+<p>Default: 100.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="pydantic.PositiveInt">PositiveInt</span></code>
+                      <code><span title="pydantic.PositiveInt">PositiveInt</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>100</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -2481,16 +2564,18 @@ reset method. Create a new filter to clear all counters.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Default key strategy: "template" (default) uses <code>str(record.msg)</code>; "rendered" uses <code>record.getMessage()</code>. Ignored when <code>key</code> is set.</p>
+                <p>Default key strategy: <code>"template"</code> (default) uses
+<code>str(record.msg)</code>; <code>"rendered"</code> uses
+<code>record.getMessage()</code>. Ignored when <code>key</code> is set.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.logging._dedup.KeyMode">KeyMode</span></code>
+                      <code><span title="grelmicro.logging._dedup.KeyMode">KeyMode</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>&#39;template&#39;</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -2501,7 +2586,8 @@ reset method. Create a new filter to clear all counters.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Silence window for automatic counter reset. <code>None</code> disables time-based expiry.</p>
+                <p>Silence window for automatic counter reset.
+<code>None</code> (default) disables time-based expiry.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -2531,6 +2617,48 @@ reset method. Create a new filter to clear all counters.</p>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
                       <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>env_prefix</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Override the auto-derived environment variable prefix.</p>
+<p>Default: <code>GREL_DUPLICATE_FILTER_</code>.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span> | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>read_env</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Whether to read environment variables.</p>
+<p>Default: True.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="bool">bool</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>True</code>
                   </span>
               </p>
             </td>
@@ -2582,6 +2710,85 @@ reset method. Create a new filter to clear all counters.</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.logging.DuplicateFilter.from_config" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">from_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_config</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;DuplicateFilterConfig&lt;/span&gt; (&lt;code&gt;grelmicro.logging._dedup.DuplicateFilterConfig&lt;/code&gt;)" href="#grelmicro.logging.DuplicateFilterConfig">DuplicateFilterConfig</a></span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><span title="logging.LogRecord">LogRecord</span></span><span class="p">],</span> <span class="n"><span title="collections.abc.Hashable">Hashable</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Construct a <code>DuplicateFilter</code> from a pre-built <code>DuplicateFilterConfig</code>.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The pre-built duplicate filter configuration.</p>
+<p>Use this path when the configuration is assembled at
+startup from a settings tree. The environment path
+is bypassed and the config is used as-is.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;DuplicateFilterConfig&lt;/span&gt; (&lt;code&gt;grelmicro.logging._dedup.DuplicateFilterConfig&lt;/code&gt;)" href="#grelmicro.logging.DuplicateFilterConfig">DuplicateFilterConfig</a></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>key</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Override the default key function. Receives the record and returns any hashable value.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="collections.abc.Callable">Callable</span>[[<span title="logging.LogRecord">LogRecord</span>], <span title="collections.abc.Hashable">Hashable</span>] | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 
@@ -3201,11 +3408,13 @@ Extra context fields are added flat at the top level.</p>
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">RateLimitFilter</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">capacity</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
-    <span class="n">refill_rate</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-    <span class="n">key_mode</span><span class="p">:</span> <span class="n"><span title="grelmicro.logging._ratelimit.KeyMode">KeyMode</span></span> <span class="o">=</span> <span class="s2">&quot;logger&quot;</span><span class="p">,</span>
-    <span class="n">cost</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">capacity</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">refill_rate</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">key_mode</span><span class="p">:</span> <span class="n"><span title="grelmicro.logging._ratelimit.KeyMode">KeyMode</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">cost</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">key</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><span title="logging.LogRecord">LogRecord</span></span><span class="p">],</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -3257,15 +3466,19 @@ single key.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Maximum burst size.</p>
+<p>Default: 5. When unset, resolves from the environment
+variable <code>GREL_RATE_LIMIT_FILTER_CAPACITY</code> if
+present, otherwise falls back to the
+<code>RateLimitFilterConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="pydantic.PositiveInt">PositiveInt</span></code>
+                      <code><span title="pydantic.PositiveInt">PositiveInt</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>5</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3277,15 +3490,16 @@ single key.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Tokens replenished per second.</p>
+<p>Default: 1.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="pydantic.PositiveFloat">PositiveFloat</span></code>
+                      <code><span title="pydantic.PositiveFloat">PositiveFloat</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>1</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3296,16 +3510,18 @@ single key.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Default key strategy: "logger" (default), "level", "global", "template" or "rendered". Ignored when <code>key</code> is set.</p>
+                <p>Default key strategy: "logger" (default), "level",
+"global", "template" or "rendered". Ignored when
+<code>key</code> is set.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.logging._ratelimit.KeyMode">KeyMode</span></code>
+                      <code><span title="grelmicro.logging._ratelimit.KeyMode">KeyMode</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>&#39;logger&#39;</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3317,15 +3533,16 @@ single key.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Tokens consumed per record.</p>
+<p>Default: 1.0.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="pydantic.PositiveFloat">PositiveFloat</span></code>
+                      <code><span title="pydantic.PositiveFloat">PositiveFloat</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>1.0</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3346,6 +3563,48 @@ single key.</p>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
                       <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>env_prefix</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Override the auto-derived environment variable prefix.</p>
+<p>Default: <code>GREL_RATE_LIMIT_FILTER_</code>.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span> | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>read_env</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Whether to read environment variables.</p>
+<p>Default: True.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="bool">bool</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>True</code>
                   </span>
               </p>
             </td>
@@ -3397,6 +3656,85 @@ single key.</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.logging.RateLimitFilter.from_config" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">from_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_config</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitFilterConfig&lt;/span&gt; (&lt;code&gt;grelmicro.logging._ratelimit.RateLimitFilterConfig&lt;/code&gt;)" href="#grelmicro.logging.RateLimitFilterConfig">RateLimitFilterConfig</a></span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><span title="logging.LogRecord">LogRecord</span></span><span class="p">],</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Construct a <code>RateLimitFilter</code> from a pre-built <code>RateLimitFilterConfig</code>.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The pre-built rate limit filter configuration.</p>
+<p>Use this path when the configuration is assembled at
+startup from a settings tree. The environment path
+is bypassed and the config is used as-is.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitFilterConfig&lt;/span&gt; (&lt;code&gt;grelmicro.logging._ratelimit.RateLimitFilterConfig&lt;/code&gt;)" href="#grelmicro.logging.RateLimitFilterConfig">RateLimitFilterConfig</a></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>key</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Override the default key function. It receives the record and returns a string key.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="collections.abc.Callable">Callable</span>[[<span title="logging.LogRecord">LogRecord</span>], <span title="str">str</span>] | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 

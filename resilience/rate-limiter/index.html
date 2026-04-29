@@ -679,6 +679,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#construction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Construction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#choosing-an-algorithm" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -808,17 +819,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#migration-from-the-legacy-constructor" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Migration from the legacy constructor
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1232,6 +1232,8 @@
       
         
       
+        
+      
     
     
     
@@ -1296,6 +1298,34 @@
     
   
     Backend Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
   
 
     
@@ -1537,6 +1567,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#construction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Construction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#choosing-an-algorithm" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1670,17 +1711,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#migration-from-the-legacy-constructor" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Migration from the legacy constructor
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#standalone-memorytokenbucket" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1740,29 +1770,47 @@
 
 
 <h1 id="rate-limiter">Rate Limiter</h1>
-<p>A <strong>Rate Limiter</strong> caps how many requests a client can make inside a time window. <code>RateLimiter</code> is algorithm-agnostic. Pass an <code>algorithm=</code> instance to choose semantics. Everything else (API, <code>RateLimitResult</code>, backend registry, <code>fail_open</code>) is shared.</p>
+<p>A <strong>Rate Limiter</strong> caps how many requests a client can make inside a time window. <code>RateLimiter</code> is algorithm-agnostic. Pass an algorithm config to choose semantics. Everything else (API, <code>RateLimitResult</code>, backend registry, <code>fail_open</code>) is shared.</p>
 <p><strong>Why</strong></p>
 <ul>
 <li>Protect services from overload and abuse.</li>
 <li>Enforce fair usage across clients.</li>
 <li>Produce HTTP 429 responses with <a href="https://www.rfc-editor.org/rfc/rfc9211.html">RFC 9211</a> <code>RateLimit-*</code> or legacy <code>X-RateLimit-*</code> headers.</li>
 </ul>
+<h2 id="construction">Construction</h2>
+<p>For day-to-day Python code, use the factory classmethods. They keep the call site explicit and short:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
+
+<span class="n">auth_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">gcra</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">token_bucket</span><span class="p">(</span>
+    <span class="s2">&quot;api&quot;</span><span class="p">,</span>
+    <span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Use <code>RateLimiter.from_config(name, config)</code> when the algorithm config already comes from a settings tree, YAML, or another declarative source.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">GCRAConfig</span><span class="p">,</span> <span class="n">RateLimiter</span>
+
+<span class="n">cfg</span> <span class="o">=</span> <span class="n">GCRAConfig</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+<span class="n">limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
+</code></pre></div>
+<p><code>RateLimiter</code> intentionally does not flatten both algorithms into one generic kwargs constructor. Token bucket and GCRA have different parameter vocabularies, and keeping one explicit entry point per behaviour makes the public API easier to read.</p>
 <h2 id="choosing-an-algorithm">Choosing an algorithm</h2>
 <p>Pick the algorithm whose behaviour matches how <strong>operators describe the limit</strong> in runbooks and API docs. Both algorithms share the same Python API, backends, and <code>RateLimitResult</code> shape, so you can switch later.</p>
 <h3 id="decision-guide">Decision guide</h3>
 <ol>
-<li><strong>Are you throttling an HTTP API with <code>RateLimit-*</code> or <code>X-RateLimit-*</code> headers?</strong> Use <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;GCRA&lt;/span&gt;" href="../../reference/resilience/#grelmicro.resilience.GCRA"><code>GCRA</code></a>. Its sliding-window model matches the IETF RateLimit headers directly and produces precise <code>limit</code>, <code>remaining</code>, and <code>reset_after</code> values.</li>
-<li><strong>Do you want "allow a burst of N, then 1 per second sustained"?</strong> Use <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TokenBucket&lt;/span&gt;" href="../../reference/resilience/#grelmicro.resilience.TokenBucket"><code>TokenBucket</code></a>. The <code>capacity</code> and <code>refill_rate</code> parameters describe exactly that.</li>
-<li><strong>Does a client need to send occasional spikes above the average rate?</strong> Use <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TokenBucket&lt;/span&gt;" href="../../reference/resilience/#grelmicro.resilience.TokenBucket"><code>TokenBucket</code></a>. The capacity absorbs the spike. GCRA can allow bursts too, but the configuration is less direct.</li>
-<li><strong>Did you search for "leaky bucket"?</strong> Use <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;GCRA&lt;/span&gt;" href="../../reference/resilience/#grelmicro.resilience.GCRA"><code>GCRA</code></a>. It is the leaky-bucket-as-meter formulation.</li>
+<li><strong>Are you throttling an HTTP API with <code>RateLimit-*</code> or <code>X-RateLimit-*</code> headers?</strong> Use <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;GCRAConfig&lt;/span&gt;" href="../../reference/resilience/#grelmicro.resilience.GCRAConfig"><code>GCRAConfig</code></a>. Its sliding-window model matches the IETF RateLimit headers directly and produces precise <code>limit</code>, <code>remaining</code>, and <code>reset_after</code> values.</li>
+<li><strong>Do you want "allow a burst of N, then 1 per second sustained"?</strong> Use <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TokenBucketConfig&lt;/span&gt;" href="../../reference/resilience/#grelmicro.resilience.TokenBucketConfig"><code>TokenBucketConfig</code></a>. The <code>capacity</code> and <code>refill_rate</code> parameters describe exactly that.</li>
+<li><strong>Does a client need to send occasional spikes above the average rate?</strong> Use <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TokenBucketConfig&lt;/span&gt;" href="../../reference/resilience/#grelmicro.resilience.TokenBucketConfig"><code>TokenBucketConfig</code></a>. The capacity absorbs the spike. GCRA can allow bursts too, but the configuration is less direct.</li>
+<li><strong>Did you search for "leaky bucket"?</strong> Use <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;GCRAConfig&lt;/span&gt;" href="../../reference/resilience/#grelmicro.resilience.GCRAConfig"><code>GCRAConfig</code></a>. It is the leaky-bucket-as-meter formulation.</li>
 </ol>
 <h3 id="side-by-side">Side-by-side</h3>
 <table>
 <thead>
 <tr>
 <th></th>
-<th><strong>GCRA</strong></th>
-<th><strong>TokenBucket</strong></th>
+<th><strong>GCRAConfig</strong></th>
+<th><strong>TokenBucketConfig</strong></th>
 </tr>
 </thead>
 <tbody>
@@ -1799,14 +1847,14 @@
 </div>
 <h3 id="worked-scenarios">Worked scenarios</h3>
 <ul>
-<li><strong>"Limit each user to 100 API calls per minute."</strong> Use <code>GCRA(limit=100, window=60)</code>. The sliding window matches the natural description, and <code>RateLimitResult.reset_after</code> feeds directly into <code>RateLimit-Reset</code>.</li>
-<li><strong>"Allow a burst of 20 uploads, then 2 per second."</strong> Use <code>TokenBucket(capacity=20, refill_rate=2)</code>. Each word in the sentence maps to one parameter.</li>
-<li><strong>"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."</strong> Use <code>TokenBucket(capacity=5, refill_rate=0.1)</code>.</li>
-<li><strong>"Throttle expensive webhook retries. At most 10 per minute per target."</strong> Use <code>GCRA(limit=10, window=60)</code>.</li>
+<li><strong>"Limit each user to 100 API calls per minute."</strong> Use <code>GCRAConfig(limit=100, window=60)</code>. The sliding window matches the natural description, and <code>RateLimitResult.reset_after</code> feeds directly into <code>RateLimit-Reset</code>.</li>
+<li><strong>"Allow a burst of 20 uploads, then 2 per second."</strong> Use <code>TokenBucketConfig(capacity=20, refill_rate=2)</code>. Each word in the sentence maps to one parameter.</li>
+<li><strong>"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."</strong> Use <code>TokenBucketConfig(capacity=5, refill_rate=0.1)</code>.</li>
+<li><strong>"Throttle expensive webhook retries. At most 10 per minute per target."</strong> Use <code>GCRAConfig(limit=10, window=60)</code>.</li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>There is no separate <code>LeakyBucket</code> algorithm because GCRA <strong>is</strong> the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use <code>GCRA</code>.</p>
+<p>There is no separate <code>LeakyBucket</code> algorithm because GCRA <strong>is</strong> the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use <code>GCRAConfig</code>.</p>
 </div>
 <h2 id="backend">Backend</h2>
 <p>Load a backend before using <code>RateLimiter</code>. The same backend serves every algorithm.</p>
@@ -1860,17 +1908,15 @@
 </tr>
 </tbody>
 </table>
-<p>The backend compiles the algorithm into a bound strategy at <code>RateLimiter.__init__</code> through <code>backend.bind(algorithm)</code>. Runtime <code>acquire</code>, <code>peek</code>, and <code>reset</code> calls invoke that strategy directly. <strong>There is no algorithm dispatch on the request path.</strong></p>
+<p>The backend compiles the algorithm into a bound strategy at <code>RateLimiter.__init__</code> through <code>backend.bind(config)</code>. Runtime <code>acquire</code>, <code>peek</code>, and <code>reset</code> calls invoke that strategy directly. <strong>There is no algorithm dispatch on the request path.</strong></p>
 <h2 id="usage">Usage</h2>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">GCRA</span><span class="p">,</span> <span class="n">RateLimiter</span><span class="p">,</span> <span class="n">TokenBucket</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
 
 <span class="c1"># GCRA for precise sliding-window API throttling.</span>
-<span class="n">auth_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">GCRA</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">))</span>
+<span class="n">auth_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">gcra</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
-<span class="c1"># TokenBucket for burst-friendly &quot;N then 1/sec&quot; semantics.</span>
-<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span>
-    <span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">TokenBucket</span><span class="p">(</span><span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
-<span class="p">)</span>
+<span class="c1"># Token bucket for burst-friendly &quot;N then 1/sec&quot; semantics.</span>
+<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">token_bucket</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">login</span><span class="p">(</span><span class="n">ip</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -1907,7 +1953,7 @@
 <tr>
 <td><code>limit</code></td>
 <td><code>int</code></td>
-<td>Total quota (<code>limit</code> for GCRA, <code>int(capacity)</code> for TokenBucket)</td>
+<td>Total quota (<code>limit</code> for GCRAConfig, <code>int(capacity)</code> for TokenBucketConfig)</td>
 <td><code>RateLimit-Limit</code> / <code>X-RateLimit-Limit</code></td>
 </tr>
 <tr>
@@ -1937,9 +1983,9 @@
 </code></pre></div>
 <h3 id="peek-check-without-consuming">Peek (check without consuming)</h3>
 <p>Use <code>peek()</code> to inspect current state without consuming tokens.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">GCRA</span><span class="p">,</span> <span class="n">RateLimiter</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
 
-<span class="n">invite_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;invite&quot;</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">GCRA</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">3600</span><span class="p">))</span>
+<span class="n">invite_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">gcra</span><span class="p">(</span><span class="s2">&quot;invite&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">3600</span><span class="p">)</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_locked</span><span class="p">(</span><span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
@@ -1948,9 +1994,9 @@
 </code></pre></div>
 <h3 id="reset">Reset</h3>
 <p>Use <code>reset()</code> to delete the state for a key, restoring its full quota.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">GCRA</span><span class="p">,</span> <span class="n">RateLimiter</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
 
-<span class="n">auth_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">GCRA</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">))</span>
+<span class="n">auth_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">gcra</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">verify_password</span><span class="p">(</span><span class="n">password</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
@@ -1966,12 +2012,13 @@
 </code></pre></div>
 <h3 id="fail-open-mode">Fail-open mode</h3>
 <p>Use <code>fail_open=True</code> when availability matters more than strictness. On backend errors (e.g. Redis down), the rate limiter returns an allowed result instead of raising.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span><span class="p">,</span> <span class="n">TokenBucket</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
 
 <span class="c1"># Non-critical limiter: prefer availability over strictness</span>
-<span class="n">limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span>
+<span class="n">limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">token_bucket</span><span class="p">(</span>
     <span class="s2">&quot;analytics&quot;</span><span class="p">,</span>
-    <span class="n">algorithm</span><span class="o">=</span><span class="n">TokenBucket</span><span class="p">(</span><span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>
+    <span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
     <span class="n">fail_open</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 
@@ -1993,14 +2040,6 @@
 <p class="admonition-title">Tip</p>
 <p>The rate limiter uses the same backend registry pattern as the synchronization primitives. See <a href="../../architecture/backends/">Backend Architecture</a> for details.</p>
 </div>
-<h2 id="migration-from-the-legacy-constructor">Migration from the legacy constructor</h2>
-<p>The shorthand <code>RateLimiter(name, limit=..., window=...)</code> is still accepted and emits a <code>DeprecationWarning</code>. It is internally rewritten to <code>RateLimiter(name, algorithm=GCRA(limit=..., window=...))</code>. It will be removed in <strong>0.15.0</strong>.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Before (deprecated)</span>
-<span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
-
-<span class="c1"># After</span>
-<span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">GCRA</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">))</span>
-</code></pre></div>
 <h2 id="standalone-memorytokenbucket">Standalone <code>MemoryTokenBucket</code></h2>
 <p><code>MemoryTokenBucket</code> is a <strong>standalone, synchronous, thread-safe</strong> in-memory token-bucket primitive. Unlike <code>RateLimiter</code>, it is not pluggable and not async. Use it when you need a raw, zero-I/O bucket on a synchronous performance-critical path. It powers <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimitFilter&lt;/span&gt;" href="../../reference/logging/#grelmicro.logging.RateLimitFilter"><code>grelmicro.logging.RateLimitFilter</code></a>, which is the recommended way to use it for rate-limiting log records. Call it directly for any other use case.</p>
 <h3 id="usage_1">Usage</h3>

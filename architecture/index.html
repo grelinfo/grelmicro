@@ -1000,6 +1000,8 @@
       
         
       
+        
+      
     
     
     
@@ -1064,6 +1066,34 @@
     
   
     Backend Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
   
 
     
@@ -1320,6 +1350,7 @@
 <p>This section documents the internal design decisions and guarantees of grelmicro.</p>
 <ul>
 <li><strong><a href="backends/">Backend Registry</a></strong>: Shared registry pattern for swappable backends.</li>
+<li><strong><a href="config/">Configuration</a></strong>: Explicit construction paths, <code>from_config(...)</code>, optional env resolution where it fits, and the library-not-app boundary.</li>
 <li><strong><a href="imports/">Import Strategy</a></strong>: Why backends are imported from submodules, not re-exported.</li>
 <li><strong><a href="sync/">Synchronization</a></strong>: Worker identity, token generation, lock design, and cleanup strategy.</li>
 <li><strong><a href="kubernetes/">Kubernetes Backend</a></strong>: Lease resources, optimistic concurrency, and name sanitization.</li>

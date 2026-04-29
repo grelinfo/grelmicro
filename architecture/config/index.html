@@ -1,0 +1,2493 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes, workers, or services.">
+      
+      
+      
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/config/">
+      
+      
+        <link rel="prev" href="../backends/">
+      
+      
+        <link rel="next" href="../imports/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/logo/favicon-192.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Configuration - grelmicro</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../css/overrides.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#configuration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
+      
+  <img src="../../img/logo/favicon-48.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            grelmicro
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Configuration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/grelinfo/grelmicro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    grelinfo/grelmicro
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
+      
+  <img src="../../img/logo/favicon-48.png" alt="logo">
+
+    </a>
+    grelmicro
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/grelinfo/grelmicro" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    grelinfo/grelmicro
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    grelmicro
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health Checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JSON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../resilience/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resilience
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Resilience
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../resilience/circuit-breaker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Circuit Breaker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../resilience/rate-limiter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rate Limiter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synchronization Primitives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Scheduler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JSON
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resilience/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resilience
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synchronization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#construction-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Construction shapes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Construction shapes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resolution-inside-__init__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolution inside __init__
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-use-each-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to use each path
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#name-as-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Name as namespace
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Name as namespace">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prefix-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prefix reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#name-normalisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Name normalisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-belongs-in-the-call-not-in-the-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity belongs in the call, not in the config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#env-prefix-override-and-escape-hatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Env prefix override and escape hatch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-grelmicro-ships-what-the-app-ships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What grelmicro ships, what the app ships
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend resolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variants-one-class-with-factories-vs-separate-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants: one class with factories vs separate components
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Variants: one class with factories vs separate components">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#interchangeable-one-class-factory-classmethods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interchangeable: one class, factory classmethods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#distinct-separate-classes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distinct: separate classes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quick-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#public-api-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public API surface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#single-instance-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single-instance variant
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-reconfiguration-future" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime reconfiguration (future)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decisions-and-alternatives-rejected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decisions and alternatives rejected
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decisions and alternatives rejected">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#field-copy-pattern-issue-113" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field-copy pattern (issue #113)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#drop-pydantic-in-favour-of-dataclassfrozentrue-slotstrue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drop Pydantic in favour of @dataclass(frozen=True, slots=True)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uppercase-field-names-on-config-classes-todays-loggingsettings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uppercase field names on Config classes (today's LoggingSettings)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bare-env-prefix-lock_-log_-with-no-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bare env prefix (LOCK_*, LOG_*) with no namespace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-library-default-prefix-force-users-to-always-supply-env_prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No library default prefix (force users to always supply env_prefix=)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-related-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to related work
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../imports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synchronization Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../kubernetes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kubernetes Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sqlite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQLite Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tracing Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../third_party_notices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Third-party notices
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#construction-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Construction shapes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Construction shapes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resolution-inside-__init__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolution inside __init__
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-use-each-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to use each path
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#name-as-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Name as namespace
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Name as namespace">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prefix-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prefix reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#name-normalisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Name normalisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-belongs-in-the-call-not-in-the-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity belongs in the call, not in the config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#env-prefix-override-and-escape-hatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Env prefix override and escape hatch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-grelmicro-ships-what-the-app-ships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What grelmicro ships, what the app ships
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend resolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variants-one-class-with-factories-vs-separate-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants: one class with factories vs separate components
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Variants: one class with factories vs separate components">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#interchangeable-one-class-factory-classmethods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interchangeable: one class, factory classmethods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#distinct-separate-classes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distinct: separate classes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quick-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#public-api-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public API surface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#single-instance-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single-instance variant
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-reconfiguration-future" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime reconfiguration (future)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decisions-and-alternatives-rejected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decisions and alternatives rejected
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decisions and alternatives rejected">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#field-copy-pattern-issue-113" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field-copy pattern (issue #113)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#drop-pydantic-in-favour-of-dataclassfrozentrue-slotstrue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drop Pydantic in favour of @dataclass(frozen=True, slots=True)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uppercase-field-names-on-config-classes-todays-loggingsettings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uppercase field names on Config classes (today's LoggingSettings)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bare-env-prefix-lock_-log_-with-no-namespace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bare env prefix (LOCK_*, LOG_*) with no namespace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-library-default-prefix-force-users-to-always-supply-env_prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No library default prefix (force users to always supply env_prefix=)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-related-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to related work
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="configuration">Configuration</h1>
+<p>This document specifies how grelmicro components are configured. It defines the contract all components follow, the resolution rules between kwargs, explicit config objects, and environment variables, and the reasoning behind the design.</p>
+<h2 id="goals">Goals</h2>
+<ol>
+<li><strong>Library, not application.</strong> grelmicro ships typed Pydantic config classes with clean field names. Config classes themselves carry no environment bindings. Components expose an opt-in Environmental path that reads from a narrow, grelmicro-scoped env namespace (<code>GREL_*</code>) which the app can always override or disable.</li>
+<li><strong>Small, explicit paths.</strong> Config-shaped components expose programmatic, declarative, and environmental paths. Variant-driven components such as <code>RateLimiter</code> expose simple factory methods for programmatic use and keep config objects for declarative composition.</li>
+<li><strong>One rule across components.</strong> The resolution order is identical for every component. Learn it once, apply everywhere.</li>
+<li><strong>Identity stays visible.</strong> For multi-instance components (lock, rate limiter, leader election), the instance name is always a required positional argument. It is grep-friendly and never hidden inside a config object.</li>
+<li><strong>Runtime reconfiguration is not blocked.</strong> The design keeps <code>self._config</code> as a single Pydantic pointer so an atomic swap remains feasible in the future.</li>
+<li><strong>Hot path is untouched.</strong> All merging, env reading, and validation happens once at construction. Runtime reads stay on the Pydantic model, consistent with the <code>RateLimitFilter.filter</code> benchmark showing per-field access costs ~2 ns and accounts for ~1% of a 255 ns call.</li>
+</ol>
+<h2 id="construction-shapes">Construction shapes</h2>
+<p>Grelmicro uses two public patterns, chosen per component:</p>
+<ul>
+<li><strong>Config-shaped components</strong> such as <code>Lock</code> and <code>TaskLock</code>: <code>Component(name, **kwargs)</code> for code-first and environmental construction, plus <code>Component.from_config(name, config)</code> for declarative composition.</li>
+<li><strong>Variant-driven components</strong> such as <code>RateLimiter</code>: factory classmethods for the simple Python path, plus <code>Component.from_config(name, config)</code> for declarative composition.</li>
+</ul>
+<p>The <code>Config</code> classes carry settings only. The instance identity lives on the component itself. This matches the <code>Map&lt;String, Settings&gt;</code> shape used by every major declarative-config framework.</p>
+<h3 id="resolution-inside-__init__">Resolution inside <code>__init__</code></h3>
+<p>When a config-shaped component constructs via <code>__init__</code>, the final config merges these sources, top wins:</p>
+<ol>
+<li><strong>kwargs</strong> from the caller (explicit values).</li>
+<li><strong>Environment variables</strong> matching the component's derived prefix (only when <code>read_env=True</code>).</li>
+<li><strong>Defaults</strong> declared on the <code>Config</code> class.</li>
+</ol>
+<p><code>None</code> kwarg values are treated as unset. They fall through to the env or default layers.</p>
+<h3 id="when-to-use-each-path">When to use each path</h3>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Call</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Programmatic</strong></td>
+<td><code>Lock("cart", lease_duration=60)</code> or <code>RateLimiter.token_bucket("api", capacity=10, refill_rate=1)</code></td>
+<td>Scripts, notebooks, and code-first setups where all values are known inline.</td>
+</tr>
+<tr>
+<td><strong>Environmental</strong></td>
+<td><code>Lock("cart")</code></td>
+<td>Zero-boilerplate 12-factor deployments for config-shaped components. Fields resolve from env, fall back to defaults.</td>
+</tr>
+<tr>
+<td><strong>Declarative</strong></td>
+<td><code>Lock.from_config("cart", cfg)</code> or <code>RateLimiter.from_config("api", cfg)</code></td>
+<td>Production where a settings tree is assembled at startup from YAML, Vault, or any central source.</td>
+</tr>
+</tbody>
+</table>
+<p>The first two share <code>__init__</code>. Only their inputs differ. The declarative path is the classmethod.</p>
+<p>A layered shape (kwarg overrides on top of an explicit config) is <strong>not</strong> offered. If you want a config baseline with overrides, build the new config explicitly: <code>cfg2 = cfg.model_copy(update={"lease_duration": 30})</code>, then <code>Lock.from_config("cart", cfg2)</code>.</p>
+<h2 id="name-as-namespace">Name as namespace</h2>
+<p>Multi-instance components derive their environment prefix from the component name and the positional instance name:</p>
+<div class="highlight"><pre><span></span><code>GREL_{COMPONENT}_{NAME_UPPER}_{FIELD_UPPER}
+</code></pre></div>
+<p>Examples:</p>
+<div class="highlight"><pre><span></span><code>GREL_LOCK_CART_LEASE_DURATION=60
+GREL_LOCK_PAYMENTS_LEASE_DURATION=120
+GREL_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS=300
+GREL_LEADER_ELECTION_CRON_RETRY_INTERVAL=5
+</code></pre></div>
+<p>Single-instance components drop the instance-name segment:</p>
+<div class="highlight"><pre><span></span><code>GREL_HEALTH_CACHE_TTL=2.0
+GREL_LOG_LEVEL=DEBUG
+GREL_RATE_LIMIT_FILTER_CAPACITY=50
+GREL_DUPLICATE_FILTER_CACHE_SIZE=1024
+</code></pre></div>
+<p>This is a deliberate parallel to Spring Boot's <code>@ConfigurationProperties(prefix="myapp.locks.cart")</code>, with the prefix derived from runtime identity rather than an annotation.</p>
+<h3 id="prefix-reference">Prefix reference</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Auto-derived prefix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Lock</code></td>
+<td><code>GREL_LOCK_{NAME_UPPER}_</code></td>
+</tr>
+<tr>
+<td><code>TaskLock</code></td>
+<td><code>GREL_TASK_LOCK_{NAME_UPPER}_</code></td>
+</tr>
+<tr>
+<td><code>LeaderElection</code></td>
+<td><code>GREL_LEADER_ELECTION_{NAME_UPPER}_</code></td>
+</tr>
+<tr>
+<td><code>RateLimitFilter</code></td>
+<td><code>GREL_RATE_LIMIT_FILTER_</code></td>
+</tr>
+<tr>
+<td><code>DuplicateFilter</code></td>
+<td><code>GREL_DUPLICATE_FILTER_</code></td>
+</tr>
+<tr>
+<td><code>HealthRegistry</code></td>
+<td><code>GREL_HEALTH_</code></td>
+</tr>
+<tr>
+<td><code>LoggingSettings</code></td>
+<td><code>GREL_LOG_</code></td>
+</tr>
+</tbody>
+</table>
+<p>The <code>GREL_</code> prefix makes grelmicro ownership explicit, avoids collision with unrelated environment variables, and follows the same pattern as <code>UVICORN_*</code>, <code>GUNICORN_*</code>, <code>CELERY_*</code>, <code>DJANGO_*</code>. Apps that want their own convention pass <code>env_prefix=</code> explicitly on construction.</p>
+<h3 id="name-normalisation">Name normalisation</h3>
+<p>Instance names are normalised before they enter an env prefix so that natural identifiers like <code>payments-eu</code>, <code>cart.v2</code>, or <code>weather/svc</code> produce valid POSIX environment variables. The rule, implemented as <code>grelmicro._config.env_segment</code>:</p>
+<ul>
+<li>Upper-case the name.</li>
+<li>Replace any character outside <code>[A-Z0-9_]</code> with <code>_</code>.</li>
+<li>Collapse runs of underscores into one.</li>
+<li>Strip leading and trailing underscores.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Env segment</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cart</code></td>
+<td><code>CART</code></td>
+</tr>
+<tr>
+<td><code>payments-eu</code></td>
+<td><code>PAYMENTS_EU</code></td>
+</tr>
+<tr>
+<td><code>cart.v2</code></td>
+<td><code>CART_V2</code></td>
+</tr>
+<tr>
+<td><code>foo:bar</code></td>
+<td><code>FOO_BAR</code></td>
+</tr>
+<tr>
+<td><code>weather/svc</code></td>
+<td><code>WEATHER_SVC</code></td>
+</tr>
+<tr>
+<td><code>svc:prod-1</code></td>
+<td><code>SVC_PROD_1</code></td>
+</tr>
+</tbody>
+</table>
+<p>The rule is conservative: a name with no portable characters or a result that starts with a digit is rejected at construction with a clear error. Apps that need a different mapping pass <code>env_prefix=</code> explicitly to bypass derivation.</p>
+<h2 id="identity-belongs-in-the-call-not-in-the-config">Identity belongs in the call, not in the config</h2>
+<p><code>Config</code> classes carry settings only. Identity is the positional <code>name</code> on the component. YAML and env aggregations key by name naturally:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">locks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">cart</span><span class="p">:</span><span class="w">    </span><span class="p p-Indicator">{</span><span class="nt"> lease_duration</span><span class="p">:</span><span class="w"> </span><span class="nv">60</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">payments</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> lease_duration</span><span class="p">:</span><span class="w"> </span><span class="nv">120</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="n">locks</span> <span class="o">=</span> <span class="p">{</span><span class="n">n</span><span class="p">:</span> <span class="n">Lock</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">cfg</span> <span class="ow">in</span> <span class="n">settings</span><span class="o">.</span><span class="n">locks</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="nv">GREL_LOCKS__CART__LEASE_DURATION</span><span class="o">=</span><span class="m">60</span>
+</code></pre></div>
+<p>No redundant <code>name: cart</code> field in YAML, no <code>*_NAME=cart</code> env var to populate.</p>
+<h2 id="env-prefix-override-and-escape-hatch">Env prefix override and escape hatch</h2>
+<p>Two constructor kwargs customise env behaviour on components that expose the Environmental path:</p>
+<ul>
+<li><strong><code>env_prefix: str | None = None</code></strong>: override the auto-derived prefix. Use when the app wants its own convention, for example <code>MYAPP_LOCK_CART_*</code> instead of <code>GREL_LOCK_CART_*</code>.</li>
+<li><strong><code>read_env: bool = True</code></strong>: disable env reading entirely. Use when the caller wants to guarantee the environment has no influence on construction, for example when every field is already supplied via kwargs or when construction happens via <code>from_config(...)</code>.</li>
+</ul>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">env_prefix</span><span class="o">=</span><span class="s2">&quot;MYAPP_LOCK_CART_&quot;</span><span class="p">)</span>     <span class="c1"># reads MYAPP_LOCK_CART_*</span>
+<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">read_env</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">lease_duration</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span> <span class="c1"># env ignored entirely</span>
+</code></pre></div>
+<h2 id="what-grelmicro-ships-what-the-app-ships">What grelmicro ships, what the app ships</h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>grelmicro</th>
+<th>The application</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pydantic <code>Config</code> classes (<code>LockConfig</code>, <code>RateLimiterConfig</code>, ...)</td>
+<td>yes, no env bindings</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Component entry points for programmatic use, plus <code>from_config(...)</code> for declarative composition</td>
+<td>yes</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>GREL_*</code> as the default env namespace for the Environmental path</td>
+<td>yes</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Docs showing YAML + pydantic-settings recipes</td>
+<td>yes</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>AppSettings(BaseSettings)</code> wrapper</td>
+<td>no</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Alternative env prefix (e.g. <code>MYAPP_*</code>)</td>
+<td>no</td>
+<td>yes (via <code>env_prefix=</code>)</td>
+</tr>
+<tr>
+<td>YAML path, <code>.env</code>, Vault, Consul, etc.</td>
+<td>no</td>
+<td>yes (via pydantic-settings or another loader)</td>
+</tr>
+<tr>
+<td>Instance naming (<code>cart</code>, <code>payments</code>)</td>
+<td>no</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p><code>GREL_*</code> is the <strong>default</strong> when the Environmental path is used. It is not a claim on any other namespace, and <code>env_prefix=</code> always lets the app pick its own. The Config classes themselves stay env-free so they compose freely into the app's own settings tree.</p>
+<h2 id="backend-resolution">Backend resolution</h2>
+<p>Components do not look up their backend during construction. The
+registry call is deferred to the first method that actually needs
+the backend, and the result is cached on the instance.</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Lock</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+        <span class="o">...</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_backend</span><span class="p">:</span> <span class="n">SyncBackend</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">backend</span>  <span class="c1"># may be None</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backend</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SyncBackend</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_backend</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_backend</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_resolve_backend</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SyncBackend</span><span class="p">:</span>
+        <span class="n">backend</span> <span class="o">=</span> <span class="n">get_sync_backend</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_backend</span> <span class="o">=</span> <span class="n">backend</span>
+        <span class="k">return</span> <span class="n">backend</span>
+</code></pre></div>
+<p>Internal hot-path methods read through the same short-circuit:</p>
+<div class="highlight"><pre><span></span><code><span class="n">backend</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_backend</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_backend</span><span class="p">()</span>
+<span class="k">return</span> <span class="k">await</span> <span class="n">backend</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<p>Three properties hold:</p>
+<ul>
+<li><strong>Construction is pure.</strong> <code>Lock("cart")</code> performs no registry
+  call. <code>BackendNotLoadedError</code> only ever surfaces on the first
+  operation, never at import or construction time.</li>
+<li><strong>Cached after first use.</strong> Resolution is <code>O(1)</code> per call. The
+  first call writes <code>self._backend</code>, subsequent calls hit the
+  attribute directly. Measured cost: about 33 ns per access in
+  steady state.</li>
+<li><strong>Public <code>backend</code> property.</strong> Each component exposes a
+  read-only <code>backend</code> property so callers and tests can introspect
+  the bound backend without reaching for private state.</li>
+</ul>
+<p>The same shape applies to <code>RateLimiter</code>, where a second lazy step
+binds the algorithm config into a strategy:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@property</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">backend</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RateLimiterBackend</span><span class="p">:</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_backend</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_backend</span><span class="p">()</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_resolve_strategy</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RateLimiterStrategy</span><span class="p">:</span>
+    <span class="n">strategy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">backend</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_strategy</span> <span class="o">=</span> <span class="n">strategy</span>
+    <span class="k">return</span> <span class="n">strategy</span>
+</code></pre></div>
+<p>The hot-path methods read <code>self._strategy or self._resolve_strategy()</code>
+so the bind step is paid exactly once and the strategy method is
+called directly thereafter, preserving the
+"resolve the choice once, forward directly on every call" rule
+from <code>CONTRIBUTING.md</code>.</p>
+<h2 id="variants-one-class-with-factories-vs-separate-components">Variants: one class with factories vs separate components</h2>
+<p>Some primitives have variants. The rule for shaping the API:</p>
+<ul>
+<li><strong>Interchangeable variants</strong> (same public interface, same observable behaviour, only the internals differ): one class. Variants are factory classmethods, named after the discriminator value.</li>
+<li><strong>Distinct variants</strong> (different semantics, callers must know which one they hold): separate classes. Each variant is its own component.</li>
+</ul>
+<h3 id="interchangeable-one-class-factory-classmethods">Interchangeable: one class, factory classmethods</h3>
+<p>A token bucket and a GCRA rate limiter both expose <code>acquire</code>, <code>peek</code>, <code>reset</code>. Swapping the algorithm does not require changing the caller. The choice is a tuning parameter.</p>
+<div class="highlight"><pre><span></span><code><span class="n">RateLimiter</span><span class="o">.</span><span class="n">token_bucket</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">capacity</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">RateLimiter</span><span class="o">.</span><span class="n">gcra</span><span class="p">(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+</code></pre></div>
+<p>One class (<code>RateLimiter</code>), one config-typed declarative path (<code>RateLimiter.from_config(name, cfg)</code>), and one factory classmethod per variant.</p>
+<h3 id="distinct-separate-classes">Distinct: separate classes</h3>
+<p>A reentrant lock allows the same task to acquire it twice. A regular lock raises on the second acquire. Swapping them silently breaks correctness, so the caller must hold the right type.</p>
+<div class="highlight"><pre><span></span><code><span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">lease_duration</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+<span class="n">SpinLock</span><span class="p">(</span><span class="s2">&quot;config&quot;</span><span class="p">,</span> <span class="n">max_spins</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+<span class="n">ReentrantLock</span><span class="p">(</span><span class="s2">&quot;recursive&quot;</span><span class="p">,</span> <span class="n">lease_duration</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+</code></pre></div>
+<p>Each is its own class with its own <code>__init__</code>, its own <code>from_config</code>, and its own type. The type checker stops a <code>ReentrantLock</code> from being used where a <code>Lock</code> is expected.</p>
+<h3 id="quick-test">Quick test</h3>
+<blockquote>
+<p>Can a caller use one variant where another was specified, without touching the call site?</p>
+</blockquote>
+<ul>
+<li><strong>Yes</strong>: interchangeable. One class with factory classmethods.</li>
+<li><strong>No</strong>: distinct. Separate classes.</li>
+</ul>
+<p>This rule is what tells <code>RateLimiter.token_bucket(...)</code> apart from <code>ReentrantLock(...)</code>.</p>
+<h2 id="public-api-surface">Public API surface</h2>
+<p>Config-shaped components follow one clear shape: a single <code>__init__</code> for the kwargs-and-env path plus a <code>from_config</code> classmethod for the declarative path.</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Component</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">backend</span><span class="p">:</span> <span class="n">Backend</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">field_a</span><span class="p">:</span> <span class="o">...</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">field_b</span><span class="p">:</span> <span class="o">...</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">env_prefix</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">read_env</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Construct from kwargs, optionally consulting environment variables.&quot;&quot;&quot;</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">config</span><span class="p">:</span> <span class="n">ComponentConfig</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">backend</span><span class="p">:</span> <span class="n">Backend</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Construct from a name and a pre-built Config. Bypasses kwargs and env.&quot;&quot;&quot;</span>
+</code></pre></div>
+<p><code>__init__</code> derives <code>env_prefix</code> when not supplied and delegates to the shared <code>resolve_config</code> helper. <code>from_config</code> wires the instance directly via <code>cls.__new__</code> plus a private <code>_setup</code> helper. Neither path needs <code>@overload</code> stubs because the two are physically separate methods.</p>
+<p>Variant-driven components keep the same declarative entry point but use factories for the simple Python path:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">VariantComponent</span><span class="p">:</span>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">token_bucket</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">capacity</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">refill_rate</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+        <span class="o">...</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">gcra</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">window</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+        <span class="o">...</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">ComponentConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+        <span class="o">...</span>
+</code></pre></div>
+<h2 id="single-instance-variant">Single-instance variant</h2>
+<p>Single-instance components drop the positional <code>name</code> but follow the same three paths. Grelmicro exposes a pure Pydantic <code>Config</code> and an opt-in convenience <code>Settings</code> subclass that adds the <code>GREL_*</code> env prefix:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># canonical, no env</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LoggingConfig</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n">LoggingBackendType</span> <span class="o">=</span> <span class="n">LoggingBackendType</span><span class="o">.</span><span class="n">STDLIB</span>
+    <span class="n">level</span><span class="p">:</span> <span class="n">LoggingLevelType</span> <span class="o">=</span> <span class="n">LoggingLevelType</span><span class="o">.</span><span class="n">INFO</span>
+    <span class="nb">format</span><span class="p">:</span> <span class="n">LoggingFormatType</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">LoggingFormatType</span><span class="o">.</span><span class="n">AUTO</span>
+    <span class="c1"># ...</span>
+
+<span class="c1"># opt-in convenience: GREL_LOG_* env vars</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LoggingSettings</span><span class="p">(</span><span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">BaseSettings</span><span class="p">):</span>
+    <span class="n">model_config</span> <span class="o">=</span> <span class="n">SettingsConfigDict</span><span class="p">(</span><span class="n">env_prefix</span><span class="o">=</span><span class="s2">&quot;GREL_LOG_&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Apps can bypass the convenience subclass and pick their own prefix:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">MyLoggingSettings</span><span class="p">(</span><span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">BaseSettings</span><span class="p">):</span>
+    <span class="n">model_config</span> <span class="o">=</span> <span class="n">SettingsConfigDict</span><span class="p">(</span><span class="n">env_prefix</span><span class="o">=</span><span class="s2">&quot;MYAPP_LOG_&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Field names on every <code>Config</code> stay lowercase and PEP 8 compliant. The <code>env_prefix</code> on the opt-in <code>Settings</code> subclass produces the uppercase env vars. This keeps Python code readable (<code>settings.level</code>, not <code>settings.LOG_LEVEL</code>) while the env stays ops-friendly (<code>GREL_LOG_LEVEL</code>).</p>
+<h2 id="runtime-reconfiguration-future">Runtime reconfiguration (future)</h2>
+<p>The current design keeps <code>self._config</code> as a single immutable Pydantic model assigned in one step. This preserves a future extension:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">reconfigure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">ComponentConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Atomically replace the config. In-flight operations started</span>
+<span class="sd">    before this call continue with the prior snapshot.&quot;&quot;&quot;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_config</span> <span class="o">=</span> <span class="n">config</span>
+</code></pre></div>
+<p>Atomicity holds because Python attribute assignment is atomic under the GIL and the config is a single pointer. The field-copy pattern (one instance attribute per config field) would forfeit this guarantee and was explicitly rejected (see Decisions below).</p>
+<h2 id="decisions-and-alternatives-rejected">Decisions and alternatives rejected</h2>
+<h3 id="field-copy-pattern-issue-113">Field-copy pattern (issue #113)</h3>
+<p>Copy each config field to a plain instance attribute at construction time to shave ~2 ns per field read. Rejected because:</p>
+<ul>
+<li>Benchmarks show ~1% of call time in the tightest synchronous hot path (<code>RateLimitFilter.filter</code>) and zero measurable impact on network-backed paths (lock, rate limiter).</li>
+<li>Breaks atomic-swap for future <code>reconfigure()</code>. Multiple pointer swaps means torn reads are possible.</li>
+<li>Adds 43 duplication sites that must stay in sync on every new field.</li>
+</ul>
+<h3 id="drop-pydantic-in-favour-of-dataclassfrozentrue-slotstrue">Drop Pydantic in favour of <code>@dataclass(frozen=True, slots=True)</code></h3>
+<p>Loses <code>PositiveFloat</code>, <code>PositiveInt</code>, and <code>@model_validator</code> constraints. The grelmicro style is consistently Pydantic. The inconsistency cost outweighs the ~1 ns per field saved.</p>
+<h3 id="uppercase-field-names-on-config-classes-todays-loggingsettings">Uppercase field names on Config classes (today's <code>LoggingSettings</code>)</h3>
+<p>Today's <code>LoggingSettings</code> bakes field names like <code>LOG_BACKEND</code> to match env var names directly. Rejected going forward because:</p>
+<ul>
+<li>Python access is non-idiomatic (<code>settings.LOG_LEVEL</code> violates PEP 8).</li>
+<li>Programmatic construction reads as <code>LoggingSettings(LOG_LEVEL=...)</code> which is awkward.</li>
+<li>Field names cannot encode runtime instance names, so the pattern breaks entirely for multi-instance components (<code>GREL_LOCK_CART_LEASE_DURATION</code> cannot be a class field).</li>
+</ul>
+<p>The replacement is lowercase Config field names + <code>env_prefix</code> on an opt-in <code>Settings</code> subclass. <code>LoggingSettings</code> migrates to this shape in step 5 of the rollout plan with a deprecation window for <code>LOG_*</code> env vars.</p>
+<h3 id="bare-env-prefix-lock_-log_-with-no-namespace">Bare env prefix (<code>LOCK_*</code>, <code>LOG_*</code>) with no namespace</h3>
+<p>Rejected because <code>LOCK_*</code>, <code>LOG_*</code>, and similar collide with conventions other libraries and apps already use. <code>GREL_*</code> scopes grelmicro's defaults to a distinct namespace, matching <code>UVICORN_*</code>, <code>GUNICORN_*</code>, <code>CELERY_*</code>, <code>DJANGO_*</code>.</p>
+<h3 id="no-library-default-prefix-force-users-to-always-supply-env_prefix">No library default prefix (force users to always supply <code>env_prefix=</code>)</h3>
+<p>Rejected because it eliminates the Environmental path. Zero-config 12-factor deployments need <em>some</em> default. <code>GREL_*</code> is that default, always overridable via <code>env_prefix=</code> and always disableable via <code>read_env=False</code>.</p>
+<h2 id="relationship-to-related-work">Relationship to related work</h2>
+<ul>
+<li><strong>Pydantic</strong>: <code>Model(**data)</code> and <code>Model.model_validate(data)</code> are the two canonical construction paths. grelmicro mirrors that split with <code>Component(name, **kwargs)</code> and <code>Component.from_config(name, cfg)</code>, keeping each path single-purpose.</li>
+<li><strong>Spring Boot</strong>: <code>@ConfigurationProperties(prefix="myapp.locks.cart")</code> declares the prefix on a bean class. grelmicro derives the prefix from the positional identity argument instead.</li>
+<li><strong>FastAPI</strong>: ships <code>Request</code>, <code>Response</code>, <code>APIRouter</code> with single-signature <code>__init__</code> plus rich <code>Annotated</code> types, no <code>@overload</code> stubs. grelmicro follows the same approach: one signature per method, <code>Annotated[..., Doc(...)]</code> for parameter docs.</li>
+<li><strong>uvicorn / gunicorn / celery / django</strong>: ship <code>UVICORN_*</code>, <code>GUNICORN_*</code>, <code>CELERY_*</code>, <code>DJANGO_*</code> env namespaces for their own settings. grelmicro's <code>GREL_*</code> is the same pattern.</li>
+<li><strong>pydantic-settings</strong>: carries the env, file, and secrets loading story. grelmicro depends on the existing project dependency and adds no loader code of its own.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/grelinfo/grelmicro" target="_blank" rel="noopener" title="grelmicro on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/grelmicro/" target="_blank" rel="noopener" title="grelmicro on PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

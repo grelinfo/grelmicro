@@ -1002,6 +1002,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#grelmicro.health.HealthRegistry.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.health.HealthRegistry.add" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1381,6 +1392,8 @@
       
         
       
+        
+      
     
     
     
@@ -1445,6 +1458,34 @@
     
   
     Backend Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
   
 
     
@@ -1819,6 +1860,17 @@
   
     <nav class="md-nav" aria-label=" HealthRegistry">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.health.HealthRegistry.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#grelmicro.health.HealthRegistry.add" class="md-nav__link">
@@ -2372,8 +2424,10 @@ error, visible under <code>details</code> on the check entry in
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">HealthRegistry</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">timeout</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">=</span> <span class="mf">5.0</span><span class="p">,</span>
-    <span class="n">cache_ttl</span><span class="p">:</span> <span class="n"><span title="pydantic.NonNegativeFloat">NonNegativeFloat</span></span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">timeout</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">cache_ttl</span><span class="p">:</span> <span class="n"><span title="pydantic.NonNegativeFloat">NonNegativeFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">auto_register</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -2407,16 +2461,21 @@ share a single execution via an <code>anyio.Event</code>.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Default per-check timeout in seconds. Checks that exceed this duration are reported as <code>error</code>.</p>
+                <p>Default per-check timeout in seconds. Checks that
+exceed this duration are reported as <code>error</code>.</p>
+<p>Default: 5.0. When unset, resolves from the
+environment variable <code>GREL_HEALTH_TIMEOUT</code> if
+present, otherwise falls back to the
+<code>HealthRegistryConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="pydantic.PositiveFloat">PositiveFloat</span></code>
+                      <code><span title="pydantic.PositiveFloat">PositiveFloat</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>5.0</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -2428,15 +2487,63 @@ share a single execution via an <code>anyio.Event</code>.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Per-check cache TTL in seconds. Set to 0 to disable.</p>
+<p>Default: 1.0. When unset, resolves from the
+environment variable <code>GREL_HEALTH_CACHE_TTL</code> if
+present, otherwise falls back to the
+<code>HealthRegistryConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="pydantic.NonNegativeFloat">NonNegativeFloat</span></code>
+                      <code><span title="pydantic.NonNegativeFloat">NonNegativeFloat</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>1.0</code>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>env_prefix</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Override the auto-derived environment variable prefix.</p>
+<p>Default: <code>GREL_HEALTH_</code>.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span> | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>read_env</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Whether to read environment variables.</p>
+<p>Default: True. Set to False when every field is
+already supplied via kwargs and the environment
+must not influence construction.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="bool">bool</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>True</code>
                   </span>
               </p>
             </td>
@@ -2484,6 +2591,87 @@ share a single execution via an <code>anyio.Event</code>.</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.health.HealthRegistry.from_config" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">from_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_config</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthRegistryConfig&lt;/span&gt; (&lt;code&gt;grelmicro.health._registry.HealthRegistryConfig&lt;/code&gt;)" href="#grelmicro.health.HealthRegistryConfig">HealthRegistryConfig</a></span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">auto_register</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Construct a <code>HealthRegistry</code> from a pre-built <code>HealthRegistryConfig</code>.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The pre-built health registry configuration.</p>
+<p>Use this path when the configuration is assembled at
+startup from a settings tree (for example YAML, Vault,
+or a <code>pydantic-settings</code> aggregator). The
+environment path is bypassed and the config is used
+as-is.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthRegistryConfig&lt;/span&gt; (&lt;code&gt;grelmicro.health._registry.HealthRegistryConfig&lt;/code&gt;)" href="#grelmicro.health.HealthRegistryConfig">HealthRegistryConfig</a></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>auto_register</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Automatically register this instance as the global health registry singleton. Set to False for testing.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="bool">bool</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>True</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 

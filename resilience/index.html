@@ -1002,6 +1002,8 @@
       
         
       
+        
+      
     
     
     
@@ -1066,6 +1068,34 @@
     
   
     Backend Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
   
 
     
@@ -1341,7 +1371,7 @@
 <p>The <code>resilience</code> package provides primitives that help your services handle failures in distributed systems. Each pattern is independent. Use the ones you need and skip the rest.</p>
 <ul>
 <li><a href="circuit-breaker/"><strong>Circuit Breaker</strong></a>: detect repeated failures in a downstream call and stop sending requests long enough for it to recover. This prevents cascading failures.</li>
-<li><a href="rate-limiter/"><strong>Rate Limiter</strong></a>: cap how many requests a client can make per window. Pluggable algorithm (<code>TokenBucket</code> or <code>GCRA</code>), pluggable backend (<code>Memory</code> or <code>Redis</code>), with a result shape that maps directly to HTTP rate limit headers.</li>
+<li><a href="rate-limiter/"><strong>Rate Limiter</strong></a>: cap how many requests a client can make per window. Pluggable algorithm (<code>TokenBucketConfig</code> or <code>GCRAConfig</code>), pluggable backend (<code>Memory</code> or <code>Redis</code>), with a result shape that maps directly to HTTP rate limit headers.</li>
 </ul>
 <h2 id="when-to-use-what">When to use what</h2>
 <table>

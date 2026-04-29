@@ -1111,6 +1111,8 @@
       
         
       
+        
+      
     
     
     
@@ -1175,6 +1177,34 @@
     
   
     Backend Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="architecture/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
   
 
     
@@ -1532,7 +1562,7 @@
 </p>
 
 <blockquote>
-<p><strong>Project status: Active development.</strong> grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on <code>MINOR</code> bumps (<code>0.14.0</code> → <code>0.15.0</code>) and never on <code>PATCH</code>. Pin the minor: <code>grelmicro&gt;=0.14.0,&lt;0.15.0</code>. After <code>1.0.0</code>, standard semver applies. See the <a href="CONTRIBUTING.md#about-grelmicro-versions">versioning policy</a>.</p>
+<p><strong>Project status: Active development.</strong> grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on <code>MINOR</code> bumps (<code>0.14.0</code> → <code>0.15.0</code>) and never on <code>PATCH</code>. Pin the minor: <code>grelmicro&gt;=0.14.0,&lt;0.15.0</code>. After <code>1.0.0</code>, standard semver applies. See the <a href="https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions">versioning policy</a>.</p>
 </blockquote>
 <hr />
 <p><strong>Documentation</strong>: <a href="https://grelinfo.github.io/grelmicro">https://grelinfo.github.io/grelmicro/</a></p>
@@ -1571,7 +1601,7 @@
 </tr>
 <tr>
 <td><a href="resilience/"><strong>Resilience</strong></a></td>
-<td><a href="resilience/circuit-breaker/">Circuit Breaker</a> and <a href="resilience/rate-limiter/">Rate Limiter</a> with pluggable algorithms (<code>TokenBucket</code>, <code>GCRA</code>).</td>
+<td><a href="resilience/circuit-breaker/">Circuit Breaker</a> and <a href="resilience/rate-limiter/">Rate Limiter</a> with pluggable algorithms (<code>TokenBucketConfig</code>, <code>GCRAConfig</code>).</td>
 </tr>
 <tr>
 <td><a href="logging/"><strong>Logging</strong></a></td>
@@ -1606,10 +1636,11 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">JsonSerializer</span><span class="p">,</span> <span class="n">TTLCache</span><span class="p">,</span> <span class="n">cached</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisCacheBackend</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">GCRA</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimitExceededError</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.ratelimiter</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CircuitBreaker</span><span class="p">,</span>
+    <span class="n">RateLimitExceededError</span><span class="p">,</span>
+    <span class="n">RateLimiter</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisRateLimiterBackend</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">LeaderElection</span><span class="p">,</span> <span class="n">Lock</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisSyncBackend</span>
@@ -1661,7 +1692,7 @@
 
 
 <span class="c1"># --- Rate Limiter: protect endpoints from overload ---</span>
-<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">GCRA</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">))</span>
+<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">gcra</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
 
 <span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/api&quot;</span><span class="p">)</span>
