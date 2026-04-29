@@ -5,7 +5,7 @@
 #     "resvg-py>=0.3",
 # ]
 # ///
-"""Build the grelmicro logo asset set from Funnel Sans glyph outlines.
+"""Build the grelmicro logo asset set from Funnel Display glyph outlines.
 
 Outputs ``docs/img/logo/*`` (SVG + PNG). SVGs embed outlined glyph paths
 so they render identically without any web-font or font-file dependency.
@@ -21,7 +21,7 @@ environment with the required deps. No manual ``pip install`` needed,
 and nothing installs into the project venv.
 
 PNG rasterisation uses ``resvg-py`` (Rust ``resvg`` shipped as a wheel,
-no system C libs). The Funnel Sans ``.ttf`` is cached in the OS temp
+no system C libs). The Funnel Display ``.ttf`` is cached in the OS temp
 directory and downloaded on first run.
 """
 
@@ -41,12 +41,11 @@ from fontTools.ttLib import TTFont
 
 # The script sits inside the asset directory it writes to.
 OUT_DIR = Path(__file__).resolve().parent
-# Funnel Sans Bold (static). Softer terminal on `g` than Funnel Display and
-# anti-aliases more gracefully at small sizes. Upstream source (SIL OFL 1.1).
-FONT_CACHE = Path(tempfile.gettempdir()) / "grelmicro-funnel-sans-bold.ttf"
+# Funnel Display Bold (static). Upstream source (SIL OFL 1.1).
+FONT_CACHE = Path(tempfile.gettempdir()) / "grelmicro-funnel-display-bold.ttf"
 FONT_URL = (
     "https://raw.githubusercontent.com/Dicotype/Funnel/main/"
-    "fonts/Funnel_Sans/ttf/FunnelSans-Bold.ttf"
+    "fonts/Funnel_Display/ttf/FunnelDisplay-Bold.ttf"
 )
 
 # Static Bold TTF — no variable axis to select.
@@ -473,7 +472,7 @@ def main() -> None:
     font = TTFont(str(_ensure_font()))
     m = measure(font)
 
-    print(f"Funnel Sans {WEIGHT} · upem={m['upem']}")
+    print(f"Funnel Display {WEIGHT} · upem={m['upem']}")
     print(f"  ascender top        : {m['ascender']} fu")
     print(f"  g stem centre       : {m['g_stem_cx']:.2f} fu")
     print(f"  square side         : {m['square']:.2f} fu")

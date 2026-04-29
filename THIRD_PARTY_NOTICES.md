@@ -5,7 +5,7 @@ This file lists their copyright and license information.
 
 Source-code adaptations are MIT-licensed and compatible with grelmicro's
 own MIT license. Brand assets (the logo SVGs) are built from glyph
-outlines of the Funnel Sans typeface under the SIL Open Font License
+outlines of the Funnel Display typeface under the SIL Open Font License
 1.1. Full license texts appear at the end of this file.
 
 ## Upstash Ratelimit
@@ -48,18 +48,18 @@ missing `__module__` / `__qualname__`, lambdas, and nested functions
 Copyright (c) Alex Grönholm
 Licensed under the [MIT License](#mit-license).
 
-## Funnel Sans (Brand Assets)
+## Funnel Display (Brand Assets)
 
 The grelmicro logo (wordmark and favicon SVGs under
 `docs/img/logo/`) is built from outlined glyphs of the **Funnel
-Sans** typeface (part of the Funnel type family).
+Display** typeface (part of the Funnel type family).
 
 - Text is converted to static SVG `<path>` geometry before
   distribution (no font files are shipped with the project).
 - The red square replacing the `i`-dot is sized from the font's
   own dot contour so the logo matches the typeface's natural
   proportions.
-- Funnel Sans is distributed under the SIL Open Font License 1.1.
+- Funnel Display is distributed under the SIL Open Font License 1.1.
   Embedding glyph outlines in documents is explicitly permitted by
   the OFL and does not impose any licensing restrictions on the
   document.
