@@ -2,14 +2,25 @@
 
 ## Unreleased
 
+## 0.15.0 - 2026-04-29
+
 ### Breaking
 
-* ✨ Redesign the `health` module around plain function checks, `@health.check("name")` decorator, binary `ok`/`error` status, and `/livez` + `/readyz` + `/healthz` endpoints with empty probe bodies and per-check caching. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 Redesign the `health` module: `@health.check("name")` decorator, binary `ok`/`error` status, empty probe bodies, per-check caching. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 Endpoint renames: `/health/live` → `/livez`, `/health/ready` → `/readyz`. New `/healthz` returns the full check JSON. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 `HealthRegistry.check()` renamed to `run()`. The `check` name is now the decorator. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 `HealthChecker` Protocol removed. Use plain `def` or `async def` functions. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 `HealthReport.components: list` becomes `HealthReport.checks: dict[name, ...]`. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
+* 💥 `HealthCheckTimeoutError` and the three-state `HealthStatus` removed. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
 
 ### Fixed
 
-* 🐛 These auto-registered backends now clear themselves from the registry on `__aexit__`, identity-checked so a replacement is left alone: `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `KubernetesSyncBackend`, `SQLiteSyncBackend`, `MemoryCacheBackend`, `RedisCacheBackend`, `MemoryRateLimiterBackend`, `RedisRateLimiterBackend`. Previously a stale registry entry survived shutdown, causing later default-backend lookups to resolve a closed instance.
-* 🐛 `Lock.release` and the threaded variant now clear local ownership state only after the backend has confirmed the release. A backend error preserves the held marker so callers can retry, while a "not owned" answer from the backend clears it.
+* 🐛 Auto-registered backends now identity-check before clearing the registry on `__aexit__`, so a replacement instance is left alone. PR [#122](https://github.com/grelinfo/grelmicro/pull/122).
+* 🐛 `Lock.release` clears local ownership only after the backend confirms the release. PR [#122](https://github.com/grelinfo/grelmicro/pull/122).
+
+### Docs
+
+* 📝 Restate the versioning policy: pre-1.0 `MINOR` may break, `PATCH` never. Post-1.0 deprecations get two `MINOR` releases.
 
 ## 0.14.3 - 2026-04-22
 
