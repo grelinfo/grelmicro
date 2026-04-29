@@ -22,7 +22,7 @@
   <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
 </p>
 
-> **Project status: Active development.** grelmicro is pre-1.0, so APIs can change between minor releases. Every change ships with a clear deprecation path: `DeprecationWarning`, PEP 702 `@deprecated`, and a one-minor removal window.
+> **Project status: Active development.** grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on `MINOR` bumps (`0.14.0` → `0.15.0`) and never on `PATCH`. Pin the minor: `grelmicro>=0.14.0,<0.15.0`. After `1.0.0`, standard semver applies. See the [versioning policy](CONTRIBUTING.md#about-grelmicro-versions).
 
 ______________________________________________________________________
 
@@ -42,7 +42,7 @@ It is built for any Python application, from a standalone script to full **micro
 - **Fast**: thin wrappers with low per-call overhead. Redis operations are server-side Lua scripts; in-memory paths skip I/O entirely.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any AnyIO-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
-- **Production-ready**: 100% test coverage, full type hints, and explicit deprecation paths (`DeprecationWarning` + PEP 702 `@deprecated`) with a one-minor-version removal window.
+- **Production-ready**: 100% test coverage and full type hints. Pre-1.0 API may shift on minor bumps. `1.x` will commit to standard semver.
 
 ## Modules
 

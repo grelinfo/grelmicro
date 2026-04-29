@@ -307,40 +307,28 @@ If you adapt code from another project, even a snippet:
 - Primitives expose the `backend=` override even when they also
   fall back to the registry.
 
-### Smooth deprecations (pre-1.0 policy)
+### About grelmicro versions
 
-grelmicro is still on a `0.x` series. The explicit goal is to
-reach **1.0.0 with a stable, well-shaped API**, not to carry a
-long `0.x` tail. We follow the Pydantic playbook, where aggressive
-pre-1.0 deprecations produced a clean v1/v2, rather than the
-"endless 0.x minor bumps with full back-compat" approach some other
-projects take.
+grelmicro follows [Semantic Versioning](https://semver.org). The
+public API is **not stable** until `1.0.0`. The `0.x` line exists
+to converge on a design we want to commit to for `1.x`, the
+enterprise-ready line.
 
-Concretely:
+While on `0.x`, breaking changes are allowed on a `MINOR` bump
+(`0.14.0` → `0.15.0`) and never on a `PATCH` bump (`0.14.0` →
+`0.14.1`). Pin the minor:
 
-- Pre-1.0 we iterate on the public API freely. If a shape can be
-  improved, change it. Don't let "might break users" block a
-  better long-term design.
-- Every change still ships through a **smooth deprecation cycle**
-  so users get one release to migrate:
-  - Keep the old signature working and emit a `DeprecationWarning`
-    that names the new API and the removal version.
-  - Mark the old parameter with
-    [`typing_extensions.deprecated`](https://peps.python.org/pep-0702/)
-    so type-checkers and IDEs flag it inline.
-  - Reference the removal version in both the `DeprecationWarning`
-    message and the `Doc(...)` block.
-- **Target removal one minor release after the deprecation ships.**
-  For example, deprecated in `0.14.0` → removed in `0.15.0`.
-- Keep a "Deprecated" entry in `docs/changelog.md` under the
-  minor that introduces the deprecation **and** under the minor
-  that removes it.
+```text
+grelmicro>=0.14.0,<0.15.0
+```
 
-Post-1.0 this policy tightens (longer deprecation windows, no
-breaking changes outside major releases), but we're not there
-yet. If you're unsure whether a change is "aggressive enough",
-open an issue and ask; a slightly worse 0.x migration path is
-cheaper than a bad API we carry for years.
+Every breaking change appears under **Breaking** in
+[`docs/changelog.md`](docs/changelog.md) with a migration snippet.
+Deprecation shims are optional on `0.x`.
+
+After `1.0.0`, standard semver applies: breaking changes only on
+`MAJOR`, and removals go through one `MINOR` with a
+`DeprecationWarning` first.
 
 ## Before opening a PR
 
