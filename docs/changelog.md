@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-04-29
+
 ### Breaking
 
 * 💥 `LockConfig`, `TaskLockConfig`, `LeaderElectionConfig`, and `RateLimiterConfig` no longer carry a `name` field. Pass the name positionally: `Lock("cart", LockConfig(lease_duration=30))`. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
@@ -19,7 +21,12 @@
 
 ### Changed
 
-* ♻️ `Lock`, `TaskLock`, `LeaderElection`, and `RateLimiter` now resolve the backend lazily on first use instead of at construction. `BackendNotLoadedError` surfaces on the first `acquire`/`peek`/`reset` call rather than in `__init__`. Each component exposes a public `backend` property. PR #115.
+* ♻️ `Lock`, `TaskLock`, `LeaderElection`, and `RateLimiter` now resolve the backend lazily on first use instead of at construction. `BackendNotLoadedError` surfaces on the first `acquire`/`peek`/`reset` call rather than in `__init__`. Each component exposes a public `backend` property. PR [#128](https://github.com/grelinfo/grelmicro/pull/128).
+
+### Fixed
+
+* 🐛 Auto-registered backends now identity-check before clearing the registry on `__aexit__`, so a replacement instance is left alone. PR [#122](https://github.com/grelinfo/grelmicro/pull/122).
+* 🐛 `Lock.release` clears local ownership only after the backend confirms the release. PR [#122](https://github.com/grelinfo/grelmicro/pull/122).
 
 ## 0.15.0 - 2026-04-29
 
@@ -31,11 +38,6 @@
 * 💥 `HealthChecker` Protocol removed. Use plain `def` or `async def` functions. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
 * 💥 `HealthReport.components: list` becomes `HealthReport.checks: dict[name, ...]`. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
 * 💥 `HealthCheckTimeoutError` and the three-state `HealthStatus` removed. PR [#112](https://github.com/grelinfo/grelmicro/pull/112).
-
-### Fixed
-
-* 🐛 Auto-registered backends now identity-check before clearing the registry on `__aexit__`, so a replacement instance is left alone. PR [#122](https://github.com/grelinfo/grelmicro/pull/122).
-* 🐛 `Lock.release` clears local ownership only after the backend confirms the release. PR [#122](https://github.com/grelinfo/grelmicro/pull/122).
 
 ### Docs
 

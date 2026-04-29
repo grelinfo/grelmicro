@@ -485,7 +485,10 @@ class LeaderElection(SyncPrimitive, Task):
         return _LeaderGuard(self)
 
     async def _release(self) -> None:
-        backend = self._backend or self._resolve_backend()
+        backend = self._backend
+        if backend is None:
+            # Nothing was acquired, nothing to release.
+            return
         try:
             with fail_after(self._config.backend_timeout):
                 if not (
