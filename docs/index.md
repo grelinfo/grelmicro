@@ -22,7 +22,7 @@
   <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
 </p>
 
-> **Project status: Active development.** grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on `MINOR` bumps (`0.14.0` → `0.15.0`) and never on `PATCH`. Pin the minor: `grelmicro>=0.14.0,<0.15.0`. After `1.0.0`, standard semver applies. See the [versioning policy](CONTRIBUTING.md#about-grelmicro-versions).
+> **Project status: Active development.** grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on `MINOR` bumps (`0.14.0` → `0.15.0`) and never on `PATCH`. Pin the minor: `grelmicro>=0.14.0,<0.15.0`. After `1.0.0`, standard semver applies. See the [versioning policy](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions).
 
 ______________________________________________________________________
 
@@ -51,7 +51,7 @@ It is built for any Python application, from a standalone script to full **micro
 | [**Cache**](cache.md) | `@cached` decorator with per-key stampede protection. In-memory `TTLCache` or `RedisCacheBackend`. |
 | [**Synchronization**](sync.md) | Distributed `Lock`, `TaskLock`, `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Task Scheduler**](task.md) | Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement. |
-| [**Resilience**](resilience/index.md) | [Circuit Breaker](resilience/circuit-breaker.md) and [Rate Limiter](resilience/rate-limiter.md) with pluggable algorithms (`TokenBucket`, `GCRA`). |
+| [**Resilience**](resilience/index.md) | [Circuit Breaker](resilience/circuit-breaker.md) and [Rate Limiter](resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `GCRAConfig`). |
 | [**Logging**](logging.md) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
 | [**Tracing**](tracing.md) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
 | [**Health**](health.md) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |

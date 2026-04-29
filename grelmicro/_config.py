@@ -1,12 +1,12 @@
 """Configuration resolution for grelmicro components.
 
-Exposes :func:`resolve_config`, a helper that merges three sources of
-configuration into one validated Pydantic model: explicit kwargs, an
-optional pre-built config instance, and environment variables.
+Exposes `resolve_config`, a helper that builds a validated Pydantic
+config from either a pre-built instance or kwargs merged with
+environment variables.
 
 The full contract, including the precedence rules and the
 name-as-namespace convention, is documented in
-``docs/architecture/config.md``.
+`docs/architecture/config.md`.
 """
 
 from __future__ import annotations
@@ -54,14 +54,14 @@ def env_segment(name: str) -> str:
     if not cleaned:
         msg = (
             f"name {name!r} produces an empty environment variable "
-            f"segment; pick a name with at least one letter or digit"
+            f"segment. Pick a name with at least one letter or digit."
         )
         raise ValueError(msg)
     if cleaned[0].isdigit():
         msg = (
             f"name {name!r} produces env segment {cleaned!r} that "
-            f"starts with a digit; env var names must start with a "
-            f"letter or underscore"
+            f"starts with a digit. Env var names must start with a "
+            f"letter or underscore."
         )
         raise ValueError(msg)
     return cleaned
