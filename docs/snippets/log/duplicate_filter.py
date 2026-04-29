@@ -1,6 +1,6 @@
 from logging import getLogger
 
-from grelmicro.logging import DuplicateFilter
+from grelmicro.log import DuplicateFilter
 
 logger = getLogger("grelmicro.health")
 logger.addFilter(DuplicateFilter())

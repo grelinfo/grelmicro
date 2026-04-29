@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from grelmicro.logging.uvicorn import (
+from grelmicro.log.uvicorn import (
     UvicornAccessFormatter,
     UvicornFormatter,
 )
@@ -27,7 +27,7 @@ def _parse(output: str) -> dict[str, Any]:
 @pytest.fixture
 def formatter(monkeypatch: pytest.MonkeyPatch) -> UvicornFormatter:
     """Create a UvicornFormatter with default settings."""
-    monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
     return UvicornFormatter()
 
 
@@ -36,7 +36,7 @@ def access_formatter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> UvicornAccessFormatter:
     """Create a UvicornAccessFormatter with default settings."""
-    monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
     return UvicornAccessFormatter()
 
 
@@ -347,7 +347,7 @@ class TestUvicornAccessFormatter:
     ) -> None:
         """Test formatters work when used via logging.config.dictConfig."""
         # Arrange
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         logging.config.dictConfig(
             {
@@ -355,10 +355,10 @@ class TestUvicornAccessFormatter:
                 "disable_existing_loggers": False,
                 "formatters": {
                     "default": {
-                        "()": "grelmicro.logging.uvicorn.UvicornFormatter",
+                        "()": "grelmicro.log.uvicorn.UvicornFormatter",
                     },
                     "access": {
-                        "()": "grelmicro.logging.uvicorn.UvicornAccessFormatter",
+                        "()": "grelmicro.log.uvicorn.UvicornAccessFormatter",
                     },
                 },
                 "handlers": {
@@ -417,7 +417,7 @@ class TestUvicornAccessFormatter:
 
 
 class TestUvicornFormatterFormats:
-    """Test UvicornFormatter respects LOG_FORMAT for all formats."""
+    """Test UvicornFormatter respects GREL_LOG_FORMAT for all formats."""
 
     @pytest.mark.parametrize("fmt", ["logfmt", "text", "pretty"])
     def test_uvicorn_formatter_non_json(
@@ -427,8 +427,8 @@ class TestUvicornFormatterFormats:
     ) -> None:
         """Test UvicornFormatter produces correct output for non-JSON formats."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", fmt)
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_FORMAT", fmt)
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
         formatter = UvicornFormatter()
         record = _make_record(
@@ -450,8 +450,8 @@ class TestUvicornFormatterFormats:
     ) -> None:
         """Test UvicornFormatter logfmt has key=value structure."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", "logfmt")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         formatter = UvicornFormatter()
         record = _make_record(
             name="uvicorn.error",
@@ -473,8 +473,8 @@ class TestUvicornFormatterFormats:
     ) -> None:
         """Test UvicornFormatter TEXT produces single line."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", "text")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "text")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
         formatter = UvicornFormatter()
         record = _make_record(
@@ -496,8 +496,8 @@ class TestUvicornFormatterFormats:
     ) -> None:
         """Test UvicornFormatter PRETTY produces multi-line."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", "pretty")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "pretty")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
         formatter = UvicornFormatter()
         record = _make_record(
@@ -521,8 +521,8 @@ class TestUvicornFormatterFormats:
     ) -> None:
         """Test UvicornAccessFormatter logfmt includes access fields."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", "logfmt")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         formatter = UvicornAccessFormatter()
         record = _make_record()
 
@@ -571,10 +571,10 @@ class TestUvicornProcess:
                         "disable_existing_loggers": False,
                         "formatters": {
                             "default": {
-                                "()": "grelmicro.logging.uvicorn.UvicornFormatter",
+                                "()": "grelmicro.log.uvicorn.UvicornFormatter",
                             },
                             "access": {
-                                "()": "grelmicro.logging.uvicorn.UvicornAccessFormatter",
+                                "()": "grelmicro.log.uvicorn.UvicornAccessFormatter",
                             },
                         },
                         "handlers": {
@@ -624,7 +624,7 @@ class TestUvicornProcess:
                 stderr=subprocess.STDOUT,
                 env={
                     **__import__("os").environ,
-                    "LOG_OTEL_ENABLED": "false",
+                    "GREL_LOG_OTEL_ENABLED": "false",
                 },
             )
 

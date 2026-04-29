@@ -1,11 +1,11 @@
-"""Example: LOGFMT format logging."""
+"""Example: PRETTY format logging."""
 
 from loguru import logger
 
-from grelmicro.logging import configure_logging
+from grelmicro.log import configure
 
 logger.remove()
 
-configure_logging()
+configure()
 
 logger.info("Request handled", method="GET", path="/health", status=200)

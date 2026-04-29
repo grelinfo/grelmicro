@@ -20,12 +20,12 @@ if TYPE_CHECKING:
     import pytest_mock
     from loguru import Record
 
-from grelmicro.logging._loguru import (
+from grelmicro.log._loguru import (
     JSON_FORMAT,
     _json_formatter,
     _json_patcher,
     _LoguruPatcher,
-    configure_logging,
+    configure,
 )
 from tests.logging.conftest import parse_json_log
 
@@ -180,7 +180,7 @@ class TestOtelPatcher:
         """Test _otel_patcher when OpenTelemetry is not installed."""
         # Arrange
         mocker.patch(
-            "grelmicro.logging._loguru.get_otel_trace_context",
+            "grelmicro.log._loguru.get_otel_trace_context",
             return_value={},
         )
         sink = StringIO()
@@ -206,7 +206,7 @@ class TestOtelPatcher:
         """Test _otel_patcher when span context is invalid."""
         # Arrange
         mocker.patch(
-            "grelmicro.logging._loguru.get_otel_trace_context",
+            "grelmicro.log._loguru.get_otel_trace_context",
             return_value={},
         )
         sink = StringIO()
@@ -232,7 +232,7 @@ class TestOtelPatcher:
         """Test _otel_patcher with valid OpenTelemetry span."""
         # Arrange
         mocker.patch(
-            "grelmicro.logging._loguru.get_otel_trace_context",
+            "grelmicro.log._loguru.get_otel_trace_context",
             return_value={
                 "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
                 "span_id": "00f067aa0ba902b7",
@@ -265,11 +265,11 @@ class TestLoguruSpecificFeatures:
     ) -> None:
         """Test TEXT format includes traceback for exceptions."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", "text")
-        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "text")
+        monkeypatch.setenv("GREL_LOG_CALLER_ENABLED", "true")
 
         # Act
-        configure_logging()
+        configure()
         generate_logs()
 
         # Assert
@@ -298,10 +298,10 @@ class TestLoguruSpecificFeatures:
     ) -> None:
         """Test custom loguru format template."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", "{level}: {message}")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "{level}: {message}")
 
         # Act
-        configure_logging()
+        configure()
         generate_logs()
 
         # Assert
@@ -321,12 +321,12 @@ class TestLoguruSpecificFeatures:
         """Test custom format using extra[localtime] triggers localtime patcher."""
         # Arrange
         monkeypatch.setenv(
-            "LOG_FORMAT", "{extra[localtime]} | {level} | {message}"
+            "GREL_LOG_FORMAT", "{extra[localtime]} | {level} | {message}"
         )
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         logger.info("Localtime test")
 
         # Assert
@@ -343,11 +343,11 @@ class TestLoguruSpecificFeatures:
     ) -> None:
         """Test simple format that doesn't need patcher."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", "{level}: {message}")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "{level}: {message}")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         logger.info("Simple test")
 
         # Assert
@@ -360,11 +360,11 @@ class TestLoguruSpecificFeatures:
     ) -> None:
         """Test exception is captured as structured ErrorDict."""
         # Arrange
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         try:
             1 / 0  # noqa: B018
         except ZeroDivisionError:

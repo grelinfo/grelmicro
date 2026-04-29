@@ -7,15 +7,19 @@ from datetime import UTC, datetime, tzinfo
 
 from grelmicro._context import merge_context_into as _merge_context_into
 from grelmicro._json import json_default
-from grelmicro.logging._shared import (
+from grelmicro.log._shared import (
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
 )
-from grelmicro.logging.config import LoggingFormatType, LoggingSerializerType
-from grelmicro.logging.types import ErrorDict
+from grelmicro.log.config import (
+    LoggingConfig,
+    LoggingFormatType,
+    LoggingSerializerType,
+)
+from grelmicro.log.types import ErrorDict
 
 try:
     import structlog
@@ -189,7 +193,7 @@ def _make_pretty_renderer(*, colors: bool) -> Processor:
     return processor
 
 
-def configure_logging() -> None:
+def configure(config: LoggingConfig | None = None) -> None:
     """Configure logging with structlog.
 
     Simple twelve-factor app logging configuration that logs to stdout.
@@ -204,10 +208,10 @@ def configure_logging() -> None:
 
     Raises:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
-        LoggingSettingsValidationError: If environment variables are invalid.
+        pydantic.ValidationError: If environment variables are invalid.
     """
-    settings, timezone, resolved_format, _, colors = load_settings()
-    caller = settings.LOG_CALLER_ENABLED
+    settings, timezone, resolved_format, _, colors = load_settings(config)
+    caller = settings.caller_enabled
 
     callsite_params = [structlog.processors.CallsiteParameter.MODULE]
     if caller:
@@ -221,7 +225,7 @@ def configure_logging() -> None:
     processors: list[Processor] = [
         structlog.processors.CallsiteParameterAdder(
             callsite_params,
-            additional_ignores=["grelmicro.logging"],
+            additional_ignores=["grelmicro.log"],
         ),
         structlog.contextvars.merge_contextvars,
         _add_timestamp(timezone),
@@ -230,12 +234,12 @@ def configure_logging() -> None:
         _add_error_info,
     ]
 
-    if settings.LOG_OTEL_ENABLED:
+    if settings.otel_enabled:
         processors.append(_add_otel_context)
 
     if resolved_format == LoggingFormatType.JSON:
         processors.append(_build_flat_record)
-        if settings.LOG_JSON_SERIALIZER == LoggingSerializerType.ORJSON:
+        if settings.json_serializer == LoggingSerializerType.ORJSON:
             import orjson  # noqa: PLC0415
 
             processors.append(
@@ -259,7 +263,7 @@ def configure_logging() -> None:
         processors.append(_make_text_renderer(colors=colors))
         logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
 
-    log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
+    log_level = getattr(logging, settings.level.upper(), logging.INFO)
 
     structlog.configure(
         processors=processors,

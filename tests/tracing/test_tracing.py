@@ -8,19 +8,19 @@ import asyncio
 
 import pytest
 
-from grelmicro.logging import configure_logging
-from grelmicro.tracing import add_context, get_context, instrument, span
-from grelmicro.tracing._context import _context_stack
+from grelmicro.log import configure
+from grelmicro.trace import add_context, get_context, instrument, span
+from grelmicro.trace._context import _context_stack
 from tests.logging.conftest import log_message, parse_json_log, parse_json_logs
 
 BACKENDS = ["loguru", "structlog", "stdlib"]
 
 
 def _setup_json_logging(monkeypatch: pytest.MonkeyPatch, backend: str) -> None:
-    monkeypatch.setenv("LOG_BACKEND", backend)
-    monkeypatch.setenv("LOG_FORMAT", "json")
-    monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-    configure_logging()
+    monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+    monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+    configure()
 
 
 class TestInstrument:

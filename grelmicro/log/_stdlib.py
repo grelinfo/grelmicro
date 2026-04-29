@@ -8,15 +8,15 @@ from datetime import UTC, datetime, tzinfo
 from typing import Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
-from grelmicro.logging._shared import (
+from grelmicro.log._shared import (
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
 )
-from grelmicro.logging.config import LoggingFormatType
-from grelmicro.logging.types import ErrorDict
+from grelmicro.log.config import LoggingConfig, LoggingFormatType
+from grelmicro.log.types import ErrorDict
 
 _STANDARD_LOG_RECORD_ATTRS = frozenset(
     {
@@ -197,7 +197,7 @@ class _PrettyFormatter(_BaseFormatter):
         return render_pretty_lines(self._record(record), colors=self.colors)
 
 
-def configure_logging() -> None:
+def configure(config: LoggingConfig | None = None) -> None:
     """Configure logging with stdlib.
 
     Simple twelve-factor app logging configuration that logs to stdout.
@@ -212,11 +212,13 @@ def configure_logging() -> None:
 
     Raises:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
-        LoggingSettingsValidationError: If environment variables are invalid.
+        pydantic.ValidationError: If environment variables are invalid.
     """
-    settings, timezone, resolved_format, json_dumps, colors = load_settings()
-    caller = settings.LOG_CALLER_ENABLED
-    otel = settings.LOG_OTEL_ENABLED
+    settings, timezone, resolved_format, json_dumps, colors = load_settings(
+        config
+    )
+    caller = settings.caller_enabled
+    otel = settings.otel_enabled
 
     formatter: logging.Formatter
     if resolved_format == LoggingFormatType.JSON:
@@ -251,4 +253,4 @@ def configure_logging() -> None:
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
-    root_logger.setLevel(settings.LOG_LEVEL)
+    root_logger.setLevel(settings.level)

@@ -6,7 +6,7 @@ from collections.abc import Generator
 import pytest
 from pydantic import ValidationError
 
-from grelmicro.logging import RateLimitFilter, RateLimitFilterConfig
+from grelmicro.log import RateLimitFilter, RateLimitFilterConfig
 
 pytestmark = [pytest.mark.timeout(2)]
 

@@ -6,6 +6,12 @@
 
 * 💥 `CircuitBreaker` config moves to a frozen `CircuitBreakerConfig`. Read it via `cb.config`. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 * 💥 The mutable attributes `cb.error_threshold`, `cb.success_threshold`, `cb.reset_timeout`, `cb.half_open_capacity`, `cb.ignore_exceptions`, `cb.log_level` are removed. Construct a new `CircuitBreaker` to change config. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
+* 💥 Rename `grelmicro.logging` to `grelmicro.log` and `grelmicro.tracing` to `grelmicro.trace`. Avoids shadowing stdlib `logging` and aligns with the OpenTelemetry / `ddtrace` `trace` (singular) convention. Update imports: `from grelmicro import log, trace`. PR #118.
+* 💥 `configure_logging()` is renamed `log.configure()`. Use `log.configure_with(config)` for the declarative path. Both return the applied `LoggingConfig`. PR #118.
+* 💥 `LoggingSettings` (the `BaseSettings` shadow class) is removed. `LoggingConfig` is the canonical config class. Env reading happens inside `log.configure()`. PR #118.
+* 💥 `LoggingConfig` field names move to lowercase: `LOG_BACKEND` → `backend`, `LOG_LEVEL` → `level`, `LOG_FORMAT` → `format`, `LOG_TIMEZONE` → `timezone`, `LOG_JSON_SERIALIZER` → `json_serializer`, `LOG_CALLER_ENABLED` → `caller_enabled`, `LOG_OTEL_ENABLED` → `otel_enabled`. PR #118.
+* 💥 Env vars move from `LOG_*` to `GREL_LOG_*` to align with the rest of the library. PR #118.
+* 💥 `LoggingSettingsValidationError` is removed. `pydantic.ValidationError` propagates from `log.configure()` like every other component. PR #118.
 
 ### Features
 
@@ -13,6 +19,8 @@
 * ✨ `CircuitBreaker` reads `GREL_CIRCUIT_BREAKER_<NAME>_*` env vars and accepts `env_prefix=` / `read_env=`. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 * ✨ `ignore_exceptions` accepts fully-qualified import strings (`"builtins.ValueError"`) so YAML and env loaders can specify exception types. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 * ✨ Env vars for tuple/list fields accept comma-separated values in addition to JSON arrays. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
+* ✨ `log.configure(**kwargs)` accepts every `LoggingConfig` field as a kwarg, mirroring the three-paths contract used by other components. PR #118.
+* ✨ `log.configure_with(config)` is the declarative entry point. Returns the applied `LoggingConfig`. PR #118.
 
 ### Internal
 
@@ -164,12 +172,12 @@
 
 ### Breaking Changes
 
-* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now opt-in via `LOG_CALLER_ENABLED` (default: `False`), following slog/zap/zerolog/Caddy conventions. Uvicorn formatter never includes `caller`.
+* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now opt-in via `GREL_LOG_CALLER_ENABLED` (default: `False`), following slog/zap/zerolog/Caddy conventions. Uvicorn formatter never includes `caller`.
 * 💥 **Cache**: replace `TTLCache` `serializer`/`deserializer` callable pair with a single `serializer` accepting a `CacheSerializer` protocol object. Use `JsonSerializer()`, `PydanticSerializer(Model)`, or `PickleSerializer()` instead.
 
 ### Features
 
-* ✨ Add `LOG_CALLER_ENABLED` setting to opt in to caller info (`function:line`) in log records. Disabled by default for cleaner logs and better performance.
+* ✨ Add `GREL_LOG_CALLER_ENABLED` setting to opt in to caller info (`function:line`) in log records. Disabled by default for cleaner logs and better performance.
 * ✨ Add `logger` field (logger name, e.g., `myapp.api`) to all log records across all backends and formats.
 * ✨ Add `grelmicro.json` module with fast JSON serialization using `orjson` when available, with automatic fallback to stdlib `json`.
 
@@ -191,13 +199,13 @@
 
 ### Deprecations
 
-* 🗑️ **`UvicornJSONFormatter` and `UvicornAccessJSONFormatter` are deprecated.** Use `UvicornFormatter` and `UvicornAccessFormatter` instead. The new formatters respect `LOG_FORMAT` instead of always producing JSON. Old names kept as aliases with `DeprecationWarning`.
+* 🗑️ **`UvicornJSONFormatter` and `UvicornAccessJSONFormatter` are deprecated.** Use `UvicornFormatter` and `UvicornAccessFormatter` instead. The new formatters respect `GREL_LOG_FORMAT` instead of always producing JSON. Old names kept as aliases with `DeprecationWarning`.
 
 ## 0.9.0 - 2026-04-01
 
 ### Breaking Changes
 
-* 💥 **`LOG_FORMAT` default changed from `JSON` to `AUTO`.** In production (non-TTY), behavior is identical (JSON output). In local dev (TTY), output switches to human-readable `TEXT` with colors. Set `LOG_FORMAT=JSON` explicitly to restore the previous default.
+* 💥 **`GREL_LOG_FORMAT` default changed from `JSON` to `AUTO`.** In production (non-TTY), behavior is identical (JSON output). In local dev (TTY), output switches to human-readable `TEXT` with colors. Set `GREL_LOG_FORMAT=JSON` explicitly to restore the previous default.
 
 ### Features
 
@@ -351,7 +359,7 @@ Upgrade all running instances together so they use the same key format. Old keys
 ### Features
 
 * ✨ Add `TaskLock` for ShedLock-style distributed task locking.
-* ✨ Add `LOG_TIMEZONE` support for configurable timezone in logging output.
+* ✨ Add `GREL_LOG_TIMEZONE` support for configurable timezone in logging output.
 * ✨ Add OpenTelemetry trace context injection into log records.
 * ✨ Add `structlog` as alternative logging backend.
 * ✨ Add configurable JSON serializer (`json` / `orjson`) for logging.
@@ -432,7 +440,7 @@ First public release.
 * ✨ Add `LeaderElection` for single-leader task execution.
 * ✨ Add `IntervalTask` scheduler for periodic tasks with synchronization support.
 * ✨ Add Redis, PostgreSQL, and in-memory synchronization backends.
-* ✨ Add logging module with JSON and TEXT formatting via `LOG_LEVEL` and `LOG_FORMAT` environment variables.
+* ✨ Add logging module with JSON and TEXT formatting via `GREL_LOG_LEVEL` and `GREL_LOG_FORMAT` environment variables.
 
 ### Docs
 

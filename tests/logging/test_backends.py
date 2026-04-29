@@ -12,11 +12,12 @@ import pytest
 import pytest_mock
 import structlog
 from loguru import logger as loguru_logger
+from pydantic import ValidationError
 
 from grelmicro._json import json_default
 from grelmicro.errors import DependencyNotFoundError
-from grelmicro.logging import configure_logging
-from grelmicro.logging._shared import (
+from grelmicro.log import configure
+from grelmicro.log._shared import (
     _logfmt_format_value,
     get_otel_trace_context,
     load_settings,
@@ -25,8 +26,7 @@ from grelmicro.logging._shared import (
     render_text_line,
     should_colorize,
 )
-from grelmicro.logging._structlog import _add_caller_info
-from grelmicro.logging.errors import LoggingSettingsValidationError
+from grelmicro.log._structlog import _add_caller_info
 from tests.logging.conftest import BACKENDS, log_message, parse_json_log
 
 _USER_ID = 123
@@ -48,14 +48,14 @@ class TestConfigureLoggingJSON:
     ) -> None:
         """Test default JSON format produces valid log record."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.delenv("LOG_LEVEL", raising=False)
-        monkeypatch.delenv("LOG_FORMAT", raising=False)
-        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.delenv("GREL_LOG_LEVEL", raising=False)
+        monkeypatch.delenv("GREL_LOG_FORMAT", raising=False)
+        monkeypatch.setenv("GREL_LOG_CALLER_ENABLED", "true")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Test message", user_id=_USER_ID)
 
         # Assert
@@ -95,12 +95,12 @@ class TestConfigureLoggingJSON:
     ) -> None:
         """Test explicit JSON format setting."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "JSON format test")
 
         # Assert
@@ -117,12 +117,12 @@ class TestConfigureLoggingJSON:
     ) -> None:
         """Test JSON format with no extra context has only core fields."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "No context message")
 
         # Assert
@@ -140,12 +140,12 @@ class TestConfigureLoggingJSON:
     ) -> None:
         """Test JSON format includes context fields flat at top level."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(
             backend,
             "Context message",
@@ -174,13 +174,13 @@ class TestConfigureLoggingLevel:
     ) -> None:
         """Test log level filtering."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_LEVEL", "WARNING")
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_LEVEL", "WARNING")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         if backend == "loguru":
             loguru_logger.debug("Debug message")
             loguru_logger.info("Info message")
@@ -214,20 +214,18 @@ class TestConfigureLoggingLevel:
     ) -> None:
         """Test invalid log level raises error."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_LEVEL", "INVALID")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_LEVEL", "INVALID")
 
         # Act / Assert
         with pytest.raises(
-            LoggingSettingsValidationError,
+            ValidationError,
             match=(
-                r"Could not validate environment variables settings:\n"
-                r"- LOG_LEVEL: Input should be 'DEBUG', 'INFO', 'WARNING', "
+                r"Input should be 'DEBUG', 'INFO', 'WARNING', "
                 r"'ERROR' or 'CRITICAL'"
-                r" \[input=INVALID\]"
             ),
         ):
-            configure_logging()
+            configure()
 
 
 class TestConfigureLoggingTimezone:
@@ -243,13 +241,13 @@ class TestConfigureLoggingTimezone:
     ) -> None:
         """Test timezone setting affects timestamp."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_TIMEZONE", "Europe/Zurich")
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_TIMEZONE", "Europe/Zurich")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Timezone test")
 
         # Assert
@@ -276,9 +274,9 @@ class TestConfigureLoggingOTel:
     ) -> None:
         """Test OpenTelemetry trace context is included when enabled."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "true")
-        monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "true")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
 
         trace_context = {
             "trace_id": "1234567890abcdef1234567890abcdef",
@@ -287,18 +285,18 @@ class TestConfigureLoggingOTel:
 
         # Mock the appropriate module
         if backend == "loguru":
-            module_path = "grelmicro.logging._loguru"
+            module_path = "grelmicro.log._loguru"
         elif backend == "structlog":
-            module_path = "grelmicro.logging._structlog"
+            module_path = "grelmicro.log._structlog"
         else:
-            module_path = "grelmicro.logging._stdlib"
+            module_path = "grelmicro.log._stdlib"
         mocker.patch(
             f"{module_path}.get_otel_trace_context",
             return_value=trace_context,
         )
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "OTel test", request_id="abc-123")
 
         # Assert
@@ -322,21 +320,21 @@ class TestConfigureLoggingOTel:
     ) -> None:
         """Test OpenTelemetry trace context is not included when disabled."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-        monkeypatch.setenv("LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
 
         # Mock should not be called
         if backend == "loguru":
-            module_path = "grelmicro.logging._loguru"
+            module_path = "grelmicro.log._loguru"
         elif backend == "structlog":
-            module_path = "grelmicro.logging._structlog"
+            module_path = "grelmicro.log._structlog"
         else:
-            module_path = "grelmicro.logging._stdlib"
+            module_path = "grelmicro.log._stdlib"
         mock_otel = mocker.patch(f"{module_path}.get_otel_trace_context")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "OTel disabled test", request_id="xyz-456")
 
         # Assert
@@ -361,16 +359,16 @@ class TestConfigureLoggingOTel:
     ) -> None:
         """Test error when OTel enabled but not installed."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "true")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "true")
 
         mocker.patch(
-            "grelmicro.logging._shared.has_opentelemetry", return_value=False
+            "grelmicro.log._shared.has_opentelemetry", return_value=False
         )
 
         # Act / Assert
         with pytest.raises(DependencyNotFoundError, match="opentelemetry"):
-            configure_logging()
+            configure()
 
 
 class TestConfigureLoggingText:
@@ -386,12 +384,12 @@ class TestConfigureLoggingText:
     ) -> None:
         """Test TEXT format produces human-readable output."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "text")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "text")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Text format test")
 
         # Assert
@@ -414,13 +412,13 @@ class TestConfigureLoggingJSONSerializer:
     ) -> None:
         """Test default stdlib JSON serializer works."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-        monkeypatch.delenv("LOG_JSON_SERIALIZER", raising=False)
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+        monkeypatch.delenv("GREL_LOG_JSON_SERIALIZER", raising=False)
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Stdlib serializer test", count=_COUNT)
 
         # Assert
@@ -441,13 +439,13 @@ class TestConfigureLoggingJSONSerializer:
     ) -> None:
         """Test orjson serializer produces valid output."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
-        monkeypatch.setenv("LOG_JSON_SERIALIZER", "orjson")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_JSON_SERIALIZER", "orjson")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Orjson serializer test", count=_COUNT)
 
         # Assert
@@ -468,14 +466,14 @@ class TestConfigureLoggingJSONSerializer:
     ) -> None:
         """Test error when orjson serializer is configured but not installed."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_JSON_SERIALIZER", "orjson")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_JSON_SERIALIZER", "orjson")
 
-        mocker.patch("grelmicro.logging._shared.has_orjson", return_value=False)
+        mocker.patch("grelmicro.log._shared.has_orjson", return_value=False)
 
         # Act / Assert
         with pytest.raises(DependencyNotFoundError, match="orjson"):
-            configure_logging()
+            configure()
 
 
 class TestLoadSettings:
@@ -484,10 +482,10 @@ class TestLoadSettings:
     def test_invalid_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test load_settings raises on invalid env var."""
         # Arrange
-        monkeypatch.setenv("LOG_LEVEL", "INVALID")
+        monkeypatch.setenv("GREL_LOG_LEVEL", "INVALID")
 
         # Act / Assert
-        with pytest.raises(LoggingSettingsValidationError):
+        with pytest.raises(ValidationError):
             load_settings()
 
 
@@ -525,7 +523,7 @@ class TestGetOtelTraceContext:
     ) -> None:
         """Test returns empty dict when opentelemetry is not installed."""
         # Arrange
-        mocker.patch("grelmicro.logging._shared.trace", None)
+        mocker.patch("grelmicro.log._shared.trace", None)
 
         # Act
         result = get_otel_trace_context()
@@ -545,7 +543,7 @@ class TestGetOtelTraceContext:
         mock_span.get_span_context.return_value = mock_span_context
 
         mocker.patch(
-            "grelmicro.logging._shared.trace.get_current_span",
+            "grelmicro.log._shared.trace.get_current_span",
             return_value=mock_span,
         )
 
@@ -630,11 +628,11 @@ class TestConfigureLoggingException:
     ) -> None:
         """Test all backends produce structured ErrorDict for exceptions."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
-        configure_logging()
+        configure()
 
         # Act
         try:
@@ -671,12 +669,12 @@ class TestCoreFieldCollisionProtection:
     ) -> None:
         """Test core fields are protected from user-supplied extras."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "json")
-        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_CALLER_ENABLED", "true")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
-        configure_logging()
+        configure()
 
         # Act - attempt to overwrite core fields via extras
         log_message(
@@ -708,12 +706,12 @@ class TestConfigureLoggingLogfmt:
     ) -> None:
         """Test LOGFMT format produces key=value output."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "logfmt")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Logfmt test", user_id=_USER_ID)
 
         # Assert
@@ -734,12 +732,12 @@ class TestConfigureLoggingLogfmt:
     ) -> None:
         """Test LOGFMT format with no extra context."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "logfmt")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "No extras")
 
         # Assert
@@ -759,12 +757,12 @@ class TestConfigureLoggingLogfmt:
     ) -> None:
         """Test LOGFMT format quotes values with spaces."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "logfmt")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Special test", path="/api/hello world")
 
         # Assert
@@ -785,13 +783,13 @@ class TestConfigureLoggingPretty:
     ) -> None:
         """Test PRETTY format produces multi-line output."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "pretty")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "pretty")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Pretty test", user_id=_USER_ID)
 
         # Assert
@@ -816,13 +814,13 @@ class TestConfigureLoggingPretty:
     ) -> None:
         """Test PRETTY format with no extra context."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "pretty")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "pretty")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "No extras pretty")
 
         # Assert
@@ -847,12 +845,12 @@ class TestConfigureLoggingAuto:
     ) -> None:
         """Test AUTO format resolves to JSON when stdout is not a TTY."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "auto")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "auto")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act (test runner stdout is not a TTY)
-        configure_logging()
+        configure()
         log_message(backend, "Auto test")
 
         # Assert - should produce valid JSON
@@ -868,14 +866,14 @@ class TestConfigureLoggingAuto:
         monkeypatch: pytest.MonkeyPatch,
         reset_backend: None,  # noqa: ARG002
     ) -> None:
-        """Test default format (no LOG_FORMAT set) behaves as AUTO."""
+        """Test default format (no GREL_LOG_FORMAT set) behaves as AUTO."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.delenv("LOG_FORMAT", raising=False)
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.delenv("GREL_LOG_FORMAT", raising=False)
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
 
         # Act (test runner stdout is not a TTY, so AUTO -> JSON)
-        configure_logging()
+        configure()
         log_message(backend, "Default format test")
 
         # Assert - should produce valid JSON
@@ -1260,12 +1258,12 @@ class TestAllFormatsException:
     ) -> None:
         """Test all formats include exception info."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", fmt)
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", fmt)
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
-        configure_logging()
+        configure()
 
         # Act
         try:
@@ -1306,16 +1304,16 @@ class TestAllFormatsTimezone:
         monkeypatch: pytest.MonkeyPatch,
         reset_backend: None,  # noqa: ARG002
     ) -> None:
-        """Test all formats respect LOG_TIMEZONE."""
+        """Test all formats respect GREL_LOG_TIMEZONE."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", fmt)
-        monkeypatch.setenv("LOG_TIMEZONE", "Europe/Zurich")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", fmt)
+        monkeypatch.setenv("GREL_LOG_TIMEZONE", "Europe/Zurich")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Timezone test")
 
         # Assert
@@ -1345,14 +1343,14 @@ class TestAllFormatsCaller:
     ) -> None:
         """Test all formats include caller info."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", fmt)
-        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", fmt)
+        monkeypatch.setenv("GREL_LOG_CALLER_ENABLED", "true")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Caller test")
 
         # Assert
@@ -1376,13 +1374,13 @@ class TestAllFormatsMultipleExtras:
     ) -> None:
         """Test all formats include multiple extra context fields."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", fmt)
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", fmt)
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
         # Act
-        configure_logging()
+        configure()
         log_message(
             backend,
             "Multi extras",
@@ -1410,14 +1408,14 @@ class TestPrettyFormatStructure:
     ) -> None:
         """Test PRETTY format has caller on 'at' line."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "pretty")
-        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "pretty")
+        monkeypatch.setenv("GREL_LOG_CALLER_ENABLED", "true")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Structure test")
 
         # Assert
@@ -1435,13 +1433,13 @@ class TestPrettyFormatStructure:
     ) -> None:
         """Test PRETTY format puts each extra on its own indented line."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "pretty")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "pretty")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Fields test", user_id=_USER_ID, count=_COUNT)
 
         # Assert
@@ -1464,12 +1462,12 @@ class TestPrettyFormatStructure:
     ) -> None:
         """Test PRETTY format renders full error block."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "pretty")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "pretty")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
-        configure_logging()
+        configure()
 
         # Act
         try:
@@ -1506,14 +1504,14 @@ class TestTextFormatStructure:
     ) -> None:
         """Test TEXT format produces a single line per log."""
         # Arrange
-        monkeypatch.setenv("LOG_BACKEND", backend)
-        monkeypatch.setenv("LOG_FORMAT", "text")
-        monkeypatch.setenv("LOG_CALLER_ENABLED", "true")
-        monkeypatch.setenv("LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "text")
+        monkeypatch.setenv("GREL_LOG_CALLER_ENABLED", "true")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
         monkeypatch.setenv("NO_COLOR", "1")
 
         # Act
-        configure_logging()
+        configure()
         log_message(backend, "Single line test", user_id=_USER_ID)
 
         # Assert
