@@ -190,9 +190,9 @@ class CircuitBreaker:
                 Errors of these types do not count toward `error_threshold`.
                 Accepts a single exception class, a tuple, or fully-qualified
                 import strings such as `"builtins.ValueError"` or
-                `"my_app.errors.PaymentError"`.
-
-                Default: empty tuple.
+                `"my_app.errors.PaymentError"`. When unset, resolves from the
+                env path or falls back to the `CircuitBreakerConfig` default
+                (empty tuple).
                 """
             ),
         ] = None,

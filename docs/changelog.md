@@ -4,20 +4,20 @@
 
 ### Breaking
 
-* 💥 `CircuitBreaker` config moves to a frozen `CircuitBreakerConfig`. Read it via `cb.config`. PR [#117](https://github.com/grelinfo/grelmicro/issues/117).
-* 💥 The mutable attributes `cb.error_threshold`, `cb.success_threshold`, `cb.reset_timeout`, `cb.half_open_capacity`, `cb.ignore_exceptions`, `cb.log_level` are removed. Construct a new `CircuitBreaker` to change config. PR [#117](https://github.com/grelinfo/grelmicro/issues/117).
+* 💥 `CircuitBreaker` config moves to a frozen `CircuitBreakerConfig`. Read it via `cb.config`. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
+* 💥 The mutable attributes `cb.error_threshold`, `cb.success_threshold`, `cb.reset_timeout`, `cb.half_open_capacity`, `cb.ignore_exceptions`, `cb.log_level` are removed. Construct a new `CircuitBreaker` to change config. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 
 ### Features
 
-* ✨ Add `CircuitBreakerConfig` and `CircuitBreaker.from_config(name, config)`. PR [#117](https://github.com/grelinfo/grelmicro/issues/117).
-* ✨ `CircuitBreaker` reads `GREL_CIRCUIT_BREAKER_<NAME>_*` env vars and accepts `env_prefix=` / `read_env=`. PR [#117](https://github.com/grelinfo/grelmicro/issues/117).
-* ✨ `ignore_exceptions` accepts fully-qualified import strings (`"builtins.ValueError"`) so YAML and env loaders can specify exception types. PR [#117](https://github.com/grelinfo/grelmicro/issues/117).
-* ✨ Env vars for tuple/list fields accept comma-separated values in addition to JSON arrays. PR [#117](https://github.com/grelinfo/grelmicro/issues/117).
+* ✨ Add `CircuitBreakerConfig` and `CircuitBreaker.from_config(name, config)`. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
+* ✨ `CircuitBreaker` reads `GREL_CIRCUIT_BREAKER_<NAME>_*` env vars and accepts `env_prefix=` / `read_env=`. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
+* ✨ `ignore_exceptions` accepts fully-qualified import strings (`"builtins.ValueError"`) so YAML and env loaders can specify exception types. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
+* ✨ Env vars for tuple/list fields accept comma-separated values in addition to JSON arrays. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 
 ### Internal
 
-* ♻️ Add `grelmicro/_types.py` for shared lightweight type aliases (`LogLevel`). PR [#117](https://github.com/grelinfo/grelmicro/issues/117).
-* ♻️ Add `grelmicro/_config.py::parse_csv_or_json` shared utility for env var list parsing. PR [#117](https://github.com/grelinfo/grelmicro/issues/117).
+* ♻️ Add `grelmicro/_types.py` for shared lightweight type aliases (`LogLevel`). PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
+* ♻️ Add `grelmicro/_config.py::parse_csv_or_json` shared utility for env var list parsing. PR [#132](https://github.com/grelinfo/grelmicro/pull/132).
 
 ## 0.16.1 - 2026-04-29
 

@@ -14,6 +14,7 @@ from grelmicro.resilience.algorithms import (
 )
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
+    CircuitBreakerConfig,
     CircuitBreakerMetrics,
     CircuitBreakerState,
     ErrorDetails,
@@ -29,6 +30,7 @@ from grelmicro.resilience.ratelimiter import RateLimiter
 
 __all__ = [
     "CircuitBreaker",
+    "CircuitBreakerConfig",
     "CircuitBreakerError",
     "CircuitBreakerMetrics",
     "CircuitBreakerState",
