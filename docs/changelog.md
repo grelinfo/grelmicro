@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.16.1 - 2026-04-29
+
+### Internal
+
+* ✅ "No registry call at construction" tests now patch the registry source instead of the per-module import alias, so a future refactor that bypasses the local alias can no longer silently pass the check. PR [#130](https://github.com/grelinfo/grelmicro/pull/130).
+* ⬆️ Bump `ty` from 0.0.29 to 0.0.30. PR [#111](https://github.com/grelinfo/grelmicro/pull/111).
+* ⬆️ Pre-commit autoupdate. PR [#114](https://github.com/grelinfo/grelmicro/pull/114).
+
 ## 0.16.0 - 2026-04-29
 
 ### Breaking
