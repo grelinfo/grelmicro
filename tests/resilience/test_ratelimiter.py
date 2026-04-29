@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator
 from time import monotonic
 from types import TracebackType
 from typing import Any, Self
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -115,18 +115,21 @@ def test_token_bucket_properties() -> None:
 # --- bind() called exactly once at __init__ ---
 
 
-def test_bind_called_once_at_init() -> None:
-    """Test bind() is called once at construction: zero runtime dispatch."""
+async def test_bind_called_once_on_first_use() -> None:
+    """bind() is deferred to first method call, then cached."""
     # Arrange
     config = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
-    strategy: Any = MagicMock(spec=RateLimiterStrategy)
+    strategy: Any = AsyncMock(spec=RateLimiterStrategy)
     backend: Any = MagicMock()
     backend.bind = MagicMock(return_value=strategy)
 
-    # Act
-    RateLimiter("test", config, backend=backend)
+    # Act: construction performs no bind
+    rl = RateLimiter("test", config, backend=backend)
+    backend.bind.assert_not_called()
 
-    # Assert
+    # First call triggers bind exactly once
+    await rl.acquire(key="k")
+    await rl.acquire(key="k")
     backend.bind.assert_called_once_with(config)
 
 
@@ -274,10 +277,13 @@ async def test_acquire_or_raise_with_cost(limiter: RateLimiter) -> None:
 
 
 async def test_acquire_without_backend() -> None:
-    """Test RateLimiter construction fails without backend."""
-    # Act & Assert
+    """RateLimiter construction succeeds. The error is deferred to first call."""
+    # Act: construction performs no registry lookup
+    rl = RateLimiter("test", GCRAConfig(limit=LIMIT, window=WINDOW))
+
+    # Assert: first method call surfaces the missing-backend error
     with pytest.raises(BackendNotLoadedError):
-        RateLimiter("test", GCRAConfig(limit=LIMIT, window=WINDOW))
+        await rl.acquire(key="k")
 
 
 # --- Validation ---
@@ -340,8 +346,9 @@ async def test_explicit_backend_bypasses_registry() -> None:
         backend=my,
     )
 
-    # Assert: RateLimiter's backend is the explicit one
-    assert rl._backend is my
+    # Assert: RateLimiter exposes the explicit backend, ignores the registered one
+    assert rl.backend is my
+    _ = rejected  # keep the registered instance alive for the test scope
     assert rl._backend is not rejected
 
 

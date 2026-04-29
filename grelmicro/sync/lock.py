@@ -215,7 +215,7 @@ class Lock(BaseLock):
         self._name = name
         self._config = config
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
-        self.backend = backend or get_sync_backend()
+        self._backend: SyncBackend | None = backend
         self._held_by_tasks: set[int] = set()
         self._held_by_threads: set[int] = set()
         self._from_thread: ThreadLockAdapter | None = None
@@ -224,6 +224,17 @@ class Lock(BaseLock):
     def name(self) -> str:
         """Return the lock identity."""
         return self._name
+
+    @property
+    def backend(self) -> SyncBackend:
+        """Bound sync backend, resolved lazily on first access."""
+        return self._backend or self._resolve_backend()
+
+    def _resolve_backend(self) -> SyncBackend:
+        """Resolve the backend from the global registry and cache it."""
+        backend = get_sync_backend()
+        self._backend = backend
+        return backend
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with the async context manager.
@@ -319,8 +330,9 @@ class Lock(BaseLock):
         Raises:
             LockLockedCheckError: If the lock cannot be checked due to an error on the backend.
         """
+        backend = self._backend or self._resolve_backend()
         try:
-            return await self.backend.locked(name=self._lock_name)
+            return await backend.locked(name=self._lock_name)
         except Exception as exc:
             raise LockLockedCheckError(name=self._name) from exc
 
@@ -343,8 +355,9 @@ class Lock(BaseLock):
         Raises:
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
+        backend = self._backend or self._resolve_backend()
         try:
-            return await self.backend.acquire(
+            return await backend.acquire(
                 name=self._lock_name,
                 token=token,
                 duration=self._config.lease_duration,
@@ -363,8 +376,9 @@ class Lock(BaseLock):
         Raises:
             LockReleaseError: Cannot release the lock due to backend error.
         """
+        backend = self._backend or self._resolve_backend()
         try:
-            return await self.backend.release(name=self._lock_name, token=token)
+            return await backend.release(name=self._lock_name, token=token)
         except Exception as exc:
             raise LockReleaseError(name=self._name) from exc
 
@@ -379,8 +393,9 @@ class Lock(BaseLock):
         Raises:
             LockOwnedCheckError: Cannot check if the lock is owned due to backend error.
         """
+        backend = self._backend or self._resolve_backend()
         try:
-            return await self.backend.owned(name=self._lock_name, token=token)
+            return await backend.owned(name=self._lock_name, token=token)
         except Exception as exc:
             raise LockOwnedCheckError(name=self._name) from exc
 

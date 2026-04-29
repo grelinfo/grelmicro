@@ -1,6 +1,7 @@
 """Tests for the three-paths LeaderElection construction."""
 
 import pytest
+from pytest_mock import MockerFixture
 
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
@@ -18,6 +19,29 @@ DEFAULT_RETRY = 2.0
 def backend() -> SyncBackend:
     """Return a memory backend usable without a running event loop."""
     return MemorySyncBackend()
+
+
+def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
+    """`LeaderElection("svc")` performs zero registry calls at construction."""
+    spy = mocker.spy(LeaderElection, "_resolve_backend")
+    LeaderElection("svc")
+    assert spy.call_count == 0
+
+
+def test_backend_property_resolves_lazily_and_caches(
+    mocker: MockerFixture,
+) -> None:
+    """First `le.backend` access resolves once, subsequent reads hit the cache."""
+    backend_instance = MemorySyncBackend(auto_register=False)
+    spy = mocker.patch(
+        "grelmicro.sync.leaderelection.get_sync_backend",
+        return_value=backend_instance,
+    )
+    le = LeaderElection("svc")
+    assert spy.call_count == 0
+    assert le.backend is backend_instance
+    assert le.backend is backend_instance
+    assert spy.call_count == 1
 
 
 def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:

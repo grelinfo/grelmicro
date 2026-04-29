@@ -1,6 +1,7 @@
 """Tests for the three-paths TaskLock construction."""
 
 import pytest
+from pytest_mock import MockerFixture
 
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.memory import MemorySyncBackend
@@ -18,6 +19,29 @@ DEFAULT_MAX = 60.0
 def backend() -> SyncBackend:
     """Return a memory backend usable without a running event loop."""
     return MemorySyncBackend()
+
+
+def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
+    """`TaskLock("cart")` performs zero registry calls at construction."""
+    spy = mocker.spy(TaskLock, "_resolve_backend")
+    TaskLock("cart")
+    assert spy.call_count == 0
+
+
+def test_backend_property_resolves_lazily_and_caches(
+    mocker: MockerFixture,
+) -> None:
+    """First `task_lock.backend` access resolves once, subsequent reads hit the cache."""
+    backend_instance = MemorySyncBackend(auto_register=False)
+    spy = mocker.patch(
+        "grelmicro.sync.tasklock.get_sync_backend",
+        return_value=backend_instance,
+    )
+    task_lock = TaskLock("cart")
+    assert spy.call_count == 0
+    assert task_lock.backend is backend_instance
+    assert task_lock.backend is backend_instance
+    assert spy.call_count == 1
 
 
 def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:
