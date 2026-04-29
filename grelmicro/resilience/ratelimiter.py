@@ -119,8 +119,8 @@ class RateLimiter:
         """Initialize the rate limiter."""
         self._name = name
         self._config = config
-        self._backend = backend or get_rate_limiter_backend()
-        self._strategy: RateLimiterStrategy = self._backend.bind(config)
+        self._backend: RateLimiterBackend | None = backend
+        self._strategy: RateLimiterStrategy | None = None
         self._fail_open = config.fail_open
         self._fallback = _build_fallback(config)
 
@@ -133,6 +133,23 @@ class RateLimiter:
     def config(self) -> RateLimiterConfig:
         """Return the algorithm configuration."""
         return self._config
+
+    @property
+    def backend(self) -> RateLimiterBackend:
+        """Bound rate-limiter backend, resolved lazily on first access."""
+        return self._backend or self._resolve_backend()
+
+    def _resolve_backend(self) -> RateLimiterBackend:
+        """Resolve the backend from the global registry and cache it."""
+        backend = get_rate_limiter_backend()
+        self._backend = backend
+        return backend
+
+    def _resolve_strategy(self) -> RateLimiterStrategy:
+        """Bind the algorithm config to the backend and cache the strategy."""
+        strategy = self.backend.bind(self._config)
+        self._strategy = strategy
+        return strategy
 
     @classmethod
     def from_config(
@@ -301,10 +318,9 @@ class RateLimiter:
                 algorithm's limit/capacity.
         """
         _validate_cost(cost, self._fallback.limit)
+        strategy = self._strategy or self._resolve_strategy()
         try:
-            return await self._strategy.acquire(
-                key=self._full_key(key), cost=cost
-            )
+            return await strategy.acquire(key=self._full_key(key), cost=cost)
         except Exception as exc:
             if self._fail_open:
                 self._log_fail_open(key, exc)
@@ -360,8 +376,9 @@ class RateLimiter:
             `allowed` indicates whether the next acquire would
             succeed.
         """
+        strategy = self._strategy or self._resolve_strategy()
         try:
-            return await self._strategy.peek(key=self._full_key(key))
+            return await strategy.peek(key=self._full_key(key))
         except Exception as exc:
             if self._fail_open:
                 self._log_fail_open(key, exc)
@@ -383,8 +400,9 @@ class RateLimiter:
 
         Idempotent: resetting a nonexistent key is a no-op.
         """
+        strategy = self._strategy or self._resolve_strategy()
         try:
-            await self._strategy.reset(key=self._full_key(key))
+            await strategy.reset(key=self._full_key(key))
         except Exception as exc:
             if self._fail_open:
                 self._log_fail_open(key, exc)

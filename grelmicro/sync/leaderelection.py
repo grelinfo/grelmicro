@@ -303,7 +303,7 @@ class LeaderElection(SyncPrimitive, Task):
         self._name = name
         self._config = config
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
-        self.backend = backend or get_sync_backend()
+        self._backend: SyncBackend | None = backend
 
         self._service_running = False
         self._state_change_condition: Condition = Condition()
@@ -336,6 +336,17 @@ class LeaderElection(SyncPrimitive, Task):
     def name(self) -> str:
         """Return the task name."""
         return self._name
+
+    @property
+    def backend(self) -> SyncBackend:
+        """Bound sync backend, resolved lazily on first access."""
+        return self._backend or self._resolve_backend()
+
+    def _resolve_backend(self) -> SyncBackend:
+        """Resolve the backend from the global registry and cache it."""
+        backend = get_sync_backend()
+        self._backend = backend
+        return backend
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""
@@ -417,9 +428,10 @@ class LeaderElection(SyncPrimitive, Task):
 
     async def _try_acquire_or_renew(self) -> None:
         """Try to acquire leadership."""
+        backend = self._backend or self._resolve_backend()
         try:
             with fail_after(self._config.backend_timeout):
-                is_leader = await self.backend.acquire(
+                is_leader = await backend.acquire(
                     name=self._lock_name,
                     token=str(self._config.worker),
                     duration=self._config.lease_duration,
@@ -473,10 +485,11 @@ class LeaderElection(SyncPrimitive, Task):
         return _LeaderGuard(self)
 
     async def _release(self) -> None:
+        backend = self._backend or self._resolve_backend()
         try:
             with fail_after(self._config.backend_timeout):
                 if not (
-                    await self.backend.release(
+                    await backend.release(
                         name=self._lock_name, token=str(self._config.worker)
                     )
                 ):

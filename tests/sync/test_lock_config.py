@@ -1,6 +1,7 @@
 """Tests for the three-paths Lock construction."""
 
 import pytest
+from pytest_mock import MockerFixture
 
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.lock import Lock, LockConfig
@@ -17,6 +18,28 @@ DEFAULT_RETRY = 0.1
 def backend() -> SyncBackend:
     """Return a memory backend usable without a running event loop."""
     return MemorySyncBackend()
+
+
+def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
+    """`Lock("cart")` performs zero registry calls at construction."""
+    spy = mocker.spy(Lock, "_resolve_backend")
+    Lock("cart")
+    assert spy.call_count == 0
+
+
+def test_backend_property_resolves_lazily_and_caches(
+    mocker: MockerFixture,
+) -> None:
+    """First `lock.backend` access resolves once, subsequent reads hit the cache."""
+    backend_instance = MemorySyncBackend(auto_register=False)
+    spy = mocker.patch(
+        "grelmicro.sync.lock.get_sync_backend", return_value=backend_instance
+    )
+    lock = Lock("cart")
+    assert spy.call_count == 0
+    assert lock.backend is backend_instance
+    assert lock.backend is backend_instance
+    assert spy.call_count == 1
 
 
 def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:
