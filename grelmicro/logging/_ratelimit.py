@@ -12,11 +12,12 @@ simple burst behavior and predictable refill.
 
 from collections.abc import Callable
 from logging import Filter, LogRecord
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
+from grelmicro._config import resolve_config
 from grelmicro.resilience import MemoryTokenBucket
 
 KeyMode = Literal["logger", "level", "global", "template", "rendered"]
@@ -136,25 +137,48 @@ class RateLimitFilter(Filter):
         self,
         *,
         capacity: Annotated[
-            PositiveInt,
-            Doc("Maximum burst size."),
-        ] = 5,
-        refill_rate: Annotated[
-            PositiveFloat,
-            Doc("Tokens replenished per second."),
-        ] = 1,
-        key_mode: Annotated[
-            KeyMode,
+            PositiveInt | None,
             Doc(
-                'Default key strategy: "logger" (default), "level", '
-                '"global", "template" or "rendered". Ignored when '
-                "`key` is set."
+                """
+                Maximum burst size.
+
+                Default: 5. When unset, resolves from the environment
+                variable ``GREL_RATE_LIMIT_FILTER_CAPACITY`` if
+                present, otherwise falls back to the
+                ``RateLimitFilterConfig`` default.
+                """
             ),
-        ] = "logger",
+        ] = None,
+        refill_rate: Annotated[
+            PositiveFloat | None,
+            Doc(
+                """
+                Tokens replenished per second.
+
+                Default: 1.
+                """
+            ),
+        ] = None,
+        key_mode: Annotated[
+            KeyMode | None,
+            Doc(
+                """
+                Default key strategy: "logger" (default), "level",
+                "global", "template" or "rendered". Ignored when
+                ``key`` is set.
+                """
+            ),
+        ] = None,
         cost: Annotated[
-            PositiveFloat,
-            Doc("Tokens consumed per record."),
-        ] = 1.0,
+            PositiveFloat | None,
+            Doc(
+                """
+                Tokens consumed per record.
+
+                Default: 1.0.
+                """
+            ),
+        ] = None,
         key: Annotated[
             Callable[[LogRecord], str] | None,
             Doc(
@@ -165,19 +189,88 @@ class RateLimitFilter(Filter):
                 "to avoid collisions."
             ),
         ] = None,
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                """
+                Override the auto-derived environment variable prefix.
+
+                Default: ``GREL_RATE_LIMIT_FILTER_``.
+                """
+            ),
+        ] = None,
+        read_env: Annotated[
+            bool,
+            Doc(
+                """
+                Whether to read environment variables.
+
+                Default: True.
+                """
+            ),
+        ] = True,
     ) -> None:
         """Initialize the filter."""
-        super().__init__()
-        self._config = RateLimitFilterConfig(
-            capacity=capacity,
-            refill_rate=refill_rate,
-            key_mode=key_mode,
-            cost=cost,
+        config = resolve_config(
+            RateLimitFilterConfig,
+            explicit=None,
+            kwargs={
+                "capacity": capacity,
+                "refill_rate": refill_rate,
+                "key_mode": key_mode,
+                "cost": cost,
+            },
+            env_prefix=env_prefix or "GREL_RATE_LIMIT_FILTER_",
+            read_env=read_env,
         )
-        self._key_fn = key if key is not None else _KEY_FUNCS[key_mode]
+        self._setup(config, key)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            RateLimitFilterConfig,
+            Doc(
+                """
+                The pre-built rate limit filter configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree. The environment path
+                is bypassed and the config is used as-is.
+                """
+            ),
+        ],
+        *,
+        key: Annotated[
+            Callable[[LogRecord], str] | None,
+            Doc(
+                "Override the default key function. It receives "
+                "the record and returns a string key."
+            ),
+        ] = None,
+    ) -> Self:
+        """Construct a `RateLimitFilter` from a pre-built `RateLimitFilterConfig`."""
+        instance = cls.__new__(cls)
+        Filter.__init__(instance)
+        instance._setup(config, key)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        config: RateLimitFilterConfig,
+        key: Callable[[LogRecord], str] | None,
+    ) -> None:
+        """Wire the validated config and runtime deps onto the instance."""
+        # Initialize Filter base if not done already (only the
+        # ``__init__`` path needs it; ``from_config`` calls this
+        # after running Filter.__init__).
+        if not hasattr(self, "_name"):
+            Filter.__init__(self)
+        self._config = config
+        self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
         self._bucket = MemoryTokenBucket(
-            capacity=capacity,
-            refill_rate=refill_rate,
+            capacity=config.capacity,
+            refill_rate=config.refill_rate,
         )
 
     @property
