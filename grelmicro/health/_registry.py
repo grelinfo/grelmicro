@@ -5,13 +5,14 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from logging import getLogger
-from typing import Annotated
+from typing import Annotated, Self
 
 import anyio
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
+from grelmicro._config import resolve_config
 from grelmicro.health._backends import health_registry
 from grelmicro.health._models import (
     CheckResult,
@@ -102,16 +103,54 @@ class HealthRegistry:
         self,
         *,
         timeout: Annotated[
-            PositiveFloat,
+            PositiveFloat | None,
             Doc(
-                "Default per-check timeout in seconds. Checks that "
-                "exceed this duration are reported as ``error``."
+                """
+                Default per-check timeout in seconds. Checks that
+                exceed this duration are reported as ``error``.
+
+                Default: 5.0. When unset, resolves from the
+                environment variable ``GREL_HEALTH_TIMEOUT`` if
+                present, otherwise falls back to the
+                ``HealthRegistryConfig`` default.
+                """
             ),
-        ] = 5.0,
+        ] = None,
         cache_ttl: Annotated[
-            NonNegativeFloat,
-            Doc("Per-check cache TTL in seconds. Set to 0 to disable."),
-        ] = 1.0,
+            NonNegativeFloat | None,
+            Doc(
+                """
+                Per-check cache TTL in seconds. Set to 0 to disable.
+
+                Default: 1.0. When unset, resolves from the
+                environment variable ``GREL_HEALTH_CACHE_TTL`` if
+                present, otherwise falls back to the
+                ``HealthRegistryConfig`` default.
+                """
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                """
+                Override the auto-derived environment variable prefix.
+
+                Default: ``GREL_HEALTH_``.
+                """
+            ),
+        ] = None,
+        read_env: Annotated[
+            bool,
+            Doc(
+                """
+                Whether to read environment variables.
+
+                Default: True. Set to False when every field is
+                already supplied via kwargs and the environment
+                must not influence construction.
+                """
+            ),
+        ] = True,
         auto_register: Annotated[
             bool,
             Doc(
@@ -121,9 +160,54 @@ class HealthRegistry:
         ] = True,
     ) -> None:
         """Initialize the health registry."""
-        self._config = HealthRegistryConfig(
-            timeout=timeout, cache_ttl=cache_ttl
+        config = resolve_config(
+            HealthRegistryConfig,
+            explicit=None,
+            kwargs={"timeout": timeout, "cache_ttl": cache_ttl},
+            env_prefix=env_prefix or "GREL_HEALTH_",
+            read_env=read_env,
         )
+        self._setup(config, auto_register=auto_register)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            HealthRegistryConfig,
+            Doc(
+                """
+                The pre-built health registry configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a ``pydantic-settings`` aggregator). The
+                environment path is bypassed and the config is used
+                as-is.
+                """
+            ),
+        ],
+        *,
+        auto_register: Annotated[
+            bool,
+            Doc(
+                "Automatically register this instance as the global "
+                "health registry singleton. Set to False for testing."
+            ),
+        ] = True,
+    ) -> Self:
+        """Construct a `HealthRegistry` from a pre-built `HealthRegistryConfig`."""
+        instance = cls.__new__(cls)
+        instance._setup(config, auto_register=auto_register)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        config: HealthRegistryConfig,
+        *,
+        auto_register: bool,
+    ) -> None:
+        """Wire the validated config and runtime deps onto the instance."""
+        self._config = config
         self._entries: dict[str, _Entry] = {}
         if auto_register:
             health_registry.set(self)
