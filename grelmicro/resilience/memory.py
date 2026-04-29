@@ -14,7 +14,11 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import GCRA, Algorithm, TokenBucket
+from grelmicro.resilience.algorithms import (
+    GCRAConfig,
+    RateLimiterConfig,
+    TokenBucketConfig,
+)
 
 _EVICTION_THRESHOLD = 1000
 
@@ -161,11 +165,11 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
     """In-memory rate limiter backend.
 
     Supports both
-    [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket] and
-    [`GCRA`][grelmicro.resilience.algorithms.GCRA] algorithms.
-    State is held in separate per-algorithm maps so two rate
-    limiters with the same name but different algorithms cannot
-    collide. Thread-safe.
+    [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+    and [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]
+    algorithm configs. State is held in separate per-algorithm
+    maps so two rate limiters with the same name but different
+    algorithms cannot collide. Thread-safe.
 
     Use it for tests and single-process deployments. For
     distributed coordination, use
@@ -173,13 +177,11 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiter, TokenBucket
+    from grelmicro.resilience import RateLimiter, TokenBucketConfig
     from grelmicro.resilience.memory import MemoryRateLimiterBackend
 
     MemoryRateLimiterBackend()  # auto-registers
-    rl = RateLimiter(
-        "api", algorithm=TokenBucket(capacity=10, refill_rate=1)
-    )
+    rl = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
     ```
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
@@ -233,8 +235,8 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         ):
             rate_limiter_backend_registry.reset()
 
-    def bind(self, algorithm: Algorithm) -> RateLimiterStrategy:
-        """Build a strategy for the given algorithm.
+    def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
+        """Build a strategy for the given algorithm config.
 
         Called once by
         [`RateLimiter`][grelmicro.resilience.RateLimiter] when
@@ -242,14 +244,14 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         picks which algorithm to run. Later calls to `acquire`,
         `peek`, and `reset` use the returned strategy directly.
         """
-        match algorithm:
-            case TokenBucket():
+        match config:
+            case TokenBucketConfig():
                 return _MemoryTokenBucket(
-                    self._token_bucket_state, self._lock, algorithm
+                    self._token_bucket_state, self._lock, config
                 )
-            case GCRA():
-                return _MemoryGCRA(self._gcra_state, self._lock, algorithm)
-        assert_never(algorithm)
+            case GCRAConfig():
+                return _MemoryGCRA(self._gcra_state, self._lock, config)
+        assert_never(config)
 
 
 class _MemoryTokenBucket(RateLimiterStrategy):
@@ -259,12 +261,12 @@ class _MemoryTokenBucket(RateLimiterStrategy):
         self,
         state: dict[str, tuple[float, float]],
         lock: Lock,
-        algorithm: TokenBucket,
+        config: TokenBucketConfig,
     ) -> None:
         self._state = state
         self._lock = lock
-        self._capacity = algorithm.capacity
-        self._refill_rate = algorithm.refill_rate
+        self._capacity = config.capacity
+        self._refill_rate = config.refill_rate
 
     def _refill(self, tokens: float, last: float, now: float) -> float:
         return min(self._capacity, tokens + (now - last) * self._refill_rate)
@@ -350,13 +352,13 @@ class _MemoryGCRA(RateLimiterStrategy):
         self,
         state: dict[str, float],
         lock: Lock,
-        algorithm: GCRA,
+        config: GCRAConfig,
     ) -> None:
         self._state = state
         self._lock = lock
-        self._limit = algorithm.limit
-        self._window = algorithm.window
-        self._emission_interval = algorithm.window / algorithm.limit
+        self._limit = config.limit
+        self._window = config.window
+        self._emission_interval = config.window / config.limit
 
     def _maybe_evict(self, now: float) -> None:
         if len(self._state) <= _EVICTION_THRESHOLD:

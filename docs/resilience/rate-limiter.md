@@ -1,6 +1,6 @@
 # Rate Limiter
 
-A **Rate Limiter** caps how many requests a client can make inside a time window. `RateLimiter` is algorithm-agnostic. Pass an `algorithm=` instance to choose semantics. Everything else (API, `RateLimitResult`, backend registry, `fail_open`) is shared.
+A **Rate Limiter** caps how many requests a client can make inside a time window. `RateLimiter` is algorithm-agnostic. Pass an algorithm config to choose semantics. Everything else (API, `RateLimitResult`, backend registry, `fail_open`) is shared.
 
 **Why**
 
@@ -8,20 +8,36 @@ A **Rate Limiter** caps how many requests a client can make inside a time window
 - Enforce fair usage across clients.
 - Produce HTTP 429 responses with [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) `RateLimit-*` or legacy `X-RateLimit-*` headers.
 
+## Construction
+
+For day-to-day Python code, use the factory classmethods. They keep the call site explicit and short:
+
+```python
+--8<-- "resilience/ratelimiter_factories.py"
+```
+
+Use `RateLimiter.from_config(name, config)` when the algorithm config already comes from a settings tree, YAML, or another declarative source.
+
+```python
+--8<-- "resilience/ratelimiter_from_config.py"
+```
+
+`RateLimiter` intentionally does not flatten both algorithms into one generic kwargs constructor. Token bucket and GCRA have different parameter vocabularies, and keeping one explicit entry point per behaviour makes the public API easier to read.
+
 ## Choosing an algorithm
 
 Pick the algorithm whose behaviour matches how **operators describe the limit** in runbooks and API docs. Both algorithms share the same Python API, backends, and `RateLimitResult` shape, so you can switch later.
 
 ### Decision guide
 
-1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`GCRA`][grelmicro.resilience.algorithms.GCRA]. Its sliding-window model matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
-2. **Do you want "allow a burst of N, then 1 per second sustained"?** Use [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]. The `capacity` and `refill_rate` parameters describe exactly that.
-3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucket`][grelmicro.resilience.algorithms.TokenBucket]. The capacity absorbs the spike. GCRA can allow bursts too, but the configuration is less direct.
-4. **Did you search for "leaky bucket"?** Use [`GCRA`][grelmicro.resilience.algorithms.GCRA]. It is the leaky-bucket-as-meter formulation.
+1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]. Its sliding-window model matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
+2. **Do you want "allow a burst of N, then 1 per second sustained"?** Use [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]. The `capacity` and `refill_rate` parameters describe exactly that.
+3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]. The capacity absorbs the spike. GCRA can allow bursts too, but the configuration is less direct.
+4. **Did you search for "leaky bucket"?** Use [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]. It is the leaky-bucket-as-meter formulation.
 
 ### Side-by-side
 
-| | **GCRA** | **TokenBucket** |
+| | **GCRAConfig** | **TokenBucketConfig** |
 |---|---|---|
 | **Mental model** | "N requests per sliding T-second window" | "A bucket holding N tokens that refills at R tokens/sec" |
 | **Parameters** | `limit`, `window` | `capacity`, `refill_rate` |
@@ -34,13 +50,13 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 
 ### Worked scenarios
 
-- **"Limit each user to 100 API calls per minute."** Use `GCRA(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into `RateLimit-Reset`.
-- **"Allow a burst of 20 uploads, then 2 per second."** Use `TokenBucket(capacity=20, refill_rate=2)`. Each word in the sentence maps to one parameter.
-- **"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."** Use `TokenBucket(capacity=5, refill_rate=0.1)`.
-- **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `GCRA(limit=10, window=60)`.
+- **"Limit each user to 100 API calls per minute."** Use `GCRAConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into `RateLimit-Reset`.
+- **"Allow a burst of 20 uploads, then 2 per second."** Use `TokenBucketConfig(capacity=20, refill_rate=2)`. Each word in the sentence maps to one parameter.
+- **"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."** Use `TokenBucketConfig(capacity=5, refill_rate=0.1)`.
+- **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `GCRAConfig(limit=10, window=60)`.
 
 !!! note
-    There is no separate `LeakyBucket` algorithm because GCRA **is** the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `GCRA`.
+    There is no separate `LeakyBucket` algorithm because GCRA **is** the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `GCRAConfig`.
 
 ## Backend
 
@@ -68,7 +84,7 @@ Load a backend before using `RateLimiter`. The same backend serves every algorit
 | **Multi-node** | Yes | No |
 | **Persistence** | Yes (auto-expiring keys) | No |
 
-The backend compiles the algorithm into a bound strategy at `RateLimiter.__init__` through `backend.bind(algorithm)`. Runtime `acquire`, `peek`, and `reset` calls invoke that strategy directly. **There is no algorithm dispatch on the request path.**
+The backend compiles the algorithm into a bound strategy at `RateLimiter.__init__` through `backend.bind(config)`. Runtime `acquire`, `peek`, and `reset` calls invoke that strategy directly. **There is no algorithm dispatch on the request path.**
 
 ## Usage
 
@@ -83,7 +99,7 @@ The backend compiles the algorithm into a bound strategy at `RateLimiter.__init_
 | Field | Type | Description | HTTP Header |
 |---|---|---|---|
 | `allowed` | `bool` | Whether the request is permitted | 200 vs 429 status |
-| `limit` | `int` | Total quota (`limit` for GCRA, `int(capacity)` for TokenBucket) | `RateLimit-Limit` / `X-RateLimit-Limit` |
+| `limit` | `int` | Total quota (`limit` for GCRAConfig, `int(capacity)` for TokenBucketConfig) | `RateLimit-Limit` / `X-RateLimit-Limit` |
 | `remaining` | `int` | Remaining requests / tokens | `RateLimit-Remaining` / `X-RateLimit-Remaining` |
 | `retry_after` | `float` | Seconds until next allowed request | `Retry-After` |
 | `reset_after` | `float` | Seconds until full quota resets | `RateLimit-Reset` / `X-RateLimit-Reset` |
@@ -126,18 +142,6 @@ Use `fail_open=True` when availability matters more than strictness. On backend 
 
 !!! tip
     The rate limiter uses the same backend registry pattern as the synchronization primitives. See [Backend Architecture](../architecture/backends.md) for details.
-
-## Migration from the legacy constructor
-
-The shorthand `RateLimiter(name, limit=..., window=...)` is still accepted and emits a `DeprecationWarning`. It is internally rewritten to `RateLimiter(name, algorithm=GCRA(limit=..., window=...))`. It will be removed in **0.15.0**.
-
-```python
-# Before (deprecated)
-RateLimiter("auth", limit=5, window=60)
-
-# After
-RateLimiter("auth", algorithm=GCRA(limit=5, window=60))
-```
 
 ## Standalone `MemoryTokenBucket`
 

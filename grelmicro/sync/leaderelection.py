@@ -17,11 +17,12 @@ from anyio import (
     sleep,
 )
 from anyio.abc import TaskStatus
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
 from typing_extensions import Doc
 
+from grelmicro._config import env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
-from grelmicro.sync._tokens import generate_worker_id
+from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
 from grelmicro.task.abc import Task
 
@@ -33,28 +34,12 @@ if TYPE_CHECKING:
 logger = getLogger("grelmicro.leader_election")
 
 
-class LeaderElectionConfig(BaseModel):
+class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
     """Leader Election Config.
 
     Leader election based on a leased reentrant distributed lock.
     """
 
-    name: Annotated[
-        str,
-        Doc(
-            """
-            The leader election lock name.
-            """,
-        ),
-    ]
-    worker: Annotated[
-        str | UUID,
-        Doc(
-            """
-            The worker identity used as lock token.
-            """,
-        ),
-    ]
     lease_duration: Annotated[
         Seconds,
         Doc(
@@ -154,74 +139,169 @@ class LeaderElection(SyncPrimitive, Task):
             ),
         ] = None,
         lease_duration: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The duration in seconds after the lock will be released if not renewed.
 
-                If the worker becomes unavailable, the lock can only be acquired by an other worker
-                after it has expired.
+                Default: 15. If the worker becomes unavailable, the lock
+                can only be acquired by an other worker after it has
+                expired. When unset, resolves from the environment
+                variable
+                `GREL_LEADER_ELECTION_{NAME_UPPER}_LEASE_DURATION` if
+                present, otherwise falls back to the
+                `LeaderElectionConfig` default.
                 """,
             ),
-        ] = 15,
+        ] = None,
         renew_deadline: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The duration in seconds that the leader worker will try to acquire the lock before
                 giving up.
 
-                Must be shorter than the lease duration. In case of multiple errors, the leader
-                worker will lose the lead to prevent split-brain scenarios and ensure that only one
-                worker is the leader at any time.
+                Default: 10. Must be shorter than the lease duration.
+                In case of multiple errors, the leader worker will
+                lose the lead to prevent split-brain scenarios and
+                ensure that only one worker is the leader at any
+                time.
                 """,
             ),
-        ] = 10,
+        ] = None,
         retry_interval: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The duration in seconds between attempts to acquire or renew the lock.
 
-                Must be shorter than the renew deadline. A shorter schedule enables faster leader
-                elections but may increase load on the distributed lock backend, while a longer
-                schedule reduces load but can delay new leader elections.
+                Default: 2. Must be shorter than the renew deadline.
+                A shorter schedule enables faster leader elections
+                but may increase load on the distributed lock
+                backend, while a longer schedule reduces load but
+                can delay new leader elections.
                 """,
             ),
-        ] = 2,
+        ] = None,
         backend_timeout: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The duration in seconds for waiting on backend for acquiring and releasing the lock.
 
-                This value determines how long the system will wait before giving up the current
-                operation.
+                Default: 5. This value determines how long the system
+                will wait before giving up the current operation.
                 """,
             ),
-        ] = 5,
+        ] = None,
         error_interval: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The duration in seconds between logging error messages.
 
-                If shorter than the retry interval, it will log every error. It is used to prevent
-                flooding the logs when the lock backend is unavailable.
+                Default: 30. If shorter than the retry interval, it
+                will log every error. It is used to prevent flooding
+                the logs when the lock backend is unavailable.
                 """,
             ),
-        ] = 30,
+        ] = None,
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                """
+                Override the auto-derived environment variable prefix.
+
+                Default: `GREL_LEADER_ELECTION_{NAME_UPPER}_`. Set
+                this to a custom prefix when the application uses a
+                different naming convention.
+                """,
+            ),
+        ] = None,
+        read_env: Annotated[
+            bool,
+            Doc(
+                """
+                Whether to read environment variables.
+
+                Default: True. Set to False when every field is
+                already supplied via kwargs and the environment
+                must not influence construction.
+                """,
+            ),
+        ] = True,
     ) -> None:
         """Initialize the leader election."""
-        self.config = LeaderElectionConfig(
-            name=name,
-            worker=worker or generate_worker_id(),
-            lease_duration=lease_duration,
-            renew_deadline=renew_deadline,
-            retry_interval=retry_interval,
-            backend_timeout=backend_timeout,
-            error_interval=error_interval,
+        config = resolve_config(
+            LeaderElectionConfig,
+            explicit=None,
+            kwargs={
+                "worker": worker,
+                "lease_duration": lease_duration,
+                "renew_deadline": renew_deadline,
+                "retry_interval": retry_interval,
+                "backend_timeout": backend_timeout,
+                "error_interval": error_interval,
+            },
+            env_prefix=env_prefix
+            or f"GREL_LEADER_ELECTION_{env_segment(name)}_",
+            read_env=read_env,
         )
+        self._setup(name, config, backend)
+
+    @classmethod
+    def from_config(
+        cls,
+        name: Annotated[
+            str,
+            Doc(
+                """
+                The name of the resource representing the leader election.
+
+                Acts as the instance identity. Used as the backend
+                lock key and exposed via the `name` property.
+                """,
+            ),
+        ],
+        config: Annotated[
+            LeaderElectionConfig,
+            Doc(
+                """
+                The pre-built leader election configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a `pydantic-settings` aggregator). The environment
+                path is bypassed and the config is used as-is.
+                """,
+            ),
+        ],
+        *,
+        backend: Annotated[
+            SyncBackend | None,
+            Doc(
+                """
+                The distributed lock backend used to acquire and release the lock.
+
+                By default, it will use the lock backend registry to get the default lock backend.
+                """,
+            ),
+        ] = None,
+    ) -> Self:
+        """Construct a `LeaderElection` from a name and a pre-built `LeaderElectionConfig`."""
+        instance = cls.__new__(cls)
+        instance._setup(name, config, backend)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        name: str,
+        config: LeaderElectionConfig,
+        backend: SyncBackend | None,
+    ) -> None:
+        """Wire the validated config and runtime deps onto the instance."""
+        self._name = name
+        self._config = config
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self.backend = backend or get_sync_backend()
 
@@ -232,6 +312,11 @@ class LeaderElection(SyncPrimitive, Task):
         self._error_logged_at: float | None = None
         self._task_group: TaskGroup | None = None
         self._exit_stack: AsyncExitStack | None = None
+
+    @property
+    def config(self) -> LeaderElectionConfig:
+        """Return the leader election config."""
+        return self._config
 
     async def __aenter__(self) -> Self:
         """Wait for the leader with the context manager."""
@@ -250,7 +335,7 @@ class LeaderElection(SyncPrimitive, Task):
     @property
     def name(self) -> str:
         """Return the task name."""
-        return self.config.name
+        return self._name
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""
@@ -296,7 +381,7 @@ class LeaderElection(SyncPrimitive, Task):
         try:
             while True:
                 await self._try_acquire_or_renew()
-                await sleep(self.config.retry_interval)
+                await sleep(self._config.retry_interval)
         except get_cancelled_exc_class():
             logger.info("Leader Election stopped: %s", self.name)
             raise
@@ -333,11 +418,11 @@ class LeaderElection(SyncPrimitive, Task):
     async def _try_acquire_or_renew(self) -> None:
         """Try to acquire leadership."""
         try:
-            with fail_after(self.config.backend_timeout):
+            with fail_after(self._config.backend_timeout):
                 is_leader = await self.backend.acquire(
                     name=self._lock_name,
-                    token=str(self.config.worker),
-                    duration=self.config.lease_duration,
+                    token=str(self._config.worker),
+                    duration=self._config.lease_duration,
                 )
         except Exception:
             if self._check_error_interval():
@@ -357,7 +442,8 @@ class LeaderElection(SyncPrimitive, Task):
 
     def _seconds_before_expiration_deadline(self) -> float:
         return max(
-            self._state_updated_at + self.config.lease_duration - monotonic(), 0
+            self._state_updated_at + self._config.lease_duration - monotonic(),
+            0,
         )
 
     def _check_error_interval(self) -> bool:
@@ -365,7 +451,7 @@ class LeaderElection(SyncPrimitive, Task):
         is_logging_allowed = (
             not self._error_logged_at
             or (monotonic() - self._error_logged_at)
-            > self.config.error_interval
+            > self._config.error_interval
         )
         self._error_logged_at = monotonic()
         return is_logging_allowed
@@ -373,7 +459,7 @@ class LeaderElection(SyncPrimitive, Task):
     def _is_renew_deadline_reached(self) -> bool:
         return (
             monotonic() - self._state_updated_at
-        ) >= self.config.renew_deadline
+        ) >= self._config.renew_deadline
 
     def guard(self) -> "_LeaderGuard":
         """Return a non-blocking synchronization guard.
@@ -388,10 +474,10 @@ class LeaderElection(SyncPrimitive, Task):
 
     async def _release(self) -> None:
         try:
-            with fail_after(self.config.backend_timeout):
+            with fail_after(self._config.backend_timeout):
                 if not (
                     await self.backend.release(
-                        name=self._lock_name, token=str(self.config.worker)
+                        name=self._lock_name, token=str(self._config.worker)
                     )
                 ):
                     logger.info(

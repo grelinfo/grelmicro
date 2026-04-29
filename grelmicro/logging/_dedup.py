@@ -10,10 +10,12 @@ from collections.abc import Callable, Hashable
 from logging import Filter, LogRecord
 from threading import Lock
 from time import monotonic
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
+
+from grelmicro._config import resolve_config
 
 KeyMode = Literal["rendered", "template"]
 
@@ -109,33 +111,47 @@ class DuplicateFilter(Filter):
         self,
         *,
         allowed_repetitions: Annotated[
-            PositiveInt,
+            PositiveInt | None,
             Doc(
-                "Maximum number of records per key that pass the "
-                "filter before subsequent records are dropped."
+                """
+                Maximum number of records per key that pass the
+                filter before subsequent records are dropped.
+
+                Default: 5. When unset, resolves from the environment
+                variable ``GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS``
+                if present, otherwise falls back to the
+                ``DuplicateFilterConfig`` default.
+                """
             ),
-        ] = 5,
+        ] = None,
         cache_size: Annotated[
-            PositiveInt,
+            PositiveInt | None,
             Doc(
-                "Maximum number of distinct keys tracked. When "
-                "exceeded, the least-recently-seen key is evicted."
+                """
+                Maximum number of distinct keys tracked. When
+                exceeded, the least-recently-seen key is evicted.
+
+                Default: 100.
+                """
             ),
-        ] = 100,
+        ] = None,
         key_mode: Annotated[
-            KeyMode,
+            KeyMode | None,
             Doc(
-                'Default key strategy: "template" (default) uses '
-                '``str(record.msg)``; "rendered" uses '
-                "``record.getMessage()``. "
-                "Ignored when ``key`` is set."
+                """
+                Default key strategy: ``"template"`` (default) uses
+                ``str(record.msg)``; ``"rendered"`` uses
+                ``record.getMessage()``. Ignored when ``key`` is set.
+                """
             ),
-        ] = "template",
+        ] = None,
         ttl_seconds: Annotated[
             PositiveFloat | None,
             Doc(
-                "Silence window for automatic counter reset. "
-                "``None`` disables time-based expiry."
+                """
+                Silence window for automatic counter reset.
+                ``None`` (default) disables time-based expiry.
+                """
             ),
         ] = None,
         key: Annotated[
@@ -145,16 +161,81 @@ class DuplicateFilter(Filter):
                 "record and returns any hashable value."
             ),
         ] = None,
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                """
+                Override the auto-derived environment variable prefix.
+
+                Default: ``GREL_DUPLICATE_FILTER_``.
+                """
+            ),
+        ] = None,
+        read_env: Annotated[
+            bool,
+            Doc(
+                """
+                Whether to read environment variables.
+
+                Default: True.
+                """
+            ),
+        ] = True,
     ) -> None:
         """Initialize the filter."""
-        super().__init__()
-        self._config = DuplicateFilterConfig(
-            allowed_repetitions=allowed_repetitions,
-            cache_size=cache_size,
-            key_mode=key_mode,
-            ttl_seconds=ttl_seconds,
+        config = resolve_config(
+            DuplicateFilterConfig,
+            explicit=None,
+            kwargs={
+                "allowed_repetitions": allowed_repetitions,
+                "cache_size": cache_size,
+                "key_mode": key_mode,
+                "ttl_seconds": ttl_seconds,
+            },
+            env_prefix=env_prefix or "GREL_DUPLICATE_FILTER_",
+            read_env=read_env,
         )
-        self._key_fn = key if key is not None else _KEY_FUNCS[key_mode]
+        Filter.__init__(self)
+        self._setup(config, key)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            DuplicateFilterConfig,
+            Doc(
+                """
+                The pre-built duplicate filter configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree. The environment path
+                is bypassed and the config is used as-is.
+                """
+            ),
+        ],
+        *,
+        key: Annotated[
+            Callable[[LogRecord], Hashable] | None,
+            Doc(
+                "Override the default key function. Receives the "
+                "record and returns any hashable value."
+            ),
+        ] = None,
+    ) -> Self:
+        """Construct a `DuplicateFilter` from a pre-built `DuplicateFilterConfig`."""
+        instance = cls.__new__(cls)
+        Filter.__init__(instance)
+        instance._setup(config, key)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        config: DuplicateFilterConfig,
+        key: Callable[[LogRecord], Hashable] | None,
+    ) -> None:
+        """Wire the validated config and runtime deps onto the instance."""
+        self._config = config
+        self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
         self._counts: OrderedDict[Hashable, tuple[int, float]] = OrderedDict()
         self._lock = Lock()
 

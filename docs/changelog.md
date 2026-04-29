@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 `LockConfig`, `TaskLockConfig`, `LeaderElectionConfig`, and `RateLimiterConfig` no longer carry a `name` field. Pass the name positionally: `Lock("cart", LockConfig(lease_duration=30))`. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* 💥 Rename `TokenBucket` to `TokenBucketConfig` and `GCRA` to `GCRAConfig`. `RateLimiterConfig` becomes the discriminated union of algorithm configs. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* 💥 `RateLimiter` takes the algorithm config positionally: `RateLimiter("api", GCRAConfig(limit=100, window=60))`. The `algorithm=`, `limit=`, `window=` kwargs are removed. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* 💥 `fail_open` moves from `RateLimiter(...)` to the algorithm config. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+
+### Features
+
+* ✨ Add `Component.from_config(name, config)` to every primitive (`Lock`, `TaskLock`, `LeaderElection`, `RateLimiter`, `HealthRegistry`, `RateLimitFilter`, `DuplicateFilter`). PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* ✨ Read environment variables under `GREL_<COMPONENT>_<NAME>_*` for every component that supports the environmental path. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* ✨ Add `RateLimiter.token_bucket(name, ...)` and `RateLimiter.gcra(name, ...)` factory classmethods. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* ✨ Add `env_prefix=` and `read_env=` kwargs to every component that exposes the environmental path. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+* ✨ Normalise instance names like `payments-eu`, `cart.v2`, or `weather/svc` into POSIX env var segments. PR [#123](https://github.com/grelinfo/grelmicro/pull/123).
+
 ## 0.15.0 - 2026-04-29
 
 ### Breaking

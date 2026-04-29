@@ -2,16 +2,18 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, PositiveFloat, PositiveInt
+from pydantic import PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
+from grelmicro.resilience.algorithms._base import _BaseRateLimiterConfig
 
-class TokenBucket(BaseModel, frozen=True, extra="forbid"):
+
+class TokenBucketConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     """Classic token bucket rate-limiting algorithm.
 
     The bucket starts full and refills continuously at
     `refill_rate` tokens per second, capped at `capacity`. Each
-    request consumes tokens; if the bucket has enough, the request
+    request consumes tokens. If the bucket has enough, the request
     is allowed, otherwise it is rejected with a `retry_after` hint.
 
     Use this when you want the pattern "allow a burst of N
@@ -20,10 +22,10 @@ class TokenBucket(BaseModel, frozen=True, extra="forbid"):
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiter, TokenBucket
+    from grelmicro.resilience import RateLimiter, TokenBucketConfig
 
     # Allow 10 in a burst, then 1/sec sustained.
-    rl = RateLimiter("api", algorithm=TokenBucket(capacity=10, refill_rate=1))
+    rl = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
     ```
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.

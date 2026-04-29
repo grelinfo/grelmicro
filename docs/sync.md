@@ -131,3 +131,57 @@ The lock supports the following features:
 
 !!! tip "Want to understand how worker identity and lock tokens work internally?"
     See [Synchronization Internals](architecture/sync.md) for details on UUID generation, token scoping, and design guarantees.
+
+### Configuration
+
+The lock has two construction entry points, each one-purpose. The positional `name` is always required and acts as the instance identity.
+
+=== "Programmatic"
+
+    Pass fields directly as keyword arguments. Use this for scripts, notebooks, and code-first setups where every value is known inline.
+
+    ```python
+    --8<-- "sync/lock_programmatic.py"
+    ```
+
+=== "Environmental"
+
+    Omit the kwargs and let the lock resolve fields from environment variables. Unset fields fall back to `LockConfig` defaults. The derived prefix is `GREL_LOCK_{NAME_UPPER}_`.
+
+    ```python
+    --8<-- "sync/lock_environmental.py"
+    ```
+
+=== "Declarative"
+
+    Use `Lock.from_config(name, config)` to construct from a name and a pre-built `LockConfig`. The env path is bypassed entirely.
+
+    ```python
+    --8<-- "sync/lock_declarative.py"
+    ```
+
+### Environment variables
+
+Prefix: `GREL_LOCK_{NAME_UPPER}_`
+
+| Env var                                      | Config field     | Type            | Default          |
+|----------------------------------------------|------------------|-----------------|------------------|
+| `GREL_LOCK_{NAME_UPPER}_WORKER`              | `worker`         | `str \| UUID`   | generated UUID   |
+| `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION`      | `lease_duration` | `float` (> 0)   | `60`             |
+| `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL`      | `retry_interval` | `float` (≥ 0.001) | `0.1`          |
+
+Concrete example for `Lock("cart")`:
+
+```bash
+GREL_LOCK_CART_WORKER=web-1
+GREL_LOCK_CART_LEASE_DURATION=120
+GREL_LOCK_CART_RETRY_INTERVAL=0.2
+```
+
+!!! tip "Override the env prefix"
+    The derived prefix is only the zero-config default. Apps that want their own convention (for example `MYAPP_LOCK_CART_*`) pass `env_prefix=` explicitly. Pass `read_env=False` to skip env reading entirely when every field is already supplied via kwargs or when construction happens via `Lock.from_config(...)`.
+
+!!! info "Composing with the wider settings tree"
+    grelmicro does not ship a `BaseSettings` wrapper. Apps own the env namespace, the YAML path, and the aggregation strategy. Compose `LockConfig` into `pydantic-settings`, load it from YAML, secrets files, Vault, or any other source, then call `Lock.from_config("cart", cfg)`.
+
+    See the [Configuration architecture](architecture/config.md) doc for the full resolution rules and the rationale behind the construction split.

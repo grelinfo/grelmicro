@@ -239,9 +239,9 @@ class RateLimiter:
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiter, TokenBucket
+    from grelmicro.resilience import RateLimiter
 
-    rl = RateLimiter("api", algorithm=TokenBucket(capacity=10, refill_rate=1))
+    rl = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
     ```
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.

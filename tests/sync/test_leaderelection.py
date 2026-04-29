@@ -32,7 +32,6 @@ def configs() -> list[LeaderElectionConfig]:
     """Leader election Config."""
     return [
         LeaderElectionConfig(
-            name=LEADER_NAME,
             worker=f"worker_{i}",
             lease_duration=0.02,
             renew_deadline=0.015,
@@ -50,7 +49,7 @@ def leader_elections(
 ) -> list[LeaderElection]:
     """Leader elections."""
     return [
-        LeaderElection(backend=backend, **configs[i].model_dump())
+        LeaderElection.from_config(LEADER_NAME, configs[i], backend=backend)
         for i in range(WORKERS)
     ]
 
@@ -60,7 +59,9 @@ def leader_election(
     backend: SyncBackend, configs: list[LeaderElectionConfig]
 ) -> LeaderElection:
     """Leader election."""
-    return LeaderElection(backend=backend, **configs[WORKER_1].model_dump())
+    return LeaderElection.from_config(
+        LEADER_NAME, configs[WORKER_1], backend=backend
+    )
 
 
 async def wait_first_leader(leader_elections: list[LeaderElection]) -> None:
@@ -83,7 +84,6 @@ def test_leader_election_config() -> None:
     """Test leader election Config."""
     # Arrange
     config = LeaderElectionConfig(
-        name=LEADER_NAME,
         worker="worker_1",
         lease_duration=0.01,
         renew_deadline=0.008,
@@ -94,7 +94,6 @@ def test_leader_election_config() -> None:
 
     # Assert
     assert config.model_dump() == {
-        "name": "test_leader_election",
         "worker": "worker_1",
         "lease_duration": 0.01,
         "renew_deadline": 0.008,
@@ -107,11 +106,10 @@ def test_leader_election_config() -> None:
 def test_leader_election_config_defaults() -> None:
     """Test leader election Config Defaults."""
     # Arrange
-    config = LeaderElectionConfig(name=LEADER_NAME, worker="worker_1")
+    config = LeaderElectionConfig(worker="worker_1")
 
     # Assert
     assert config.model_dump() == {
-        "name": "test_leader_election",
         "worker": "worker_1",
         "lease_duration": 15,
         "renew_deadline": 10,
@@ -129,7 +127,6 @@ def test_leader_election_config_validation_errors() -> None:
         match="Renew deadline must be shorter than lease duration",
     ):
         LeaderElectionConfig(
-            name=LEADER_NAME,
             worker="worker_1",
             lease_duration=15,
             renew_deadline=20,
@@ -139,7 +136,6 @@ def test_leader_election_config_validation_errors() -> None:
         match="Retry interval must be shorter than renew deadline",
     ):
         LeaderElectionConfig(
-            name=LEADER_NAME,
             worker="worker_1",
             renew_deadline=10,
             retry_interval=15,
@@ -149,7 +145,6 @@ def test_leader_election_config_validation_errors() -> None:
         match="Backend timeout must be shorter than renew deadline",
     ):
         LeaderElectionConfig(
-            name=LEADER_NAME,
             worker="worker_1",
             renew_deadline=10,
             backend_timeout=15,
@@ -240,15 +235,23 @@ async def test_leader_election_single_worker(
 
 async def test_leadership_abandon_on_renew_deadline_reached(
     leader_election: LeaderElection,
+    mocker: MockerFixture,
 ) -> None:
     """Test leader election abandons leadership when renew deadline is reached."""
-    # Act
+    # Arrange: stop the renew loop after leadership is acquired so the
+    # renew deadline elapses without state updates.
     is_leader_before_start = leader_election.is_leader()
+
+    # Act
     async with create_task_group() as tg:
         await tg.start(leader_election)
         await leader_election.wait_for_leader()
         is_leader_after_start = leader_election.is_leader()
-        leader_election.config.retry_interval = math.inf
+        mocker.patch.object(
+            leader_election,
+            "_try_acquire_or_renew",
+            side_effect=lambda: sleep(math.inf),
+        )
         await leader_election.wait_lose_leader()
         is_leader_after_not_renewed = leader_election.is_leader()
         tg.cancel_scope.cancel()
@@ -435,22 +438,44 @@ async def test_leader_transition(
 
 async def test_error_interval(
     backend: SyncBackend,
-    leader_elections: list[LeaderElection],
     caplog: pytest.LogCaptureFixture,
     mocker: MockerFixture,
 ) -> None:
     """Test leader election on worker with error cooldown."""
-    # Arrange
+    # Arrange: build two leader elections with distinct error_interval values
+    # so we can compare the log-throttling behaviour between them.
     caplog.set_level("ERROR")
-    leader_elections[WORKER_1].config.error_interval = 1
-    leader_elections[WORKER_2].config.error_interval = 0.001
+    leader_election_high_cooldown = LeaderElection.from_config(
+        LEADER_NAME,
+        LeaderElectionConfig(
+            worker="worker_high",
+            lease_duration=0.02,
+            renew_deadline=0.015,
+            retry_interval=0.005,
+            error_interval=1,
+            backend_timeout=0.005,
+        ),
+        backend=backend,
+    )
+    leader_election_low_cooldown = LeaderElection.from_config(
+        LEADER_NAME,
+        LeaderElectionConfig(
+            worker="worker_low",
+            lease_duration=0.02,
+            renew_deadline=0.015,
+            retry_interval=0.005,
+            error_interval=0.001,
+            backend_timeout=0.005,
+        ),
+        backend=backend,
+    )
     mocker.patch.object(
         backend, "acquire", side_effect=Exception("Backend Unreachable")
     )
 
     # Act
     async with create_task_group() as tg:
-        await tg.start(leader_elections[WORKER_1])
+        await tg.start(leader_election_high_cooldown)
         await sleep(0.01)
         tg.cancel_scope.cancel()
     leader_election1_nb_errors = sum(
@@ -459,7 +484,7 @@ async def test_error_interval(
     caplog.clear()
 
     async with create_task_group() as tg:
-        await tg.start(leader_elections[WORKER_2])
+        await tg.start(leader_election_low_cooldown)
         await sleep(0.01)
         tg.cancel_scope.cancel()
     leader_election2_nb_errors = sum(

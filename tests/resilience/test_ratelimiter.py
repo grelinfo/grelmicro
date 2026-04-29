@@ -15,7 +15,11 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import GCRA, Algorithm, TokenBucket
+from grelmicro.resilience.algorithms import (
+    GCRAConfig,
+    RateLimiterConfig,
+    TokenBucketConfig,
+)
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.ratelimiter import RateLimiter
@@ -54,7 +58,7 @@ def _sync_backend() -> MemoryRateLimiterBackend:
 @pytest.fixture
 def gcra_limiter() -> RateLimiter:
     """RateLimiter with GCRA."""
-    return RateLimiter("test-gcra", algorithm=GCRA(limit=LIMIT, window=WINDOW))
+    return RateLimiter("test-gcra", GCRAConfig(limit=LIMIT, window=WINDOW))
 
 
 @pytest.fixture
@@ -62,7 +66,7 @@ def token_bucket_limiter() -> RateLimiter:
     """RateLimiter with TokenBucket."""
     return RateLimiter(
         "test-tb",
-        algorithm=TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE),
+        TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE),
     )
 
 
@@ -83,13 +87,13 @@ def limiter(
 def test_gcra_properties() -> None:
     """Test RateLimiter with GCRA properties."""
     # Arrange
-    rl = RateLimiter("auth", algorithm=GCRA(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter("auth", GCRAConfig(limit=LIMIT, window=WINDOW))
 
     # Assert
-    assert rl.config.name == "auth"
-    assert isinstance(rl.config.algorithm, GCRA)
-    assert rl.config.algorithm.limit == LIMIT
-    assert rl.config.algorithm.window == WINDOW
+    assert rl.name == "auth"
+    assert isinstance(rl.config, GCRAConfig)
+    assert rl.config.limit == LIMIT
+    assert rl.config.window == WINDOW
 
 
 @pytest.mark.usefixtures("_sync_backend")
@@ -98,14 +102,14 @@ def test_token_bucket_properties() -> None:
     # Arrange
     rl = RateLimiter(
         "api",
-        algorithm=TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE),
+        TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE),
     )
 
     # Assert
-    assert rl.config.name == "api"
-    assert isinstance(rl.config.algorithm, TokenBucket)
-    assert rl.config.algorithm.capacity == CAPACITY
-    assert rl.config.algorithm.refill_rate == REFILL_RATE
+    assert rl.name == "api"
+    assert isinstance(rl.config, TokenBucketConfig)
+    assert rl.config.capacity == CAPACITY
+    assert rl.config.refill_rate == REFILL_RATE
 
 
 # --- bind() called exactly once at __init__ ---
@@ -114,16 +118,16 @@ def test_token_bucket_properties() -> None:
 def test_bind_called_once_at_init() -> None:
     """Test bind() is called once at construction: zero runtime dispatch."""
     # Arrange
-    algorithm = TokenBucket(capacity=CAPACITY, refill_rate=REFILL_RATE)
+    config = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
     strategy: Any = MagicMock(spec=RateLimiterStrategy)
     backend: Any = MagicMock()
     backend.bind = MagicMock(return_value=strategy)
 
     # Act
-    RateLimiter("test", algorithm=algorithm, backend=backend)
+    RateLimiter("test", config, backend=backend)
 
     # Assert
-    backend.bind.assert_called_once_with(algorithm)
+    backend.bind.assert_called_once_with(config)
 
 
 # --- acquire ---
@@ -273,7 +277,7 @@ async def test_acquire_without_backend() -> None:
     """Test RateLimiter construction fails without backend."""
     # Act & Assert
     with pytest.raises(BackendNotLoadedError):
-        RateLimiter("test", algorithm=GCRA(limit=LIMIT, window=WINDOW))
+        RateLimiter("test", GCRAConfig(limit=LIMIT, window=WINDOW))
 
 
 # --- Validation ---
@@ -292,7 +296,7 @@ def test_invalid_gcra_config(limit: int, window: float) -> None:
     """Test non-positive limit or window raises ValidationError."""
     # Act & Assert
     with pytest.raises(ValidationError):
-        GCRA(limit=limit, window=window)
+        GCRAConfig(limit=limit, window=window)
 
 
 @pytest.mark.parametrize(
@@ -308,7 +312,7 @@ def test_invalid_token_bucket_config(capacity: int, refill_rate: float) -> None:
     """Test non-positive capacity or refill_rate raises ValidationError."""
     # Act & Assert
     with pytest.raises(ValidationError):
-        TokenBucket(capacity=capacity, refill_rate=refill_rate)
+        TokenBucketConfig(capacity=capacity, refill_rate=refill_rate)
 
 
 @pytest.mark.parametrize("cost", [0, -1, LIMIT + 1])
@@ -318,52 +322,6 @@ async def test_invalid_cost(limiter: RateLimiter, cost: int) -> None:
     # Act & Assert
     with pytest.raises(ValueError, match="cost must be between"):
         await limiter.acquire(key="user:1", cost=cost)
-
-
-# --- Algorithm resolution and deprecation ---
-
-
-@pytest.mark.usefixtures("_sync_backend")
-def test_legacy_ctor_emits_deprecation_warning() -> None:
-    """Test RateLimiter(name, limit, window) emits DeprecationWarning."""
-    # Act & Assert
-    with pytest.warns(DeprecationWarning, match="algorithm=GCRA"):
-        rl = RateLimiter("legacy", limit=LIMIT, window=WINDOW)
-
-    # Assert: legacy resolves to GCRA
-    assert isinstance(rl.config.algorithm, GCRA)
-    assert rl.config.algorithm.limit == LIMIT
-
-
-@pytest.mark.usefixtures("_sync_backend")
-def test_both_algorithm_and_legacy_raises() -> None:
-    """Test passing both algorithm= and limit= raises TypeError."""
-    # Act & Assert
-    with pytest.raises(TypeError, match="either"):
-        RateLimiter(
-            "bad",
-            algorithm=GCRA(limit=LIMIT, window=WINDOW),
-            limit=LIMIT,
-        )
-
-
-@pytest.mark.usefixtures("_sync_backend")
-def test_no_algorithm_and_no_legacy_raises() -> None:
-    """Test missing both algorithm= and legacy kwargs raises TypeError."""
-    # Act & Assert
-    with pytest.raises(TypeError, match="requires"):
-        RateLimiter("bad")
-
-
-@pytest.mark.usefixtures("_sync_backend")
-def test_legacy_partial_kwargs_raises() -> None:
-    """Test passing only one of limit/window raises an actionable TypeError."""
-    # Act & Assert: message points to the migration path instead of
-    # the generic "requires algorithm=" error.
-    with pytest.raises(TypeError, match="must be provided together"):
-        RateLimiter("bad", limit=LIMIT)
-    with pytest.raises(TypeError, match="must be provided together"):
-        RateLimiter("bad", window=WINDOW)
 
 
 # --- Explicit backend override ---
@@ -378,7 +336,7 @@ async def test_explicit_backend_bypasses_registry() -> None:
     # Act: limiter uses the explicit backend
     rl = RateLimiter(
         "explicit",
-        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        GCRAConfig(limit=LIMIT, window=WINDOW),
         backend=my,
     )
 
@@ -512,7 +470,7 @@ class _FailingBackend:
     ) -> None:
         return None
 
-    def bind(self, algorithm: Algorithm) -> RateLimiterStrategy:  # noqa: ARG002
+    def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:  # noqa: ARG002
         return _FailingStrategy()
 
 
@@ -521,9 +479,8 @@ def failing_limiter() -> RateLimiter:
     """RateLimiter whose strategy raises on every call, fail_open=True."""
     return RateLimiter(
         "failing",
-        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        GCRAConfig(limit=LIMIT, window=WINDOW, fail_open=True),
         backend=_FailingBackend(),
-        fail_open=True,
     )
 
 
@@ -532,9 +489,8 @@ def failing_limiter_strict() -> RateLimiter:
     """RateLimiter whose strategy raises; fail_open=False."""
     return RateLimiter(
         "failing-strict",
-        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        GCRAConfig(limit=LIMIT, window=WINDOW, fail_open=False),
         backend=_FailingBackend(),
-        fail_open=False,
     )
 
 
@@ -618,7 +574,7 @@ async def test_gcra_strategy_evicts_expired_keys(
     backend = MemoryRateLimiterBackend(auto_register=False)
     limiter = RateLimiter(
         "evict",
-        algorithm=GCRA(limit=LIMIT, window=WINDOW),
+        GCRAConfig(limit=LIMIT, window=WINDOW),
         backend=backend,
     )
     # Seed two fully-expired GCRA entries (TAT in the distant past).
@@ -642,7 +598,7 @@ async def test_token_bucket_strategy_evicts_full_keys(
     backend = MemoryRateLimiterBackend(auto_register=False)
     limiter = RateLimiter(
         "evict",
-        algorithm=TokenBucket(capacity=CAPACITY, refill_rate=1),
+        TokenBucketConfig(capacity=CAPACITY, refill_rate=1),
         backend=backend,
     )
     # Seed two entries that are fully refilled (so eviction can drop them).
@@ -664,8 +620,7 @@ async def test_fail_open_still_rejects_when_limit_exceeded() -> None:
     # Arrange
     limiter = RateLimiter(
         "fo_reject",
-        algorithm=GCRA(limit=LIMIT, window=WINDOW),
-        fail_open=True,
+        GCRAConfig(limit=LIMIT, window=WINDOW, fail_open=True),
     )
     for _ in range(LIMIT):
         await limiter.acquire(key="user:1")
@@ -683,8 +638,7 @@ async def test_fail_open_acquire_or_raise_still_raises_on_exceeded() -> None:
     # Arrange
     limiter = RateLimiter(
         "fo_raise",
-        algorithm=GCRA(limit=LIMIT, window=WINDOW),
-        fail_open=True,
+        GCRAConfig(limit=LIMIT, window=WINDOW, fail_open=True),
     )
     for _ in range(LIMIT):
         await limiter.acquire(key="user:1")

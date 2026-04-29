@@ -22,7 +22,7 @@
   <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
 </p>
 
-> **Project status: Active development.** grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on `MINOR` bumps (`0.14.0` → `0.15.0`) and never on `PATCH`. Pin the minor: `grelmicro>=0.14.0,<0.15.0`. After `1.0.0`, standard semver applies. See the [versioning policy](CONTRIBUTING.md#about-grelmicro-versions).
+> **Project status: Active development.** grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on `MINOR` bumps (`0.14.0` → `0.15.0`) and never on `PATCH`. Pin the minor: `grelmicro>=0.14.0,<0.15.0`. After `1.0.0`, standard semver applies. See the [versioning policy](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions).
 
 ______________________________________________________________________
 
@@ -51,7 +51,7 @@ It is built for any Python application, from a standalone script to full **micro
 | [**Cache**](docs/cache.md) | `@cached` decorator with per-key stampede protection. In-memory `TTLCache` or `RedisCacheBackend`. |
 | [**Synchronization**](docs/sync.md) | Distributed `Lock`, `TaskLock`, `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Task Scheduler**](docs/task.md) | Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement. |
-| [**Resilience**](docs/resilience/index.md) | [Circuit Breaker](docs/resilience/circuit-breaker.md) and [Rate Limiter](docs/resilience/rate-limiter.md) with pluggable algorithms (`TokenBucket`, `GCRA`). |
+| [**Resilience**](docs/resilience/index.md) | [Circuit Breaker](docs/resilience/circuit-breaker.md) and [Rate Limiter](docs/resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `GCRAConfig`). |
 | [**Logging**](docs/logging.md) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
 | [**Tracing**](docs/tracing.md) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
 | [**Health**](docs/health.md) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
@@ -80,10 +80,11 @@ from fastapi import FastAPI, HTTPException, Request
 from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.logging import configure_logging
-from grelmicro.resilience import GCRA
-from grelmicro.resilience.circuitbreaker import CircuitBreaker
-from grelmicro.resilience.errors import RateLimitExceededError
-from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience import (
+    CircuitBreaker,
+    RateLimitExceededError,
+    RateLimiter,
+)
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncBackend
@@ -135,7 +136,7 @@ async def read_root():
 
 
 # --- Rate Limiter: protect endpoints from overload ---
-api_limiter = RateLimiter("api", algorithm=GCRA(limit=100, window=60))
+api_limiter = RateLimiter.gcra("api", limit=100, window=60)
 
 
 @app.get("/api")

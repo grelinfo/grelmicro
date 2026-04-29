@@ -43,7 +43,6 @@ async def backend() -> AsyncGenerator[SyncBackend]:
 def test_tasklock_config_valid() -> None:
     """Test TaskLockConfig with valid values."""
     config = TaskLockConfig(
-        name="test",
         worker="worker",
         min_lock_seconds=LOCK_AT_LEAST_FOR,
         max_lock_seconds=LOCK_AT_MOST_FOR,
@@ -58,7 +57,6 @@ def test_tasklock_config_at_least_greater_than_at_most() -> None:
         ValidationError, match="min_lock_seconds must be less than or equal to"
     ):
         TaskLockConfig(
-            name="test",
             worker="worker",
             min_lock_seconds=10,
             max_lock_seconds=5,
@@ -69,7 +67,6 @@ def test_tasklock_config_at_least_not_positive() -> None:
     """Test TaskLockConfig raises when min_lock_seconds is not positive."""
     with pytest.raises(ValidationError):
         TaskLockConfig(
-            name="test",
             worker="worker",
             min_lock_seconds=0,
             max_lock_seconds=10,
@@ -80,7 +77,6 @@ def test_tasklock_config_at_most_not_positive() -> None:
     """Test TaskLockConfig raises when max_lock_seconds is not positive."""
     with pytest.raises(ValidationError):
         TaskLockConfig(
-            name="test",
             worker="worker",
             min_lock_seconds=1,
             max_lock_seconds=0,
@@ -90,7 +86,6 @@ def test_tasklock_config_at_most_not_positive() -> None:
 def test_tasklock_config_equal_values() -> None:
     """Test TaskLockConfig with min_lock_seconds == max_lock_seconds."""
     config = TaskLockConfig(
-        name="test",
         worker="worker",
         min_lock_seconds=10,
         max_lock_seconds=10,
@@ -679,8 +674,8 @@ async def test_task_lock_config_property(backend: SyncBackend) -> None:
     )
     expected_min = 1
     expected_max = 10
+    assert task_lock.name == LOCK_NAME
     config = task_lock.config
-    assert config.name == LOCK_NAME
     assert config.min_lock_seconds == expected_min
     assert config.max_lock_seconds == expected_max
 

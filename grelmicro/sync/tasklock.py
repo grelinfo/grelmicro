@@ -12,15 +12,16 @@ from typing import Annotated, Self
 from uuid import UUID
 
 from anyio import WouldBlock, from_thread
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
 from typing_extensions import Doc
 
+from grelmicro._config import env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
+from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync._tokens import (
     generate_task_token,
     generate_thread_token,
     generate_token_nonce,
-    generate_worker_id,
 )
 from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import (
@@ -34,17 +35,9 @@ from grelmicro.sync.errors import (
 logger = getLogger("grelmicro.sync")
 
 
-class TaskLockConfig(BaseModel, frozen=True, extra="forbid"):
+class TaskLockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
     """Task Lock Config."""
 
-    name: Annotated[
-        str,
-        Doc("""The name of the resource to lock."""),
-    ]
-    worker: Annotated[
-        str | UUID,
-        Doc("""The worker identity."""),
-    ]
     min_lock_seconds: Annotated[
         Seconds,
         Doc(
@@ -54,7 +47,7 @@ class TaskLockConfig(BaseModel, frozen=True, extra="forbid"):
             Prevents re-execution on other nodes before this duration has elapsed.
             """
         ),
-    ]
+    ] = 1
     max_lock_seconds: Annotated[
         Seconds,
         Doc(
@@ -64,7 +57,7 @@ class TaskLockConfig(BaseModel, frozen=True, extra="forbid"):
             Acts as the TTL on acquire.
             """
         ),
-    ]
+    ] = 60
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -119,43 +112,141 @@ class TaskLock(SyncPrimitive):
                 """
                 The worker identity.
 
-                By default, a UUIDv1 will be generated.
+                By default, a UUIDv1 is generated.
                 """
             ),
         ] = None,
         min_lock_seconds: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The minimum duration in seconds to hold the lock after task completion.
 
-                Prevents re-execution on other nodes before this duration has elapsed.
+                Default: 1. Prevents re-execution on other nodes
+                before this duration has elapsed. When unset,
+                resolves from the environment variable
+                `GREL_TASK_LOCK_{NAME_UPPER}_MIN_LOCK_SECONDS` if
+                present, otherwise falls back to the
+                `TaskLockConfig` default.
                 """
             ),
-        ] = 1,
+        ] = None,
         max_lock_seconds: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The maximum duration in seconds to hold the lock (deadlock protection).
 
-                Acts as the TTL on acquire.
+                Default: 60. Acts as the TTL on acquire. When unset,
+                resolves from the environment variable
+                `GREL_TASK_LOCK_{NAME_UPPER}_MAX_LOCK_SECONDS` if
+                present, otherwise falls back to the
+                `TaskLockConfig` default.
                 """
             ),
-        ] = 60,
+        ] = None,
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                """
+                Override the auto-derived environment variable prefix.
+
+                Default: `GREL_TASK_LOCK_{NAME_UPPER}_`. Set this to
+                a custom prefix when the application uses a different
+                naming convention.
+                """
+            ),
+        ] = None,
+        read_env: Annotated[
+            bool,
+            Doc(
+                """
+                Whether to read environment variables.
+
+                Default: True. Set to False when every field is
+                already supplied via kwargs and the environment
+                must not influence construction.
+                """
+            ),
+        ] = True,
     ) -> None:
         """Initialize the task lock."""
-        self._config = TaskLockConfig(
-            name=name,
-            worker=worker or generate_worker_id(),
-            min_lock_seconds=min_lock_seconds,
-            max_lock_seconds=max_lock_seconds,
+        config = resolve_config(
+            TaskLockConfig,
+            explicit=None,
+            kwargs={
+                "worker": worker,
+                "min_lock_seconds": min_lock_seconds,
+                "max_lock_seconds": max_lock_seconds,
+            },
+            env_prefix=env_prefix or f"GREL_TASK_LOCK_{env_segment(name)}_",
+            read_env=read_env,
         )
+        self._setup(name, config, backend)
+
+    @classmethod
+    def from_config(
+        cls,
+        name: Annotated[
+            str,
+            Doc(
+                """
+                The name of the resource to lock.
+
+                Acts as the instance identity. Used as the backend
+                lock key and exposed via the `name` property.
+                """
+            ),
+        ],
+        config: Annotated[
+            TaskLockConfig,
+            Doc(
+                """
+                The pre-built task lock configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a `pydantic-settings` aggregator). The environment
+                path is bypassed and the config is used as-is.
+                """
+            ),
+        ],
+        *,
+        backend: Annotated[
+            SyncBackend | None,
+            Doc(
+                """
+                The distributed lock backend used to acquire and release the lock.
+
+                By default, it will use the lock backend registry to get the default lock backend.
+                """
+            ),
+        ] = None,
+    ) -> Self:
+        """Construct a `TaskLock` from a name and a pre-built `TaskLockConfig`."""
+        instance = cls.__new__(cls)
+        instance._setup(name, config, backend)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        name: str,
+        config: TaskLockConfig,
+        backend: SyncBackend | None,
+    ) -> None:
+        """Wire the validated config and runtime deps onto the instance."""
+        self._name = name
+        self._config = config
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend = backend or get_sync_backend()
         self._acquired_at: float | None = None
         self._token_nonce = generate_token_nonce()
         self._from_thread: ThreadTaskLockAdapter | None = None
+
+    @property
+    def name(self) -> str:
+        """Return the task lock identity."""
+        return self._name
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with duration=max_lock_seconds.
@@ -166,11 +257,11 @@ class TaskLock(SyncPrimitive):
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
         if self._acquired_at is not None:
-            raise LockReentrantError(name=self._config.name)
+            raise LockReentrantError(name=self._name)
 
         token = generate_task_token(self._config.worker, self._token_nonce)
         if not await self.do_acquire(token):
-            msg = f"Task lock not acquired: name={self._config.name}, token={token}"
+            msg = f"Task lock not acquired: name={self._name}, token={token}"
             raise WouldBlock(msg)
 
         return self
@@ -213,7 +304,7 @@ class TaskLock(SyncPrimitive):
         try:
             return await self._backend.locked(name=self._lock_name)
         except Exception as exc:
-            raise LockLockedCheckError(name=self._config.name) from exc
+            raise LockLockedCheckError(name=self._name) from exc
 
     async def do_acquire(self, token: str) -> bool:
         """Acquire the lock.
@@ -233,7 +324,7 @@ class TaskLock(SyncPrimitive):
                 duration=self._config.max_lock_seconds,
             )
         except Exception as exc:
-            raise LockAcquireError(name=self._config.name) from exc
+            raise LockAcquireError(name=self._name) from exc
         if acquired:
             self._acquired_at = monotonic()
         return acquired
@@ -254,7 +345,7 @@ class TaskLock(SyncPrimitive):
                 name=self._lock_name, token=token
             )
         except Exception as exc:
-            raise LockReleaseError(name=self._config.name) from exc
+            raise LockReleaseError(name=self._name) from exc
 
     async def do_reacquire(self, token: str, duration: float) -> bool:
         """Re-acquire the lock with a specific duration.
@@ -274,7 +365,7 @@ class TaskLock(SyncPrimitive):
                 duration=duration,
             )
         except Exception as exc:
-            raise LockReleaseError(name=self._config.name) from exc
+            raise LockReleaseError(name=self._name) from exc
 
     async def do_thread_enter(self) -> None:
         """Acquire the lock from a worker thread.
@@ -289,11 +380,11 @@ class TaskLock(SyncPrimitive):
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
         if self._acquired_at is not None:
-            raise LockReentrantError(name=self._config.name)
+            raise LockReentrantError(name=self._name)
 
         token = generate_thread_token(self._config.worker, self._token_nonce)
         if not await self.do_acquire(token):
-            msg = f"Task lock not acquired: name={self._config.name}, token={token}"
+            msg = f"Task lock not acquired: name={self._name}, token={token}"
             raise WouldBlock(msg)
 
     async def do_thread_exit(self) -> None:
@@ -311,7 +402,7 @@ class TaskLock(SyncPrimitive):
     async def do_exit(self, token: str) -> None:
         """Handle exit logic: release or re-acquire based on elapsed time."""
         if self._acquired_at is None:
-            raise LockNotOwnedError(name=self._config.name)
+            raise LockNotOwnedError(name=self._name)
 
         elapsed = monotonic() - self._acquired_at
         self._acquired_at = None
@@ -321,14 +412,14 @@ class TaskLock(SyncPrimitive):
             # Task took longer than min_lock_seconds, release immediately
             released = await self.do_release(token)
             if not released:
-                raise LockNotOwnedError(name=self._config.name)
+                raise LockNotOwnedError(name=self._name)
         else:
             # Re-acquire with remaining duration so the lock is held
             # until min_lock_seconds.
             remaining = self._config.min_lock_seconds - elapsed
             re_acquired = await self.do_reacquire(token, remaining)
             if not re_acquired:
-                raise LockNotOwnedError(name=self._config.name)
+                raise LockNotOwnedError(name=self._name)
 
 
 class ThreadTaskLockAdapter:

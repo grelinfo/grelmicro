@@ -9,12 +9,10 @@ from anyio import WouldBlock, from_thread, get_current_task, sleep
 from pydantic import model_validator
 from typing_extensions import Doc
 
+from grelmicro._config import env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLock, BaseLockConfig
-from grelmicro.sync._tokens import (
-    generate_task_token,
-    generate_worker_id,
-)
+from grelmicro.sync._tokens import generate_task_token
 from grelmicro.sync.abc import Seconds, SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
@@ -38,7 +36,7 @@ class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[inv
             The lease duration in seconds for the lock.
             """,
         ),
-    ]
+    ] = 60
     retry_interval: Annotated[
         Seconds,
         Doc(
@@ -48,7 +46,7 @@ class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[inv
             Must be >= 0.001 to prevent flooding the lock backend.
             """,
         ),
-    ]
+    ] = 0.1
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -95,41 +93,137 @@ class Lock(BaseLock):
                 """
                 The worker identity.
 
-                By default, a UUIDv1 will be generated.
+                By default, a UUIDv1 is generated.
                 """,
             ),
         ] = None,
         lease_duration: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The duration in seconds for the lock to be held by default.
+
+                Default: 60. When unset, resolves from the environment
+                variable `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION` if
+                present, otherwise falls back to the `LockConfig`
+                default.
                 """,
             ),
-        ] = 60,
+        ] = None,
         retry_interval: Annotated[
-            Seconds,
+            Seconds | None,
             Doc(
                 """
                 The duration in seconds between attempts to acquire the lock.
 
-                Should be greater or equal than 0.1 to prevent flooding the lock backend.
+                Default: 0.1. Must be >= 0.001 to prevent flooding
+                the lock backend. When unset, resolves from the
+                environment variable
+                `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL` if present,
+                otherwise falls back to the `LockConfig` default.
                 """,
             ),
-        ] = 0.1,
+        ] = None,
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                """
+                Override the auto-derived environment variable prefix.
+
+                Default: `GREL_LOCK_{NAME_UPPER}_`. Set this to a
+                custom prefix when the application uses a different
+                naming convention, for example `MYAPP_LOCK_CART_`.
+                """,
+            ),
+        ] = None,
+        read_env: Annotated[
+            bool,
+            Doc(
+                """
+                Whether to read environment variables.
+
+                Default: True. Set to False when every field is
+                already supplied via kwargs and the environment
+                must not influence construction.
+                """,
+            ),
+        ] = True,
     ) -> None:
         """Initialize the lock."""
-        self._config: LockConfig = LockConfig(
-            name=name,
-            worker=worker or generate_worker_id(),
-            lease_duration=lease_duration,
-            retry_interval=retry_interval,
+        config = resolve_config(
+            LockConfig,
+            explicit=None,
+            kwargs={
+                "worker": worker,
+                "lease_duration": lease_duration,
+                "retry_interval": retry_interval,
+            },
+            env_prefix=env_prefix or f"GREL_LOCK_{env_segment(name)}_",
+            read_env=read_env,
         )
+        self._setup(name, config, backend)
+
+    @classmethod
+    def from_config(
+        cls,
+        name: Annotated[
+            str,
+            Doc(
+                """
+                The name of the resource to lock.
+
+                Acts as the instance identity. Used as the backend
+                lock key and exposed via the `name` property.
+                """,
+            ),
+        ],
+        config: Annotated[
+            LockConfig,
+            Doc(
+                """
+                The pre-built lock configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a `pydantic-settings` aggregator). The environment
+                path is bypassed and the config is used as-is.
+                """,
+            ),
+        ],
+        *,
+        backend: Annotated[
+            SyncBackend | None,
+            Doc("""
+                The distributed lock backend used to acquire and release the lock.
+
+                By default, it will use the lock backend registry to get the default lock backend.
+                """),
+        ] = None,
+    ) -> Self:
+        """Construct a `Lock` from a name and a pre-built `LockConfig`."""
+        instance = cls.__new__(cls)
+        instance._setup(name, config, backend)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        name: str,
+        config: LockConfig,
+        backend: SyncBackend | None,
+    ) -> None:
+        """Wire the validated config and runtime deps onto the instance."""
+        self._name = name
+        self._config = config
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self.backend = backend or get_sync_backend()
         self._held_by_tasks: set[int] = set()
         self._held_by_threads: set[int] = set()
         self._from_thread: ThreadLockAdapter | None = None
+
+    @property
+    def name(self) -> str:
+        """Return the lock identity."""
+        return self._name
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with the async context manager.
@@ -178,7 +272,7 @@ class Lock(BaseLock):
         """
         task_id = get_current_task().id
         if task_id in self._held_by_tasks:
-            raise LockReentrantError(name=self._config.name)
+            raise LockReentrantError(name=self._name)
         token = generate_task_token(self._config.worker)
         while not await self.do_acquire(token=token):  # noqa: ASYNC110 // Polling is intentional
             await sleep(self._config.retry_interval)
@@ -194,10 +288,10 @@ class Lock(BaseLock):
         """
         task_id = get_current_task().id
         if task_id in self._held_by_tasks:
-            raise LockReentrantError(name=self._config.name)
+            raise LockReentrantError(name=self._name)
         token = generate_task_token(self._config.worker)
         if not await self.do_acquire(token=token):
-            msg = f"Lock not acquired: name={self._config.name}, token={token}"
+            msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlock(msg)
         self._held_by_tasks.add(task_id)
 
@@ -212,12 +306,12 @@ class Lock(BaseLock):
         token = generate_task_token(self._config.worker)
         # Local ownership is cleared only after the backend has
         # responded. A backend error keeps the marker so the caller
-        # can retry release; a "not owned" answer still clears it
+        # can retry release. A "not owned" answer still clears it
         # because the distributed truth is authoritative.
         released = await self.do_release(token)
         self._held_by_tasks.discard(get_current_task().id)
         if not released:
-            raise LockNotOwnedError(name=self._config.name)
+            raise LockNotOwnedError(name=self._name)
 
     async def locked(self) -> bool:
         """Check if the lock is acquired.
@@ -228,7 +322,7 @@ class Lock(BaseLock):
         try:
             return await self.backend.locked(name=self._lock_name)
         except Exception as exc:
-            raise LockLockedCheckError(name=self._config.name) from exc
+            raise LockLockedCheckError(name=self._name) from exc
 
     async def owned(self) -> bool:
         """Check if the lock is owned by the current token.
@@ -256,7 +350,7 @@ class Lock(BaseLock):
                 duration=self._config.lease_duration,
             )
         except Exception as exc:
-            raise LockAcquireError(name=self._config.name) from exc
+            raise LockAcquireError(name=self._name) from exc
 
     async def do_release(self, token: str) -> bool:
         """Release the lock.
@@ -272,7 +366,7 @@ class Lock(BaseLock):
         try:
             return await self.backend.release(name=self._lock_name, token=token)
         except Exception as exc:
-            raise LockReleaseError(name=self._config.name) from exc
+            raise LockReleaseError(name=self._name) from exc
 
     async def do_owned(self, token: str) -> bool:
         """Check if the lock is owned by the current token.
@@ -288,7 +382,7 @@ class Lock(BaseLock):
         try:
             return await self.backend.owned(name=self._lock_name, token=token)
         except Exception as exc:
-            raise LockOwnedCheckError(name=self._config.name) from exc
+            raise LockOwnedCheckError(name=self._name) from exc
 
     def _thread_token(self, thread_id: int) -> str:
         """Build a thread token from the worker identity and the given thread ID."""
@@ -305,7 +399,7 @@ class Lock(BaseLock):
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
         if thread_id in self._held_by_threads:
-            raise LockReentrantError(name=self._config.name)
+            raise LockReentrantError(name=self._name)
         token = self._thread_token(thread_id)
         while not await self.do_acquire(token=token):  # noqa: ASYNC110 // Polling is intentional
             await sleep(self._config.retry_interval)
@@ -323,10 +417,10 @@ class Lock(BaseLock):
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
         if thread_id in self._held_by_threads:
-            raise LockReentrantError(name=self._config.name)
+            raise LockReentrantError(name=self._name)
         token = self._thread_token(thread_id)
         if not await self.do_acquire(token=token):
-            msg = f"Lock not acquired: name={self._config.name}, token={token}"
+            msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlock(msg)
         self._held_by_threads.add(thread_id)
 
@@ -347,7 +441,7 @@ class Lock(BaseLock):
         released = await self.do_release(token)
         self._held_by_threads.discard(thread_id)
         if not released:
-            raise LockNotOwnedError(name=self._config.name)
+            raise LockNotOwnedError(name=self._name)
 
 
 class ThreadLockAdapter:

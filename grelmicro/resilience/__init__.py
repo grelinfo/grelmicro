@@ -7,7 +7,11 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import GCRA, Algorithm, TokenBucket
+from grelmicro.resilience.algorithms import (
+    GCRAConfig,
+    RateLimiterConfig,
+    TokenBucketConfig,
+)
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     CircuitBreakerMetrics,
@@ -21,16 +25,15 @@ from grelmicro.resilience.errors import (
     ResilienceSettingsValidationError,
 )
 from grelmicro.resilience.memory import MemoryTokenBucket
-from grelmicro.resilience.ratelimiter import RateLimiter, RateLimiterConfig
+from grelmicro.resilience.ratelimiter import RateLimiter
 
 __all__ = [
-    "GCRA",
-    "Algorithm",
     "CircuitBreaker",
     "CircuitBreakerError",
     "CircuitBreakerMetrics",
     "CircuitBreakerState",
     "ErrorDetails",
+    "GCRAConfig",
     "MemoryTokenBucket",
     "RateLimitExceededError",
     "RateLimitResult",
@@ -40,7 +43,7 @@ __all__ = [
     "RateLimiterStrategy",
     "ResilienceError",
     "ResilienceSettingsValidationError",
-    "TokenBucket",
+    "TokenBucketConfig",
 ]
 
 
