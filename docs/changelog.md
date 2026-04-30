@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.18.0 - 2026-04-30
+
+M2 milestone closed: backend wiring is now fully explicit. Construction is pure (no global writes), registration is named (`<module>.register(backend, "name")`), and `grelmicro.lifespan()` opens every registered backend in one call. Task-scoped overrides via `<module>.use(...)` swap backends per request or per test through `contextvars`.
+
 ### Breaking
 
 * 💥 Backend constructors are now pure: `__init__` performs no registry writes. The `auto_register` kwarg is removed from every backend and from `HealthRegistry`. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
