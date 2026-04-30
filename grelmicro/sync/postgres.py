@@ -119,12 +119,6 @@ class PostgresSyncBackend(SyncBackend):
                 """),
         ] = None,
         *,
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register the lock backend in the backend registry."
-            ),
-        ] = True,
         table_name: Annotated[
             str, Doc("The table name to store the locks.")
         ] = "locks",
@@ -143,18 +137,16 @@ class PostgresSyncBackend(SyncBackend):
         self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
         self._pool: Pool | None = None
-        self._auto_registered = auto_register
-        if auto_register:
-            sync_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Enter the lock backend."""
+        """Enter the lock backend and register it as the default."""
         self._pool = await create_pool(str(self._url))
         await self._pool.execute(
             self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
                 table_name=self._table_name
             ),
         )
+        sync_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -163,7 +155,7 @@ class PostgresSyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit the lock backend."""
+        """Exit the lock backend and unregister it."""
         if self._pool:
             await self._pool.execute(
                 self._SQL_RELEASE_ALL_EXPIRED.format(
@@ -171,12 +163,7 @@ class PostgresSyncBackend(SyncBackend):
                 ),
             )
             await self._pool.close()
-        if (
-            self._auto_registered
-            and sync_backend_registry.is_loaded
-            and sync_backend_registry.get() is self
-        ):
-            sync_backend_registry.reset()
+        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""

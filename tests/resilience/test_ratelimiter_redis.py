@@ -76,17 +76,14 @@ def test_redis_env_var_settings_validation_error(
         RedisRateLimiterBackend()
 
 
-def test_auto_register_false(
+def test_constructor_does_not_register(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test auto_register=False does not register backend."""
-    # Arrange
+    """Constructing the backend performs no registry writes."""
     monkeypatch.setenv("REDIS_URL", URL)
 
-    # Act
-    RedisRateLimiterBackend(auto_register=False)
+    RedisRateLimiterBackend()
 
-    # Assert
     assert rate_limiter_backend_registry.is_loaded is False
 
 
@@ -96,7 +93,7 @@ def test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REDIS_URL", URL)
 
     # Act
-    backend = RedisRateLimiterBackend(prefix="myapp:", auto_register=False)
+    backend = RedisRateLimiterBackend(prefix="myapp:")
 
     # Assert
     assert backend._prefix == "myapp:"
@@ -105,7 +102,7 @@ def test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_explicit_url() -> None:
     """Test explicit URL parameter."""
     # Act
-    backend = RedisRateLimiterBackend(URL, auto_register=False)
+    backend = RedisRateLimiterBackend(URL)
 
     # Assert
     assert backend._url == URL

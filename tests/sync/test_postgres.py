@@ -111,30 +111,12 @@ def test_postgres_env_var_settings_validation_error(
         PostgresSyncBackend()
 
 
-def test_sync_backend_auto_register() -> None:
-    """Test Synchronization Backend Auto Register."""
-    # Arrange
+def test_sync_backend_constructor_does_not_register() -> None:
+    """Constructing the backend performs no registry writes."""
     sync_backend_registry.reset()
 
-    # Act
     PostgresSyncBackend(url=URL)
 
-    # Assert
-    assert sync_backend_registry.is_loaded
-
-    # Cleanup
-    sync_backend_registry.reset()
-
-
-def test_sync_backend_auto_register_false() -> None:
-    """Test Synchronization Backend Auto Register Disabled."""
-    # Arrange
-    sync_backend_registry.reset()
-
-    # Act
-    PostgresSyncBackend(url=URL, auto_register=False)
-
-    # Assert
     assert not sync_backend_registry.is_loaded
 
 

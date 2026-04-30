@@ -51,6 +51,7 @@ def test_resilience_module_exports() -> None:
         "ResilienceError",
         "ResilienceSettingsValidationError",
         "TokenBucketConfig",
+        "use_backend",
     }
     assert set(resilience_mod.__all__) == expected
 

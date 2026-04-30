@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from logging import getLogger
+from types import TracebackType
 from typing import Annotated, Self
 
 import anyio
@@ -151,13 +152,6 @@ class HealthRegistry:
                 """
             ),
         ] = True,
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register this instance as the global "
-                "health registry singleton. Set to False for testing."
-            ),
-        ] = True,
     ) -> None:
         """Initialize the health registry."""
         config = resolve_config(
@@ -167,7 +161,7 @@ class HealthRegistry:
             env_prefix=env_prefix or "GREL_HEALTH_",
             read_env=read_env,
         )
-        self._setup(config, auto_register=auto_register)
+        self._setup(config)
 
     @classmethod
     def from_config(
@@ -186,31 +180,30 @@ class HealthRegistry:
                 """
             ),
         ],
-        *,
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register this instance as the global "
-                "health registry singleton. Set to False for testing."
-            ),
-        ] = True,
     ) -> Self:
         """Construct a `HealthRegistry` from a pre-built `HealthRegistryConfig`."""
         instance = cls.__new__(cls)
-        instance._setup(config, auto_register=auto_register)  # noqa: SLF001
+        instance._setup(config)  # noqa: SLF001
         return instance
 
-    def _setup(
-        self,
-        config: HealthRegistryConfig,
-        *,
-        auto_register: bool,
-    ) -> None:
+    def _setup(self, config: HealthRegistryConfig) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._config = config
         self._entries: dict[str, _Entry] = {}
-        if auto_register:
-            health_registry.set(self)
+
+    async def __aenter__(self) -> Self:
+        """Register this registry as the global default."""
+        health_registry.register(self)
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Unregister this registry."""
+        health_registry.unregister(self)
 
     def add(
         self,

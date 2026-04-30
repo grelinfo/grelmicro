@@ -90,12 +90,6 @@ class SQLiteSyncBackend(SyncBackend):
                 """),
         ] = None,
         *,
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register the lock backend in the backend registry."
-            ),
-        ] = True,
         table_name: Annotated[
             str, Doc("The table name to store the locks.")
         ] = "locks",
@@ -114,12 +108,9 @@ class SQLiteSyncBackend(SyncBackend):
         self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
         self._conn: aiosqlite.Connection | None = None
-        self._auto_registered = auto_register
-        if auto_register:
-            sync_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Enter the lock backend."""
+        """Enter the lock backend and register it as the default."""
         self._conn = await aiosqlite.connect(self._path)
         await self._conn.execute("PRAGMA journal_mode=WAL;")
         await self._conn.execute(
@@ -128,6 +119,7 @@ class SQLiteSyncBackend(SyncBackend):
             ),
         )
         await self._conn.commit()
+        sync_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -136,7 +128,7 @@ class SQLiteSyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit the lock backend."""
+        """Exit the lock backend and unregister it."""
         if self._conn:
             await self._conn.execute(
                 self._SQL_RELEASE_ALL_EXPIRED.format(
@@ -146,12 +138,7 @@ class SQLiteSyncBackend(SyncBackend):
             await self._conn.commit()
             await self._conn.close()
             self._conn = None
-        if (
-            self._auto_registered
-            and sync_backend_registry.is_loaded
-            and sync_backend_registry.get() is self
-        ):
-            sync_backend_registry.reset()
+        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""

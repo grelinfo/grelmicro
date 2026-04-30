@@ -94,13 +94,6 @@ class KubernetesSyncBackend(SyncBackend):
                 By default no prefix is added.
                 """),
         ] = "",
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register the lock backend in the backend"
-                " registry."
-            ),
-        ] = True,
         kubeconfig: Annotated[
             str | None,
             Doc("Path to the kubeconfig file."),
@@ -111,16 +104,14 @@ class KubernetesSyncBackend(SyncBackend):
         self._prefix = prefix
         self._kubeconfig = kubeconfig
         self._client: AsyncClient | None = None
-        self._auto_registered = auto_register
-        if auto_register:
-            sync_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Enter the lock backend."""
+        """Enter the lock backend and register it as the default."""
         config = (
             KubeConfig.from_file(self._kubeconfig) if self._kubeconfig else None
         )
         self._client = AsyncClient(config=config)
+        sync_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -129,7 +120,7 @@ class KubernetesSyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit the lock backend."""
+        """Exit the lock backend and unregister it."""
         if self._client:
             # Clean up expired leases managed by grelmicro
             now = datetime.now(tz=UTC)
@@ -153,12 +144,7 @@ class KubernetesSyncBackend(SyncBackend):
                             raise
             await self._client.close()
             self._client = None
-        if (
-            self._auto_registered
-            and sync_backend_registry.is_loaded
-            and sync_backend_registry.get() is self
-        ):
-            sync_backend_registry.reset()
+        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""

@@ -68,13 +68,10 @@ async def backend(
         async with RedisRateLimiterBackend(
             f"redis://localhost:{port}/0",
             prefix="test:",
-            auto_register=False,
         ) as redis_backend:
             yield redis_backend
     elif backend_name == "memory":
-        async with MemoryRateLimiterBackend(
-            auto_register=False,
-        ) as memory_backend:
+        async with MemoryRateLimiterBackend() as memory_backend:
             yield memory_backend
 
 

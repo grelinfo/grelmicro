@@ -22,7 +22,7 @@ EXPECTED_UNLIMITED_COUNT = 1000
 @pytest.fixture
 def backend() -> MemoryCacheBackend:
     """Provide an isolated in-memory cache backend (not registered globally)."""
-    return MemoryCacheBackend(auto_register=False)
+    return MemoryCacheBackend()
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +86,7 @@ class TestInit:
     ) -> None:
         """Test that TTLCache uses the registered backend when none is provided."""
         # Arrange: register the backend
-        cache_backend_registry.set(backend)
+        cache_backend_registry.register(backend)
 
         # Act: create cache without explicit backend
         cache = TTLCache(maxsize=0, ttl=60)

@@ -1,11 +1,12 @@
-"""Regression tests: auto-registered backends unregister on shutdown.
+"""Backend lifecycle: explicit registration via ``async with``.
 
-A backend that registered itself as the process default during
-construction must clear the registry slot on ``__aexit__``, but only
-when the slot still points to the same backend (so a newer backend
-that replaced it is left alone).
+Constructors are pure: they perform no registry writes.
+Registration happens on ``__aenter__`` and unregistration on
+``__aexit__``. ``unregister`` uses an identity check, so a backend
+that was already replaced by a newer instance leaves the slot alone.
 """
 
+import warnings
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -14,6 +15,7 @@ from pytest_mock import MockerFixture
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.resilience import use_backend as resilience_use_backend
 from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.redis import RedisRateLimiterBackend
@@ -57,7 +59,6 @@ def mock_redis(mocker: MockerFixture) -> MagicMock:
     mock_client = MagicMock()
     mock_client.aclose = AsyncMock()
     mock_client.register_script = MagicMock(return_value=AsyncMock())
-    # Patch at every call site so all backends share the same mock.
     mocker.patch(
         "grelmicro.sync.redis._create_redis_client",
         return_value=("redis://localhost", mock_client),
@@ -73,35 +74,45 @@ def mock_redis(mocker: MockerFixture) -> MagicMock:
     return mock_client
 
 
-# --- Sync (Memory) ---
+# --- Pure constructors ---
 
 
-async def test_sync_memory_backend_unregisters_on_exit() -> None:
-    """``async with MemorySyncBackend()`` clears the registry on exit."""
-    async with MemorySyncBackend():
-        assert sync_backend_registry.is_loaded is True
-
+def test_sync_memory_constructor_does_not_register() -> None:
+    """Constructing a sync backend performs no registry writes."""
+    MemorySyncBackend()
     assert sync_backend_registry.is_loaded is False
 
 
-async def test_sync_memory_backend_with_auto_register_false_does_not_touch_registry() -> (
-    None
-):
-    """A backend with ``auto_register=False`` never sets or clears the slot."""
-    async with MemorySyncBackend(auto_register=False):
-        assert sync_backend_registry.is_loaded is False
+def test_cache_memory_constructor_does_not_register() -> None:
+    """Constructing a cache backend performs no registry writes."""
+    MemoryCacheBackend()
+    assert cache_backend_registry.is_loaded is False
+
+
+def test_rate_limiter_memory_constructor_does_not_register() -> None:
+    """Constructing a rate limiter backend performs no registry writes."""
+    MemoryRateLimiterBackend()
+    assert rate_limiter_backend_registry.is_loaded is False
+
+
+# --- Sync (Memory) ---
+
+
+async def test_sync_memory_backend_round_trip() -> None:
+    """``async with`` registers on enter and unregisters on exit."""
+    async with MemorySyncBackend():
+        assert sync_backend_registry.is_loaded is True
     assert sync_backend_registry.is_loaded is False
 
 
 async def test_sync_memory_backend_does_not_evict_replacement() -> None:
-    """Exiting the first backend leaves a newer registered backend in place."""
+    """Exiting an older backend leaves a newer registered one in place."""
     backend_1 = MemorySyncBackend()
-    assert sync_backend_registry.get() is backend_1
-
-    backend_2 = MemorySyncBackend()  # replaces backend_1 in the slot
+    backend_2 = MemorySyncBackend()
+    sync_backend_registry.register(backend_1)
+    sync_backend_registry.register(backend_2)
     assert sync_backend_registry.get() is backend_2
 
-    # Exiting backend_1 must not evict backend_2 from the registry.
     await backend_1.__aexit__(None, None, None)
     assert sync_backend_registry.get() is backend_2
 
@@ -109,27 +120,19 @@ async def test_sync_memory_backend_does_not_evict_replacement() -> None:
 # --- Rate Limiter (Memory) ---
 
 
-async def test_rate_limiter_memory_backend_unregisters_on_exit() -> None:
-    """``async with MemoryRateLimiterBackend()`` clears the registry on exit."""
+async def test_rate_limiter_memory_backend_round_trip() -> None:
+    """``async with`` registers on enter and unregisters on exit."""
     async with MemoryRateLimiterBackend():
         assert rate_limiter_backend_registry.is_loaded is True
-
-    assert rate_limiter_backend_registry.is_loaded is False
-
-
-async def test_rate_limiter_memory_backend_with_auto_register_false() -> None:
-    """A rate limiter backend with ``auto_register=False`` is registry-neutral."""
-    async with MemoryRateLimiterBackend(auto_register=False):
-        assert rate_limiter_backend_registry.is_loaded is False
     assert rate_limiter_backend_registry.is_loaded is False
 
 
 async def test_rate_limiter_memory_backend_does_not_evict_replacement() -> None:
-    """Exiting the first rate limiter backend leaves a newer one in place."""
+    """Exiting an older rate limiter backend leaves a newer one in place."""
     backend_1 = MemoryRateLimiterBackend()
-    assert rate_limiter_backend_registry.get() is backend_1
-
     backend_2 = MemoryRateLimiterBackend()
+    rate_limiter_backend_registry.register(backend_1)
+    rate_limiter_backend_registry.register(backend_2)
     assert rate_limiter_backend_registry.get() is backend_2
 
     await backend_1.__aexit__(None, None, None)
@@ -139,8 +142,8 @@ async def test_rate_limiter_memory_backend_does_not_evict_replacement() -> None:
 # --- Sync (SQLite) ---
 
 
-async def test_sync_sqlite_backend_unregisters_on_exit(tmp_path) -> None:  # noqa: ANN001
-    """``async with SQLiteSyncBackend()`` clears the registry on exit."""
+async def test_sync_sqlite_backend_round_trip(tmp_path) -> None:  # noqa: ANN001
+    """``async with`` registers on enter and unregisters on exit."""
     db_path = tmp_path / "lock.db"
     async with SQLiteSyncBackend(db_path):
         assert sync_backend_registry.is_loaded is True
@@ -150,10 +153,10 @@ async def test_sync_sqlite_backend_unregisters_on_exit(tmp_path) -> None:  # noq
 # --- Sync (Redis) ---
 
 
-async def test_sync_redis_backend_unregisters_on_exit(
+async def test_sync_redis_backend_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
-    """``async with RedisSyncBackend()`` clears the registry on exit."""
+    """``async with`` registers on enter and unregisters on exit."""
     async with RedisSyncBackend("redis://localhost"):
         assert sync_backend_registry.is_loaded is True
     assert sync_backend_registry.is_loaded is False
@@ -162,10 +165,10 @@ async def test_sync_redis_backend_unregisters_on_exit(
 # --- Sync (PostgreSQL) ---
 
 
-async def test_sync_postgres_backend_unregisters_on_exit(
+async def test_sync_postgres_backend_round_trip(
     mocker: MockerFixture,
 ) -> None:
-    """``async with PostgresSyncBackend()`` clears the registry on exit."""
+    """``async with`` registers on enter and unregisters on exit."""
     mock_pool = MagicMock()
     mock_pool.execute = AsyncMock()
     mock_pool.close = AsyncMock()
@@ -182,10 +185,10 @@ async def test_sync_postgres_backend_unregisters_on_exit(
 # --- Rate Limiter (Redis) ---
 
 
-async def test_rate_limiter_redis_backend_unregisters_on_exit(
+async def test_rate_limiter_redis_backend_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
-    """``async with RedisRateLimiterBackend()`` clears the registry on exit."""
+    """``async with`` registers on enter and unregisters on exit."""
     async with RedisRateLimiterBackend("redis://localhost"):
         assert rate_limiter_backend_registry.is_loaded is True
     assert rate_limiter_backend_registry.is_loaded is False
@@ -194,10 +197,10 @@ async def test_rate_limiter_redis_backend_unregisters_on_exit(
 # --- Cache (Redis) ---
 
 
-async def test_cache_redis_backend_unregisters_on_exit(
+async def test_cache_redis_backend_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
-    """``async with RedisCacheBackend()`` clears the registry on exit."""
+    """``async with`` registers on enter and unregisters on exit."""
     async with RedisCacheBackend("redis://localhost"):
         assert cache_backend_registry.is_loaded is True
     assert cache_backend_registry.is_loaded is False
@@ -206,19 +209,19 @@ async def test_cache_redis_backend_unregisters_on_exit(
 # --- Cache (Memory) ---
 
 
-async def test_cache_memory_backend_unregisters_on_exit() -> None:
-    """``async with MemoryCacheBackend()`` clears the registry on exit."""
+async def test_cache_memory_backend_round_trip() -> None:
+    """``async with`` registers on enter and unregisters on exit."""
     async with MemoryCacheBackend():
         assert cache_backend_registry.is_loaded is True
     assert cache_backend_registry.is_loaded is False
 
 
 async def test_cache_memory_backend_does_not_evict_replacement() -> None:
-    """Exiting the first cache backend leaves a newer one in place."""
+    """Exiting an older cache backend leaves a newer one in place."""
     backend_1 = MemoryCacheBackend()
-    assert cache_backend_registry.get() is backend_1
-
     backend_2 = MemoryCacheBackend()
+    cache_backend_registry.register(backend_1)
+    cache_backend_registry.register(backend_2)
     assert cache_backend_registry.get() is backend_2
 
     await backend_1.__aexit__(None, None, None)
@@ -228,10 +231,10 @@ async def test_cache_memory_backend_does_not_evict_replacement() -> None:
 # --- Sync (Kubernetes) ---
 
 
-async def test_sync_kubernetes_backend_unregisters_on_exit(
+async def test_sync_kubernetes_backend_round_trip(
     mocker: MockerFixture,
 ) -> None:
-    """``async with KubernetesSyncBackend()`` clears the registry on exit."""
+    """``async with`` registers on enter and unregisters on exit."""
     mock_client = MagicMock()
     mock_client.close = AsyncMock()
 
@@ -248,3 +251,54 @@ async def test_sync_kubernetes_backend_unregisters_on_exit(
     async with KubernetesSyncBackend(namespace="default"):
         assert sync_backend_registry.is_loaded is True
     assert sync_backend_registry.is_loaded is False
+
+
+# --- Identity check on unregister ---
+
+
+def test_sync_registry_unregister_identity() -> None:
+    """register(a); register(b); unregister(a) leaves b as current."""
+    a = MemorySyncBackend()
+    b = MemorySyncBackend()
+    sync_backend_registry.register(a)
+    sync_backend_registry.register(b)
+    sync_backend_registry.unregister(a)
+    assert sync_backend_registry.get() is b
+
+
+def test_cache_registry_unregister_identity() -> None:
+    """register(a); register(b); unregister(a) leaves b as current."""
+    a = MemoryCacheBackend()
+    b = MemoryCacheBackend()
+    cache_backend_registry.register(a)
+    cache_backend_registry.register(b)
+    cache_backend_registry.unregister(a)
+    assert cache_backend_registry.get() is b
+
+
+def test_rate_limiter_registry_unregister_identity() -> None:
+    """register(a); register(b); unregister(a) leaves b as current."""
+    a = MemoryRateLimiterBackend()
+    b = MemoryRateLimiterBackend()
+    rate_limiter_backend_registry.register(a)
+    rate_limiter_backend_registry.register(b)
+    rate_limiter_backend_registry.unregister(a)
+    assert rate_limiter_backend_registry.get() is b
+
+
+def test_resilience_use_backend_registers() -> None:
+    """`resilience.use_backend` installs the rate limiter backend."""
+    rate_limiter_backend_registry.reset()
+    backend = MemoryRateLimiterBackend()
+    resilience_use_backend(backend)
+    assert rate_limiter_backend_registry.get() is backend
+
+
+def test_register_same_instance_is_noop() -> None:
+    """Re-registering the same instance does not warn or replace."""
+    backend = MemorySyncBackend()
+    sync_backend_registry.register(backend)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        sync_backend_registry.register(backend)
+    assert sync_backend_registry.get() is backend

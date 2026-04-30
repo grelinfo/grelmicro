@@ -177,45 +177,27 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiter, TokenBucketConfig
+    from grelmicro.resilience import RateLimiter, TokenBucketConfig, use_backend
     from grelmicro.resilience.memory import MemoryRateLimiterBackend
 
-    MemoryRateLimiterBackend()  # auto-registers
+    use_backend(MemoryRateLimiterBackend())
     rl = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
     ```
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
-    def __init__(
-        self,
-        *,
-        auto_register: Annotated[
-            bool,
-            Doc(
-                """
-                Automatically register the backend as the default
-                for rate limiters.
-
-                Set to `False` to manage the backend manually, for
-                example when wiring multiple backends side-by-side
-                in tests.
-                """
-            ),
-        ] = True,
-    ) -> None:
+    def __init__(self) -> None:
         """Initialize the rate limiter backend."""
         # Separate per-algorithm state maps so keys never alias
         # across algorithms.
         self._token_bucket_state: dict[str, tuple[float, float]] = {}
         self._gcra_state: dict[str, float] = {}
         self._lock = Lock()
-        self._auto_registered = auto_register
-        if auto_register:
-            rate_limiter_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Open the rate limiter backend."""
+        """Open the rate limiter backend and register it as the default."""
+        rate_limiter_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -224,16 +206,11 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the rate limiter backend."""
+        """Close the rate limiter backend and unregister it."""
         with self._lock:
             self._token_bucket_state.clear()
             self._gcra_state.clear()
-        if (
-            self._auto_registered
-            and rate_limiter_backend_registry.is_loaded
-            and rate_limiter_backend_registry.get() is self
-        ):
-            rate_limiter_backend_registry.reset()
+        rate_limiter_backend_registry.unregister(self)
 
     def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.

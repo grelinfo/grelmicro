@@ -16,9 +16,10 @@ class BackendRegistry(Generic[T]):
     """Generic backend registry.
 
     Stores a single default backend instance per named slot.
-    Backends register themselves on initialization (via
-    ``auto_register=True``) and consumers look up the default
-    via ``get()``.
+    Registration is explicit: callers invoke
+    :meth:`register` (typically from a module-level
+    ``use_backend`` helper or a backend's ``__aenter__``).
+    Consumers look up the default via :meth:`get`.
     """
 
     def __init__(self, *, name: str) -> None:
@@ -31,14 +32,30 @@ class BackendRegistry(Generic[T]):
         self._name = name
         self._backend: T | None = None
 
-    def set(self, backend: T) -> None:
-        """Register a backend as the default."""
+    def register(self, backend: T) -> None:
+        """Register a backend as the default.
+
+        Warns if a different backend is already registered.
+        Re-registering the same instance is a no-op.
+        """
+        if self._backend is backend:
+            return
         if self._backend is not None:
             warnings.warn(
                 f"Overwriting already-registered {self._name} backend.",
                 stacklevel=2,
             )
         self._backend = backend
+
+    def unregister(self, backend: T) -> None:
+        """Unregister ``backend`` if it is the current default.
+
+        Identity check: clears the slot only when
+        ``self._backend is backend``. Calling on a non-current
+        instance is a no-op.
+        """
+        if self._backend is backend:
+            self._backend = None
 
     def get(self) -> T:
         """Return the registered backend.
@@ -61,7 +78,11 @@ class BackendRegistry(Generic[T]):
         return self._backend is not None
 
     def reset(self) -> None:
-        """Remove the registered backend."""
+        """Remove the registered backend unconditionally.
+
+        Intended for test fixtures. Production code should call
+        :meth:`unregister` with the instance to clear.
+        """
         self._backend = None
 
 

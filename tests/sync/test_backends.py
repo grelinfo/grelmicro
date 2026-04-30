@@ -11,6 +11,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
+from grelmicro.sync import use_backend
 from grelmicro.sync._backends import get_sync_backend, sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import BackendNotLoadedError
@@ -391,14 +392,12 @@ async def test_owned_another(backend: SyncBackend) -> None:
 )
 @pytest.mark.usefixtures("clean_registry")
 def test_get_sync_backend(backend_factory: Callable[[], SyncBackend]) -> None:
-    """Test Get Synchronization Backend."""
-    # Arrange
+    """`use_backend` registers the constructed backend as the default."""
     expected_backend = backend_factory()
+    use_backend(expected_backend)
 
-    # Act
     backend = get_sync_backend()
 
-    # Assert
     assert backend is expected_backend
 
 
@@ -413,25 +412,21 @@ def test_get_sync_backend_not_loaded() -> None:
 @pytest.mark.parametrize(
     "backend_factory",
     [
-        lambda: MemorySyncBackend(auto_register=False),
-        lambda: RedisSyncBackend(
-            "redis://localhost:6379/0", auto_register=False
-        ),
+        MemorySyncBackend,
+        lambda: RedisSyncBackend("redis://localhost:6379/0"),
         lambda: PostgresSyncBackend(
-            "postgresql://user:password@localhost:5432/db", auto_register=False
+            "postgresql://user:password@localhost:5432/db"
         ),
-        lambda: SQLiteSyncBackend(":memory:", auto_register=False),
-        lambda: KubernetesSyncBackend(namespace="default", auto_register=False),
+        lambda: SQLiteSyncBackend(":memory:"),
+        lambda: KubernetesSyncBackend(namespace="default"),
     ],
 )
 @pytest.mark.usefixtures("clean_registry")
-def test_get_sync_backend_auto_register_disabled(
+def test_constructor_does_not_register(
     backend_factory: Callable[[], SyncBackend],
 ) -> None:
-    """Test Get Synchronization Backend."""
-    # Arrange
+    """Constructing any sync backend performs no registry writes."""
     backend_factory()
 
-    # Act / Assert
     with pytest.raises(BackendNotLoadedError):
         get_sync_backend()
