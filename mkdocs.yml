@@ -60,6 +60,7 @@ nav:
 - grelmicro: index.md
 - installation.md
 - User Guide:
+    - config.md
     - cache.md
     - health.md
     - json.md
