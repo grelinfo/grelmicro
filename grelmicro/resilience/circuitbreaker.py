@@ -260,15 +260,17 @@ class CircuitBreaker:
             ),
         ] = None,
         read_env: Annotated[
-            bool,
+            bool | None,
             Doc(
                 """
                 Whether to read environment variables.
 
-                Default: True.
+                When None (the default), follow the process-wide
+                ``GREL_CONFIG_FROM_ENV`` flag. Pass True or False to
+                override the flag for this construction.
                 """
             ),
-        ] = True,
+        ] = None,
     ) -> None:
         """Initialize the circuit breaker."""
         config = resolve_config(
