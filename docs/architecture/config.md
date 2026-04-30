@@ -4,16 +4,25 @@ This page is the engineering side of [Configuration](../config.md). It assumes y
 
 ## The contract
 
-Every config-shaped component (`Lock`, `TaskLock`, `LeaderElection`, `RateLimitFilter`, `DuplicateFilter`, `HealthRegistry`, `log.configure`) follows the same shape:
+Components fall in two categories.
+
+**Multi-instance components** (`Lock`, `TaskLock`, `LeaderElection`, `CircuitBreaker`) take a positional `name` because an application typically holds several of each (`Lock("cart")`, `Lock("checkout")`):
 
 | Surface | Form | Intent |
 |---|---|---|
 | `__init__(name, **kwargs)` | Positional name + optional fields | Programmatic and environmental construction |
 | `from_config(name, config)` | Positional name + frozen config | Declarative construction from a settings tree |
 
-Variant-driven components (`RateLimiter`) substitute the `__init__` surface with factory classmethods (`RateLimiter.token_bucket`, `RateLimiter.gcra`) but keep `from_config` unchanged.
+**Single-instance components** (`HealthRegistry`, `RateLimitFilter`, `DuplicateFilter`, `log.configure`) drop the positional name because the application typically holds one:
 
-The `Config` Pydantic class carries settings only. Identity (the instance name) lives on the component, never inside the config object. This matches the `Map<name, Settings>` shape that YAML and `pydantic-settings` aggregations produce naturally.
+| Surface | Form | Intent |
+|---|---|---|
+| `__init__(**kwargs)` | Optional fields only | Programmatic and environmental construction |
+| `from_config(config)` | Frozen config only | Declarative construction from a settings tree |
+
+**Variant-driven components** (`RateLimiter`) substitute the `__init__` surface with factory classmethods (`RateLimiter.token_bucket(name, ...)`, `RateLimiter.gcra(name, ...)`) but keep `from_config(name, config)` unchanged.
+
+The `Config` Pydantic class carries settings only. For multi-instance components the identity lives on the component, never inside the config object. This matches the `Map<name, Settings>` shape that YAML and `pydantic-settings` aggregations produce naturally.
 
 ## `resolve_config()`
 

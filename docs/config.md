@@ -1,6 +1,6 @@
 # Configuration
 
-Every grelmicro component takes its settings the same way. Pick the path that matches how your application is wired:
+Every config-shaped grelmicro component takes its settings the same way. Pick the path that matches how your application is wired:
 
 | Path | Call | When to use |
 |---|---|---|
@@ -8,7 +8,7 @@ Every grelmicro component takes its settings the same way. Pick the path that ma
 | **Environmental** | `Lock("cart")` | Zero-boilerplate 12-factor deployments. Fields resolve from env, fall back to defaults. |
 | **Declarative** | `Lock.from_config("cart", cfg)` or `RateLimiter.from_config("api", cfg)` | Production where a settings tree is assembled at startup from YAML, Vault, or any central source. |
 
-The three paths share one resolution rule: caller wins, then env, then defaults.
+The three paths share one resolution rule: caller `**kwargs` win, then env, then defaults. `None` kwargs are treated as unset and fall through to the next layer.
 
 ## Programmatic
 
@@ -61,7 +61,8 @@ The instance name (`"cart"`) becomes the namespace inside the prefix. Names with
 Build a config object, then construct via `from_config`:
 
 ```python
-from grelmicro.sync import Lock, LockConfig
+from grelmicro.sync import Lock
+from grelmicro.sync.lock import LockConfig
 
 cfg = LockConfig(lease_duration=60, retry_interval=0.1)
 lock = Lock.from_config("cart", cfg)
@@ -97,7 +98,8 @@ Centralise everything under one `BaseSettings` and hand grelmicro the slices it 
 
 ```python
 from pydantic_settings import BaseSettings
-from grelmicro.sync import Lock, LockConfig
+from grelmicro.sync import Lock
+from grelmicro.sync.lock import LockConfig
 from grelmicro.cache.redis import RedisCacheBackend
 
 class AppSettings(BaseSettings):
