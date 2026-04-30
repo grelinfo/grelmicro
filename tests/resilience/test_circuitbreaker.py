@@ -1,22 +1,15 @@
 """Test CircuitBreaker implementation."""
 
 import sys
-from collections.abc import Iterator
 from contextlib import AsyncExitStack, suppress
-from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Literal, Union
+from datetime import UTC, datetime
+from typing import Literal
 
 import pytest
 from anyio import to_thread
 from freezegun import freeze_time
 
-if TYPE_CHECKING:
-    from freezegun.api import (
-        FrozenDateTimeFactory,
-        StepTickTimeFactory,
-        TickingDateTimeFactory,
-    )
-
+from grelmicro.resilience import circuitbreaker
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     CircuitBreakerError,
@@ -31,10 +24,6 @@ class SentinelError(Exception):
 
 
 sentinel_error = SentinelError("Sentinel error for testing")
-
-FrozenTimeType = Union[
-    "StepTickTimeFactory", "TickingDateTimeFactory", "FrozenDateTimeFactory"
-]
 
 ALL_STATES = [
     CircuitBreakerState.CLOSED,
@@ -95,13 +84,6 @@ async def generate_error(cb: CircuitBreaker) -> None:
     with suppress(SentinelError):
         async with cb:
             raise sentinel_error
-
-
-@pytest.fixture(autouse=True)
-def frozen_time() -> Iterator[FrozenTimeType]:
-    """Freeze time for the duration of the test."""
-    with freeze_time() as frozen:
-        yield frozen
 
 
 @pytest.fixture(
@@ -377,14 +359,16 @@ async def test_circuit_transition_to_open(error_count: int) -> None:
 
 
 async def test_circuit_transition_to_half_open_after_timeout(
-    frozen_time: FrozenTimeType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test circuit breaker transitions to half-open after reset timeout."""
     # Arrange
     cb = await create_circuit(
         CircuitBreakerState.OPEN, success_threshold=2
     )  # Ensure it doesn't close immediately
-    frozen_time.tick(timedelta(seconds=cb.config.reset_timeout))
+    monkeypatch.setattr(
+        circuitbreaker, "monotonic", lambda: cb._open_until_time
+    )
 
     # Act
     await generate_success(cb)
@@ -395,16 +379,16 @@ async def test_circuit_transition_to_half_open_after_timeout(
 
 @pytest.mark.parametrize("reset_timeout", [0.5, 1, 30])
 async def test_circuit_not_transition_to_half_open_before_timeout(
-    frozen_time: FrozenTimeType, reset_timeout: float
+    monkeypatch: pytest.MonkeyPatch, reset_timeout: float
 ) -> None:
     """Test circuit breaker does not transition to half-open before reset timeout."""
     # Arrange
     cb = await create_circuit(
         CircuitBreakerState.OPEN, reset_timeout=reset_timeout
     )
-    frozen_time.tick(
-        timedelta(seconds=cb.config.reset_timeout) - timedelta(milliseconds=1)
-    )  # Ensure not enough time has passed
+    monkeypatch.setattr(
+        circuitbreaker, "monotonic", lambda: cb._open_until_time - 0.001
+    )
 
     # Act & Assert
     with pytest.raises(CircuitBreakerError):
@@ -521,6 +505,7 @@ async def test_circuit_from_thread_with_ignore_exceptions(
         await to_thread.run_sync(sync)
 
 
+@freeze_time()
 async def test_circuit_breaker_last_error() -> None:
     """Test error info is properly recorded."""
     # Arrange
@@ -584,6 +569,7 @@ async def test_circuit_metrics_counters_with_successes(
 
 
 @pytest.mark.parametrize("error_count", [1, 3, 5])
+@freeze_time()
 async def test_circuit_metrics_with_errors(
     circuit_call_permitted: CircuitBreaker,
     error_count: int,

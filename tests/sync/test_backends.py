@@ -136,6 +136,27 @@ def container(
 
 
 @pytest.fixture(scope="module")
+def expire_duration(backend_name: str) -> float:
+    """Lock duration for expiration tests, scaled per backend.
+
+    SQLite and Kubernetes round the duration up to whole seconds, and the
+    networked backends need enough margin to survive container-side clock
+    drift; only the in-process Memory backend can use a sub-second value.
+    """
+    if backend_name == "memory":
+        return 0.2
+    return 1.0
+
+
+@pytest.fixture(scope="module")
+def expire_wait(backend_name: str, expire_duration: float) -> float:
+    """Sleep duration to wait past lock expiration."""
+    if backend_name in ("sqlite", "kubernetes"):
+        return expire_duration + 1.0
+    return expire_duration + 0.3
+
+
+@pytest.fixture(scope="module")
 async def backend(
     backend_name: str, container: DockerContainer | None
 ) -> AsyncGenerator[SyncBackend]:
@@ -209,35 +230,45 @@ async def test_acquire_already_acquired(backend: SyncBackend) -> None:
     assert not result2
 
 
-async def test_acquire_expired(backend: SyncBackend) -> None:
+async def test_acquire_expired(
+    backend: SyncBackend, expire_duration: float, expire_wait: float
+) -> None:
     """Test acquire when expired."""
     # Arrange
     name = "test_acquire_expired"
     token = uuid4().hex
-    duration = 1
 
     # Act
-    result = await backend.acquire(name=name, token=token, duration=duration)
-    await sleep(duration + 1.5)
-    result2 = await backend.acquire(name=name, token=token, duration=duration)
+    result = await backend.acquire(
+        name=name, token=token, duration=expire_duration
+    )
+    await sleep(expire_wait)
+    result2 = await backend.acquire(
+        name=name, token=token, duration=expire_duration
+    )
 
     # Assert
     assert result
     assert result2
 
 
-async def test_acquire_already_acquired_expired(backend: SyncBackend) -> None:
+async def test_acquire_already_acquired_expired(
+    backend: SyncBackend, expire_duration: float, expire_wait: float
+) -> None:
     """Test acquire when already acquired but expired."""
     # Arrange
     name = "test_acquire_already_acquired_expired" + uuid4().hex
     token1 = uuid4().hex
     token2 = uuid4().hex
-    duration = 1
 
     # Act
-    result = await backend.acquire(name=name, token=token1, duration=duration)
-    await sleep(duration + 1.5)
-    result2 = await backend.acquire(name=name, token=token2, duration=duration)
+    result = await backend.acquire(
+        name=name, token=token1, duration=expire_duration
+    )
+    await sleep(expire_wait)
+    result2 = await backend.acquire(
+        name=name, token=token2, duration=expire_duration
+    )
 
     # Assert
     assert token1 != token2
@@ -292,16 +323,19 @@ async def test_release_not_reantrant(backend: SyncBackend) -> None:
     assert not result3
 
 
-async def test_release_acquired_expired(backend: SyncBackend) -> None:
+async def test_release_acquired_expired(
+    backend: SyncBackend, expire_duration: float, expire_wait: float
+) -> None:
     """Test release when acquired but expired."""
     # Arrange
     name = "test_release_acquired_expired" + uuid4().hex
     token = uuid4().hex
-    duration = 1
 
     # Act
-    result1 = await backend.acquire(name=name, token=token, duration=duration)
-    await sleep(duration + 1.5)
+    result1 = await backend.acquire(
+        name=name, token=token, duration=expire_duration
+    )
+    await sleep(expire_wait)
     result2 = await backend.release(name=name, token=token)
 
     # Assert
@@ -309,16 +343,19 @@ async def test_release_acquired_expired(backend: SyncBackend) -> None:
     assert not result2
 
 
-async def test_release_not_acquired_expired(backend: SyncBackend) -> None:
+async def test_release_not_acquired_expired(
+    backend: SyncBackend, expire_duration: float, expire_wait: float
+) -> None:
     """Test release when not acquired but expired."""
     # Arrange
     name = "test_release_not_acquired_expired" + uuid4().hex
     token = uuid4().hex
-    duration = 1
 
     # Act
-    result1 = await backend.acquire(name=name, token=token, duration=duration)
-    await sleep(duration + 1.5)
+    result1 = await backend.acquire(
+        name=name, token=token, duration=expire_duration
+    )
+    await sleep(expire_wait)
     result2 = await backend.release(name=name, token=token)
 
     # Assert

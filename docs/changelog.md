@@ -10,6 +10,7 @@
 ### Internal
 
 * ♻️ Add `grelmicro._config.env_opt_in_enabled()` helper that exposes the truthy `GREL_CONFIG_FROM_ENV` check (`1`, `true`, `yes`, `on`, case-insensitive). Issue [#142](https://github.com/grelinfo/grelmicro/issues/142).
+* ⚡ Speed up the test suite from ~73s to ~19s by adding `pytest-xdist` (`-n auto` in `addopts`) and shrinking expiration sleeps in `tests/sync/test_backends.py`. Fix `--durations` reporting by removing the autouse `freeze_time` fixture: `@freeze_time()` decorator stays on the two tests that compare `datetime.now()`, the two tests that previously called `frozen_time.tick(...)` switch to `monkeypatch.setattr(circuitbreaker, "monotonic", ...)`. Issue [#125](https://github.com/grelinfo/grelmicro/issues/125).
 
 ## 0.18.0 - 2026-04-30
 

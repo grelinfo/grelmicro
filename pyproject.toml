@@ -124,6 +124,7 @@ dev = [
     "aiosqlite>=0.20.0",
     "lightkube>=0.15.0",
     "uvicorn>=0.29.0",
+    "pytest-xdist>=3.8.0",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
@@ -210,6 +211,7 @@ exclude = [
 addopts = """
     --strict-config
     --strict-markers
+    -n auto
 """
 markers = """
     integration: mark a test as an integration test
