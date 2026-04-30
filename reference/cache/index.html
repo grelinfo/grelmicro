@@ -4457,7 +4457,7 @@ by all keys.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">MemoryCacheBackend</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">auto_register</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">MemoryCacheBackend</span><span class="p">()</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -4469,38 +4469,6 @@ by all keys.</p>
 Suitable for testing and single-process applications.</p>
 
         <p>Initialize the memory cache backend.</p>
-
-
-<table>
-      <thead>
-        <tr>
-          <th><span class="doc-section-title">PARAMETER</span></th>
-          <th><span>DESCRIPTION</span></th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>auto_register</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Automatically register this cache backend in the backend registry.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>True</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-      </tbody>
-    </table>
 
 
 
@@ -4681,10 +4649,7 @@ Expired entries are removed lazily on access.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">RedisCacheBackend</span><span class="p">(</span>
-    <span class="n">url</span><span class="p">:</span> <span class="n"><span title="pydantic.RedisDsn">RedisDsn</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
-    <span class="n">auto_register</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">url</span><span class="p">:</span> <span class="n"><span title="pydantic.RedisDsn">RedisDsn</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -4750,26 +4715,6 @@ conflicts with other keys.</p>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
                       <code>&#39;&#39;</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>auto_register</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Automatically register this cache backend in the backend registry.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>True</code>
                   </span>
               </p>
             </td>

@@ -1633,6 +1633,8 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">HTTPException</span><span class="p">,</span> <span class="n">Request</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">cache</span><span class="p">,</span> <span class="n">resilience</span><span class="p">,</span> <span class="n">sync</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">JsonSerializer</span><span class="p">,</span> <span class="n">TTLCache</span><span class="p">,</span> <span class="n">cached</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisCacheBackend</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
@@ -1650,20 +1652,21 @@
 
 <span class="c1"># === grelmicro ===</span>
 <span class="n">task</span> <span class="o">=</span> <span class="n">TaskManager</span><span class="p">()</span>
-<span class="n">sync_backend</span> <span class="o">=</span> <span class="n">RedisSyncBackend</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
-<span class="n">cache_backend</span> <span class="o">=</span> <span class="n">RedisCacheBackend</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;myapp:&quot;</span><span class="p">)</span>
-<span class="n">rate_limit_backend</span> <span class="o">=</span> <span class="n">RedisRateLimiterBackend</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
+<span class="n">sync</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">RedisSyncBackend</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">))</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">RedisCacheBackend</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;myapp:&quot;</span><span class="p">))</span>
+<span class="n">resilience</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">RedisRateLimiterBackend</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">))</span>
+
 <span class="n">leader_election</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;leader-election&quot;</span><span class="p">)</span>
 <span class="n">task</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader_election</span><span class="p">)</span>
 
-<span class="n">cache</span> <span class="o">=</span> <span class="n">TTLCache</span><span class="p">(</span><span class="n">ttl</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">serializer</span><span class="o">=</span><span class="n">JsonSerializer</span><span class="p">())</span>
+<span class="n">ttl_cache</span> <span class="o">=</span> <span class="n">TTLCache</span><span class="p">(</span><span class="n">ttl</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">serializer</span><span class="o">=</span><span class="n">JsonSerializer</span><span class="p">())</span>
 
 
 <span class="c1"># === FastAPI ===</span>
 <span class="nd">@asynccontextmanager</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lifespan</span><span class="p">(</span><span class="n">app</span><span class="p">):</span>
     <span class="n">configure_logging</span><span class="p">()</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">sync_backend</span><span class="p">,</span> <span class="n">cache_backend</span><span class="p">,</span> <span class="n">rate_limit_backend</span><span class="p">,</span> <span class="n">task</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">grelmicro</span><span class="o">.</span><span class="n">lifespan</span><span class="p">(</span><span class="n">task</span><span class="p">):</span>
         <span class="k">yield</span>
 
 
@@ -1671,7 +1674,7 @@
 
 
 <span class="c1"># --- Cache: avoid redundant database queries ---</span>
-<span class="nd">@cached</span><span class="p">(</span><span class="n">cache</span><span class="p">)</span>
+<span class="nd">@cached</span><span class="p">(</span><span class="n">ttl_cache</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_user</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
     <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">user_id</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Alice&quot;</span><span class="p">}</span>
 

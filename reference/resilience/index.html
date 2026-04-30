@@ -5403,7 +5403,7 @@ enough tokens, otherwise <code>False</code> (nothing deducted).</p>
       &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
   &lt;/span&gt; (&lt;code&gt;grelmicro.resilience.algorithms.RateLimiterConfig&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterConfig">RateLimiterConfig</a></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -5544,7 +5544,7 @@ same time.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -5645,7 +5645,11 @@ same time.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Bound rate-limiter backend, resolved lazily on first access.</p>
+        <p>Bound rate-limiter backend, resolved on each call.</p>
+<p>When a backend instance was passed at construction it is
+always returned. Otherwise the registry is consulted on
+every access so that task-scoped <code>resilience.use(...)</code>
+overrides take effect.</p>
 
     </div>
 
@@ -5675,7 +5679,7 @@ same time.</p>
       &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
   &lt;/span&gt; (&lt;code&gt;grelmicro.resilience.algorithms.RateLimiterConfig&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterConfig">RateLimiterConfig</a></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -5745,7 +5749,7 @@ default), the registered backend is used.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -5780,7 +5784,7 @@ default), the registered backend is used.</p>
     <span class="n">capacity</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span><span class="p">,</span>
     <span class="n">refill_rate</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span><span class="p">,</span>
     <span class="n">fail_open</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -5881,7 +5885,7 @@ default), the registered backend is used.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -5916,7 +5920,7 @@ default), the registered backend is used.</p>
     <span class="n">limit</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span><span class="p">,</span>
     <span class="n">window</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span><span class="p">,</span>
     <span class="n">fail_open</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -6017,7 +6021,7 @@ default), the registered backend is used.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RateLimiterBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.RateLimiterBackend&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterBackend">RateLimiterBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -7419,7 +7423,7 @@ token bucket is a common choice for bursty rate limiting.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">MemoryRateLimiterBackend</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">auto_register</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">MemoryRateLimiterBackend</span><span class="p">()</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -7439,51 +7443,15 @@ algorithms cannot collide. Thread-safe.</p>
 distributed coordination, use
 <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;RedisRateLimiterBackend&lt;/span&gt;" href="#grelmicro.resilience.redis.RedisRateLimiterBackend"><code>RedisRateLimiterBackend</code></a>.</p>
 <p>Example:
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span><span class="p">,</span> <span class="n">TokenBucketConfig</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span><span class="p">,</span> <span class="n">TokenBucketConfig</span><span class="p">,</span> <span class="n">use_backend</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryRateLimiterBackend</span>
 
-<span class="n">MemoryRateLimiterBackend</span><span class="p">()</span>  <span class="c1"># auto-registers</span>
+<span class="n">use_backend</span><span class="p">(</span><span class="n">MemoryRateLimiterBackend</span><span class="p">())</span>
 <span class="n">rl</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">TokenBucketConfig</span><span class="p">(</span><span class="n">capacity</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
 </code></pre></div></p>
 <p>Read more in the <a href="../../resilience/rate-limiter/">Rate Limiter</a> docs.</p>
 
         <p>Initialize the rate limiter backend.</p>
-
-
-<table>
-      <thead>
-        <tr>
-          <th><span class="doc-section-title">PARAMETER</span></th>
-          <th><span>DESCRIPTION</span></th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>auto_register</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Automatically register the backend as the default
-for rate limiters.</p>
-<p>Set to <code>False</code> to manage the backend manually, for
-example when wiring multiple backends side-by-side
-in tests.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>True</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-      </tbody>
-    </table>
 
 
 
@@ -7596,10 +7564,7 @@ picks which algorithm to run. Later calls to <code>acquire</code>,
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">RedisRateLimiterBackend</span><span class="p">(</span>
-    <span class="n">url</span><span class="p">:</span> <span class="n"><span title="pydantic.RedisDsn">RedisDsn</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
-    <span class="n">auto_register</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">url</span><span class="p">:</span> <span class="n"><span title="pydantic.RedisDsn">RedisDsn</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -7683,28 +7648,6 @@ consumers of the same Redis database.</p>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
                       <code>&#39;&#39;</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>auto_register</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Automatically register the backend as the default
-for rate limiters.</p>
-<p>Set to <code>False</code> to manage multiple backends manually.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>True</code>
                   </span>
               </p>
             </td>

@@ -2465,7 +2465,7 @@
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">LeaderElection</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">renew_deadline</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2528,7 +2528,7 @@ backend.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | None</code>
+                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -2814,7 +2814,11 @@ must not influence construction.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Bound sync backend, resolved lazily on first access.</p>
+        <p>Bound sync backend, resolved on each call.</p>
+<p>When a backend instance was passed at construction it is
+always returned. Otherwise the registry is consulted on
+every access so that task-scoped <code>sync.use(...)</code>
+overrides take effect.</p>
 
     </div>
 
@@ -2839,7 +2843,7 @@ must not influence construction.</p>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.leaderelection.LeaderElectionConfig">LeaderElectionConfig</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -2906,7 +2910,7 @@ path is bypassed and the config is used as-is.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | None</code>
+                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -3081,7 +3085,7 @@ the guard skips the current tick and retries on the next interval.</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">Lock</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">retry_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3136,12 +3140,14 @@ automatically released after a duration if not extended.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>The distributed lock backend used to acquire and release the lock.</p>
-<p>By default, it will use the lock backend registry to get the default lock backend.</p>
+<p>Accepts a backend instance, the name of a registered backend
+(e.g. <code>"analytics"</code>), or <code>None</code> to use the registered
+<code>"default"</code> backend.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | None</code>
+                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -3329,7 +3335,11 @@ must not influence construction.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Bound sync backend, resolved lazily on first access.</p>
+        <p>Bound sync backend, resolved on each call.</p>
+<p>When a backend instance was passed at construction it is
+always returned. Otherwise the registry is consulted on
+every access so that task-scoped <code>sync.use(...)</code>
+overrides take effect.</p>
 
     </div>
 
@@ -3402,7 +3412,7 @@ must not influence construction.</p>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.lock.LockConfig">LockConfig</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -3464,12 +3474,14 @@ path is bypassed and the config is used as-is.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>The distributed lock backend used to acquire and release the lock.</p>
-<p>By default, it will use the lock backend registry to get the default lock backend.</p>
+<p>Accepts a backend instance, the name of a registered backend
+(e.g. <code>"analytics"</code>), or <code>None</code> to use the registered
+<code>"default"</code> backend.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | None</code>
+                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4352,7 +4364,7 @@ to other threads.</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">TaskLock</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">min_lock_seconds</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_lock_seconds</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -4416,7 +4428,7 @@ The lock relies entirely on the TTL (<code>max_lock_seconds</code>) set at acqui
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | None</code>
+                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4606,7 +4618,11 @@ must not influence construction.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Bound sync backend, resolved lazily on first access.</p>
+        <p>Bound sync backend, resolved on each call.</p>
+<p>When a backend instance was passed at construction it is
+always returned. Otherwise the registry is consulted on
+every access so that task-scoped <code>sync.use(...)</code>
+overrides take effect.</p>
 
     </div>
 
@@ -4679,7 +4695,7 @@ must not influence construction.</p>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.tasklock.TaskLockConfig">TaskLockConfig</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -4746,7 +4762,7 @@ path is bypassed and the config is used as-is.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | None</code>
+                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>

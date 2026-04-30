@@ -1140,10 +1140,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#registration" class="md-nav__link">
+  <a href="#construction-vs-registration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Registration
+        Construction vs registration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#named-backends-and-per-call-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named backends and per-call selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-scoped-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task-scoped overrides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lazy-registration-and-zero-ram-cost-for-unused-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lazy registration and zero-RAM-cost for unused modules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-checked-unregister" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity-checked unregister
       
     </span>
   </a>
@@ -1155,17 +1199,6 @@
     <span class="md-ellipsis">
       
         Protocol-Based Polymorphism
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#auto-registration-control" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Auto-Registration Control
       
     </span>
   </a>
@@ -1481,10 +1514,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#registration" class="md-nav__link">
+  <a href="#construction-vs-registration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Registration
+        Construction vs registration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#named-backends-and-per-call-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named backends and per-call selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-scoped-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task-scoped overrides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lazy-registration-and-zero-ram-cost-for-unused-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lazy registration and zero-RAM-cost for unused modules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-checked-unregister" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity-checked unregister
       
     </span>
   </a>
@@ -1496,17 +1573,6 @@
     <span class="md-ellipsis">
       
         Protocol-Based Polymorphism
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#auto-registration-control" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Auto-Registration Control
       
     </span>
   </a>
@@ -1560,44 +1626,110 @@
 <h2 id="why-async">Why Async</h2>
 <p>All backends use <strong>async</strong> methods because they perform network or disk I/O (Redis, PostgreSQL, SQLite, Kubernetes API). Async avoids blocking the event loop, which is critical in microservice applications handling many concurrent requests. Even backends with low-latency I/O (like SQLite) use async to maintain a consistent interface and allow the event loop to schedule other work during I/O waits.</p>
 <h2 id="design">Design</h2>
-<p>The <code>BackendRegistry[T]</code> is a generic, typed container that holds a single default backend instance. Each module maintains its own registry:</p>
+<p><code>BackendRegistry[T]</code> is a generic, typed, multi-name container with task-scoped overrides. Each module maintains its own registry. The registry key matches the module name and is the value to use in <code>lifespan(exclude={...})</code>:</p>
 <table>
 <thead>
 <tr>
 <th>Module</th>
-<th>Registry</th>
-<th>Protocol</th>
+<th>Registry key</th>
+<th>Protocol / Type</th>
 <th>Backends</th>
 </tr>
 </thead>
 <tbody>
 <tr>
+<td><code>grelmicro.sync</code></td>
 <td><code>sync</code></td>
-<td><code>sync_backend_registry</code></td>
 <td><code>SyncBackend</code></td>
 <td>Redis, PostgreSQL, SQLite, Kubernetes, Memory</td>
 </tr>
 <tr>
+<td><code>grelmicro.cache</code></td>
 <td><code>cache</code></td>
-<td><code>cache_backend_registry</code></td>
 <td><code>CacheBackend</code></td>
 <td>Redis, Memory</td>
 </tr>
+<tr>
+<td><code>grelmicro.resilience</code></td>
+<td><code>resilience</code></td>
+<td><code>RateLimiterBackend</code></td>
+<td>Redis, Memory</td>
+</tr>
+<tr>
+<td><code>grelmicro.health</code></td>
+<td><code>health</code></td>
+<td><code>HealthRegistry</code></td>
+<td>(any number of named registries)</td>
+</tr>
 </tbody>
 </table>
-<h2 id="registration">Registration</h2>
-<p>Backends register themselves on initialization via <code>auto_register=True</code> (the default):</p>
-<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">with</span> <span class="n">RedisSyncBackend</span><span class="p">()</span> <span class="k">as</span> <span class="n">backend</span><span class="p">:</span>
-    <span class="c1"># backend is now the default for Lock, TaskLock, LeaderElection</span>
-    <span class="o">...</span>
-</code></pre></div>
-<p>This calls <code>sync_backend_registry.set(self)</code> internally. Consumers that accept an optional <code>backend</code> parameter fall back to the registry when none is provided:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Explicit backend</span>
-<span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-lock&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">my_backend</span><span class="p">)</span>
+<p>A registry holds zero or more named entries. Backends are looked up by name at call time, and each entry is independent. The <code>"default"</code> slot is the implicit name when no <code>backend=</code> is passed.</p>
+<h2 id="construction-vs-registration">Construction vs registration</h2>
+<p>Construction and registration are two distinct steps. <code>__init__</code> is pure: it validates configuration and binds locals. It performs no registry writes and no I/O. Registration is explicit and reversible.</p>
+<p>There are three ways to wire a backend:</p>
+<p><strong>1. Register and open via <code>grelmicro.lifespan()</code> (recommended for apps).</strong> Register synchronously at startup, then open every registered backend with one call:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">sync</span><span class="p">,</span> <span class="n">cache</span>
 
-<span class="c1"># Uses the registered default</span>
-<span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-lock&quot;</span><span class="p">)</span>
+<span class="n">sync</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">RedisSyncBackend</span><span class="p">())</span>             <span class="c1"># implicit &quot;default&quot;</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">RedisCacheBackend</span><span class="p">())</span>
+
+<span class="k">async</span> <span class="k">with</span> <span class="n">grelmicro</span><span class="o">.</span><span class="n">lifespan</span><span class="p">():</span>
+    <span class="c1"># every registered backend is open here</span>
+    <span class="o">...</span>
+<span class="c1"># every registered backend is closed on exit (LIFO)</span>
 </code></pre></div>
+<p><code>grelmicro.lifespan()</code> walks every grelmicro registry that has been imported in the current process, opens each entry via its async context manager, and closes them in reverse order on exit. Use <code>exclude={"&lt;module&gt;"}</code> to skip a whole module or <code>exclude={"&lt;module&gt;.&lt;name&gt;"}</code> to skip one entry.</p>
+<p><strong>2. Module-level <code>use_backend</code> shorthand.</strong> Equivalent to <code>register("default", backend)</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">sync</span>
+
+<span class="n">sync</span><span class="o">.</span><span class="n">use_backend</span><span class="p">(</span><span class="n">RedisSyncBackend</span><span class="p">())</span>
+</code></pre></div>
+<p>Available as <code>grelmicro.sync.use_backend</code>, <code>grelmicro.cache.use_backend</code>, <code>grelmicro.resilience.use_backend</code>, and <code>grelmicro.health.use_registry</code>.</p>
+<p><strong>3. Pure construction with explicit pass-through.</strong> Skip the registry entirely:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">with</span> <span class="n">RedisSyncBackend</span><span class="p">()</span> <span class="k">as</span> <span class="n">backend</span><span class="p">:</span>
+    <span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-lock&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
+        <span class="o">...</span>
+</code></pre></div>
+<p><code>async with</code> opens the connection only. The backend is not registered.</p>
+<h2 id="named-backends-and-per-call-selection">Named backends and per-call selection</h2>
+<p>Register multiple backends under different names and pick one at the call site:</p>
+<div class="highlight"><pre><span></span><code><span class="n">sync</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">RedisSyncBackend</span><span class="p">())</span>                              <span class="c1"># → &quot;default&quot;</span>
+<span class="n">sync</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">PostgresSyncBackend</span><span class="p">(</span><span class="s2">&quot;postgres://...&quot;</span><span class="p">),</span> <span class="s2">&quot;analytics&quot;</span><span class="p">)</span>
+
+<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>                          <span class="c1"># → &quot;default&quot; (Redis)</span>
+<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;audit&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;analytics&quot;</span><span class="p">)</span>     <span class="c1"># → &quot;analytics&quot; (Postgres)</span>
+<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">my_instance</span><span class="p">)</span>      <span class="c1"># → explicit instance, bypasses names</span>
+</code></pre></div>
+<p>Resolution order, in priority:</p>
+<ol>
+<li>Explicit instance (<code>backend=instance</code>).</li>
+<li>Task-scoped override for the requested name (set via <code>&lt;module&gt;.use(...)</code>).</li>
+<li>Registered entry under the requested name.</li>
+<li>When the requested name is <code>"default"</code> and exactly one backend is registered: that sole entry.</li>
+<li>Otherwise raise <code>BackendNotLoadedError</code>.</li>
+</ol>
+<h2 id="task-scoped-overrides">Task-scoped overrides</h2>
+<p><code>&lt;module&gt;.use(...)</code> installs a per-task override for the duration of a <code>with</code> block. Stacks LIFO via <code>contextvars</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">sync</span>
+
+<span class="k">with</span> <span class="n">sync</span><span class="o">.</span><span class="n">use</span><span class="p">(</span><span class="n">MemorySyncBackend</span><span class="p">()):</span>           <span class="c1"># overrides &quot;default&quot; only</span>
+    <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>                              <span class="c1"># → MemorySyncBackend</span>
+
+<span class="k">with</span> <span class="n">sync</span><span class="o">.</span><span class="n">use</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="n">mem</span><span class="p">,</span> <span class="n">analytics</span><span class="o">=</span><span class="n">fake</span><span class="p">):</span>   <span class="c1"># overrides multiple names</span>
+    <span class="o">...</span>
+
+<span class="c1"># Tests</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_checkout</span><span class="p">():</span>
+    <span class="k">with</span> <span class="n">sync</span><span class="o">.</span><span class="n">use</span><span class="p">(</span><span class="n">MemorySyncBackend</span><span class="p">()):</span>
+        <span class="k">await</span> <span class="n">checkout</span><span class="p">()</span>
+</code></pre></div>
+<p>The override propagates downward through <code>await</code>, <code>start_soon</code>, and <code>to_thread.run_sync</code> (AnyIO copies the context at every concurrency boundary). Set the override on the side that <em>calls into</em> the registry: an override set inside a worker thread is invisible to <code>from_thread.run</code> callbacks (which run on the loop's context).</p>
+<h2 id="lazy-registration-and-zero-ram-cost-for-unused-modules">Lazy registration and zero-RAM-cost for unused modules</h2>
+<p>Each <code>BackendRegistry</code> subscribes itself into a process-wide map <em>when its module is imported</em>. Modules you never import never create their registry, never appear in <code>grelmicro.lifespan()</code>, and never consume RAM. <code>import grelmicro</code> alone is ~6 ms; the per-component cost is paid only when the user imports that component.</p>
+<h2 id="identity-checked-unregister">Identity-checked unregister</h2>
+<p><code>registry.unregister(name, backend)</code> clears the entry only when the registered instance is identical to the one passed in. Calling on a non-current instance is a no-op. A stale backend's teardown cannot evict a newer backend that replaced it under the same name.</p>
 <h2 id="protocol-based-polymorphism">Protocol-Based Polymorphism</h2>
 <p>Backends are defined by protocols (structural typing), not base classes. Any object implementing the required methods works as a backend. This enables:</p>
 <ul>
@@ -1605,16 +1737,6 @@
 <li>Writing test backends (e.g. <code>MemorySyncBackend</code>) with no external dependencies</li>
 <li>Adding new backends without modifying existing code</li>
 </ul>
-<h2 id="auto-registration-control">Auto-Registration Control</h2>
-<p>Set <code>auto_register=False</code> to create a backend without registering it as the default. This is useful for:</p>
-<ul>
-<li>Tests that need isolated backend instances</li>
-<li>Applications using multiple backends for different purposes</li>
-<li>Manual wiring in dependency injection setups</li>
-</ul>
-<div class="highlight"><pre><span></span><code><span class="c1"># Not registered as default</span>
-<span class="n">cache</span> <span class="o">=</span> <span class="n">RedisCache</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;redis://localhost/1&quot;</span><span class="p">,</span> <span class="n">ttl</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">auto_register</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</code></pre></div>
 <h2 id="connection-pool-isolation">Connection Pool Isolation</h2>
 <p>Each backend instance creates its own Redis client and connection pool, even when multiple backends point to the same Redis server. This is an intentional design choice:</p>
 <ul>
@@ -1627,8 +1749,11 @@
 <p>Shared Redis configuration (URL resolution from environment variables) is deduplicated in <code>grelmicro/_redis.py</code>, but each backend receives its own client instance.</p>
 <h2 id="error-handling">Error Handling</h2>
 <p>Accessing a registry before any backend is registered raises <code>BackendNotLoadedError</code> with a descriptive message:</p>
-<div class="highlight"><pre><span></span><code>No lock backend loaded. Initialize a backend first
-(e.g. with ``async with`` a backend instance).
+<div class="highlight"><pre><span></span><code>No sync backend loaded for name &#39;default&#39;.
+</code></pre></div>
+<p>Or, when multiple backends are registered without a <code>"default"</code>:</p>
+<div class="highlight"><pre><span></span><code>No default sync backend: multiple are registered
+([&#39;analytics&#39;, &#39;primary&#39;]), none named &#39;default&#39;.
 </code></pre></div>
 
 

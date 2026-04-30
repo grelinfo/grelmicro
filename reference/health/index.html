@@ -2428,7 +2428,6 @@ error, visible under <code>details</code> on the check entry in
     <span class="n">cache_ttl</span><span class="p">:</span> <span class="n"><span title="pydantic.NonNegativeFloat">NonNegativeFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">auto_register</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -2548,26 +2547,6 @@ must not influence construction.</p>
               </p>
             </td>
           </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>auto_register</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Automatically register this instance as the global health registry singleton. Set to False for testing.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>True</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
       </tbody>
     </table>
 
@@ -2604,11 +2583,7 @@ must not influence construction.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_config</span><span class="p">(</span>
-    <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthRegistryConfig&lt;/span&gt; (&lt;code&gt;grelmicro.health._registry.HealthRegistryConfig&lt;/code&gt;)" href="#grelmicro.health.HealthRegistryConfig">HealthRegistryConfig</a></span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">auto_register</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_config</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthRegistryConfig&lt;/span&gt; (&lt;code&gt;grelmicro.health._registry.HealthRegistryConfig&lt;/code&gt;)" href="#grelmicro.health.HealthRegistryConfig">HealthRegistryConfig</a></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2641,26 +2616,6 @@ as-is.</p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
                       <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthRegistryConfig&lt;/span&gt; (&lt;code&gt;grelmicro.health._registry.HealthRegistryConfig&lt;/code&gt;)" href="#grelmicro.health.HealthRegistryConfig">HealthRegistryConfig</a></code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>auto_register</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Automatically register this instance as the global health registry singleton. Set to False for testing.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>True</code>
                   </span>
               </p>
             </td>
@@ -3363,12 +3318,14 @@ same check coalesce via single-flight.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_health_registry</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthRegistry&lt;/span&gt; (&lt;code&gt;grelmicro.health._registry.HealthRegistry&lt;/code&gt;)" href="#grelmicro.health.HealthRegistry">HealthRegistry</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_health_registry</span><span class="p">(</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="n"><span title="grelmicro._backends.DEFAULT_NAME">DEFAULT_NAME</span></span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthRegistry&lt;/span&gt; (&lt;code&gt;grelmicro.health._registry.HealthRegistry&lt;/code&gt;)" href="#grelmicro.health.HealthRegistry">HealthRegistry</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Get the default health registry.</p>
+        <p>Resolve a health registry by <code>name</code>.</p>
 
 
 <table>
@@ -3387,7 +3344,7 @@ same check coalesce via single-flight.</p>
             </td>
             <td class="doc-raises-details">
               <div class="doc-md-description">
-                <p>If no health registry has been registered.</p>
+                <p>If no registry resolves.</p>
               </div>
             </td>
           </tr>
@@ -3486,7 +3443,7 @@ same check coalesce via single-flight.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Health registry whose checks the router runs. When omitted, the router resolves the global registry (the most recent <code>HealthRegistry</code> created with <code>auto_register=True</code>).</p>
+                <p>Health registry whose checks the router runs. When omitted, the router resolves the global registry (the registry installed via <code>health.use_registry</code> or entered as an async context manager).</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
