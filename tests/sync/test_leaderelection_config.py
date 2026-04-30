@@ -39,7 +39,7 @@ def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
 def test_backend_property_resolves_on_every_call(
     mocker: MockerFixture,
 ) -> None:
-    """First `le.backend` access resolves once, subsequent reads hit the cache."""
+    """`le.backend` consults the registry on each read so `sync.use(...)` overrides apply."""
     backend_instance = MemorySyncBackend()
     spy = mocker.patch(
         "grelmicro.sync.leaderelection.get_sync_backend",

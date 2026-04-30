@@ -1,11 +1,15 @@
 """Backend Registry."""
 
-from collections.abc import Iterator
+from __future__ import annotations
+
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from grelmicro.errors import GrelmicroError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 T = TypeVar("T")
 
@@ -13,7 +17,7 @@ DEFAULT_NAME = "default"
 
 # Subscribed at construction time so ``grelmicro.lifespan()`` walks
 # only the registries whose modules were actually imported.
-_ALL_REGISTRIES: dict[str, "BackendRegistry"] = {}
+_ALL_REGISTRIES: dict[str, BackendRegistry[Any]] = {}
 
 
 class BackendRegistry(Generic[T]):
