@@ -16,6 +16,7 @@ name-as-namespace convention, is documented in
 
 from __future__ import annotations
 
+import os
 import re
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -89,13 +90,29 @@ def env_segment(name: str) -> str:
     return cleaned
 
 
+_ENV_OPT_IN_VAR = "GREL_CONFIG_FROM_ENV"
+_ENV_OPT_IN_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def env_opt_in_enabled() -> bool:
+    """Return True when env-driven configuration is opted in process-wide.
+
+    Reads ``GREL_CONFIG_FROM_ENV`` and accepts ``1``, ``true``, ``yes``,
+    ``on`` (case-insensitive) as truthy.
+    """
+    return (
+        os.environ.get(_ENV_OPT_IN_VAR, "").strip().lower()
+        in _ENV_OPT_IN_TRUTHY
+    )
+
+
 def resolve_config(
     config_cls: type[C],
     *,
     explicit: C | None,
     kwargs: Mapping[str, object | None],
     env_prefix: str,
-    read_env: bool = True,
+    read_env: bool | None = None,
 ) -> C:
     """Build a validated ``config_cls`` from an explicit instance or kwargs and env.
 
@@ -106,11 +123,16 @@ def resolve_config(
     non-``None`` kwargs win over environment variables, and
     environment variables win over defaults declared on ``config_cls``.
 
+    The env path is opt-in. When ``read_env`` is ``None`` (the
+    default), the process-wide ``GREL_CONFIG_FROM_ENV`` flag decides:
+    env reads run only when it is set to a truthy value. Pass
+    ``read_env=True`` or ``read_env=False`` on the call to override
+    the flag for that construction.
+
     The env path constructs a one-off ``BaseSettings`` subclass that
     inherits ``config_cls`` so its validators, ``frozen``, and
     ``extra`` flags are preserved. Only the ``env_prefix`` is added.
-    Pass ``read_env=False`` to skip the env path entirely. Validation
-    failures surface as ``pydantic.ValidationError``.
+    Validation failures surface as ``pydantic.ValidationError``.
 
     See `docs/architecture/config.md` for the full contract,
     including the name-as-namespace convention used to derive
@@ -123,6 +145,9 @@ def resolve_config(
             msg = "pass a pre-built config OR individual kwargs, not both"
             raise TypeError(msg)
         return explicit
+
+    if read_env is None:
+        read_env = env_opt_in_enabled()
 
     if not read_env:
         return config_cls.model_validate(provided)

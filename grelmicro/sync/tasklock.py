@@ -158,17 +158,17 @@ class TaskLock(SyncPrimitive):
             ),
         ] = None,
         read_env: Annotated[
-            bool,
+            bool | None,
             Doc(
                 """
                 Whether to read environment variables.
 
-                Default: True. Set to False when every field is
-                already supplied via kwargs and the environment
-                must not influence construction.
+                When None (the default), follow the process-wide
+                ``GREL_CONFIG_FROM_ENV`` flag. Pass True or False to
+                override the flag for this construction.
                 """
             ),
-        ] = True,
+        ] = None,
     ) -> None:
         """Initialize the task lock."""
         config = resolve_config(

@@ -81,11 +81,13 @@ def configure(
         ),
     ] = None,
     read_env: Annotated[
-        bool,
+        bool | None,
         Doc(
-            "Whether to read `GREL_LOG_*` environment variables. Default: True."
+            "Whether to read `GREL_LOG_*` environment variables. "
+            "When None (default), follow `GREL_CONFIG_FROM_ENV`. "
+            "Pass True or False to override."
         ),
-    ] = True,
+    ] = None,
 ) -> LoggingConfig:
     """Configure logging with the selected backend.
 
