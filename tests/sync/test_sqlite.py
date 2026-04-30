@@ -71,30 +71,12 @@ def test_sqlite_env_var_settings_validation_error() -> None:
         SQLiteSyncBackend()
 
 
-def test_sync_backend_auto_register() -> None:
-    """Test Synchronization Backend Auto Register."""
-    # Arrange
+def test_sync_backend_constructor_does_not_register() -> None:
+    """Constructing the backend performs no registry writes."""
     sync_backend_registry.reset()
 
-    # Act
     SQLiteSyncBackend(path=":memory:")
 
-    # Assert
-    assert sync_backend_registry.is_loaded
-
-    # Cleanup
-    sync_backend_registry.reset()
-
-
-def test_sync_backend_auto_register_false() -> None:
-    """Test Synchronization Backend Auto Register Disabled."""
-    # Arrange
-    sync_backend_registry.reset()
-
-    # Act
-    SQLiteSyncBackend(path=":memory:", auto_register=False)
-
-    # Assert
     assert not sync_backend_registry.is_loaded
 
 

@@ -26,7 +26,7 @@ EXPECTED_CURRSIZE_2 = 2
 
 def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
     """Create a TTLCache with MemoryCacheBackend and pickle serialization."""
-    backend = MemoryCacheBackend(auto_register=False)
+    backend = MemoryCacheBackend()
     return TTLCache(
         maxsize=maxsize,
         ttl=ttl,

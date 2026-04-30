@@ -32,7 +32,7 @@ def test_backend_property_resolves_lazily_and_caches(
     mocker: MockerFixture,
 ) -> None:
     """First `lock.backend` access resolves once, subsequent reads hit the cache."""
-    backend_instance = MemorySyncBackend(auto_register=False)
+    backend_instance = MemorySyncBackend()
     spy = mocker.patch(
         "grelmicro.sync.lock.get_sync_backend", return_value=backend_instance
     )

@@ -45,25 +45,16 @@ class RedisCacheBackend:
                 By default no prefix is added.
                 """),
         ] = "",
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register this cache backend in the "
-                "backend registry."
-            ),
-        ] = True,
     ) -> None:
         """Initialize the Redis cache backend."""
         self._url, self._redis = _create_redis_client(
             url, CacheSettingsValidationError
         )
         self._prefix = prefix
-        self._auto_registered = auto_register
-        if auto_register:
-            cache_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Open the cache connection."""
+        """Open the cache connection and register the backend as default."""
+        cache_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -72,14 +63,9 @@ class RedisCacheBackend:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the cache connection."""
+        """Close the cache connection and unregister the backend."""
         await self._redis.aclose()
-        if (
-            self._auto_registered
-            and cache_backend_registry.is_loaded
-            and cache_backend_registry.get() is self
-        ):
-            cache_backend_registry.reset()
+        cache_backend_registry.unregister(self)
 
     async def get(self, *, key: str) -> bytes | None:
         """Get raw bytes by key.

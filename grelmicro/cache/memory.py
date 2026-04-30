@@ -2,9 +2,7 @@
 
 from time import monotonic
 from types import TracebackType
-from typing import Annotated, Self
-
-from typing_extensions import Doc
+from typing import Self
 
 from grelmicro.cache._backends import cache_backend_registry
 
@@ -16,25 +14,13 @@ class MemoryCacheBackend:
     Suitable for testing and single-process applications.
     """
 
-    def __init__(
-        self,
-        *,
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register this cache backend in the "
-                "backend registry."
-            ),
-        ] = True,
-    ) -> None:
+    def __init__(self) -> None:
         """Initialize the memory cache backend."""
         self._data: dict[str, tuple[bytes, float]] = {}
-        self._auto_registered = auto_register
-        if auto_register:
-            cache_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Open the cache backend."""
+        """Open the cache backend and register it as the default."""
+        cache_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -43,14 +29,9 @@ class MemoryCacheBackend:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the cache backend."""
+        """Close the cache backend and unregister it."""
         self._data.clear()
-        if (
-            self._auto_registered
-            and cache_backend_registry.is_loaded
-            and cache_backend_registry.get() is self
-        ):
-            cache_backend_registry.reset()
+        cache_backend_registry.unregister(self)
 
     async def get(self, *, key: str) -> bytes | None:
         """Get raw bytes by key.

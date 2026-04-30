@@ -1,7 +1,11 @@
 """Resilience."""
 
 import warnings
+from typing import Annotated
 
+from typing_extensions import Doc
+
+from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -28,6 +32,21 @@ from grelmicro.resilience.errors import (
 from grelmicro.resilience.memory import MemoryTokenBucket
 from grelmicro.resilience.ratelimiter import RateLimiter
 
+
+def use_backend(
+    backend: Annotated[
+        RateLimiterBackend,
+        Doc("The rate limiter backend to register as the default."),
+    ],
+) -> None:
+    """Register `backend` as the default rate limiter backend.
+
+    Idempotent: re-registering the same instance is a no-op.
+    Registering a different instance warns and replaces.
+    """
+    rate_limiter_backend_registry.register(backend)
+
+
 __all__ = [
     "CircuitBreaker",
     "CircuitBreakerConfig",
@@ -46,6 +65,7 @@ __all__ = [
     "ResilienceError",
     "ResilienceSettingsValidationError",
     "TokenBucketConfig",
+    "use_backend",
 ]
 
 

@@ -49,8 +49,8 @@ def health_router(
         Doc(
             "Health registry whose checks the router runs. When "
             "omitted, the router resolves the global registry "
-            "(the most recent ``HealthRegistry`` created with "
-            "``auto_register=True``)."
+            "(the registry installed via ``health.use_registry`` "
+            "or entered as an async context manager)."
         ),
     ] = None,
     *,

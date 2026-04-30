@@ -76,29 +76,16 @@ class RedisRateLimiterBackend(RateLimiterBackend):
                 """
             ),
         ] = "",
-        auto_register: Annotated[
-            bool,
-            Doc(
-                """
-                Automatically register the backend as the default
-                for rate limiters.
-
-                Set to `False` to manage multiple backends manually.
-                """
-            ),
-        ] = True,
     ) -> None:
         """Initialize the rate limiter backend."""
         self._url, self._redis = _create_redis_client(
             url, ResilienceSettingsValidationError
         )
         self._prefix = prefix
-        self._auto_registered = auto_register
-        if auto_register:
-            rate_limiter_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Open the rate limiter backend."""
+        """Open the rate limiter backend and register it as the default."""
+        rate_limiter_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -107,14 +94,9 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the rate limiter backend."""
+        """Close the rate limiter backend and unregister it."""
         await self._redis.aclose()
-        if (
-            self._auto_registered
-            and rate_limiter_backend_registry.is_loaded
-            and rate_limiter_backend_registry.get() is self
-        ):
-            rate_limiter_backend_registry.reset()
+        rate_limiter_backend_registry.unregister(self)
 
     def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.

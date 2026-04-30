@@ -56,12 +56,6 @@ class RedisSyncBackend(SyncBackend):
                 By default no prefix is added.
                 """),
         ] = "",
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register the lock backend in the backend registry."
-            ),
-        ] = True,
     ) -> None:
         """Initialize the lock backend."""
         self._url, self._redis = _create_redis_client(
@@ -72,12 +66,10 @@ class RedisSyncBackend(SyncBackend):
         self._lua_acquire = self._redis.register_script(
             self._LUA_ACQUIRE_OR_EXTEND
         )
-        self._auto_registered = auto_register
-        if auto_register:
-            sync_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Open the lock backend."""
+        """Open the lock backend and register it as the default."""
+        sync_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -86,14 +78,9 @@ class RedisSyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the lock backend."""
+        """Close the lock backend and unregister it."""
         await self._redis.aclose()
-        if (
-            self._auto_registered
-            and sync_backend_registry.is_loaded
-            and sync_backend_registry.get() is self
-        ):
-            sync_backend_registry.reset()
+        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire the lock."""

@@ -300,10 +300,13 @@ If you adapt code from another project, even a snippet:
   `_protocol.py`, with at least a Memory and a Redis
   implementation.
 - Backends are registered in a shared registry
-  (`grelmicro/_backends.py::BackendRegistry`). User code picks a
-  backend either by initialising a concrete backend class with
-  `auto_register=True` or by passing `backend=` explicitly to the
-  primitive's constructor.
+  (`grelmicro/_backends.py::BackendRegistry`). Construction is
+  pure: `__init__` performs no registry writes. User code picks a
+  backend either by entering it as an async context manager
+  (`async with` registers on enter, unregisters on exit), by
+  calling the module-level `use_backend` helper for process-
+  lifetime registration, or by passing `backend=` explicitly to
+  the primitive's constructor.
 - Primitives expose the `backend=` override even when they also
   fall back to the registry.
 

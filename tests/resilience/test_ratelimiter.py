@@ -334,12 +334,15 @@ async def test_invalid_cost(limiter: RateLimiter, cost: int) -> None:
 
 
 async def test_explicit_backend_bypasses_registry() -> None:
-    """Test backend= arg wins over registered default."""
-    # Arrange: registered backend rejects everything
-    rejected = MemoryRateLimiterBackend()
-    my = MemoryRateLimiterBackend(auto_register=False)
+    """Test backend= arg wins over a registered default."""
+    # Arrange: explicitly register a backend as the default, then build a
+    # RateLimiter with a different explicit backend.
+    registered = MemoryRateLimiterBackend()
+    rate_limiter_backend_registry.register(registered)
+    assert rate_limiter_backend_registry.get() is registered
+    my = MemoryRateLimiterBackend()
 
-    # Act: limiter uses the explicit backend
+    # Act: limiter is built with the explicit backend instance
     rl = RateLimiter(
         "explicit",
         GCRAConfig(limit=LIMIT, window=WINDOW),
@@ -348,8 +351,7 @@ async def test_explicit_backend_bypasses_registry() -> None:
 
     # Assert: RateLimiter exposes the explicit backend, ignores the registered one
     assert rl.backend is my
-    _ = rejected  # keep the registered instance alive for the test scope
-    assert rl._backend is not rejected
+    assert rl.backend is not registered
 
 
 # --- Error class ---
@@ -578,7 +580,7 @@ async def test_gcra_strategy_evicts_expired_keys(
     """Test _MemoryGCRA eviction drops keys whose TAT has passed."""
     # Arrange
     monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 1)
-    backend = MemoryRateLimiterBackend(auto_register=False)
+    backend = MemoryRateLimiterBackend()
     limiter = RateLimiter(
         "evict",
         GCRAConfig(limit=LIMIT, window=WINDOW),
@@ -602,7 +604,7 @@ async def test_token_bucket_strategy_evicts_full_keys(
     """Test _MemoryTokenBucket eviction drops keys at full capacity."""
     # Arrange
     monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 2)
-    backend = MemoryRateLimiterBackend(auto_register=False)
+    backend = MemoryRateLimiterBackend()
     limiter = RateLimiter(
         "evict",
         TokenBucketConfig(capacity=CAPACITY, refill_rate=1),

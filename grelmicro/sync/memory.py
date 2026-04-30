@@ -2,9 +2,7 @@
 
 from time import monotonic
 from types import TracebackType
-from typing import Annotated, Self
-
-from typing_extensions import Doc
+from typing import Self
 
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
@@ -17,24 +15,13 @@ class MemorySyncBackend(SyncBackend):
     testing purposes or for locking operations that are executed in the same AnyIO event loop.
     """
 
-    def __init__(
-        self,
-        *,
-        auto_register: Annotated[
-            bool,
-            Doc(
-                "Automatically register the lock backend in the backend registry."
-            ),
-        ] = True,
-    ) -> None:
+    def __init__(self) -> None:
         """Initialize the lock backend."""
         self._locks: dict[str, tuple[str | None, float]] = {}
-        self._auto_registered = auto_register
-        if auto_register:
-            sync_backend_registry.set(self)
 
     async def __aenter__(self) -> Self:
-        """Enter the lock backend."""
+        """Enter the lock backend and register it as the default."""
+        sync_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -43,14 +30,9 @@ class MemorySyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit the lock backend."""
+        """Exit the lock backend and unregister it."""
         self._locks.clear()
-        if (
-            self._auto_registered
-            and sync_backend_registry.is_loaded
-            and sync_backend_registry.get() is self
-        ):
-            sync_backend_registry.reset()
+        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire the lock."""

@@ -15,25 +15,44 @@ The `BackendRegistry[T]` is a generic, typed container that holds a single defau
 | `sync` | `sync_backend_registry` | `SyncBackend` | Redis, PostgreSQL, SQLite, Kubernetes, Memory |
 | `cache` | `cache_backend_registry` | `CacheBackend` | Redis, Memory |
 
-## Registration
+## Construction vs registration
 
-Backends register themselves on initialization via `auto_register=True` (the default):
+Construction and registration are two distinct steps. `__init__` is pure: it validates configuration and binds locals, but never touches the global registry. Registration is explicit and reversible.
+
+There are three ways to register a backend:
+
+**1. Scoped registration via `async with` (recommended).** `__aenter__` registers the backend, `__aexit__` unregisters it. The registry is empty after the context exits.
 
 ```python
 async with RedisSyncBackend() as backend:
-    # backend is now the default for Lock, TaskLock, LeaderElection
+    # backend is the default for Lock, TaskLock, LeaderElection here
     ...
+# unregistered on exit
 ```
 
-This calls `sync_backend_registry.set(self)` internally. Consumers that accept an optional `backend` parameter fall back to the registry when none is provided:
+**2. Process-lifetime registration via `use_backend`.** Each module exposes a small helper for `main()` or lifespan wiring:
 
 ```python
-# Explicit backend
-lock = Lock(name="my-lock", backend=my_backend)
+from grelmicro import sync
 
-# Uses the registered default
-lock = Lock(name="my-lock")
+backend = RedisSyncBackend()
+sync.use_backend(backend)  # idempotent on the same instance
 ```
+
+The helpers are: `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelmicro.resilience.use_backend`, `grelmicro.health.use_registry`.
+
+**3. Pure construction without registration.** Pass the backend explicitly to consumers and skip the registry entirely:
+
+```python
+backend = MemorySyncBackend()
+lock = Lock(name="my-lock", backend=backend)
+```
+
+Consumers that accept an optional `backend` parameter fall back to the registry when none is provided.
+
+### Identity-checked unregister
+
+`registry.unregister(backend)` only clears the slot when the registered instance is identical to the one passed in. Calling it on a non-current instance is a no-op. This means a stale backend's `__aexit__` cannot evict a newer backend that replaced it.
 
 ## Protocol-Based Polymorphism
 
@@ -42,19 +61,6 @@ Backends are defined by protocols (structural typing), not base classes. Any obj
 - Swapping backends without changing application code
 - Writing test backends (e.g. `MemorySyncBackend`) with no external dependencies
 - Adding new backends without modifying existing code
-
-## Auto-Registration Control
-
-Set `auto_register=False` to create a backend without registering it as the default. This is useful for:
-
-- Tests that need isolated backend instances
-- Applications using multiple backends for different purposes
-- Manual wiring in dependency injection setups
-
-```python
-# Not registered as default
-cache = RedisCache(url="redis://localhost/1", ttl=60, auto_register=False)
-```
 
 ## Connection Pool Isolation
 
