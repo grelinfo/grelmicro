@@ -7,7 +7,6 @@ from pydantic import RedisDsn
 from typing_extensions import Doc
 
 from grelmicro._redis import _create_redis_client
-from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache.errors import CacheSettingsValidationError
 
 _CLEAR_BATCH_SIZE = 1000
@@ -53,8 +52,7 @@ class RedisCacheBackend:
         self._prefix = prefix
 
     async def __aenter__(self) -> Self:
-        """Open the cache connection and register the backend as default."""
-        cache_backend_registry.register(self)
+        """Open the cache connection."""
         return self
 
     async def __aexit__(
@@ -63,9 +61,8 @@ class RedisCacheBackend:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the cache connection and unregister the backend."""
+        """Close the cache connection."""
         await self._redis.aclose()
-        cache_backend_registry.unregister(self)
 
     async def get(self, *, key: str) -> bytes | None:
         """Get raw bytes by key.

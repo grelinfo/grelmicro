@@ -8,51 +8,110 @@ All backends use **async** methods because they perform network or disk I/O (Red
 
 ## Design
 
-The `BackendRegistry[T]` is a generic, typed container that holds a single default backend instance. Each module maintains its own registry:
+`BackendRegistry[T]` is a generic, typed, multi-name container with task-scoped overrides. Each module maintains its own registry. The registry key matches the module name and is the value to use in `lifespan(exclude={...})`:
 
-| Module | Registry | Protocol | Backends |
+| Module | Registry key | Protocol / Type | Backends |
 |---|---|---|---|
-| `sync` | `sync_backend_registry` | `SyncBackend` | Redis, PostgreSQL, SQLite, Kubernetes, Memory |
-| `cache` | `cache_backend_registry` | `CacheBackend` | Redis, Memory |
+| `grelmicro.sync` | `sync` | `SyncBackend` | Redis, PostgreSQL, SQLite, Kubernetes, Memory |
+| `grelmicro.cache` | `cache` | `CacheBackend` | Redis, Memory |
+| `grelmicro.resilience` | `resilience` | `RateLimiterBackend` | Redis, Memory |
+| `grelmicro.health` | `health` | `HealthRegistry` | (any number of named registries) |
+
+A registry holds zero or more named entries. Backends are looked up by name at call time, and each entry is independent. The `"default"` slot is the implicit name when no `backend=` is passed.
 
 ## Construction vs registration
 
-Construction and registration are two distinct steps. `__init__` is pure: it validates configuration and binds locals, but never touches the global registry. Registration is explicit and reversible.
+Construction and registration are two distinct steps. `__init__` is pure: it validates configuration and binds locals. It performs no registry writes and no I/O. Registration is explicit and reversible.
 
-There are three ways to register a backend:
+There are three ways to wire a backend:
 
-**1. Scoped registration via `async with` (recommended).** `__aenter__` registers the backend, `__aexit__` unregisters it. The registry is empty after the context exits.
+**1. Register and open via `grelmicro.lifespan()` (recommended for apps).** Register synchronously at startup, then open every registered backend with one call:
 
 ```python
-async with RedisSyncBackend() as backend:
-    # backend is the default for Lock, TaskLock, LeaderElection here
+import grelmicro
+from grelmicro import sync, cache
+
+sync.register(RedisSyncBackend())             # implicit "default"
+cache.register(RedisCacheBackend())
+
+async with grelmicro.lifespan():
+    # every registered backend is open here
     ...
-# unregistered on exit
+# every registered backend is closed on exit (LIFO)
 ```
 
-**2. Process-lifetime registration via `use_backend`.** Each module exposes a small helper for `main()` or lifespan wiring:
+`grelmicro.lifespan()` walks every grelmicro registry that has been imported in the current process, opens each entry via its async context manager, and closes them in reverse order on exit. Use `exclude={"<module>"}` to skip a whole module or `exclude={"<module>.<name>"}` to skip one entry.
+
+**2. Module-level `use_backend` shorthand.** Equivalent to `register("default", backend)`:
 
 ```python
 from grelmicro import sync
 
-backend = RedisSyncBackend()
-sync.use_backend(backend)  # idempotent on the same instance
+sync.use_backend(RedisSyncBackend())
 ```
 
-The helpers are: `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelmicro.resilience.use_backend`, `grelmicro.health.use_registry`.
+Available as `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelmicro.resilience.use_backend`, and `grelmicro.health.use_registry`.
 
-**3. Pure construction without registration.** Pass the backend explicitly to consumers and skip the registry entirely:
+**3. Pure construction with explicit pass-through.** Skip the registry entirely:
 
 ```python
-backend = MemorySyncBackend()
-lock = Lock(name="my-lock", backend=backend)
+async with RedisSyncBackend() as backend:
+    lock = Lock(name="my-lock", backend=backend)
+    async with lock:
+        ...
 ```
 
-Consumers that accept an optional `backend` parameter fall back to the registry when none is provided.
+`async with` opens the connection only. The backend is not registered.
 
-### Identity-checked unregister
+## Named backends and per-call selection
 
-`registry.unregister(backend)` only clears the slot when the registered instance is identical to the one passed in. Calling it on a non-current instance is a no-op. This means a stale backend's `__aexit__` cannot evict a newer backend that replaced it.
+Register multiple backends under different names and pick one at the call site:
+
+```python
+sync.register(RedisSyncBackend())                              # → "default"
+sync.register(PostgresSyncBackend("postgres://..."), "analytics")
+
+Lock("cart")                          # → "default" (Redis)
+Lock("audit", backend="analytics")     # → "analytics" (Postgres)
+Lock("cart", backend=my_instance)      # → explicit instance, bypasses names
+```
+
+Resolution order, in priority:
+
+1. Explicit instance (`backend=instance`).
+2. Task-scoped override for the requested name (set via `<module>.use(...)`).
+3. Registered entry under the requested name.
+4. When the requested name is `"default"` and exactly one backend is registered: that sole entry.
+5. Otherwise raise `BackendNotLoadedError`.
+
+## Task-scoped overrides
+
+`<module>.use(...)` installs a per-task override for the duration of a `with` block. Stacks LIFO via `contextvars`:
+
+```python
+from grelmicro import sync
+
+with sync.use(MemorySyncBackend()):           # overrides "default" only
+    Lock("cart")                              # → MemorySyncBackend
+
+with sync.use(default=mem, analytics=fake):   # overrides multiple names
+    ...
+
+# Tests
+async def test_checkout():
+    with sync.use(MemorySyncBackend()):
+        await checkout()
+```
+
+The override propagates downward through `await`, `start_soon`, and `to_thread.run_sync` (AnyIO copies the context at every concurrency boundary). Set the override on the side that *calls into* the registry: an override set inside a worker thread is invisible to `from_thread.run` callbacks (which run on the loop's context).
+
+## Lazy registration and zero-RAM-cost for unused modules
+
+Each `BackendRegistry` subscribes itself into a process-wide map *when its module is imported*. Modules you never import never create their registry, never appear in `grelmicro.lifespan()`, and never consume RAM. `import grelmicro` alone is ~6 ms; the per-component cost is paid only when the user imports that component.
+
+## Identity-checked unregister
+
+`registry.unregister(name, backend)` clears the entry only when the registered instance is identical to the one passed in. Calling on a non-current instance is a no-op. A stale backend's teardown cannot evict a newer backend that replaced it under the same name.
 
 ## Protocol-Based Polymorphism
 
@@ -80,6 +139,12 @@ Shared Redis configuration (URL resolution from environment variables) is dedupl
 Accessing a registry before any backend is registered raises `BackendNotLoadedError` with a descriptive message:
 
 ```
-No lock backend loaded. Initialize a backend first
-(e.g. with ``async with`` a backend instance).
+No sync backend loaded for name 'default'.
+```
+
+Or, when multiple backends are registered without a `"default"`:
+
+```
+No default sync backend: multiple are registered
+(['analytics', 'primary']), none named 'default'.
 ```

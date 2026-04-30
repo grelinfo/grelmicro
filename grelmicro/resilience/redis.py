@@ -8,7 +8,6 @@ from redis.asyncio import Redis
 from typing_extensions import Doc
 
 from grelmicro._redis import _create_redis_client
-from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -84,8 +83,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         self._prefix = prefix
 
     async def __aenter__(self) -> Self:
-        """Open the rate limiter backend and register it as the default."""
-        rate_limiter_backend_registry.register(self)
+        """Open the rate limiter backend."""
         return self
 
     async def __aexit__(
@@ -94,9 +92,8 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the rate limiter backend and unregister it."""
+        """Close the rate limiter backend."""
         await self._redis.aclose()
-        rate_limiter_backend_registry.unregister(self)
 
     def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.

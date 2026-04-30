@@ -16,7 +16,6 @@ from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
@@ -106,12 +105,11 @@ class KubernetesSyncBackend(SyncBackend):
         self._client: AsyncClient | None = None
 
     async def __aenter__(self) -> Self:
-        """Enter the lock backend and register it as the default."""
+        """Open the lock backend."""
         config = (
             KubeConfig.from_file(self._kubeconfig) if self._kubeconfig else None
         )
         self._client = AsyncClient(config=config)
-        sync_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -120,7 +118,7 @@ class KubernetesSyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit the lock backend and unregister it."""
+        """Close the lock backend."""
         if self._client:
             # Clean up expired leases managed by grelmicro
             now = datetime.now(tz=UTC)
@@ -144,7 +142,6 @@ class KubernetesSyncBackend(SyncBackend):
                             raise
             await self._client.close()
             self._client = None
-        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""

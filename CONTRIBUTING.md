@@ -299,16 +299,17 @@ If you adapt code from another project, even a snippet:
   ...) has a matching `XBackend` Protocol under the package's
   `_protocol.py`, with at least a Memory and a Redis
   implementation.
-- Backends are registered in a shared registry
+- Backends live in a multi-name registry
   (`grelmicro/_backends.py::BackendRegistry`). Construction is
-  pure: `__init__` performs no registry writes. User code picks a
-  backend either by entering it as an async context manager
-  (`async with` registers on enter, unregisters on exit), by
-  calling the module-level `use_backend` helper for process-
-  lifetime registration, or by passing `backend=` explicitly to
-  the primitive's constructor.
-- Primitives expose the `backend=` override even when they also
-  fall back to the registry.
+  pure: `__init__` performs no registry writes and no I/O. User
+  code wires a backend by calling `<module>.register(backend)`
+  (defaults to the `"default"` name) or
+  `<module>.register(backend, "analytics")` for a named entry,
+  then opens every registered backend via
+  `grelmicro.lifespan()`. Primitives accept `backend=` as an
+  instance override or `backend="<name>"` for a named lookup;
+  the registry is consulted on every call so that
+  `<module>.use(...)` overrides take effect.
 
 ### About grelmicro versions
 

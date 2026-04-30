@@ -8,7 +8,6 @@ from typing import Annotated, Self, assert_never
 
 from typing_extensions import Doc
 
-from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -196,8 +195,7 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         self._lock = Lock()
 
     async def __aenter__(self) -> Self:
-        """Open the rate limiter backend and register it as the default."""
-        rate_limiter_backend_registry.register(self)
+        """Open the rate limiter backend."""
         return self
 
     async def __aexit__(
@@ -206,11 +204,10 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the rate limiter backend and unregister it."""
+        """Close the rate limiter backend."""
         with self._lock:
             self._token_bucket_state.clear()
             self._gcra_state.clear()
-        rate_limiter_backend_registry.unregister(self)
 
     def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.

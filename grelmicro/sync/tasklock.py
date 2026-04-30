@@ -97,7 +97,7 @@ class TaskLock(SyncPrimitive):
         ],
         *,
         backend: Annotated[
-            SyncBackend | None,
+            SyncBackend | str | None,
             Doc(
                 """
                 The distributed lock backend used to acquire and release the lock.
@@ -213,7 +213,7 @@ class TaskLock(SyncPrimitive):
         ],
         *,
         backend: Annotated[
-            SyncBackend | None,
+            SyncBackend | str | None,
             Doc(
                 """
                 The distributed lock backend used to acquire and release the lock.
@@ -232,13 +232,18 @@ class TaskLock(SyncPrimitive):
         self,
         name: str,
         config: TaskLockConfig,
-        backend: SyncBackend | None,
+        backend: SyncBackend | str | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
-        self._backend: SyncBackend | None = backend
+        self._backend: SyncBackend | None = (
+            backend if not isinstance(backend, str) else None
+        )
+        self._backend_name: str | None = (
+            backend if isinstance(backend, str) else None
+        )
         self._acquired_at: float | None = None
         self._token_nonce = generate_token_nonce()
         self._from_thread: ThreadTaskLockAdapter | None = None
@@ -250,14 +255,16 @@ class TaskLock(SyncPrimitive):
 
     @property
     def backend(self) -> SyncBackend:
-        """Bound sync backend, resolved lazily on first access."""
-        return self._backend or self._resolve_backend()
+        """Bound sync backend, resolved on each call.
 
-    def _resolve_backend(self) -> SyncBackend:
-        """Resolve the backend from the global registry and cache it."""
-        backend = get_sync_backend()
-        self._backend = backend
-        return backend
+        When a backend instance was passed at construction it is
+        always returned. Otherwise the registry is consulted on
+        every access so that task-scoped ``sync.use(...)``
+        overrides take effect.
+        """
+        if self._backend is not None:
+            return self._backend
+        return get_sync_backend(self._backend_name or "default")
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with duration=max_lock_seconds.
@@ -312,7 +319,7 @@ class TaskLock(SyncPrimitive):
         Raises:
             LockLockedCheckError: If the lock cannot be checked due to an error on the backend.
         """
-        backend = self._backend or self._resolve_backend()
+        backend = self.backend
         try:
             return await backend.locked(name=self._lock_name)
         except Exception as exc:
@@ -329,7 +336,7 @@ class TaskLock(SyncPrimitive):
         Raises:
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
-        backend = self._backend or self._resolve_backend()
+        backend = self.backend
         try:
             acquired = await backend.acquire(
                 name=self._lock_name,
@@ -353,7 +360,7 @@ class TaskLock(SyncPrimitive):
         Raises:
             LockReleaseError: Cannot release the lock due to backend error.
         """
-        backend = self._backend or self._resolve_backend()
+        backend = self.backend
         try:
             return await backend.release(name=self._lock_name, token=token)
         except Exception as exc:
@@ -370,7 +377,7 @@ class TaskLock(SyncPrimitive):
         Raises:
             LockReleaseError: Cannot re-acquire the lock due to backend error.
         """
-        backend = self._backend or self._resolve_backend()
+        backend = self.backend
         try:
             return await backend.acquire(
                 name=self._lock_name,

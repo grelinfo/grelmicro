@@ -4,13 +4,22 @@
 
 ### Breaking
 
-* 💥 Backend constructors are now pure: `__init__` performs no registry writes. The `auto_register` kwarg is removed from `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `SQLiteSyncBackend`, `KubernetesSyncBackend`, `MemoryCacheBackend`, `RedisCacheBackend`, `MemoryRateLimiterBackend`, `RedisRateLimiterBackend`, and `HealthRegistry`. Register via `async with` (scoped) or the new `use_backend` / `use_registry` helpers (process lifetime). PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
+* 💥 Backend constructors are now pure: `__init__` performs no registry writes. The `auto_register` kwarg is removed from every backend and from `HealthRegistry`. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
 * 💥 `BackendRegistry.set` is renamed `register` and `BackendRegistry.unregister` is added with an identity check. `reset` remains for test fixtures. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
+* 💥 `async with backend` opens the connection but no longer registers. Call `register(backend)` (or `use_backend(backend)`) to register, or open everything at once with `grelmicro.lifespan()`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* 💥 `BackendRegistry` is now multi-name: `register(backend, name="default")`, `unregister(name, backend=None)`, `get(name="default")`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* 💥 The sync registry name changed from `"lock"` to `"sync"` (used in error messages and `lifespan()` exclude keys); the rate limiter registry from `"rate_limiter"` to `"resilience"`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* 💥 Overwriting a registered name with a different instance now raises `BackendAlreadyRegisteredError` (was: warning + replace). Re-registering the same instance stays a no-op. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
 
 ### Features
 
 * ✨ Add `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelmicro.resilience.use_backend`, and `grelmicro.health.use_registry` for explicit, idempotent process-lifetime registration. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
-* ✨ Backends register on `__aenter__` and unregister on `__aexit__` with identity-checked unregister, so a stale backend cannot evict the one that replaced it. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
+* ✨ `grelmicro.lifespan(*ad_hoc, exclude=...)` opens every registered backend across every imported module in one call, with reverse-order shutdown. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* ✨ Per-module helpers `register`, `unregister`, `use_backend`, `use` on `grelmicro.sync`, `grelmicro.cache`, `grelmicro.resilience` (and `use_registry`, `use` on `grelmicro.health`). PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* ✨ Task-scoped overrides via `<module>.use(backend)` or `<module>.use(default=a, analytics=b)`. Stacks LIFO via `contextvars` for per-test and per-request substitution. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* ✨ Primitives accept `backend=` as either a backend instance or a registered name (`Lock("audit", backend="analytics")`). The registry is consulted on each call so `<module>.use(...)` overrides apply. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* ✨ Registries subscribe themselves on import: `lifespan()` walks only modules that are actually imported, so unused components have zero RAM cost and zero startup work. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* ✨ Lookup falls back to the sole registered entry when no `"default"` is named, so the single-backend case stays one-call. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
 
 ## 0.17.0 - 2026-04-29
 

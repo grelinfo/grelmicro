@@ -4,7 +4,6 @@ from time import monotonic
 from types import TracebackType
 from typing import Self
 
-from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 
 
@@ -20,8 +19,7 @@ class MemorySyncBackend(SyncBackend):
         self._locks: dict[str, tuple[str | None, float]] = {}
 
     async def __aenter__(self) -> Self:
-        """Enter the lock backend and register it as the default."""
-        sync_backend_registry.register(self)
+        """Open the lock backend."""
         return self
 
     async def __aexit__(
@@ -30,9 +28,8 @@ class MemorySyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit the lock backend and unregister it."""
+        """Close the lock backend."""
         self._locks.clear()
-        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire the lock."""
