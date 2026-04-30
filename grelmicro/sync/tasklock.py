@@ -123,7 +123,8 @@ class TaskLock(SyncPrimitive):
                 The minimum duration in seconds to hold the lock after task completion.
 
                 Default: 1. Prevents re-execution on other nodes
-                before this duration has elapsed. When unset,
+                before this duration has elapsed. When unset and env reads
+                are enabled (see `read_env` and `GREL_CONFIG_FROM_ENV`),
                 resolves from the environment variable
                 `GREL_TASK_LOCK_{NAME_UPPER}_MIN_LOCK_SECONDS` if
                 present, otherwise falls back to the
@@ -137,7 +138,8 @@ class TaskLock(SyncPrimitive):
                 """
                 The maximum duration in seconds to hold the lock (deadlock protection).
 
-                Default: 60. Acts as the TTL on acquire. When unset,
+                Default: 60. Acts as the TTL on acquire. When unset and env reads
+                are enabled (see `read_env` and `GREL_CONFIG_FROM_ENV`),
                 resolves from the environment variable
                 `GREL_TASK_LOCK_{NAME_UPPER}_MAX_LOCK_SECONDS` if
                 present, otherwise falls back to the

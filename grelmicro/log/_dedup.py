@@ -117,7 +117,8 @@ class DuplicateFilter(Filter):
                 Maximum number of records per key that pass the
                 filter before subsequent records are dropped.
 
-                Default: 5. When unset, resolves from the environment
+                Default: 5. When unset and env reads are enabled (see ``read_env`` and
+                ``GREL_CONFIG_FROM_ENV``), resolves from the environment
                 variable ``GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS``
                 if present, otherwise falls back to the
                 ``DuplicateFilterConfig`` default.

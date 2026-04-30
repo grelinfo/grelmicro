@@ -190,9 +190,9 @@ class CircuitBreaker:
                 Errors of these types do not count toward `error_threshold`.
                 Accepts a single exception class, a tuple, or fully-qualified
                 import strings such as `"builtins.ValueError"` or
-                `"my_app.errors.PaymentError"`. When unset, resolves from the
-                env path or falls back to the `CircuitBreakerConfig` default
-                (empty tuple).
+                `"my_app.errors.PaymentError"`. When unset and env reads are enabled (see `read_env`
+                and `GREL_CONFIG_FROM_ENV`), resolves from the env path or
+                falls back to the `CircuitBreakerConfig` default (empty tuple).
                 """
             ),
         ] = None,
@@ -202,7 +202,8 @@ class CircuitBreaker:
                 """
                 Consecutive errors before the breaker opens.
 
-                Default: 5. When unset, resolves from
+                Default: 5. When unset and env reads are enabled (see `read_env`
+                and `GREL_CONFIG_FROM_ENV`), resolves from
                 `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD` if
                 present, otherwise falls back to the
                 `CircuitBreakerConfig` default.
