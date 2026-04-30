@@ -18,15 +18,19 @@ from grelmicro.health.errors import HealthError
 
 
 def register(
-    name: Annotated[str, Doc("Name to register the registry under.")],
     registry: Annotated[HealthRegistry, Doc("The health registry instance.")],
+    name: Annotated[
+        str, Doc("Name to register the registry under.")
+    ] = DEFAULT_NAME,
 ) -> None:
-    """Register ``registry`` under ``name``."""
-    health_registry.register(name, registry)
+    """Register ``registry`` under ``name`` (defaults to ``"default"``)."""
+    health_registry.register(registry, name)
 
 
 def unregister(
-    name: Annotated[str, Doc("Name of the registered instance to remove.")],
+    name: Annotated[
+        str, Doc("Name of the registered instance to remove.")
+    ] = DEFAULT_NAME,
     registry: Annotated[
         HealthRegistry | None,
         Doc("Optional instance for an identity-checked removal."),
@@ -43,7 +47,7 @@ def use_registry(
     ],
 ) -> None:
     """Register ``registry`` under the ``"default"`` name."""
-    health_registry.register(DEFAULT_NAME, registry)
+    health_registry.register(registry, DEFAULT_NAME)
 
 
 def use(

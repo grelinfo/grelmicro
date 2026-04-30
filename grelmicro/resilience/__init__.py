@@ -36,15 +36,19 @@ from grelmicro.resilience.ratelimiter import RateLimiter
 
 
 def register(
-    name: Annotated[str, Doc("Name to register the backend under.")],
     backend: Annotated[RateLimiterBackend, Doc("The rate limiter backend.")],
+    name: Annotated[
+        str, Doc("Name to register the backend under.")
+    ] = DEFAULT_NAME,
 ) -> None:
-    """Register ``backend`` under ``name``."""
-    rate_limiter_backend_registry.register(name, backend)
+    """Register ``backend`` under ``name`` (defaults to ``"default"``)."""
+    rate_limiter_backend_registry.register(backend, name)
 
 
 def unregister(
-    name: Annotated[str, Doc("Name of the registered backend to remove.")],
+    name: Annotated[
+        str, Doc("Name of the registered backend to remove.")
+    ] = DEFAULT_NAME,
     backend: Annotated[
         RateLimiterBackend | None,
         Doc("Optional backend instance for an identity-checked removal."),
@@ -61,7 +65,7 @@ def use_backend(
     ],
 ) -> None:
     """Register ``backend`` under the ``"default"`` name."""
-    rate_limiter_backend_registry.register(DEFAULT_NAME, backend)
+    rate_limiter_backend_registry.register(backend, DEFAULT_NAME)
 
 
 def use(

@@ -20,15 +20,19 @@ from grelmicro.cache.ttl import CacheInfo, TTLCache
 
 
 def register(
-    name: Annotated[str, Doc("Name to register the backend under.")],
     backend: Annotated[CacheBackend, Doc("The cache backend.")],
+    name: Annotated[
+        str, Doc("Name to register the backend under.")
+    ] = DEFAULT_NAME,
 ) -> None:
-    """Register ``backend`` under ``name``."""
-    cache_backend_registry.register(name, backend)
+    """Register ``backend`` under ``name`` (defaults to ``"default"``)."""
+    cache_backend_registry.register(backend, name)
 
 
 def unregister(
-    name: Annotated[str, Doc("Name of the registered backend to remove.")],
+    name: Annotated[
+        str, Doc("Name of the registered backend to remove.")
+    ] = DEFAULT_NAME,
     backend: Annotated[
         CacheBackend | None,
         Doc("Optional backend instance for an identity-checked removal."),
@@ -45,7 +49,7 @@ def use_backend(
     ],
 ) -> None:
     """Register ``backend`` under the ``"default"`` name."""
-    cache_backend_registry.register(DEFAULT_NAME, backend)
+    cache_backend_registry.register(backend, DEFAULT_NAME)
 
 
 def use(

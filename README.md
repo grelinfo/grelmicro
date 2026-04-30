@@ -77,6 +77,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 
+import grelmicro
+from grelmicro import cache, resilience, sync
 from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.logging import configure_logging
@@ -94,20 +96,21 @@ logger = logging.getLogger(__name__)
 
 # === grelmicro ===
 task = TaskManager()
-sync_backend = RedisSyncBackend("redis://localhost:6379/0")
-cache_backend = RedisCacheBackend("redis://localhost:6379/0", prefix="myapp:")
-rate_limit_backend = RedisRateLimiterBackend("redis://localhost:6379/0")
+sync.register(RedisSyncBackend("redis://localhost:6379/0"))
+cache.register(RedisCacheBackend("redis://localhost:6379/0", prefix="myapp:"))
+resilience.register(RedisRateLimiterBackend("redis://localhost:6379/0"))
+
 leader_election = LeaderElection("leader-election")
 task.add_task(leader_election)
 
-cache = TTLCache(ttl=300, serializer=JsonSerializer())
+ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
 
 # === FastAPI ===
 @asynccontextmanager
 async def lifespan(app):
     configure_logging()
-    async with sync_backend, cache_backend, rate_limit_backend, task:
+    async with grelmicro.lifespan(task):
         yield
 
 
@@ -115,7 +118,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 # --- Cache: avoid redundant database queries ---
-@cached(cache)
+@cached(ttl_cache)
 async def get_user(user_id: int) -> dict:
     return {"id": user_id, "name": "Alice"}
 

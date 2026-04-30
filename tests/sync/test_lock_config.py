@@ -28,10 +28,10 @@ def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
     assert spy.call_count == 0
 
 
-def test_backend_property_resolves_lazily_and_caches(
+def test_backend_property_resolves_on_every_call(
     mocker: MockerFixture,
 ) -> None:
-    """First `lock.backend` access resolves once, subsequent reads hit the cache."""
+    """`lock.backend` consults the registry on each read so `sync.use(...)` overrides apply."""
     backend_instance = MemorySyncBackend()
     spy = mocker.patch(
         "grelmicro.sync.lock.get_sync_backend", return_value=backend_instance
@@ -40,7 +40,8 @@ def test_backend_property_resolves_lazily_and_caches(
     assert spy.call_count == 0
     assert lock.backend is backend_instance
     assert lock.backend is backend_instance
-    assert spy.call_count == 1
+    expected_calls = 2
+    assert spy.call_count == expected_calls
 
 
 def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:

@@ -8,7 +8,10 @@ import anyio
 import pytest
 from pydantic import ValidationError
 
-from grelmicro._backends import BackendNotLoadedError
+from grelmicro._backends import (
+    BackendAlreadyRegisteredError,
+    BackendNotLoadedError,
+)
 from grelmicro.health import use_registry
 from grelmicro.health._backends import get_health_registry, health_registry
 from grelmicro.health._models import HealthStatus
@@ -526,19 +529,19 @@ def test_get_health_registry_raises_when_not_loaded() -> None:
         get_health_registry()
 
 
-def test_overwrite_warns() -> None:
-    """Registering a different registry over an existing one warns."""
-    health_registry.register("default", HealthRegistry())
+def test_overwrite_raises() -> None:
+    """Registering a different registry over an existing one raises."""
+    health_registry.register(HealthRegistry(), "default")
 
-    with pytest.warns(UserWarning, match="Overwriting"):
-        health_registry.register("default", HealthRegistry())
+    with pytest.raises(BackendAlreadyRegisteredError):
+        health_registry.register(HealthRegistry(), "default")
 
 
 def test_register_health_registry() -> None:
     """health_registry.register installs the singleton."""
     registry = HealthRegistry()
 
-    health_registry.register("default", registry)
+    health_registry.register(registry, "default")
 
     assert get_health_registry() is registry
 
@@ -546,7 +549,7 @@ def test_register_health_registry() -> None:
 def test_reset_health_registry() -> None:
     """health_registry.reset removes the singleton."""
     registry = HealthRegistry()
-    health_registry.register("default", registry)
+    health_registry.register(registry, "default")
 
     health_registry.reset()
 

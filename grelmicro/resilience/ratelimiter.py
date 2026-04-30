@@ -103,7 +103,7 @@ class RateLimiter:
         ],
         *,
         backend: Annotated[
-            RateLimiterBackend | None,
+            RateLimiterBackend | str | None,
             Doc(
                 """
                 An explicit backend instance. When `None` (the
@@ -119,7 +119,12 @@ class RateLimiter:
         """Initialize the rate limiter."""
         self._name = name
         self._config = config
-        self._backend: RateLimiterBackend | None = backend
+        self._backend: RateLimiterBackend | None = (
+            backend if not isinstance(backend, str) else None
+        )
+        self._backend_name: str | None = (
+            backend if isinstance(backend, str) else None
+        )
         self._strategy: RateLimiterStrategy | None = None
         self._fail_open = config.fail_open
         self._fallback = _build_fallback(config)
@@ -136,14 +141,16 @@ class RateLimiter:
 
     @property
     def backend(self) -> RateLimiterBackend:
-        """Bound rate-limiter backend, resolved lazily on first access."""
-        return self._backend or self._resolve_backend()
+        """Bound rate-limiter backend, resolved on each call.
 
-    def _resolve_backend(self) -> RateLimiterBackend:
-        """Resolve the backend from the global registry and cache it."""
-        backend = get_rate_limiter_backend()
-        self._backend = backend
-        return backend
+        When a backend instance was passed at construction it is
+        always returned. Otherwise the registry is consulted on
+        every access so that task-scoped ``resilience.use(...)``
+        overrides take effect.
+        """
+        if self._backend is not None:
+            return self._backend
+        return get_rate_limiter_backend(self._backend_name or "default")
 
     def _resolve_strategy(self) -> RateLimiterStrategy:
         """Bind the algorithm config to the backend and cache the strategy."""
@@ -164,7 +171,7 @@ class RateLimiter:
         ],
         *,
         backend: Annotated[
-            RateLimiterBackend | None,
+            RateLimiterBackend | str | None,
             Doc(
                 """
                 An explicit backend instance. When `None` (the
@@ -210,7 +217,7 @@ class RateLimiter:
             ),
         ] = False,
         backend: Annotated[
-            RateLimiterBackend | None,
+            RateLimiterBackend | str | None,
             Doc(
                 """
                 An explicit backend instance. When `None` (the
@@ -258,7 +265,7 @@ class RateLimiter:
             ),
         ] = False,
         backend: Annotated[
-            RateLimiterBackend | None,
+            RateLimiterBackend | str | None,
             Doc(
                 """
                 An explicit backend instance. When `None` (the

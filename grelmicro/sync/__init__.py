@@ -16,15 +16,19 @@ from grelmicro.sync.tasklock import TaskLock
 
 
 def register(
-    name: Annotated[str, Doc("Name to register the backend under.")],
     backend: Annotated[SyncBackend, Doc("The synchronization backend.")],
+    name: Annotated[
+        str, Doc("Name to register the backend under.")
+    ] = DEFAULT_NAME,
 ) -> None:
-    """Register ``backend`` under ``name``."""
-    sync_backend_registry.register(name, backend)
+    """Register ``backend`` under ``name`` (defaults to ``"default"``)."""
+    sync_backend_registry.register(backend, name)
 
 
 def unregister(
-    name: Annotated[str, Doc("Name of the registered backend to remove.")],
+    name: Annotated[
+        str, Doc("Name of the registered backend to remove.")
+    ] = DEFAULT_NAME,
     backend: Annotated[
         SyncBackend | None,
         Doc("Optional backend instance for an identity-checked removal."),
@@ -41,7 +45,7 @@ def use_backend(
     ],
 ) -> None:
     """Register ``backend`` under the ``"default"`` name."""
-    sync_backend_registry.register(DEFAULT_NAME, backend)
+    sync_backend_registry.register(backend, DEFAULT_NAME)
 
 
 def use(

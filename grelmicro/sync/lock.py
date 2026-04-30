@@ -80,11 +80,13 @@ class Lock(BaseLock):
         ],
         *,
         backend: Annotated[
-            SyncBackend | None,
+            SyncBackend | str | None,
             Doc("""
                 The distributed lock backend used to acquire and release the lock.
 
-                By default, it will use the lock backend registry to get the default lock backend.
+                Accepts a backend instance, the name of a registered backend
+                (e.g. `"analytics"`), or `None` to use the registered
+                `"default"` backend.
                 """),
         ] = None,
         worker: Annotated[
@@ -192,11 +194,13 @@ class Lock(BaseLock):
         ],
         *,
         backend: Annotated[
-            SyncBackend | None,
+            SyncBackend | str | None,
             Doc("""
                 The distributed lock backend used to acquire and release the lock.
 
-                By default, it will use the lock backend registry to get the default lock backend.
+                Accepts a backend instance, the name of a registered backend
+                (e.g. `"analytics"`), or `None` to use the registered
+                `"default"` backend.
                 """),
         ] = None,
     ) -> Self:
@@ -209,13 +213,18 @@ class Lock(BaseLock):
         self,
         name: str,
         config: LockConfig,
-        backend: SyncBackend | None,
+        backend: SyncBackend | str | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
-        self._backend: SyncBackend | None = backend
+        self._backend: SyncBackend | None = (
+            backend if not isinstance(backend, str) else None
+        )
+        self._backend_name: str | None = (
+            backend if isinstance(backend, str) else None
+        )
         self._held_by_tasks: set[int] = set()
         self._held_by_threads: set[int] = set()
         self._from_thread: ThreadLockAdapter | None = None
@@ -227,14 +236,16 @@ class Lock(BaseLock):
 
     @property
     def backend(self) -> SyncBackend:
-        """Bound sync backend, resolved lazily on first access."""
-        return self._backend or self._resolve_backend()
+        """Bound sync backend, resolved on each call.
 
-    def _resolve_backend(self) -> SyncBackend:
-        """Resolve the backend from the global registry and cache it."""
-        backend = get_sync_backend()
-        self._backend = backend
-        return backend
+        When a backend instance was passed at construction it is
+        always returned. Otherwise the registry is consulted on
+        every access so that task-scoped ``sync.use(...)``
+        overrides take effect.
+        """
+        if self._backend is not None:
+            return self._backend
+        return get_sync_backend(self._backend_name or "default")
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with the async context manager.
@@ -330,7 +341,7 @@ class Lock(BaseLock):
         Raises:
             LockLockedCheckError: If the lock cannot be checked due to an error on the backend.
         """
-        backend = self._backend or self._resolve_backend()
+        backend = self.backend
         try:
             return await backend.locked(name=self._lock_name)
         except Exception as exc:
@@ -355,7 +366,7 @@ class Lock(BaseLock):
         Raises:
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
-        backend = self._backend or self._resolve_backend()
+        backend = self.backend
         try:
             return await backend.acquire(
                 name=self._lock_name,
@@ -376,7 +387,7 @@ class Lock(BaseLock):
         Raises:
             LockReleaseError: Cannot release the lock due to backend error.
         """
-        backend = self._backend or self._resolve_backend()
+        backend = self.backend
         try:
             return await backend.release(name=self._lock_name, token=token)
         except Exception as exc:
@@ -393,7 +404,7 @@ class Lock(BaseLock):
         Raises:
             LockOwnedCheckError: Cannot check if the lock is owned due to backend error.
         """
-        backend = self._backend or self._resolve_backend()
+        backend = self.backend
         try:
             return await backend.owned(name=self._lock_name, token=token)
         except Exception as exc:

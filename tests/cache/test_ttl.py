@@ -86,7 +86,7 @@ class TestInit:
     ) -> None:
         """Test that TTLCache uses the registered backend when none is provided."""
         # Arrange: register the backend
-        cache_backend_registry.register("default", backend)
+        cache_backend_registry.register(backend, "default")
 
         # Act: create cache without explicit backend
         cache = TTLCache(maxsize=0, ttl=60)

@@ -11,7 +11,10 @@ from grelmicro import cache as cache_mod
 from grelmicro import health as health_mod
 from grelmicro import resilience as resilience_mod
 from grelmicro import sync as sync_mod
-from grelmicro._backends import BackendNotLoadedError
+from grelmicro._backends import (
+    BackendAlreadyRegisteredError,
+    BackendNotLoadedError,
+)
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.redis import RedisCacheBackend
@@ -20,6 +23,7 @@ from grelmicro.health._registry import HealthRegistry
 from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.redis import RedisRateLimiterBackend
+from grelmicro.sync import Lock
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.kubernetes import KubernetesSyncBackend
 from grelmicro.sync.memory import MemorySyncBackend
@@ -107,7 +111,7 @@ async def test_cache_memory_async_with_does_not_register() -> None:
 def test_register_and_get() -> None:
     """Register and get."""
     backend = MemorySyncBackend()
-    sync_backend_registry.register("default", backend)
+    sync_backend_registry.register(backend, "default")
     assert sync_backend_registry.get() is backend
 
 
@@ -115,8 +119,8 @@ def test_register_named_and_get_by_name() -> None:
     """Register named and get by name."""
     primary = MemorySyncBackend()
     analytics = MemorySyncBackend()
-    sync_backend_registry.register("primary", primary)
-    sync_backend_registry.register("analytics", analytics)
+    sync_backend_registry.register(primary, "primary")
+    sync_backend_registry.register(analytics, "analytics")
     assert sync_backend_registry.get("primary") is primary
     assert sync_backend_registry.get("analytics") is analytics
 
@@ -124,14 +128,14 @@ def test_register_named_and_get_by_name() -> None:
 def test_get_default_falls_back_to_sole_entry() -> None:
     """Get default falls back to sole entry."""
     only = MemorySyncBackend()
-    sync_backend_registry.register("primary", only)
+    sync_backend_registry.register(only, "primary")
     assert sync_backend_registry.get() is only
 
 
 def test_get_default_raises_when_multiple_no_default() -> None:
     """Get default raises when multiple no default."""
-    sync_backend_registry.register("primary", MemorySyncBackend())
-    sync_backend_registry.register("analytics", MemorySyncBackend())
+    sync_backend_registry.register(MemorySyncBackend(), "primary")
+    sync_backend_registry.register(MemorySyncBackend(), "analytics")
     with pytest.raises(BackendNotLoadedError, match="multiple"):
         sync_backend_registry.get()
 
@@ -139,25 +143,25 @@ def test_get_default_raises_when_multiple_no_default() -> None:
 def test_register_same_instance_is_noop() -> None:
     """Register same instance is noop."""
     backend = MemorySyncBackend()
-    sync_backend_registry.register("default", backend)
+    sync_backend_registry.register(backend, "default")
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        sync_backend_registry.register("default", backend)
+        sync_backend_registry.register(backend, "default")
     assert sync_backend_registry.get() is backend
 
 
-def test_register_different_instance_warns() -> None:
-    """Register different instance warns."""
-    sync_backend_registry.register("default", MemorySyncBackend())
-    with pytest.warns(UserWarning, match="Overwriting"):
-        sync_backend_registry.register("default", MemorySyncBackend())
+def test_register_different_instance_raises() -> None:
+    """Register different instance raises BackendAlreadyRegisteredError."""
+    sync_backend_registry.register(MemorySyncBackend(), "default")
+    with pytest.raises(BackendAlreadyRegisteredError):
+        sync_backend_registry.register(MemorySyncBackend(), "default")
 
 
 def test_unregister_with_identity_check() -> None:
     """Unregister with identity check."""
     a = MemorySyncBackend()
     b = MemorySyncBackend()
-    sync_backend_registry.register("default", a)
+    sync_backend_registry.register(a, "default")
     sync_backend_registry.unregister("default", b)  # wrong instance: no-op
     assert sync_backend_registry.get() is a
     sync_backend_registry.unregister("default", a)  # right instance: clears
@@ -177,7 +181,7 @@ def test_use_overrides_default() -> None:
     """Use overrides default."""
     registered = MemorySyncBackend()
     override = MemorySyncBackend()
-    sync_backend_registry.register("default", registered)
+    sync_backend_registry.register(registered, "default")
     with sync_backend_registry.use(override):
         assert sync_backend_registry.get() is override
     assert sync_backend_registry.get() is registered
@@ -185,8 +189,8 @@ def test_use_overrides_default() -> None:
 
 def test_use_overrides_named() -> None:
     """Use overrides named."""
-    sync_backend_registry.register("primary", MemorySyncBackend())
-    sync_backend_registry.register("analytics", MemorySyncBackend())
+    sync_backend_registry.register(MemorySyncBackend(), "primary")
+    sync_backend_registry.register(MemorySyncBackend(), "analytics")
     fake_analytics = MemorySyncBackend()
     with sync_backend_registry.use(analytics=fake_analytics):
         assert sync_backend_registry.get("analytics") is fake_analytics
@@ -196,7 +200,7 @@ def test_use_stacks_lifo() -> None:
     """Use stacks lifo."""
     inner = MemorySyncBackend()
     outer = MemorySyncBackend()
-    sync_backend_registry.register("default", MemorySyncBackend())
+    sync_backend_registry.register(MemorySyncBackend(), "default")
     with sync_backend_registry.use(outer):
         with sync_backend_registry.use(inner):
             assert sync_backend_registry.get() is inner
@@ -211,9 +215,9 @@ async def test_lifespan_opens_registered_backends() -> None:
     sync_b = MemorySyncBackend()
     cache_b = MemoryCacheBackend()
     rl_b = MemoryRateLimiterBackend()
-    sync_backend_registry.register("default", sync_b)
-    cache_backend_registry.register("default", cache_b)
-    rate_limiter_backend_registry.register("default", rl_b)
+    sync_backend_registry.register(sync_b, "default")
+    cache_backend_registry.register(cache_b, "default")
+    rate_limiter_backend_registry.register(rl_b, "default")
 
     async with grelmicro.lifespan():
         # backends remain registered while open
@@ -224,8 +228,8 @@ async def test_lifespan_opens_registered_backends() -> None:
 
 async def test_lifespan_excludes_module() -> None:
     """Lifespan excludes module."""
-    sync_backend_registry.register("default", MemorySyncBackend())
-    cache_backend_registry.register("default", MemoryCacheBackend())
+    sync_backend_registry.register(MemorySyncBackend(), "default")
+    cache_backend_registry.register(MemoryCacheBackend(), "default")
     async with grelmicro.lifespan(exclude={"cache"}):
         # cache backend was not entered (we cannot easily detect this
         # for memory backends; the contract is that entries in
@@ -237,10 +241,44 @@ async def test_lifespan_excludes_named_entry() -> None:
     """Lifespan excludes named entry."""
     primary = MemorySyncBackend()
     analytics = MemorySyncBackend()
-    sync_backend_registry.register("primary", primary)
-    sync_backend_registry.register("analytics", analytics)
+    sync_backend_registry.register(primary, "primary")
+    sync_backend_registry.register(analytics, "analytics")
     async with grelmicro.lifespan(exclude={"sync.analytics"}):
         assert sync_backend_registry.get("primary") is primary
+
+
+async def test_lifespan_excludes_resilience_module_key() -> None:
+    """``exclude={"resilience"}`` matches the rate limiter registry."""
+    rate_limiter_backend_registry.register(
+        MemoryRateLimiterBackend(), "default"
+    )
+    sync_backend_registry.register(MemorySyncBackend(), "default")
+    async with grelmicro.lifespan(exclude={"resilience"}):
+        assert sync_backend_registry.is_loaded
+
+
+def test_lock_resolves_named_backend_from_registry() -> None:
+    """``Lock(backend="analytics")`` resolves the named entry on each call."""
+    primary = MemorySyncBackend()
+    analytics = MemorySyncBackend()
+    sync_backend_registry.register(primary, "primary")
+    sync_backend_registry.register(analytics, "analytics")
+
+    lock = Lock("cart", backend="analytics")
+    assert lock.backend is analytics
+
+
+def test_lock_named_backend_honors_use_override() -> None:
+    """``sync.use(...)`` overrides a named backend selection per task."""
+    real_analytics = MemorySyncBackend()
+    fake_analytics = MemorySyncBackend()
+    sync_backend_registry.register(real_analytics, "analytics")
+
+    lock = Lock("audit", backend="analytics")
+    assert lock.backend is real_analytics
+    with sync_mod.use(analytics=fake_analytics):
+        assert lock.backend is fake_analytics
+    assert lock.backend is real_analytics
 
 
 async def test_lifespan_with_ad_hoc_backend() -> None:
@@ -346,7 +384,7 @@ def test_resilience_use_backend_registers_default() -> None:
 def test_sync_register_and_unregister_module_helpers() -> None:
     """Sync register and unregister module helpers."""
     backend = MemorySyncBackend()
-    sync_mod.register("primary", backend)
+    sync_mod.register(backend, "primary")
     assert sync_backend_registry.get("primary") is backend
     sync_mod.unregister("primary", backend)
     assert not sync_backend_registry.is_loaded
@@ -354,7 +392,7 @@ def test_sync_register_and_unregister_module_helpers() -> None:
 
 def test_sync_use_module_helper() -> None:
     """Sync use module helper."""
-    sync_backend_registry.register("default", MemorySyncBackend())
+    sync_backend_registry.register(MemorySyncBackend(), "default")
     override = MemorySyncBackend()
     with sync_mod.use(override):
         assert sync_backend_registry.get() is override
@@ -363,7 +401,7 @@ def test_sync_use_module_helper() -> None:
 def test_cache_register_unregister_use_module_helpers() -> None:
     """Cache register, unregister, and use module helpers."""
     backend = MemoryCacheBackend()
-    cache_mod.register("primary", backend)
+    cache_mod.register(backend, "primary")
     assert cache_backend_registry.get("primary") is backend
     override = MemoryCacheBackend()
     with cache_mod.use(override):
@@ -375,7 +413,7 @@ def test_cache_register_unregister_use_module_helpers() -> None:
 def test_resilience_register_unregister_use_module_helpers() -> None:
     """Resilience register, unregister, and use module helpers."""
     backend = MemoryRateLimiterBackend()
-    resilience_mod.register("primary", backend)
+    resilience_mod.register(backend, "primary")
     assert rate_limiter_backend_registry.get("primary") is backend
     override = MemoryRateLimiterBackend()
     with resilience_mod.use(override):
@@ -388,7 +426,7 @@ def test_health_register_unregister_use_module_helpers() -> None:
     """Health register, unregister, use, and use_registry helpers."""
     health_registry.reset()
     registry = HealthRegistry()
-    health_mod.register("primary", registry)
+    health_mod.register(registry, "primary")
     assert health_registry.get("primary") is registry
     override = HealthRegistry()
     with health_mod.use(override):

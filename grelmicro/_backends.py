@@ -1,6 +1,5 @@
 """Backend Registry."""
 
-import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -33,25 +32,31 @@ class BackendRegistry(Generic[T]):
         """Return the current task-scoped overrides (read-only view)."""
         return self._overrides.get() or {}
 
-    def register(self, name: str, backend: T) -> None:
+    def register(self, backend: T, name: str = DEFAULT_NAME) -> None:
         """Register ``backend`` under ``name``.
 
-        Re-registering the same instance is a no-op. Registering
-        a different instance under an existing name warns and
-        replaces.
+        Re-registering the same instance under the same name is
+        a no-op.
+
+        Raises:
+            BackendAlreadyRegisteredError: If a different instance
+                is already registered under ``name``. Call
+                ``unregister`` first to swap.
         """
         existing = self._backends.get(name)
         if existing is backend:
             return
         if existing is not None:
-            warnings.warn(
-                f"Overwriting already-registered {self._name} "
-                f"backend {name!r}.",
-                stacklevel=2,
+            msg = (
+                f"{self._name} backend {name!r} is already "
+                f"registered. Call unregister() first to swap."
             )
+            raise BackendAlreadyRegisteredError(msg)
         self._backends[name] = backend
 
-    def unregister(self, name: str, backend: T | None = None) -> None:
+    def unregister(
+        self, name: str = DEFAULT_NAME, backend: T | None = None
+    ) -> None:
         """Remove the entry for ``name``.
 
         When ``backend`` is provided, the slot is cleared only
@@ -134,3 +139,7 @@ class BackendRegistry(Generic[T]):
 
 class BackendNotLoadedError(GrelmicroError, RuntimeError):
     """Raised when a backend is accessed before being registered."""
+
+
+class BackendAlreadyRegisteredError(GrelmicroError, RuntimeError):
+    """Raised when registering a different instance under an existing name."""
