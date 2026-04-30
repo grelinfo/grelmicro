@@ -4,13 +4,13 @@
 
 ### Breaking
 
-* 💥 Backend constructors are now pure: `__init__` performs no registry writes. The `auto_register` kwarg is removed from `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `SQLiteSyncBackend`, `KubernetesSyncBackend`, `MemoryCacheBackend`, `RedisCacheBackend`, `MemoryRateLimiterBackend`, `RedisRateLimiterBackend`, and `HealthRegistry`. Register via `async with` (scoped) or the new `use_backend` / `use_registry` helpers (process lifetime). PR [#116](https://github.com/grelinfo/grelmicro/issues/116).
-* 💥 `BackendRegistry.set` is renamed `register` and `BackendRegistry.unregister` is added with an identity check. `reset` remains for test fixtures. PR [#116](https://github.com/grelinfo/grelmicro/issues/116).
+* 💥 Backend constructors are now pure: `__init__` performs no registry writes. The `auto_register` kwarg is removed from `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `SQLiteSyncBackend`, `KubernetesSyncBackend`, `MemoryCacheBackend`, `RedisCacheBackend`, `MemoryRateLimiterBackend`, `RedisRateLimiterBackend`, and `HealthRegistry`. Register via `async with` (scoped) or the new `use_backend` / `use_registry` helpers (process lifetime). PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
+* 💥 `BackendRegistry.set` is renamed `register` and `BackendRegistry.unregister` is added with an identity check. `reset` remains for test fixtures. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
 
 ### Features
 
-* ✨ Add `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelmicro.resilience.use_backend`, and `grelmicro.health.use_registry` for explicit, idempotent process-lifetime registration. PR [#116](https://github.com/grelinfo/grelmicro/issues/116).
-* ✨ Backends register on `__aenter__` and unregister on `__aexit__` with identity-checked unregister, so a stale backend cannot evict the one that replaced it. PR [#116](https://github.com/grelinfo/grelmicro/issues/116).
+* ✨ Add `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelmicro.resilience.use_backend`, and `grelmicro.health.use_registry` for explicit, idempotent process-lifetime registration. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
+* ✨ Backends register on `__aenter__` and unregister on `__aexit__` with identity-checked unregister, so a stale backend cannot evict the one that replaced it. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
 
 ## 0.17.0 - 2026-04-29
 
