@@ -145,7 +145,7 @@ class LeaderElection(SyncPrimitive, Task):
                 The duration in seconds after the lock will be released if not renewed.
 
                 Default: 15. If the worker becomes unavailable, the lock
-                can only be acquired by an other worker after it has
+                can only be acquired by another worker after it has
                 expired. When unset and env reads are enabled (see ``read_env`` and
                 ``GREL_CONFIG_FROM_ENV``), resolves from the environment
                 variable

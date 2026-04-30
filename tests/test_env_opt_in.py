@@ -8,7 +8,7 @@ from grelmicro.sync.memory import MemorySyncBackend
 
 LEASE_OVERRIDE = 999.0
 LEASE_FROM_ENV = 42.0
-DEFAULT_LEASE = 60.0  # LockConfig.lease_duration default
+DEFAULT_LEASE = LockConfig.model_fields["lease_duration"].default
 
 
 @pytest.fixture
