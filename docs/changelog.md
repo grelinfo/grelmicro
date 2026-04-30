@@ -4,7 +4,7 @@
 
 ## 0.18.0 - 2026-04-30
 
-M2 milestone closed: backend wiring is now fully explicit. Construction is pure (no global writes), registration is named (`<module>.register(backend, "name")`), and `grelmicro.lifespan()` opens every registered backend in one call. Task-scoped overrides via `<module>.use(...)` swap backends per request or per test through `contextvars`.
+M2 milestone closed: backend wiring is now fully explicit. Construction is pure (no global writes), registration is named (`<module>.register(backend, "name")`), and `grelmicro.lifespan(*ad_hoc, exclude=...)` walks every registry that has been imported and opens its registered backends in one call. Task-scoped overrides via `with <module>.use(...):` swap backends per request or per test through `contextvars`.
 
 ### Breaking
 
