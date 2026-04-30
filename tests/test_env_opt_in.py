@@ -8,6 +8,7 @@ from grelmicro.sync.memory import MemorySyncBackend
 
 LEASE_OVERRIDE = 999.0
 LEASE_FROM_ENV = 42.0
+DEFAULT_LEASE = 60.0  # LockConfig.lease_duration default
 
 
 @pytest.fixture
@@ -50,7 +51,7 @@ def test_env_ignored_when_flag_off(
         "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
     )
     lock = Lock("cart", backend=backend)
-    assert lock.config.lease_duration != LEASE_OVERRIDE
+    assert lock.config.lease_duration == DEFAULT_LEASE
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
@@ -76,7 +77,7 @@ def test_per_call_read_env_false_overrides_flag_on(
         "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
     )
     lock = Lock("cart", backend=backend, read_env=False)
-    assert lock.config.lease_duration != LEASE_OVERRIDE
+    assert lock.config.lease_duration == DEFAULT_LEASE
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
@@ -94,7 +95,7 @@ def test_resolve_config_respects_global_flag(
         env_prefix="GREL_LOCK_TEST_",
         read_env=None,
     )
-    assert cfg.lease_duration != LEASE_FROM_ENV  # flag off, env ignored
+    assert cfg.lease_duration == DEFAULT_LEASE  # flag off, env ignored
 
     monkeypatch.setenv("GREL_CONFIG_FROM_ENV", "true")
     cfg2 = resolve_config(

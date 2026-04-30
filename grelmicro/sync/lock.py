@@ -105,7 +105,8 @@ class Lock(BaseLock):
                 """
                 The duration in seconds for the lock to be held by default.
 
-                Default: 60. When unset, resolves from the environment
+                Default: 60. When unset and env reads are enabled (see ``read_env`` and
+                ``GREL_CONFIG_FROM_ENV``), resolves from the environment
                 variable `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION` if
                 present, otherwise falls back to the `LockConfig`
                 default.
@@ -119,7 +120,8 @@ class Lock(BaseLock):
                 The duration in seconds between attempts to acquire the lock.
 
                 Default: 0.1. Must be >= 0.001 to prevent flooding
-                the lock backend. When unset, resolves from the
+                the lock backend. When unset and env reads are enabled (see ``read_env`` and
+                ``GREL_CONFIG_FROM_ENV``), resolves from the
                 environment variable
                 `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL` if present,
                 otherwise falls back to the `LockConfig` default.

@@ -7,9 +7,9 @@
 * 💥 The Environmental config path is now opt-in. Set `GREL_CONFIG_FROM_ENV=true` once at startup to enable env reads across every component, or pass `read_env=True` per call. The per-call value (`True`/`False`) always wins over the global flag. This stops grelmicro from silently picking up ambient env vars in unit tests or scripts. Issue [#142](https://github.com/grelinfo/grelmicro/issues/142).
 * 💥 The `read_env` kwarg default flips from `True` to `None` on every component. `None` follows the global flag. `True` and `False` keep their meaning as explicit per-call overrides.
 
-### Features
+### Internal
 
-* ✨ Add `grelmicro._config.env_opt_in_enabled()` helper that exposes the truthy `GREL_CONFIG_FROM_ENV` check (`1`, `true`, `yes`, `on`, case-insensitive). Issue [#142](https://github.com/grelinfo/grelmicro/issues/142).
+* ♻️ Add `grelmicro._config.env_opt_in_enabled()` helper that exposes the truthy `GREL_CONFIG_FROM_ENV` check (`1`, `true`, `yes`, `on`, case-insensitive). Issue [#142](https://github.com/grelinfo/grelmicro/issues/142).
 
 ## 0.18.0 - 2026-04-30
 

@@ -109,7 +109,8 @@ class HealthRegistry:
                 Default per-check timeout in seconds. Checks that
                 exceed this duration are reported as ``error``.
 
-                Default: 5.0. When unset, resolves from the
+                Default: 5.0. When unset and env reads are enabled (see ``read_env`` and
+                ``GREL_CONFIG_FROM_ENV``), resolves from the
                 environment variable ``GREL_HEALTH_TIMEOUT`` if
                 present, otherwise falls back to the
                 ``HealthRegistryConfig`` default.
@@ -122,7 +123,8 @@ class HealthRegistry:
                 """
                 Per-check cache TTL in seconds. Set to 0 to disable.
 
-                Default: 1.0. When unset, resolves from the
+                Default: 1.0. When unset and env reads are enabled (see ``read_env`` and
+                ``GREL_CONFIG_FROM_ENV``), resolves from the
                 environment variable ``GREL_HEALTH_CACHE_TTL`` if
                 present, otherwise falls back to the
                 ``HealthRegistryConfig`` default.

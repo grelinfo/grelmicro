@@ -146,7 +146,8 @@ class LeaderElection(SyncPrimitive, Task):
 
                 Default: 15. If the worker becomes unavailable, the lock
                 can only be acquired by an other worker after it has
-                expired. When unset, resolves from the environment
+                expired. When unset and env reads are enabled (see ``read_env`` and
+                ``GREL_CONFIG_FROM_ENV``), resolves from the environment
                 variable
                 `GREL_LEADER_ELECTION_{NAME_UPPER}_LEASE_DURATION` if
                 present, otherwise falls back to the

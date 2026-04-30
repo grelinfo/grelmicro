@@ -142,7 +142,8 @@ class RateLimitFilter(Filter):
                 """
                 Maximum burst size.
 
-                Default: 5. When unset, resolves from the environment
+                Default: 5. When unset and env reads are enabled (see ``read_env`` and
+                ``GREL_CONFIG_FROM_ENV``), resolves from the environment
                 variable ``GREL_RATE_LIMIT_FILTER_CAPACITY`` if
                 present, otherwise falls back to the
                 ``RateLimitFilterConfig`` default.
