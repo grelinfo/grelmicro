@@ -42,6 +42,7 @@ def _reset_registry() -> None:
 async def _backend() -> AsyncGenerator[MemoryRateLimiterBackend]:
     """Create and register a memory rate limiter backend."""
     async with MemoryRateLimiterBackend() as b:
+        rate_limiter_backend_registry.register("default", b)
         yield b
 
 
@@ -52,7 +53,9 @@ def _sync_backend() -> MemoryRateLimiterBackend:
     Sync tests can't consume the async `_backend` fixture
     (pytest-anyio doesn't bridge them).
     """
-    return MemoryRateLimiterBackend()
+    backend = MemoryRateLimiterBackend()
+    rate_limiter_backend_registry.register("default", backend)
+    return backend
 
 
 @pytest.fixture

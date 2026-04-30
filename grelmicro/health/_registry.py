@@ -14,7 +14,6 @@ from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
 from grelmicro._config import resolve_config
-from grelmicro.health._backends import health_registry
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
@@ -192,8 +191,7 @@ class HealthRegistry:
         self._entries: dict[str, _Entry] = {}
 
     async def __aenter__(self) -> Self:
-        """Register this registry as the global default."""
-        health_registry.register(self)
+        """Open the health registry."""
         return self
 
     async def __aexit__(
@@ -202,8 +200,7 @@ class HealthRegistry:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Unregister this registry."""
-        health_registry.unregister(self)
+        """Close the health registry."""
 
     def add(
         self,

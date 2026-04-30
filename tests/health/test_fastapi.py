@@ -38,7 +38,7 @@ def _clean_registry() -> Generator[None]:
 def registry() -> HealthRegistry:
     """Health registry with caching disabled, registered as the default."""
     instance = HealthRegistry(cache_ttl=0)
-    health_registry.register(instance)
+    health_registry.register("default", instance)
     return instance
 
 
@@ -79,7 +79,7 @@ def test_livez_head_method(client: TestClient) -> None:
 def test_livez_never_runs_checkers() -> None:
     """A failing registered checker does not affect /livez."""
     registry = HealthRegistry(cache_ttl=0)
-    health_registry.register(registry)
+    health_registry.register("default", registry)
     registry.add("db", unhealthy())
     app = FastAPI()
     app.include_router(health_router())
@@ -233,7 +233,7 @@ def test_healthz_details_hidden_by_default(
 def test_healthz_details_true_always_shown() -> None:
     """show_details=True always includes details."""
     registry = HealthRegistry(cache_ttl=0)
-    health_registry.register(registry)
+    health_registry.register("default", registry)
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
     app = FastAPI()
     app.include_router(health_router(show_details=True))
@@ -247,7 +247,7 @@ def test_healthz_details_true_always_shown() -> None:
 def test_healthz_details_dep_returns_false_strips() -> None:
     """A dep returning False strips details, endpoint returns 200."""
     registry = HealthRegistry(cache_ttl=0)
-    health_registry.register(registry)
+    health_registry.register("default", registry)
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow() -> bool:
@@ -266,7 +266,7 @@ def test_healthz_details_dep_returns_false_strips() -> None:
 def test_healthz_details_dep_returns_true_shows() -> None:
     """A dep returning True includes details."""
     registry = HealthRegistry(cache_ttl=0)
-    health_registry.register(registry)
+    health_registry.register("default", registry)
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow() -> bool:
@@ -284,7 +284,7 @@ def test_healthz_details_dep_returns_true_shows() -> None:
 def test_healthz_details_async_dep_shows() -> None:
     """An async dep is awaited by FastAPI's DI."""
     registry = HealthRegistry(cache_ttl=0)
-    health_registry.register(registry)
+    health_registry.register("default", registry)
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     async def allow_async() -> bool:
@@ -302,7 +302,7 @@ def test_healthz_details_async_dep_shows() -> None:
 def test_healthz_details_dep_with_request() -> None:
     """A Request-annotated dep receives the request via FastAPI DI."""
     registry = HealthRegistry(cache_ttl=0)
-    health_registry.register(registry)
+    health_registry.register("default", registry)
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow_if_admin(request: _Request) -> bool:
@@ -320,7 +320,7 @@ def test_healthz_details_dep_with_request() -> None:
 def test_healthz_details_dep_with_sub_dependency() -> None:
     """FastAPI sub-dependencies resolve through ``Depends`` chains."""
     registry = HealthRegistry(cache_ttl=0)
-    health_registry.register(registry)
+    health_registry.register("default", registry)
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def current_role(request: _Request) -> str:
@@ -341,7 +341,7 @@ def test_healthz_details_dep_with_sub_dependency() -> None:
 def test_healthz_details_dep_http_exception_blocks_endpoint() -> None:
     """Raising HTTPException in the dep blocks the endpoint (documented)."""
     registry = HealthRegistry(cache_ttl=0)
-    health_registry.register(registry)
+    health_registry.register("default", registry)
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def deny() -> bool:

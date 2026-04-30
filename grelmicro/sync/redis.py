@@ -7,7 +7,6 @@ from pydantic import RedisDsn
 from typing_extensions import Doc
 
 from grelmicro._redis import _create_redis_client
-from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
@@ -68,8 +67,7 @@ class RedisSyncBackend(SyncBackend):
         )
 
     async def __aenter__(self) -> Self:
-        """Open the lock backend and register it as the default."""
-        sync_backend_registry.register(self)
+        """Open the lock backend."""
         return self
 
     async def __aexit__(
@@ -78,9 +76,8 @@ class RedisSyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the lock backend and unregister it."""
+        """Close the lock backend."""
         await self._redis.aclose()
-        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire the lock."""

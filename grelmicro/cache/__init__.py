@@ -1,9 +1,11 @@
 """Cache."""
 
+from contextlib import AbstractContextManager
 from typing import Annotated
 
 from typing_extensions import Doc
 
+from grelmicro._backends import DEFAULT_NAME
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
@@ -17,18 +19,45 @@ from grelmicro.cache.serializers import (
 from grelmicro.cache.ttl import CacheInfo, TTLCache
 
 
+def register(
+    name: Annotated[str, Doc("Name to register the backend under.")],
+    backend: Annotated[CacheBackend, Doc("The cache backend.")],
+) -> None:
+    """Register ``backend`` under ``name``."""
+    cache_backend_registry.register(name, backend)
+
+
+def unregister(
+    name: Annotated[str, Doc("Name of the registered backend to remove.")],
+    backend: Annotated[
+        CacheBackend | None,
+        Doc("Optional backend instance for an identity-checked removal."),
+    ] = None,
+) -> None:
+    """Remove the registered backend under ``name``."""
+    cache_backend_registry.unregister(name, backend)
+
+
 def use_backend(
     backend: Annotated[
         CacheBackend,
         Doc("The cache backend to register as the default."),
     ],
 ) -> None:
-    """Register `backend` as the default cache backend.
+    """Register ``backend`` under the ``"default"`` name."""
+    cache_backend_registry.register(DEFAULT_NAME, backend)
 
-    Idempotent: re-registering the same instance is a no-op.
-    Registering a different instance warns and replaces.
-    """
-    cache_backend_registry.register(backend)
+
+def use(
+    backend: Annotated[
+        CacheBackend | None,
+        Doc('Override the ``"default"`` slot for the duration of the block.'),
+    ] = None,
+    /,
+    **named: CacheBackend,
+) -> AbstractContextManager[None]:
+    """Install task-scoped backend overrides."""
+    return cache_backend_registry.use(backend, **named)
 
 
 __all__ = [
@@ -42,5 +71,8 @@ __all__ = [
     "PydanticSerializer",
     "TTLCache",
     "cached",
+    "register",
+    "unregister",
+    "use",
     "use_backend",
 ]

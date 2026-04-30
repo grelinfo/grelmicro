@@ -11,7 +11,6 @@ from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
@@ -110,7 +109,7 @@ class SQLiteSyncBackend(SyncBackend):
         self._conn: aiosqlite.Connection | None = None
 
     async def __aenter__(self) -> Self:
-        """Enter the lock backend and register it as the default."""
+        """Open the lock backend."""
         self._conn = await aiosqlite.connect(self._path)
         await self._conn.execute("PRAGMA journal_mode=WAL;")
         await self._conn.execute(
@@ -119,7 +118,6 @@ class SQLiteSyncBackend(SyncBackend):
             ),
         )
         await self._conn.commit()
-        sync_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -128,7 +126,7 @@ class SQLiteSyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit the lock backend and unregister it."""
+        """Close the lock backend."""
         if self._conn:
             await self._conn.execute(
                 self._SQL_RELEASE_ALL_EXPIRED.format(
@@ -138,7 +136,6 @@ class SQLiteSyncBackend(SyncBackend):
             await self._conn.commit()
             await self._conn.close()
             self._conn = None
-        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""

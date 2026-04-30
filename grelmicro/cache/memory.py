@@ -4,8 +4,6 @@ from time import monotonic
 from types import TracebackType
 from typing import Self
 
-from grelmicro.cache._backends import cache_backend_registry
-
 
 class MemoryCacheBackend:
     """In-memory cache backend.
@@ -19,8 +17,7 @@ class MemoryCacheBackend:
         self._data: dict[str, tuple[bytes, float]] = {}
 
     async def __aenter__(self) -> Self:
-        """Open the cache backend and register it as the default."""
-        cache_backend_registry.register(self)
+        """Open the cache backend."""
         return self
 
     async def __aexit__(
@@ -29,9 +26,8 @@ class MemoryCacheBackend:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the cache backend and unregister it."""
+        """Close the cache backend."""
         self._data.clear()
-        cache_backend_registry.unregister(self)
 
     async def get(self, *, key: str) -> bytes | None:
         """Get raw bytes by key.

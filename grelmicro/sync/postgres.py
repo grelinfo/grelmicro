@@ -11,7 +11,6 @@ from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
@@ -139,14 +138,13 @@ class PostgresSyncBackend(SyncBackend):
         self._pool: Pool | None = None
 
     async def __aenter__(self) -> Self:
-        """Enter the lock backend and register it as the default."""
+        """Open the lock backend."""
         self._pool = await create_pool(str(self._url))
         await self._pool.execute(
             self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
                 table_name=self._table_name
             ),
         )
-        sync_backend_registry.register(self)
         return self
 
     async def __aexit__(
@@ -155,7 +153,7 @@ class PostgresSyncBackend(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit the lock backend and unregister it."""
+        """Close the lock backend."""
         if self._pool:
             await self._pool.execute(
                 self._SQL_RELEASE_ALL_EXPIRED.format(
@@ -163,7 +161,6 @@ class PostgresSyncBackend(SyncBackend):
                 ),
             )
             await self._pool.close()
-        sync_backend_registry.unregister(self)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""
