@@ -63,7 +63,7 @@ Runtime reconfiguration, when added, will atomically swap the `self._config` poi
 
 ### Why we don't copy fields to plain instance attrs
 
-`BaseModel.__getattr__` is measurably slower than a plain instance attribute lookup. The shortcut is to mirror every frozen field onto the component (`self._name = self._config.name`, ...) so hot paths read `self._name`. We don't take it, on purpose.
+Pydantic model attribute access is measurably slower than a plain instance attribute lookup, because field reads go through Pydantic's customized `__getattribute__` and `__pydantic_fields__` machinery. The shortcut is to mirror every frozen field onto the component (`self._name = self._config.name`, ...) so hot paths read `self._name`. We don't take it, on purpose.
 
 Typical numbers from `benchmarks/config_attr_benchmark.py` (Issue [#113](https://github.com/grelinfo/grelmicro/issues/113)) on a developer laptop:
 
