@@ -217,10 +217,7 @@ markers = """
     integration: mark a test as an integration test
 """
 filterwarnings = [
-    # testcontainers ships a deprecation banner on the legacy
-    # `@wait_container_is_ready` decorator that we don't drive directly
-    # (it lives inside the Redis/Postgres container helpers we use).
-    # Filter it so our own warnings stay visible in test output.
+    # testcontainers' own deprecation banner; not driven by our code.
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers",
 ]
 
