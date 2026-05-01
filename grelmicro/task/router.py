@@ -139,12 +139,13 @@ class TaskRouter:
             "SyncPrimitive | None",
             Doc(
                 """
-                Optional resource-level synchronization primitive, layered on
-                top of any distributed scheduling chosen via ``max_lock_seconds``
-                or ``leader``. Use a ``Lock`` to serialise execution against a
-                shared resource. Whether the task runs on every worker or only
-                one is governed by ``max_lock_seconds`` and ``leader``, not
-                this parameter.
+                Optional resource-level synchronization primitive.
+
+                Layered on top of any distributed scheduling chosen via
+                ``max_lock_seconds`` or ``leader``. Use a ``Lock`` to serialise
+                execution against a shared resource. Whether the task runs on
+                every worker or only one is governed by ``max_lock_seconds``
+                and ``leader``, not this parameter.
                 """,
             ),
         ] = None,
