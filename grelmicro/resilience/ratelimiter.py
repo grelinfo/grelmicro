@@ -128,7 +128,6 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         )
         self._reconfigure_lock = anyio.Lock()
         self._config = config
-        self._fallback = _build_fallback(config)
         self._strategy: RateLimiterStrategy | None = None
 
     @property
@@ -321,15 +320,15 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
             ValueError: If `cost` is not between 1 and the
                 algorithm's limit/capacity.
         """
-        fallback = self._fallback
-        _validate_cost(cost, fallback.limit)
+        config = self._config
+        _validate_cost(cost, _config_limit(config))
         strategy = self._strategy or self._resolve_strategy()
         try:
             return await strategy.acquire(key=self._full_key(key), cost=cost)
         except Exception as exc:
-            if self._config.fail_open:
+            if config.fail_open:
                 self._log_fail_open(key, exc)
-                return fallback
+                return _build_fallback(config)
             raise
 
     async def acquire_or_raise(
@@ -381,13 +380,14 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
             `allowed` indicates whether the next acquire would
             succeed.
         """
+        config = self._config
         strategy = self._strategy or self._resolve_strategy()
         try:
             return await strategy.peek(key=self._full_key(key))
         except Exception as exc:
-            if self._config.fail_open:
+            if config.fail_open:
                 self._log_fail_open(key, exc)
-                return self._fallback
+                return _build_fallback(config)
             raise
 
     async def reset(
@@ -405,11 +405,12 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
 
         Idempotent: resetting a nonexistent key is a no-op.
         """
+        config = self._config
         strategy = self._strategy or self._resolve_strategy()
         try:
             await strategy.reset(key=self._full_key(key))
         except Exception as exc:
-            if self._config.fail_open:
+            if config.fail_open:
                 self._log_fail_open(key, exc)
                 return
             raise
@@ -418,22 +419,24 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         self,
         new_config: RateLimiterConfig,
     ) -> None:
-        """Rebind the strategy and rebuild the fail-open fallback."""
-        new_strategy = self.backend.bind(new_config)
-        new_fallback = _build_fallback(new_config)
-        self._strategy = new_strategy
-        self._fallback = new_fallback
+        """Rebind the strategy for the new config."""
+        self._strategy = self.backend.bind(new_config)
+
+
+def _config_limit(config: RateLimiterConfig) -> int:
+    """Return the algorithm's nominal limit for the given config."""
+    match config:
+        case TokenBucketConfig():
+            return config.capacity
+        case GCRAConfig():
+            return config.limit
+        case _ as unknown:  # pragma: no cover
+            assert_never(unknown)
 
 
 def _build_fallback(config: RateLimiterConfig) -> RateLimitResult:
     """Build the fail-open fallback result for the given algorithm config."""
-    match config:
-        case TokenBucketConfig():
-            limit_value = config.capacity
-        case GCRAConfig():
-            limit_value = config.limit
-        case _ as unknown:  # pragma: no cover
-            assert_never(unknown)
+    limit_value = _config_limit(config)
     return RateLimitResult(
         allowed=True,
         limit=limit_value,

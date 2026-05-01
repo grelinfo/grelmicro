@@ -808,3 +808,34 @@ async def test_reconfigure_inner_double_check_skips_rebuild() -> None:
 
     assert backend.bind.call_count == 1
     assert rl.config == new_config
+
+
+@pytest.mark.usefixtures("_sync_backend")
+async def test_reconfigure_fail_open_response_is_self_consistent() -> None:
+    """Fail-open response uses fail_open and fallback from one config snapshot.
+
+    Regression for the pre-fix multi-attribute read window where a
+    reader could combine the new fail_open policy with a stale
+    fallback limit (or vice versa) during a racing reconfigure.
+    """
+    old_config = TokenBucketConfig(
+        capacity=CAPACITY, refill_rate=REFILL_RATE, fail_open=False
+    )
+    new_config = TokenBucketConfig(
+        capacity=CAPACITY * 4, refill_rate=REFILL_RATE, fail_open=True
+    )
+
+    boom: Any = AsyncMock(spec=RateLimiterStrategy)
+    boom.acquire = AsyncMock(side_effect=RuntimeError("backend down"))
+    backend: Any = MagicMock()
+    backend.bind = MagicMock(return_value=boom)
+    rl = RateLimiter("rc", old_config, backend=backend)
+
+    await rl.reconfigure(new_config)
+    result = await rl.acquire(key="k")
+
+    # New fail_open=True applies AND the fallback uses the new limit.
+    # Pre-fix could have returned the old fallback (limit=CAPACITY) under
+    # the new fail_open policy, mixing two configs in one response.
+    assert result.allowed is True
+    assert result.limit == CAPACITY * 4

@@ -42,9 +42,11 @@ The mixin commits `self._config` after `_apply_reconfigure` returns. This means 
 
 ## Reader safety
 
-Readers do a single attribute read of `self._config` at the top of each operation. Single-attribute reads of a Python object reference are atomic under the GIL and remain atomic on free-threaded 3.13+. No read-side lock is required.
+`self._config` is the single source of truth on the read path. Each operation captures `config = self._config` once at the top and derives every config-dependent value (limits, fail-open policy, fallback result) from that local. Single-attribute reads of a Python object reference are atomic under the GIL and remain atomic on free-threaded 3.13+, so no read-side lock is required.
 
-A component that caches multiple derived values (`RateLimiter` caches `_strategy` and `_fallback`) accepts a small interleaving window: a reader can observe a new `_strategy` paired with a previous `_fallback` if it captures attributes one at a time mid-reconfigure. The fallback is only consumed on the rare fail-open error path, and both values are individually valid configs, so the worst case is a fail-open response carrying the previous limit. Components that need stricter consistency can snapshot all derived values into a single frozen object and publish that with one assignment.
+Subclasses MUST NOT mirror config fields onto separate instance attributes that the read path consults independently. A second cached attribute reintroduces the multi-attribute interleaving window: a reader could observe the new attribute together with the previous config snapshot, applying the new policy with the previous limit. Recompute derived values from the captured config inside the operation.
+
+The strategy reference is a special case. Subclasses MAY cache a derived strategy object on a separate attribute when rebinding is expensive, provided the strategy is fully self-contained (carries its own copy of the parameters it needs). A reader that captures a new strategy together with the previous config snapshot still produces a consistent result, because the strategy executes against its own parameters and no longer reads from the captured config.
 
 ## Implementing `_apply_reconfigure`
 
@@ -63,19 +65,16 @@ Components that cache derived state override `_apply_reconfigure` and rebuild th
 ```python
 class RateLimiter(Reconfigurable[RateLimiterConfig]):
     async def _apply_reconfigure(self, new_config):
-        new_strategy = self.backend.bind(new_config)
-        new_fallback = _build_fallback(new_config)
-        self._strategy = new_strategy
-        self._fallback = new_fallback
+        self._strategy = self.backend.bind(new_config)
 ```
 
-Build new derived values into locals first, then assign. If any step raises (for example `backend.bind`), no instance attribute has been mutated yet and the previous state is preserved exactly.
+Build new derived values into locals first when there are several, then assign. If any step raises (for example `backend.bind`), no instance attribute has been mutated yet and the previous state is preserved exactly.
 
 ## Out of scope
 
 The library does not ship file watchers, signal handlers, or ConfigMap pollers. Wiring `reconfigure` to a SIGHUP handler or a Kubernetes informer is application-level work. See [Configuration](../configuration.md) for one worked example.
 
-Hot-swapping the backend is also out of scope. Backend identity is fixed at construction. `reconfigure` accepts a new config of the same runtime type only, not a different config subclass.
+Hot-swapping the backend from the new config is also out of scope. `_apply_reconfigure` does not read the backend identity from `new_config`. The component continues to resolve its backend the same way it did before reconfigure: a backend instance passed at construction is reused as-is, while a backend resolved through the registry is re-resolved on each call so that task-scoped overrides keep working. `reconfigure` accepts a new config of the same runtime type only, not a different config subclass.
 
 ## Related
 
