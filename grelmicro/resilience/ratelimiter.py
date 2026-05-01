@@ -1,6 +1,7 @@
 """Rate Limiter."""
 
 import logging
+from dataclasses import dataclass
 from typing import Annotated, Self, assert_never
 
 import anyio
@@ -22,6 +23,14 @@ from grelmicro.resilience.algorithms import (
 from grelmicro.resilience.errors import RateLimitExceededError
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _State:
+    """Read-side snapshot bundling the config with its bound strategy."""
+
+    config: RateLimiterConfig
+    strategy: RateLimiterStrategy | None
 
 
 class RateLimiter(Reconfigurable[RateLimiterConfig]):
@@ -128,7 +137,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         )
         self._reconfigure_lock = anyio.Lock()
         self._config = config
-        self._strategy: RateLimiterStrategy | None = None
+        self._state = _State(config=config, strategy=None)
 
     @property
     def name(self) -> str:
@@ -148,10 +157,10 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
             return self._backend
         return get_rate_limiter_backend(self._backend_name or "default")
 
-    def _resolve_strategy(self) -> RateLimiterStrategy:
-        """Bind the algorithm config to the backend and cache the strategy."""
-        strategy = self.backend.bind(self._config)
-        self._strategy = strategy
+    def _resolve_strategy(self, state: _State) -> RateLimiterStrategy:
+        """Bind the algorithm config to the backend and republish the snapshot."""
+        strategy = self.backend.bind(state.config)
+        self._state = _State(config=state.config, strategy=strategy)
         return strategy
 
     @classmethod
@@ -320,9 +329,10 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
             ValueError: If `cost` is not between 1 and the
                 algorithm's limit/capacity.
         """
-        config = self._config
+        state = self._state
+        config = state.config
         _validate_cost(cost, _config_limit(config))
-        strategy = self._strategy or self._resolve_strategy()
+        strategy = state.strategy or self._resolve_strategy(state)
         try:
             return await strategy.acquire(key=self._full_key(key), cost=cost)
         except Exception as exc:
@@ -380,8 +390,9 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
             `allowed` indicates whether the next acquire would
             succeed.
         """
-        config = self._config
-        strategy = self._strategy or self._resolve_strategy()
+        state = self._state
+        config = state.config
+        strategy = state.strategy or self._resolve_strategy(state)
         try:
             return await strategy.peek(key=self._full_key(key))
         except Exception as exc:
@@ -405,12 +416,12 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
 
         Idempotent: resetting a nonexistent key is a no-op.
         """
-        config = self._config
-        strategy = self._strategy or self._resolve_strategy()
+        state = self._state
+        strategy = state.strategy or self._resolve_strategy(state)
         try:
             await strategy.reset(key=self._full_key(key))
         except Exception as exc:
-            if config.fail_open:
+            if state.config.fail_open:
                 self._log_fail_open(key, exc)
                 return
             raise
@@ -419,8 +430,9 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         self,
         new_config: RateLimiterConfig,
     ) -> None:
-        """Rebind the strategy for the new config."""
-        self._strategy = self.backend.bind(new_config)
+        """Bind the new strategy and publish a fresh snapshot in one assignment."""
+        new_strategy = self.backend.bind(new_config)
+        self._state = _State(config=new_config, strategy=new_strategy)
 
 
 def _config_limit(config: RateLimiterConfig) -> int:
