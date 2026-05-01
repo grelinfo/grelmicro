@@ -16,5 +16,5 @@
   <path d="M356 -12Q258 -12 185.5 26.5Q113 65 73.0 135.0Q33 205 33 301Q33 396 73.0 466.0Q113 536 185.5 574.0Q258 612 357 612Q455 612 527.0 574.0Q599 536 638.0 466.0Q677 396 677 300Q677 205 637.5 134.5Q598 64 526.0 26.0Q454 -12 356 -12ZM356 132Q431 132 471.0 177.5Q511 223 511 301Q511 379 471.0 423.5Q431 468 356 468Q280 468 239.5 423.0Q199 378 199 301Q199 223 239.5 177.5Q280 132 356 132Z" fill="#E30613" transform="translate(1055.631 346.108) scale(0.117833 -0.117833)"/>
   <rect x="888.939" y="247.128" width="19.006" height="19.006" fill="#E30613" shape-rendering="crispEdges"/>
   <rect x="539.328" y="247.128" width="19.006" height="19.006" fill="#E30613" shape-rendering="crispEdges"/>
-  <text x="470.000" y="409.738" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="26" fill="#0F0F10" opacity="0.6">Python primitives. Micro by design. Fast by default.</text>
+  <text x="470.000" y="409.738" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="26" fill="#0F0F10" opacity="0.6">Async-first toolkit. Microservice patterns inside.</text>
 </svg>

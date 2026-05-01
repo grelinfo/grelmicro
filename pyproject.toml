@@ -4,10 +4,11 @@ version = "0.0.0.dev0"
 description = "grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes"
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
-readme = "README.md"
+dynamic = ["readme"]
 keywords = [
     "microservice",
     "microservice-patterns",
+    "modular-monolith",
     "self-contained-systems",
     "cloud-native",
     "kubernetes",
@@ -136,12 +137,32 @@ docs = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.9.27,<0.12.0"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.25,<2", "hatch-fancy-pypi-readme>=24,<26"]
+build-backend = "hatchling.build"
 
-[tool.uv.build-backend]
-module-name = "grelmicro"
-module-root = ""
+[tool.hatch.build.targets.wheel]
+packages = ["grelmicro"]
+
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+# Rewrite relative `docs/<section>/index.md` links to docs site URLs.
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\(docs/(.+?)/index\.md\)'
+replacement = '](https://grelinfo.github.io/grelmicro/\1/)'
+
+# Rewrite relative `docs/<path>.md` links to docs site URLs.
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\(docs/(.+?)\.md\)'
+replacement = '](https://grelinfo.github.io/grelmicro/\1/)'
+
+# Rewrite relative `docs/img/...` asset references to GitHub raw.
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(src|href)="docs/img/'
+replacement = '\1="https://raw.githubusercontent.com/grelinfo/grelmicro/main/docs/img/'
 
 [tool.ruff]
 target-version = "py311"

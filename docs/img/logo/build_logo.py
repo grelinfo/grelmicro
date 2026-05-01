@@ -300,10 +300,20 @@ def build_favicon(font: TTFont, m: dict, *, dark: bool) -> str:
     pixel grid at render time, giving sharp corners without shifting the
     dot off its ascender-aligned position.
     """
-    view = 512
-    target_h = view * 0.78  # larger g so small-size stems cover more pixels
-    font_size = target_h / (m["ascender"] + m["descender"]) * m["upem"]
-    scale = font_size / m["upem"]
+    # viewBox 1536 (3x the visual size of 512) is the LCM of all common
+    # favicon render sizes: 16, 32, 48, 192, 256, 512. Coordinates that
+    # are multiples of 96 vbu therefore land on integer pixel boundaries
+    # at every one of those render sizes (LCM of 1536/N for N in that
+    # set is 96). Compared to viewBox 512, this lets us pixel-snap at
+    # 48 and 192 — the two non-power-of-two sizes that drift fractional
+    # in the smaller viewBox.
+    view = 1536
+    snap = 96
+    # Pick the dot/stem size first so the dot square matches the g's right
+    # stem width exactly. Choosing 2*snap gives a stem of 192 vbu = 64 px
+    # @ 512 render, very close to the original ~62 px natural width.
+    target_stem_w = 2 * snap  # 192 vbu
+    scale = target_stem_w / m["g_stem_w"]
     asc, desc = m["ascender"] * scale, m["descender"] * scale
     top_margin = (view - (asc + desc)) / 2
     baseline = top_margin + asc
@@ -311,26 +321,25 @@ def build_favicon(font: TTFont, m: dict, *, dark: bool) -> str:
     g_advance = _glyph_advance(font, "g") * scale
     g_x_natural = view / 2 - g_advance / 2
 
-    # Nudge g horizontally so its right stem (the most prominent vertical
-    # edge) lands on an integer pixel at the PNG sizes that render it.
-    # Target 48 px (header icon): at that render 1 px = 512/48 view-units.
-    # Shift g_x by <5 vb-units (sub-pixel at 512) to snap.
+    # Snap the g's right-stem outer edge to a multiple of `snap` so the
+    # stem and the red dot (which shares its inner edge) land on integer
+    # pixels at every supported render size, not just 48.
     stem_outer_fu = m["g_stem_cx"] + m["g_stem_w"] / 2
-    px_48 = 512 / 48
     right_stem_vb = g_x_natural + stem_outer_fu * scale
-    snapped = round(right_stem_vb / px_48) * px_48
-    g_x = g_x_natural + (snapped - right_stem_vb)
+    snapped_outer = round(right_stem_vb / snap) * snap
+    g_x = g_x_natural + (snapped_outer - right_stem_vb)
 
-    # Red + black column stacked on top of the g's right stem. The left
-    # and right edges are placed at the exact font-unit positions of the
-    # stem's edges (not rounded), so both the rectangles and the g's
-    # outline anti-alias to the same sub-pixel — no visible step between
-    # the rectangle column and the stem.
+    # Red dot anchored to the g's right stem. Width, x and y all snap
+    # to `snap` so the rect's corners hit integer pixels at every
+    # supported render size.
     stem_inner_fu = m["g_stem_cx"] - m["g_stem_w"] / 2
-    tit_x = g_x + stem_inner_fu * scale
-    tit_side = m["g_stem_w"] * scale
-    tit_y = baseline - m["ascender"] * scale
-    plate_rx = round(view * 0.22)
+    tit_x_natural = g_x + stem_inner_fu * scale
+    tit_x = round(tit_x_natural / snap) * snap
+    tit_side_natural = m["g_stem_w"] * scale
+    tit_side = round(tit_side_natural / snap) * snap or snap
+    tit_y_natural = baseline - m["ascender"] * scale
+    tit_y = round(tit_y_natural / snap) * snap
+    plate_rx = round(view * 0.22 / snap) * snap
 
     bg, fg = (INK, PAPER) if dark else (PAPER, INK)
 
@@ -435,9 +444,7 @@ def build_social_preview(font: TTFont, m: dict) -> str:
             f'width="{wm_tit:.3f}" height="{wm_tit:.3f}" fill="{RED}" '
             f'shape-rendering="crispEdges"/>'
         )
-    tag = "Python primitives. Micro by design. Fast by default."
-    # Note: the main tagline ("Import only what you need.") stays in the
-    # README body rather than on the card, to keep the card visually calm.
+    tag = "Async-first toolkit. Microservice patterns inside."
     lines.append(
         f'  <text x="{wm_start:.3f}" y="{wm_baseline + wm_fs * 0.45:.3f}" '
         f'font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" '
