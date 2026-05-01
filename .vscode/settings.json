@@ -14,7 +14,11 @@
     "**/.mypy_cache": true,
     "**/.pytest_cache": true,
     "**/.ruff_cache": true,
-    ".coverage": true
+    "**/.coverage": true,
+    "**/.coverage.*": true,
+    "**/coverage.xml": true,
+    "**/cov.xml": true,
+    "**/htmlcov": true
   },
 
   // Python settings
