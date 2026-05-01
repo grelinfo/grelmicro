@@ -11,7 +11,10 @@ wheels/
 
 # Coverage
 cov.xml
+coverage.xml
 .coverage
+.coverage.*
+htmlcov/
 
 # Mkdocs
 site/
