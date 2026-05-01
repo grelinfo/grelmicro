@@ -242,6 +242,9 @@ async def test_leadership_abandon_on_renew_deadline_reached(
     # renew deadline elapses without state updates.
     is_leader_before_start = leader_election.is_leader()
 
+    async def _block_forever() -> None:
+        await sleep(math.inf)
+
     # Act
     async with create_task_group() as tg:
         await tg.start(leader_election)
@@ -250,7 +253,7 @@ async def test_leadership_abandon_on_renew_deadline_reached(
         mocker.patch.object(
             leader_election,
             "_try_acquire_or_renew",
-            side_effect=lambda: sleep(math.inf),
+            side_effect=_block_forever,
         )
         await leader_election.wait_lose_leader()
         is_leader_after_not_renewed = leader_election.is_leader()
