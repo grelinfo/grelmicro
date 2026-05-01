@@ -14,7 +14,6 @@ from grelmicro._async import is_async_callable
 from grelmicro.sync.abc import SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import LockNotOwnedError
 from grelmicro.sync.leaderelection import LeaderElection
-from grelmicro.sync.lock import Lock
 from grelmicro.sync.tasklock import TaskLock
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.abc import Task
@@ -103,11 +102,10 @@ class IntervalTask(Task):
                 min_lock_seconds=resolved_min_lock_seconds,
                 max_lock_seconds=resolved_max_lock_seconds,
             )
-            resource_lock = sync if isinstance(sync, Lock) else None
             self._sync_primitives: list[SyncPrimitive] = _build_sync_list(
                 leader=leader,
                 task_lock=task_lock,
-                resource_lock=resource_lock,
+                resource_lock=sync,
             )
         elif sync is not None:
             self._sync_primitives = [sync]
