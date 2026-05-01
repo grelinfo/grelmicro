@@ -217,7 +217,7 @@ markers = """
     integration: mark a test as an integration test
 """
 filterwarnings = [
-    # testcontainers' own deprecation banner; not driven by our code.
+    # testcontainers' own deprecation banner, not driven by our code.
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers",
 ]
 
