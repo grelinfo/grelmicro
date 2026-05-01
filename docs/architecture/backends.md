@@ -68,12 +68,12 @@ async with RedisSyncBackend() as backend:
 Register multiple backends under different names and pick one at the call site:
 
 ```python
-sync.register(RedisSyncBackend())                              # → "default"
+sync.register(RedisSyncBackend())                                # → "default"
 sync.register(PostgresSyncBackend("postgres://..."), "analytics")
 
-Lock("cart")                          # → "default" (Redis)
-Lock("audit", backend="analytics")     # → "analytics" (Postgres)
-Lock("cart", backend=my_instance)      # → explicit instance, bypasses names
+Lock("cart")                         # → "default" (Redis)
+Lock("audit", backend="analytics")   # → "analytics" (Postgres)
+Lock("cart", backend=my_instance)    # → explicit instance, bypasses names
 ```
 
 Resolution order, in priority:
@@ -105,9 +105,9 @@ async def test_checkout():
 
 The override propagates downward through `await`, `start_soon`, and `to_thread.run_sync` (AnyIO copies the context at every concurrency boundary). Set the override on the side that *calls into* the registry: an override set inside a worker thread is invisible to `from_thread.run` callbacks (which run on the loop's context).
 
-## Lazy registration and zero-RAM-cost for unused modules
+## Lazy registration
 
-Each `BackendRegistry` subscribes itself into a process-wide map *when its module is imported*. Modules you never import never create their registry, never appear in `grelmicro.lifespan()`, and never consume RAM. `import grelmicro` alone is ~6 ms; the per-component cost is paid only when the user imports that component.
+Each `BackendRegistry` subscribes itself into a process-wide map *when its module is imported*. Modules you never import never create their registry, never appear in `grelmicro.lifespan()`, and never consume RAM. `import grelmicro` alone is ~6 ms. The per-component cost is paid only when the user imports that component.
 
 ## Identity-checked unregister
 
