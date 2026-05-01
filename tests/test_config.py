@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ConfigDict, PositiveFloat, ValidationError
 
-from grelmicro._config import env_segment, parse_csv_or_json, resolve_config
+from grelmicro._config import (
+    _build_settings_cls,
+    env_segment,
+    parse_csv_or_json,
+    resolve_config,
+)
 
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_RETRIES = 3
@@ -270,3 +275,22 @@ def test_env_segment_rejects_leading_digit(bad: str) -> None:
 def test_parse_csv_or_json(value: object, expected: object) -> None:
     """CSV strings split on commas, JSON arrays parse, others pass through."""
     assert parse_csv_or_json(value) == expected
+
+
+# --- _build_settings_cls cache ---
+
+
+def test_build_settings_cls_returns_same_class_for_same_inputs() -> None:
+    """The dynamic Settings subclass is memoized on (config_cls, env_prefix)."""
+    first = _build_settings_cls(_Sample, "GREL_SAMPLE_")
+    second = _build_settings_cls(_Sample, "GREL_SAMPLE_")
+    assert first is second
+
+
+def test_build_settings_cls_distinct_prefixes_get_distinct_classes() -> None:
+    """Different prefixes still produce distinct Settings subclasses."""
+    a = _build_settings_cls(_Sample, "GREL_SAMPLE_A_")
+    b = _build_settings_cls(_Sample, "GREL_SAMPLE_B_")
+    assert a is not b
+    assert a.model_config["env_prefix"] == "GREL_SAMPLE_A_"
+    assert b.model_config["env_prefix"] == "GREL_SAMPLE_B_"

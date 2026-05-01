@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
@@ -156,6 +157,7 @@ def resolve_config(
     return settings_cls(**provided)  # type: ignore[return-value, arg-type]  # ty: ignore[invalid-return-type, invalid-argument-type]
 
 
+@lru_cache(maxsize=256)
 def _build_settings_cls(
     config_cls: type[C],
     env_prefix: str,
@@ -165,11 +167,20 @@ def _build_settings_cls(
     The dynamic class inherits ``config_cls`` so all fields,
     validators, and ``model_config`` flags (``frozen``, ``extra``)
     are preserved. Only the ``env_prefix`` is added.
+
+    Cached on ``(config_cls, env_prefix)`` with a bounded LRU. The
+    expected keyspace is small (one entry per declared component
+    instance per process); the bound is a safety net for long-
+    running processes that derive prefixes from runtime inputs.
     """
-    parent_config: dict[str, object] = {**(config_cls.model_config or {})}  # type: ignore[dict-item]
-    parent_config["env_prefix"] = env_prefix
+    # `model_config` is a TypedDict (`SettingsConfigDict`/`ConfigDict`);
+    # spreading it into a plain dict so we can add `env_prefix` widens
+    # it to `dict[str, object]`, which the downstream constructors
+    # accept but the type checker can't narrow back.
+    merged_config: dict[str, object] = {**(config_cls.model_config or {})}  # type: ignore[dict-item]
+    merged_config["env_prefix"] = env_prefix
     return type(
         f"_{config_cls.__name__}Settings",
         (config_cls, BaseSettings),
-        {"model_config": SettingsConfigDict(**parent_config)},  # type: ignore[typeddict-item]
+        {"model_config": SettingsConfigDict(**merged_config)},  # type: ignore[typeddict-item]
     )
