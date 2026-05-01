@@ -1,7 +1,6 @@
 """Test Task Router."""
 
 import re
-import warnings
 from functools import partial
 
 import pytest
@@ -60,7 +59,6 @@ def test_router_include_router() -> None:
     assert router.tasks == [custom_task1, custom_task2]
 
 
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_router_interval() -> None:
     """Test Task Router add interval task."""
     # Arrange
@@ -210,71 +208,3 @@ def test_router_started_propagation() -> None:
     assert router_child_started_before is False
     assert router_started_after is True
     assert router_child_started_after is True
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_router_scheduled() -> None:
-    """Test Task Router add scheduled task (deprecated)."""
-    # Arrange
-    backend = MemorySyncBackend()
-    router = TaskRouter()
-
-    # Act
-    router.scheduled(seconds=60, backend=backend)(test1)
-    router.scheduled(seconds=30, name="custom-name", backend=backend)(test2)
-
-    # Assert
-    expected_task_count = 2
-    assert len(router.tasks) == expected_task_count
-    assert all(isinstance(task, IntervalTask) for task in router.tasks)
-    assert router.tasks[0].name == "tests.task.samples:test1"
-    assert router.tasks[1].name == "custom-name"
-
-
-def test_router_scheduled_deprecation_warning() -> None:
-    """Test that scheduled() emits DeprecationWarning."""
-    # Arrange
-    backend = MemorySyncBackend()
-    router = TaskRouter()
-
-    # Act
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        router.scheduled(seconds=60, backend=backend)(test1)
-
-    # Assert
-    assert len(w) == 1
-    assert issubclass(w[0].category, DeprecationWarning)
-    assert "scheduled()" in str(w[0].message)
-    assert "interval()" in str(w[0].message)
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_router_scheduled_name_generation() -> None:
-    """Test Task Router Scheduled Name Generation."""
-    # Arrange
-    backend = MemorySyncBackend()
-    router = TaskRouter()
-
-    # Act
-    router.scheduled(seconds=10, backend=backend)(test1)
-    router.scheduled(seconds=10, backend=backend)(SimpleClass.static_method)
-
-    # Assert
-    assert router.tasks[0].name == "tests.task.samples:test1"
-    assert (
-        router.tasks[1].name == "tests.task.samples:SimpleClass.static_method"
-    )
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_router_scheduled_when_started() -> None:
-    """Test Task Router Scheduled When Started."""
-    # Arrange
-    backend = MemorySyncBackend()
-    router = TaskRouter()
-    router.do_mark_as_started()
-
-    # Act
-    with pytest.raises(TaskAddOperationError):
-        router.scheduled(seconds=10, backend=backend)(test1)

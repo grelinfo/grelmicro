@@ -1,6 +1,5 @@
 """Synchronization."""
 
-import warnings
 from contextlib import AbstractContextManager
 from typing import Annotated
 
@@ -78,17 +77,3 @@ __all__ = [
     "use",
     "use_backend",
 ]
-
-
-def __getattr__(name: str) -> type:
-    if name == "Synchronization":
-        warnings.warn(
-            "Synchronization is deprecated, use SyncPrimitive instead. "
-            "Will be removed in 0.7.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        globals()["Synchronization"] = SyncPrimitive
-        return SyncPrimitive
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)

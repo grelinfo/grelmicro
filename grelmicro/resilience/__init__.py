@@ -1,6 +1,5 @@
 """Resilience."""
 
-import warnings
 from contextlib import AbstractContextManager
 from typing import Annotated
 
@@ -103,17 +102,3 @@ __all__ = [
     "use",
     "use_backend",
 ]
-
-
-def __getattr__(name: str) -> type:
-    if name == "ResilienceException":
-        warnings.warn(
-            "ResilienceException is deprecated, use ResilienceError instead. "
-            "Will be removed in 0.7.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        globals()["ResilienceException"] = ResilienceError
-        return ResilienceError
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)

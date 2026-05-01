@@ -123,18 +123,4 @@ Then include the `TaskRouter` into the `TaskManager` or other routers:
 !!! tip
     The `TaskRouter` follows the same philosophy as the `APIRouter` in FastAPI or the **Router** in FastStream.
 
-## Deprecated APIs
-
-### Scheduled Task
-
-!!! danger "Deprecated"
-    The `scheduled()` decorator is deprecated. Use `interval()` with `max_lock_seconds` or `leader` instead.
-
-The `scheduled()` decorator still works but emits a `DeprecationWarning`. It is equivalent to `interval(seconds=N, max_lock_seconds=N*5, min_lock_seconds=N)`.
-
-### sync with TaskLock or LeaderElection
-
-!!! danger "Deprecated"
-    Using `sync` with `TaskLock` or `LeaderElection` is deprecated. Use `max_lock_seconds` and `leader` parameters instead.
-
 See [Synchronization Primitives](sync.md) for more details.
