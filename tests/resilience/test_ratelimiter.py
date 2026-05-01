@@ -6,7 +6,9 @@ from types import TracebackType
 from typing import Any, Self
 from unittest.mock import AsyncMock, MagicMock
 
+import anyio
 import pytest
+from anyio.lowlevel import checkpoint
 from pydantic import ValidationError
 
 from grelmicro._backends import BackendNotLoadedError
@@ -658,3 +660,182 @@ async def test_fail_open_acquire_or_raise_still_raises_on_exceeded() -> None:
     # Act & Assert
     with pytest.raises(RateLimitExceededError):
         await limiter.acquire_or_raise(key="user:1")
+
+
+# --- reconfigure ---
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_reconfigure_swaps_config() -> None:
+    """Reconfigure publishes the new config."""
+    # Arrange
+    rl = RateLimiter("rc", GCRAConfig(limit=LIMIT, window=WINDOW))
+    new_config = GCRAConfig(limit=LIMIT * 2, window=WINDOW)
+
+    # Act
+    await rl.reconfigure(new_config)
+
+    # Assert
+    assert rl.config == new_config
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_reconfigure_rebuilds_fallback_and_strategy() -> None:
+    """Reconfigure rebinds the strategy and rebuilds the fail-open fallback."""
+    # Arrange
+    config = TokenBucketConfig(
+        capacity=CAPACITY, refill_rate=REFILL_RATE, fail_open=True
+    )
+    strategy_old: Any = AsyncMock(spec=RateLimiterStrategy)
+    strategy_old.acquire = AsyncMock(side_effect=RuntimeError("old"))
+    strategy_new: Any = AsyncMock(spec=RateLimiterStrategy)
+    strategy_new.acquire = AsyncMock(side_effect=RuntimeError("new"))
+    backend: Any = MagicMock()
+    backend.bind = MagicMock(side_effect=[strategy_old, strategy_new])
+    rl = RateLimiter("rc", config, backend=backend)
+    await rl.acquire(key="k")  # trigger first bind
+
+    # Act
+    new_config = TokenBucketConfig(
+        capacity=CAPACITY * 3, refill_rate=REFILL_RATE, fail_open=True
+    )
+    await rl.reconfigure(new_config)
+
+    # Assert: bind ran a second time on reconfigure
+    assert backend.bind.call_count == 2  # noqa: PLR2004
+    backend.bind.assert_called_with(new_config)
+
+    # Fallback reflects the new capacity (fail-open path returns it).
+    result = await rl.acquire(key="k")
+    assert result.allowed is True
+    assert result.limit == CAPACITY * 3
+
+
+@pytest.mark.usefixtures("_sync_backend")
+async def test_reconfigure_same_config_is_noop() -> None:
+    """Equal configs short-circuit before any bind."""
+    # Arrange
+    config = GCRAConfig(limit=LIMIT, window=WINDOW)
+    backend: Any = MagicMock()
+    backend.bind = MagicMock(return_value=AsyncMock(spec=RateLimiterStrategy))
+    rl = RateLimiter("rc", config, backend=backend)
+
+    # Act
+    await rl.reconfigure(GCRAConfig(limit=LIMIT, window=WINDOW))
+
+    # Assert: bind never ran (no acquire was called either)
+    backend.bind.assert_not_called()
+
+
+@pytest.mark.usefixtures("_sync_backend")
+async def test_reconfigure_rejects_different_config_type() -> None:
+    """Swapping algorithm types raises TypeError."""
+    # Arrange
+    rl = RateLimiter("rc", GCRAConfig(limit=LIMIT, window=WINDOW))
+
+    # Act & Assert
+    with pytest.raises(TypeError, match="GCRAConfig"):
+        await rl.reconfigure(
+            TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
+        )
+
+
+@pytest.mark.usefixtures("_sync_backend")
+async def test_reconfigure_preserves_state_when_bind_fails() -> None:
+    """A bind failure during reconfigure leaves the previous state intact."""
+    # Arrange
+    config = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
+    strategy_old: Any = AsyncMock(spec=RateLimiterStrategy)
+    backend: Any = MagicMock()
+    backend.bind = MagicMock(side_effect=[strategy_old, RuntimeError("nope")])
+    rl = RateLimiter("rc", config, backend=backend)
+    await rl.acquire(key="k")  # bind once
+
+    new_config = TokenBucketConfig(
+        capacity=CAPACITY * 2, refill_rate=REFILL_RATE
+    )
+
+    # Act
+    with pytest.raises(RuntimeError, match="nope"):
+        await rl.reconfigure(new_config)
+
+    # Assert: original config retained
+    assert rl.config == config
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_reconfigure_concurrent_with_acquire() -> None:
+    """Concurrent acquire/reconfigure produce no exceptions."""
+    rl = RateLimiter(
+        "rc",
+        TokenBucketConfig(capacity=100, refill_rate=100),
+    )
+
+    async def hammer() -> None:
+        for _ in range(50):
+            await rl.acquire(key="u")
+
+    async def churn() -> None:
+        for capacity in (50, 75, 100, 60, 80):
+            await rl.reconfigure(
+                TokenBucketConfig(capacity=capacity, refill_rate=100)
+            )
+            await checkpoint()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(hammer)
+        tg.start_soon(hammer)
+        tg.start_soon(churn)
+
+    assert rl.config == TokenBucketConfig(capacity=80, refill_rate=100)
+
+
+@pytest.mark.usefixtures("_sync_backend")
+async def test_reconfigure_inner_double_check_skips_rebuild() -> None:
+    """Two concurrent reconfigure calls with the same target rebuild once."""
+    config = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
+    backend: Any = MagicMock()
+    backend.bind = MagicMock(return_value=AsyncMock(spec=RateLimiterStrategy))
+    rl = RateLimiter("rc", config, backend=backend)
+
+    new_config = TokenBucketConfig(
+        capacity=CAPACITY * 2, refill_rate=REFILL_RATE
+    )
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(rl.reconfigure, new_config)
+        tg.start_soon(rl.reconfigure, new_config)
+
+    assert backend.bind.call_count == 1
+    assert rl.config == new_config
+
+
+@pytest.mark.usefixtures("_sync_backend")
+async def test_reconfigure_fail_open_response_is_self_consistent() -> None:
+    """Fail-open response uses fail_open and fallback from one config snapshot.
+
+    Regression for the pre-fix multi-attribute read window where a
+    reader could combine the new fail_open policy with a stale
+    fallback limit (or vice versa) during a racing reconfigure.
+    """
+    old_config = TokenBucketConfig(
+        capacity=CAPACITY, refill_rate=REFILL_RATE, fail_open=False
+    )
+    new_config = TokenBucketConfig(
+        capacity=CAPACITY * 4, refill_rate=REFILL_RATE, fail_open=True
+    )
+
+    boom: Any = AsyncMock(spec=RateLimiterStrategy)
+    boom.acquire = AsyncMock(side_effect=RuntimeError("backend down"))
+    backend: Any = MagicMock()
+    backend.bind = MagicMock(return_value=boom)
+    rl = RateLimiter("rc", old_config, backend=backend)
+
+    await rl.reconfigure(new_config)
+    result = await rl.acquire(key="k")
+
+    # New fail_open=True applies AND the fallback uses the new limit.
+    # Pre-fix could have returned the old fallback (limit=CAPACITY) under
+    # the new fail_open policy, mixing two configs in one response.
+    assert result.allowed is True
+    assert result.limit == CAPACITY * 4

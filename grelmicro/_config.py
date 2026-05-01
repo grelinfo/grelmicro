@@ -8,6 +8,8 @@ Exposes:
   segment.
 - `parse_csv_or_json`: coerce an env var string into a list, accepting
   comma-separated or JSON-array form.
+- `Reconfigurable`: mixin providing atomic live reconfiguration for
+  stateful components.
 
 The full contract, including the precedence rules and the
 name-as-namespace convention, is documented in
@@ -19,7 +21,7 @@ from __future__ import annotations
 import os
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,7 +31,10 @@ from grelmicro._json import json_loads
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    import anyio
+
 C = TypeVar("C", bound=BaseModel)
+ConfigT = TypeVar("ConfigT", bound=BaseModel)
 
 _NON_ENV_CHARS = re.compile(r"[^A-Z0-9_]+")
 _REPEATED_UNDERSCORES = re.compile(r"_+")
@@ -184,3 +189,57 @@ def _build_settings_cls(
         (config_cls, BaseSettings),
         {"model_config": SettingsConfigDict(**merged_config)},  # type: ignore[typeddict-item]
     )
+
+
+class Reconfigurable(Generic[ConfigT]):
+    """Mixin that adds atomic live reconfiguration to a component.
+
+    Subclasses initialize `self._config` and
+    `self._reconfigure_lock = anyio.Lock()` in `__init__`, and
+    override `_apply_reconfigure` to rebuild any cached derived
+    state. The default `_apply_reconfigure` is a no-op.
+
+    See [Live reconfiguration](../architecture/reconfigure.md) for
+    the full contract.
+    """
+
+    _config: ConfigT
+    _reconfigure_lock: anyio.Lock
+
+    @property
+    def config(self) -> ConfigT:
+        """Return the current configuration."""
+        return self._config
+
+    async def reconfigure(self, new_config: ConfigT) -> None:
+        """Atomically swap to `new_config`.
+
+        Operations in flight when `reconfigure` is called complete on
+        the previous config. Operations started after `reconfigure`
+        returns see the new config. Equal configs are a no-op.
+
+        Raises:
+            TypeError: If `new_config` is not the same runtime type
+                as the current config.
+        """
+        current = self._config
+        if type(new_config) is not type(current):
+            msg = (
+                f"reconfigure requires {type(current).__name__}, "
+                f"got {type(new_config).__name__}"
+            )
+            raise TypeError(msg)
+        if new_config == current:
+            return
+        async with self._reconfigure_lock:
+            if new_config == self._config:
+                return
+            await self._apply_reconfigure(new_config)
+            self._config = new_config
+
+    async def _apply_reconfigure(self, new_config: ConfigT) -> None:
+        """Rebuild cached derived state for `new_config`.
+
+        Runs under `self._reconfigure_lock`. Must not assign
+        `self._config`. The default does nothing.
+        """

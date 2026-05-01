@@ -1,11 +1,14 @@
 """Rate Limiter."""
 
 import logging
+from dataclasses import dataclass
 from typing import Annotated, Self, assert_never
 
+import anyio
 from pydantic import PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
+from grelmicro._config import Reconfigurable
 from grelmicro.resilience._backends import get_rate_limiter_backend
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -22,7 +25,15 @@ from grelmicro.resilience.errors import RateLimitExceededError
 logger = logging.getLogger(__name__)
 
 
-class RateLimiter:
+@dataclass(frozen=True, slots=True)
+class _State:
+    """Read-side snapshot bundling the config with its bound strategy."""
+
+    config: RateLimiterConfig
+    strategy: RateLimiterStrategy | None
+
+
+class RateLimiter(Reconfigurable[RateLimiterConfig]):
     """Rate limiter with a pluggable algorithm.
 
     Most Python call sites should use the factory classmethods:
@@ -118,26 +129,20 @@ class RateLimiter:
     ) -> None:
         """Initialize the rate limiter."""
         self._name = name
-        self._config = config
         self._backend: RateLimiterBackend | None = (
             backend if not isinstance(backend, str) else None
         )
         self._backend_name: str | None = (
             backend if isinstance(backend, str) else None
         )
-        self._strategy: RateLimiterStrategy | None = None
-        self._fail_open = config.fail_open
-        self._fallback = _build_fallback(config)
+        self._reconfigure_lock = anyio.Lock()
+        self._config = config
+        self._state = _State(config=config, strategy=None)
 
     @property
     def name(self) -> str:
         """Return the rate limiter identity."""
         return self._name
-
-    @property
-    def config(self) -> RateLimiterConfig:
-        """Return the algorithm configuration."""
-        return self._config
 
     @property
     def backend(self) -> RateLimiterBackend:
@@ -152,10 +157,10 @@ class RateLimiter:
             return self._backend
         return get_rate_limiter_backend(self._backend_name or "default")
 
-    def _resolve_strategy(self) -> RateLimiterStrategy:
-        """Bind the algorithm config to the backend and cache the strategy."""
-        strategy = self.backend.bind(self._config)
-        self._strategy = strategy
+    def _resolve_strategy(self, state: _State) -> RateLimiterStrategy:
+        """Bind the algorithm config to the backend and republish the snapshot."""
+        strategy = self.backend.bind(state.config)
+        self._state = _State(config=state.config, strategy=strategy)
         return strategy
 
     @classmethod
@@ -324,14 +329,16 @@ class RateLimiter:
             ValueError: If `cost` is not between 1 and the
                 algorithm's limit/capacity.
         """
-        _validate_cost(cost, self._fallback.limit)
-        strategy = self._strategy or self._resolve_strategy()
+        state = self._state
+        config = state.config
+        _validate_cost(cost, _config_limit(config))
+        strategy = state.strategy or self._resolve_strategy(state)
         try:
             return await strategy.acquire(key=self._full_key(key), cost=cost)
         except Exception as exc:
-            if self._fail_open:
+            if config.fail_open:
                 self._log_fail_open(key, exc)
-                return self._fallback
+                return _build_fallback(config)
             raise
 
     async def acquire_or_raise(
@@ -383,13 +390,15 @@ class RateLimiter:
             `allowed` indicates whether the next acquire would
             succeed.
         """
-        strategy = self._strategy or self._resolve_strategy()
+        state = self._state
+        config = state.config
+        strategy = state.strategy or self._resolve_strategy(state)
         try:
             return await strategy.peek(key=self._full_key(key))
         except Exception as exc:
-            if self._fail_open:
+            if config.fail_open:
                 self._log_fail_open(key, exc)
-                return self._fallback
+                return _build_fallback(config)
             raise
 
     async def reset(
@@ -407,31 +416,39 @@ class RateLimiter:
 
         Idempotent: resetting a nonexistent key is a no-op.
         """
-        strategy = self._strategy or self._resolve_strategy()
+        state = self._state
+        strategy = state.strategy or self._resolve_strategy(state)
         try:
             await strategy.reset(key=self._full_key(key))
         except Exception as exc:
-            if self._fail_open:
+            if state.config.fail_open:
                 self._log_fail_open(key, exc)
                 return
             raise
 
+    async def _apply_reconfigure(
+        self,
+        new_config: RateLimiterConfig,
+    ) -> None:
+        """Bind the new strategy and publish a fresh snapshot in one assignment."""
+        new_strategy = self.backend.bind(new_config)
+        self._state = _State(config=new_config, strategy=new_strategy)
 
-def _build_fallback(config: RateLimiterConfig) -> RateLimitResult:
-    """Build the fail-open fallback result for the given algorithm config.
 
-    Called once when
-    [`RateLimiter`][grelmicro.resilience.RateLimiter] is created.
-    The result is cached on the instance and reused on every
-    fail-open path.
-    """
+def _config_limit(config: RateLimiterConfig) -> int:
+    """Return the algorithm's nominal limit for the given config."""
     match config:
         case TokenBucketConfig():
-            limit_value = config.capacity
+            return config.capacity
         case GCRAConfig():
-            limit_value = config.limit
+            return config.limit
         case _ as unknown:  # pragma: no cover
             assert_never(unknown)
+
+
+def _build_fallback(config: RateLimiterConfig) -> RateLimitResult:
+    """Build the fail-open fallback result for the given algorithm config."""
+    limit_value = _config_limit(config)
     return RateLimitResult(
         allowed=True,
         limit=limit_value,

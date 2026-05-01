@@ -47,7 +47,7 @@ def test_fail_open_in_config() -> None:
         capacity=CAPACITY, refill_rate=REFILL_RATE, fail_open=True
     )
     rl = RateLimiter("api", cfg)
-    assert rl._fail_open is True
+    assert rl.config.fail_open is True
 
 
 @pytest.mark.usefixtures("_rate_limiter_backend")
@@ -80,7 +80,7 @@ def test_factory_passes_fail_open() -> None:
     rl = RateLimiter.token_bucket(
         "api", capacity=CAPACITY, refill_rate=REFILL_RATE, fail_open=True
     )
-    assert rl._fail_open is True
+    assert rl.config.fail_open is True
 
 
 @pytest.mark.usefixtures("_rate_limiter_backend")
