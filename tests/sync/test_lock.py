@@ -1,17 +1,12 @@
 """Test Lock."""
 
-import subprocess
-import sys
 import time
-import warnings
 from collections.abc import AsyncGenerator
 
 import pytest
 from anyio import WouldBlock, sleep, to_thread
 from pytest_mock import MockerFixture
 
-import grelmicro.sync as sync_mod
-import grelmicro.sync.abc as abc_mod
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
@@ -701,127 +696,3 @@ async def test_lock_retry_interval_too_small(backend: SyncBackend) -> None:
     """Test Lock rejects retry_interval below minimum."""
     with pytest.raises(ValueError, match="retry_interval must be"):
         Lock(name="test", backend=backend, retry_interval=0.0001)
-
-
-# --- Deprecated token parameter tests ---
-
-
-def test_lock_acquire_error_token_deprecated() -> None:
-    """Test LockAcquireError token parameter emits DeprecationWarning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        error = LockAcquireError(name="test", token="old-token")  # noqa: S106
-        assert "test" in str(error)
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-        assert "Remove it" in str(w[0].message)
-
-
-def test_lock_acquire_error_no_token_no_warning() -> None:
-    """Test LockAcquireError without token emits no warning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        LockAcquireError(name="test")
-        assert len(w) == 0
-
-
-def test_lock_release_error_token_deprecated() -> None:
-    """Test LockReleaseError token parameter emits DeprecationWarning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        error = LockReleaseError(name="test", token="old-token")  # noqa: S106
-        assert "test" in str(error)
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-
-
-def test_lock_release_error_no_token_no_warning() -> None:
-    """Test LockReleaseError without token emits no warning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        LockReleaseError(name="test")
-        assert len(w) == 0
-
-
-def test_lock_not_owned_error_token_deprecated() -> None:
-    """Test LockNotOwnedError token parameter emits DeprecationWarning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        error = LockNotOwnedError(name="test", token="old-token")  # noqa: S106
-        assert "lock not owned" in str(error)
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-
-
-def test_lock_not_owned_error_no_token_no_warning() -> None:
-    """Test LockNotOwnedError without token emits no warning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        LockNotOwnedError(name="test")
-        assert len(w) == 0
-
-
-# --- Deprecated Synchronization alias tests ---
-
-
-def test_synchronization_deprecated_alias_from_abc() -> None:
-    """Test Synchronization alias emits DeprecationWarning from abc module."""
-    abc_mod.__dict__.pop("Synchronization", None)
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        cls = abc_mod.Synchronization
-        assert cls is abc_mod.SyncPrimitive
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-        assert "Synchronization" in str(w[0].message)
-
-
-def test_synchronization_deprecated_alias_from_sync() -> None:
-    """Test Synchronization alias emits DeprecationWarning from sync module."""
-    sync_mod.__dict__.pop("Synchronization", None)
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        cls = sync_mod.Synchronization
-        assert cls is sync_mod.SyncPrimitive
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-
-
-def test_sync_abc_getattr_unknown() -> None:
-    """Test abc __getattr__ raises AttributeError for unknown names."""
-    with pytest.raises(AttributeError, match="NoSuchThing"):
-        abc_mod.NoSuchThing  # noqa: B018
-
-
-def test_sync_module_getattr_unknown() -> None:
-    """Test sync __getattr__ raises AttributeError for unknown names."""
-    with pytest.raises(AttributeError, match="NoSuchThing"):
-        sync_mod.NoSuchThing  # noqa: B018
-
-
-def test_synchronization_from_import_single_warning() -> None:
-    """Test 'from grelmicro.sync import Synchronization' emits exactly one warning.
-
-    Regression test: CPython's importlib._handle_fromlist calls __getattr__
-    twice internally. The globals() caching prevents duplicate warnings.
-    """
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-W",
-            "always",
-            "-c",
-            "from grelmicro.sync import Synchronization",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    warning_lines = [
-        line
-        for line in result.stderr.splitlines()
-        if "DeprecationWarning" in line
-    ]
-    assert len(warning_lines) == 1, (
-        f"Expected 1 warning, got {len(warning_lines)}: {result.stderr}"
-    )

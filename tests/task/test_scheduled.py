@@ -8,7 +8,6 @@ from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncBackend
-from grelmicro.sync.tasklock import TaskLock
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task.samples import (
@@ -124,27 +123,6 @@ def test_interval_task_min_lock_seconds_validation() -> None:
             max_lock_seconds=20,
             min_lock_seconds=25,
             backend=backend,
-        )
-
-
-def test_interval_task_deprecated_sync_with_new_params() -> None:
-    """Test deprecated sync cannot be combined with new params."""
-    backend = MemorySyncBackend()
-    task_lock = TaskLock(
-        "test",
-        backend=backend,
-        min_lock_seconds=1,
-        max_lock_seconds=10,
-    )
-    with pytest.raises(
-        ValueError,
-        match="Cannot combine deprecated 'sync' parameter",
-    ):
-        IntervalTask(
-            seconds=10,
-            function=test1,
-            sync=task_lock,
-            max_lock_seconds=50,
         )
 
 

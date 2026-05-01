@@ -1,7 +1,5 @@
 """Test Interval Task."""
 
-import warnings
-
 import pytest
 from anyio import create_task_group, sleep, sleep_forever
 from pytest_mock import MockFixture
@@ -16,11 +14,7 @@ from tests.task.samples import (
     test1,
 )
 
-pytestmark = [
-    pytest.mark.anyio,
-    pytest.mark.timeout(10),
-    pytest.mark.filterwarnings("ignore::DeprecationWarning"),
-]
+pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 
 SLEEP = 0.01
 
@@ -46,18 +40,6 @@ def test_interval_task_init_with_invalid_interval() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="seconds must be greater than 0"):
         IntervalTask(seconds=0, function=test1)
-
-
-def test_interval_task_sync_deprecation_warning() -> None:
-    """Test that sync= emits DeprecationWarning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        IntervalTask(seconds=1, function=test1, sync=WouldBlockLock())
-
-    assert len(w) == 1
-    assert issubclass(w[0].category, DeprecationWarning)
-    assert "sync" in str(w[0].message)
-    assert "max_lock_seconds" in str(w[0].message)
 
 
 async def test_interval_task_start() -> None:

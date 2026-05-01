@@ -6,6 +6,7 @@
 
 * 💥 The Environmental config path is now opt-in. Set `GREL_CONFIG_FROM_ENV=true` once at startup to enable env reads across every component, or pass `read_env=True` per call. The per-call value (`True`/`False`) always wins over the global flag. This stops grelmicro from silently picking up ambient env vars in unit tests or scripts. Issue [#142](https://github.com/grelinfo/grelmicro/issues/142).
 * 💥 The `read_env` kwarg default flips from `True` to `None` on every component. `None` follows the global flag. `True` and `False` keep their meaning as explicit per-call overrides.
+* 💥 Remove obsolete deprecation shims that were marked for removal in 0.7.0. Replace `ResilienceException` with `ResilienceError`, `Synchronization` with `SyncPrimitive`, and the `scheduled()` decorator on `TaskRouter` / `TaskManager` with `interval(seconds=N, max_lock_seconds=N*5)`. The `token=` kwarg on `LockAcquireError`, `LockReleaseError`, and `LockNotOwnedError` is removed (drop it from your code). The `sync=` parameter on `interval()` no longer warns when used with non-`Lock` primitives.
 
 ### Internal
 

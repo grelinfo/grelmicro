@@ -1,6 +1,5 @@
 """Task Router."""
 
-import warnings
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
@@ -140,16 +139,11 @@ class TaskRouter:
             "SyncPrimitive | None",
             Doc(
                 """
-                The synchronization primitive to use for the task.
+                Optional synchronization primitive for resource synchronization.
 
-                Use a ``Lock`` to synchronize access to a shared resource.
-
-                .. deprecated:: 0.6.0
-                    Using ``sync`` with ``TaskLock`` or ``LeaderElection`` is deprecated
-                    and will be removed in 0.7.0.
-                    Use ``max_lock_seconds`` and ``leader`` parameters instead.
-
-                If None, no synchronization is used and the task will run on all workers.
+                Use a ``Lock`` to serialise execution against a shared resource.
+                If None, no synchronization is used and the task runs on every
+                worker.
                 """,
             ),
         ] = None,
@@ -170,8 +164,6 @@ class TaskRouter:
         Raises:
             FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If deprecated sync (non-Lock) is combined with
-                max_lock_seconds, min_lock_seconds, or leader.
             ValueError: If max_lock_seconds is less than seconds.
             ValueError: If min_lock_seconds is set without max_lock_seconds or leader.
             ValueError: If min_lock_seconds is greater than max_lock_seconds.
@@ -192,122 +184,6 @@ class TaskRouter:
                     backend=backend,
                     worker=worker,
                     sync=sync,
-                ),
-            )
-            return function
-
-        return decorator
-
-    def scheduled(
-        self,
-        *,
-        seconds: Annotated[
-            float,
-            Doc(
-                """
-                The duration in seconds between each scheduling attempt.
-
-                Each worker retries every N seconds, but only one worker executes
-                per interval thanks to the built-in lock. Also used as the
-                ``min_lock_seconds`` value.
-                """,
-            ),
-        ],
-        name: Annotated[
-            str | None,
-            Doc(
-                """
-                The name of the task.
-
-                If None, a name will be generated automatically from the function.
-                Also used as the TaskLock name.
-                """,
-            ),
-        ] = None,
-        max_lock_seconds: Annotated[
-            float | None,
-            Doc(
-                """
-                The maximum duration in seconds to hold the lock (crash protection).
-
-                Defaults to ``seconds * 5``. Must be >= ``seconds``.
-                """,
-            ),
-        ] = None,
-        leader: Annotated[
-            "LeaderElection | None",
-            Doc(
-                """
-                Optional leader election for leader gating.
-
-                When provided, the task only executes on the leader worker.
-                """,
-            ),
-        ] = None,
-        backend: Annotated[
-            "SyncBackend | None",
-            Doc(
-                """
-                The distributed lock backend.
-
-                By default, uses the lock backend registry.
-                """,
-            ),
-        ] = None,
-        worker: Annotated[
-            str | UUID | None,
-            Doc(
-                """
-                The worker identity.
-
-                By default, a UUIDv1 will be generated.
-                """,
-            ),
-        ] = None,
-    ) -> Callable[
-        [Callable[..., Any | Awaitable[Any]]],
-        Callable[..., Any | Awaitable[Any]],
-    ]:
-        """Decorate function to add it as a distributed scheduled task.
-
-        .. deprecated:: 0.6.0
-            Use ``interval()`` with ``max_lock_seconds`` instead.
-            Will be removed in 0.7.0.
-
-        The task runs at most once per interval across all workers, using a built-in
-        TaskLock. Can optionally be gated behind a leader election.
-
-        Raises:
-            FunctionTypeError: If the task name generation fails.
-            ValueError: If seconds is less than or equal to 0.
-            ValueError: If max_lock_seconds is less than seconds.
-        """
-        warnings.warn(
-            "The 'scheduled()' decorator is deprecated and will be removed in 0.7.0. "
-            "Use 'interval()' with 'max_lock_seconds' or 'leader' instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
-
-        resolved_max_lock_seconds = (
-            max_lock_seconds if max_lock_seconds is not None else seconds * 5
-        )
-
-        def decorator(
-            function: Callable[[], None | Awaitable[None]],
-        ) -> Callable[[], None | Awaitable[None]]:
-            self.add_task(
-                IntervalTask(
-                    function=function,
-                    seconds=seconds,
-                    name=name,
-                    max_lock_seconds=resolved_max_lock_seconds,
-                    min_lock_seconds=seconds,
-                    leader=leader,
-                    backend=backend,
-                    worker=worker,
                 ),
             )
             return function

@@ -1,6 +1,5 @@
 """Interval Task."""
 
-import warnings
 from collections.abc import Awaitable, Callable
 from functools import partial
 from logging import getLogger
@@ -53,8 +52,6 @@ class IntervalTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If deprecated sync (non-Lock) is combined with
-                max_lock_seconds, min_lock_seconds, or leader.
             ValueError: If max_lock_seconds is less than seconds.
             ValueError: If min_lock_seconds is set without max_lock_seconds or leader.
             ValueError: If min_lock_seconds is greater than max_lock_seconds.
@@ -63,33 +60,11 @@ class IntervalTask(Task):
             msg = "seconds must be greater than 0"
             raise ValueError(msg)
 
-        # Validate sync parameter usage
-        if sync is not None and not isinstance(sync, Lock):
-            if (
-                max_lock_seconds is not None
-                or min_lock_seconds is not None
-                or leader is not None
-            ):
-                msg = (
-                    "Cannot combine deprecated 'sync' parameter with "
-                    "max_lock_seconds, min_lock_seconds, or leader. "
-                    "Use a Lock for resource synchronization instead."
-                )
-                raise ValueError(msg)
-            warnings.warn(
-                "The 'sync' parameter on interval() is deprecated "
-                "for TaskLock and LeaderElection and will be removed in 0.7.0. "
-                "Use max_lock_seconds and leader parameters instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
         self._seconds = seconds
         self._async_function = self._prepare_async_function(function)
 
-        # Determine if distributed lock is needed
         distributed = max_lock_seconds is not None or leader is not None
 
         if min_lock_seconds is not None and not distributed:
@@ -97,14 +72,6 @@ class IntervalTask(Task):
                 "min_lock_seconds requires max_lock_seconds or leader to be set"
             )
             raise ValueError(msg)
-
-        # Build the synchronization chain
-        resource_lock: SyncPrimitive | None = (
-            sync if isinstance(sync, Lock) else None
-        )
-        legacy_sync: SyncPrimitive | None = (
-            sync if sync is not None and not isinstance(sync, Lock) else None
-        )
 
         if distributed:
             resolved_max_lock_seconds = (
@@ -136,17 +103,14 @@ class IntervalTask(Task):
                 min_lock_seconds=resolved_min_lock_seconds,
                 max_lock_seconds=resolved_max_lock_seconds,
             )
+            resource_lock = sync if isinstance(sync, Lock) else None
             self._sync_primitives: list[SyncPrimitive] = _build_sync_list(
                 leader=leader,
                 task_lock=task_lock,
                 resource_lock=resource_lock,
             )
-        elif legacy_sync is not None:
-            # Legacy sync parameter support (deprecated non-Lock types)
-            self._sync_primitives = [legacy_sync]
-        elif resource_lock is not None:
-            # Lock for resource synchronization (not deprecated)
-            self._sync_primitives = [resource_lock]
+        elif sync is not None:
+            self._sync_primitives = [sync]
         else:
             self._sync_primitives = []
 
