@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.19.0 - 2026-05-01
+
+Cleans out the long-deprecated APIs (`ResilienceException`, `Synchronization`, `scheduled()`, the `token=` kwarg) ahead of the 1.0.0 design work, ships a 3.4× speedup on env-driven config construction, and brings the test suite under 20s for contributors.
+
 ### Breaking
 
 * 💥 The Environmental config path is now opt-in. Set `GREL_CONFIG_FROM_ENV=true` once at startup to enable env reads across every component, or pass `read_env=True` per call. The per-call value (`True`/`False`) always wins over the global flag. This stops grelmicro from silently picking up ambient env vars in unit tests or scripts. Issue [#142](https://github.com/grelinfo/grelmicro/issues/142).
