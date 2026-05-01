@@ -334,6 +334,8 @@
       
         
       
+        
+      
     
     
     
@@ -373,6 +375,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -539,7 +569,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -561,14 +591,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1173,10 +1203,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lazy-registration-and-zero-ram-cost-for-unused-modules" class="md-nav__link">
+  <a href="#lazy-registration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lazy registration and zero-RAM-cost for unused modules
+        Lazy registration
       
     </span>
   </a>
@@ -1250,7 +1280,7 @@
   <span class="md-ellipsis">
     
   
-    Configuration
+    Configuration internals
   
 
     
@@ -1547,10 +1577,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lazy-registration-and-zero-ram-cost-for-unused-modules" class="md-nav__link">
+  <a href="#lazy-registration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lazy registration and zero-RAM-cost for unused modules
+        Lazy registration
       
     </span>
   </a>
@@ -1695,12 +1725,12 @@
 <p><code>async with</code> opens the connection only. The backend is not registered.</p>
 <h2 id="named-backends-and-per-call-selection">Named backends and per-call selection</h2>
 <p>Register multiple backends under different names and pick one at the call site:</p>
-<div class="highlight"><pre><span></span><code><span class="n">sync</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">RedisSyncBackend</span><span class="p">())</span>                              <span class="c1"># → &quot;default&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="n">sync</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">RedisSyncBackend</span><span class="p">())</span>                                <span class="c1"># → &quot;default&quot;</span>
 <span class="n">sync</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">PostgresSyncBackend</span><span class="p">(</span><span class="s2">&quot;postgres://...&quot;</span><span class="p">),</span> <span class="s2">&quot;analytics&quot;</span><span class="p">)</span>
 
-<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>                          <span class="c1"># → &quot;default&quot; (Redis)</span>
-<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;audit&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;analytics&quot;</span><span class="p">)</span>     <span class="c1"># → &quot;analytics&quot; (Postgres)</span>
-<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">my_instance</span><span class="p">)</span>      <span class="c1"># → explicit instance, bypasses names</span>
+<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>                         <span class="c1"># → &quot;default&quot; (Redis)</span>
+<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;audit&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;analytics&quot;</span><span class="p">)</span>   <span class="c1"># → &quot;analytics&quot; (Postgres)</span>
+<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">my_instance</span><span class="p">)</span>    <span class="c1"># → explicit instance, bypasses names</span>
 </code></pre></div>
 <p>Resolution order, in priority:</p>
 <ol>
@@ -1726,8 +1756,8 @@
         <span class="k">await</span> <span class="n">checkout</span><span class="p">()</span>
 </code></pre></div>
 <p>The override propagates downward through <code>await</code>, <code>start_soon</code>, and <code>to_thread.run_sync</code> (AnyIO copies the context at every concurrency boundary). Set the override on the side that <em>calls into</em> the registry: an override set inside a worker thread is invisible to <code>from_thread.run</code> callbacks (which run on the loop's context).</p>
-<h2 id="lazy-registration-and-zero-ram-cost-for-unused-modules">Lazy registration and zero-RAM-cost for unused modules</h2>
-<p>Each <code>BackendRegistry</code> subscribes itself into a process-wide map <em>when its module is imported</em>. Modules you never import never create their registry, never appear in <code>grelmicro.lifespan()</code>, and never consume RAM. <code>import grelmicro</code> alone is ~6 ms; the per-component cost is paid only when the user imports that component.</p>
+<h2 id="lazy-registration">Lazy registration</h2>
+<p>Each <code>BackendRegistry</code> subscribes itself into a process-wide map <em>when its module is imported</em>. Modules you never import never create their registry, never appear in <code>grelmicro.lifespan()</code>, and never consume RAM. <code>import grelmicro</code> alone is ~6 ms. The per-component cost is paid only when the user imports that component.</p>
 <h2 id="identity-checked-unregister">Identity-checked unregister</h2>
 <p><code>registry.unregister(name, backend)</code> clears the entry only when the registered instance is identical to the one passed in. Calling on a non-current instance is a no-op. A stale backend's teardown cannot evict a newer backend that replaced it under the same name.</p>
 <h2 id="protocol-based-polymorphism">Protocol-Based Polymorphism</h2>

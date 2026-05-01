@@ -334,6 +334,8 @@
       
         
       
+        
+      
     
     
     
@@ -373,6 +375,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -539,7 +569,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -561,14 +591,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2216,7 +2246,7 @@
   <span class="md-ellipsis">
     
   
-    Configuration
+    Configuration internals
   
 
     
@@ -3635,7 +3665,7 @@
     <span class="n">half_open_capacity</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">log_level</span><span class="p">:</span> <span class="n"><span title="grelmicro._types.LogLevel">LogLevel</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -3687,9 +3717,9 @@ prefix and exposed via the <code>name</code> property.</p>
 <p>Errors of these types do not count toward <code>error_threshold</code>.
 Accepts a single exception class, a tuple, or fully-qualified
 import strings such as <code>"builtins.ValueError"</code> or
-<code>"my_app.errors.PaymentError"</code>. When unset, resolves from the
-env path or falls back to the <code>CircuitBreakerConfig</code> default
-(empty tuple).</p>
+<code>"my_app.errors.PaymentError"</code>. When unset and env reads are enabled (see <code>read_env</code>
+and <code>GREL_CONFIG_FROM_ENV</code>), resolves from the env path or
+falls back to the <code>CircuitBreakerConfig</code> default (empty tuple).</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -3710,7 +3740,8 @@ env path or falls back to the <code>CircuitBreakerConfig</code> default
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Consecutive errors before the breaker opens.</p>
-<p>Default: 5. When unset, resolves from
+<p>Default: 5. When unset and env reads are enabled (see <code>read_env</code>
+and <code>GREL_CONFIG_FROM_ENV</code>), resolves from
 <code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD</code> if
 present, otherwise falls back to the
 <code>CircuitBreakerConfig</code> default.</p>
@@ -3839,16 +3870,18 @@ present, otherwise falls back to the
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Whether to read environment variables.</p>
-<p>Default: True.</p>
+<p>When None (the default), follow the process-wide
+<code>GREL_CONFIG_FROM_ENV</code> flag. Pass True or False to
+override the flag for this construction.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
+                      <code><span title="bool">bool</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>True</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>

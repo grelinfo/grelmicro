@@ -334,6 +334,8 @@
       
         
       
+        
+      
     
     
     
@@ -373,6 +375,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -539,7 +569,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -561,14 +591,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1103,17 +1133,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.task.TaskRouter.scheduled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;scheduled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#grelmicro.task.TaskRouter.include_router" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1290,7 +1309,7 @@
   <span class="md-ellipsis">
     
   
-    Configuration
+    Configuration internals
   
 
     
@@ -1621,17 +1640,6 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;interval
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.task.TaskRouter.scheduled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;scheduled
       
     </span>
   </a>
@@ -2223,13 +2231,12 @@ Only used when distributed locking is enabled.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>The synchronization primitive to use for the task.</p>
-<p>Use a <code>Lock</code> to synchronize access to a shared resource.</p>
-<p>.. deprecated:: 0.6.0
-    Using <code>sync</code> with <code>TaskLock</code> or <code>LeaderElection</code> is deprecated
-    and will be removed in 0.7.0.
-    Use <code>max_lock_seconds</code> and <code>leader</code> parameters instead.</p>
-<p>If None, no synchronization is used and the task will run on all workers.</p>
+                <p>Optional resource-level synchronization primitive.</p>
+<p>Layered on top of any distributed scheduling chosen via
+<code>max_lock_seconds</code> or <code>leader</code>. Use a <code>Lock</code> to serialise
+execution against a shared resource. Whether the task runs on
+every worker or only one is governed by <code>max_lock_seconds</code>
+and <code>leader</code>, not this parameter.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -2287,19 +2294,6 @@ Only used when distributed locking is enabled.</p>
             </td>
             <td class="doc-raises-details">
               <div class="doc-md-description">
-                <p>If deprecated sync (non-Lock) is combined with
-max_lock_seconds, min_lock_seconds, or leader.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-              <span class="doc-raises-annotation">
-                  <code><span title="ValueError">ValueError</span></code>
-              </span>
-            </td>
-            <td class="doc-raises-details">
-              <div class="doc-md-description">
                 <p>If max_lock_seconds is less than seconds.</p>
               </div>
             </td>
@@ -2325,227 +2319,6 @@ max_lock_seconds, min_lock_seconds, or leader.</p>
             <td class="doc-raises-details">
               <div class="doc-md-description">
                 <p>If min_lock_seconds is greater than max_lock_seconds.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h4 id="grelmicro.task.TaskRouter.scheduled" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">scheduled</span>
-
-
-</h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scheduled</span><span class="p">(</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span><span class="p">,</span>
-    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">max_lock_seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">leader</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElection&lt;/span&gt; (&lt;code&gt;grelmicro.sync.leaderelection.LeaderElection&lt;/code&gt;)" href="../sync/#grelmicro.sync.LeaderElection">LeaderElection</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span>
-    <span class="p">[</span><span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]]],</span>
-    <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span>
-<span class="p">]</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Decorate function to add it as a distributed scheduled task.</p>
-<p>.. deprecated:: 0.6.0
-    Use <code>interval()</code> with <code>max_lock_seconds</code> instead.
-    Will be removed in 0.7.0.</p>
-<p>The task runs at most once per interval across all workers, using a built-in
-TaskLock. Can optionally be gated behind a leader election.</p>
-
-
-<table>
-      <thead>
-        <tr>
-          <th><span class="doc-section-title">PARAMETER</span></th>
-          <th><span>DESCRIPTION</span></th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>seconds</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>The duration in seconds between each scheduling attempt.</p>
-<p>Each worker retries every N seconds, but only one worker executes
-per interval thanks to the built-in lock. Also used as the
-<code>min_lock_seconds</code> value.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="float">float</span></code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>name</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>The name of the task.</p>
-<p>If None, a name will be generated automatically from the function.
-Also used as the TaskLock name.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="str">str</span> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>max_lock_seconds</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>The maximum duration in seconds to hold the lock (crash protection).</p>
-<p>Defaults to <code>seconds * 5</code>. Must be &gt;= <code>seconds</code>.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="float">float</span> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>leader</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Optional leader election for leader gating.</p>
-<p>When provided, the task only executes on the leader worker.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElection&lt;/span&gt; (&lt;code&gt;grelmicro.sync.leaderelection.LeaderElection&lt;/code&gt;)" href="../sync/#grelmicro.sync.LeaderElection">LeaderElection</a> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>backend</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>The distributed lock backend.</p>
-<p>By default, uses the lock backend registry.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>worker</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>The worker identity.</p>
-<p>By default, a UUIDv1 will be generated.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="str">str</span> | <span title="uuid.UUID">UUID</span> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-<table>
-      <thead>
-        <tr>
-          <th><span class="doc-section-title">RAISES</span></th>
-          <th><span>DESCRIPTION</span></th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-              <span class="doc-raises-annotation">
-                  <code><span title="FunctionTypeError">FunctionTypeError</span></code>
-              </span>
-            </td>
-            <td class="doc-raises-details">
-              <div class="doc-md-description">
-                <p>If the task name generation fails.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-              <span class="doc-raises-annotation">
-                  <code><span title="ValueError">ValueError</span></code>
-              </span>
-            </td>
-            <td class="doc-raises-details">
-              <div class="doc-md-description">
-                <p>If seconds is less than or equal to 0.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-              <span class="doc-raises-annotation">
-                  <code><span title="ValueError">ValueError</span></code>
-              </span>
-            </td>
-            <td class="doc-raises-details">
-              <div class="doc-md-description">
-                <p>If max_lock_seconds is less than seconds.</p>
               </div>
             </td>
           </tr>

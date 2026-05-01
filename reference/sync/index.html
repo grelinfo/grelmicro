@@ -334,6 +334,8 @@
       
         
       
+        
+      
     
     
     
@@ -373,6 +375,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -539,7 +569,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -561,14 +591,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1648,7 +1678,7 @@
   <span class="md-ellipsis">
     
   
-    Configuration
+    Configuration internals
   
 
     
@@ -2473,7 +2503,7 @@
     <span class="n">backend_timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">error_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -2566,8 +2596,9 @@ backend.</p>
               <div class="doc-md-description">
                 <p>The duration in seconds after the lock will be released if not renewed.</p>
 <p>Default: 15. If the worker becomes unavailable, the lock
-can only be acquired by an other worker after it has
-expired. When unset, resolves from the environment
+can only be acquired by another worker after it has
+expired. When unset and env reads are enabled (see <code>read_env</code> and
+<code>GREL_CONFIG_FROM_ENV</code>), resolves from the environment
 variable
 <code>GREL_LEADER_ELECTION_{NAME_UPPER}_LEASE_DURATION</code> if
 present, otherwise falls back to the
@@ -2711,18 +2742,18 @@ different naming convention.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Whether to read environment variables.</p>
-<p>Default: True. Set to False when every field is
-already supplied via kwargs and the environment
-must not influence construction.</p>
+<p>When None (the default), follow the process-wide
+<code>GREL_CONFIG_FROM_ENV</code> flag. Pass True or False to
+override the flag for this construction.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
+                      <code><span title="bool">bool</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>True</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3090,7 +3121,7 @@ the guard skips the current tick and retries on the next interval.</p>
     <span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">retry_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -3184,7 +3215,8 @@ automatically released after a duration if not extended.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>The duration in seconds for the lock to be held by default.</p>
-<p>Default: 60. When unset, resolves from the environment
+<p>Default: 60. When unset and env reads are enabled (see <code>read_env</code> and
+<code>GREL_CONFIG_FROM_ENV</code>), resolves from the environment
 variable <code>GREL_LOCK_{NAME_UPPER}_LEASE_DURATION</code> if
 present, otherwise falls back to the <code>LockConfig</code>
 default.</p>
@@ -3209,7 +3241,8 @@ default.</p>
               <div class="doc-md-description">
                 <p>The duration in seconds between attempts to acquire the lock.</p>
 <p>Default: 0.1. Must be &gt;= 0.001 to prevent flooding
-the lock backend. When unset, resolves from the
+the lock backend. When unset and env reads are enabled (see <code>read_env</code> and
+<code>GREL_CONFIG_FROM_ENV</code>), resolves from the
 environment variable
 <code>GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL</code> if present,
 otherwise falls back to the <code>LockConfig</code> default.</p>
@@ -3256,18 +3289,18 @@ naming convention, for example <code>MYAPP_LOCK_CART_</code>.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Whether to read environment variables.</p>
-<p>Default: True. Set to False when every field is
-already supplied via kwargs and the environment
-must not influence construction.</p>
+<p>When None (the default), follow the process-wide
+<code>GREL_CONFIG_FROM_ENV</code> flag. Pass True or False to
+override the flag for this construction.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
+                      <code><span title="bool">bool</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>True</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -4369,7 +4402,7 @@ to other threads.</p>
     <span class="n">min_lock_seconds</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_lock_seconds</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -4466,7 +4499,8 @@ The lock relies entirely on the TTL (<code>max_lock_seconds</code>) set at acqui
               <div class="doc-md-description">
                 <p>The minimum duration in seconds to hold the lock after task completion.</p>
 <p>Default: 1. Prevents re-execution on other nodes
-before this duration has elapsed. When unset,
+before this duration has elapsed. When unset and env reads
+are enabled (see <code>read_env</code> and <code>GREL_CONFIG_FROM_ENV</code>),
 resolves from the environment variable
 <code>GREL_TASK_LOCK_{NAME_UPPER}_MIN_LOCK_SECONDS</code> if
 present, otherwise falls back to the
@@ -4491,7 +4525,8 @@ present, otherwise falls back to the
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>The maximum duration in seconds to hold the lock (deadlock protection).</p>
-<p>Default: 60. Acts as the TTL on acquire. When unset,
+<p>Default: 60. Acts as the TTL on acquire. When unset and env reads
+are enabled (see <code>read_env</code> and <code>GREL_CONFIG_FROM_ENV</code>),
 resolves from the environment variable
 <code>GREL_TASK_LOCK_{NAME_UPPER}_MAX_LOCK_SECONDS</code> if
 present, otherwise falls back to the
@@ -4539,18 +4574,18 @@ naming convention.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Whether to read environment variables.</p>
-<p>Default: True. Set to False when every field is
-already supplied via kwargs and the environment
-must not influence construction.</p>
+<p>When None (the default), follow the process-wide
+<code>GREL_CONFIG_FROM_ENV</code> flag. Pass True or False to
+override the flag for this construction.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
+                      <code><span title="bool">bool</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>True</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>

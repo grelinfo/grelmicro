@@ -334,6 +334,8 @@
       
         
       
+        
+      
     
     
     
@@ -373,6 +375,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -539,7 +569,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -561,14 +591,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1745,7 +1775,7 @@
   <span class="md-ellipsis">
     
   
-    Configuration
+    Configuration internals
   
 
     
@@ -2664,7 +2694,7 @@
     <span class="n">ttl_seconds</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">key</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><span title="logging.LogRecord">LogRecord</span></span><span class="p">],</span> <span class="n"><span title="collections.abc.Hashable">Hashable</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -2707,7 +2737,8 @@ reset method. Create a new filter to clear all counters.</p>
               <div class="doc-md-description">
                 <p>Maximum number of records per key that pass the
 filter before subsequent records are dropped.</p>
-<p>Default: 5. When unset, resolves from the environment
+<p>Default: 5. When unset and env reads are enabled (see <code>read_env</code> and
+<code>GREL_CONFIG_FROM_ENV</code>), resolves from the environment
 variable <code>GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS</code>
 if present, otherwise falls back to the
 <code>DuplicateFilterConfig</code> default.</p>
@@ -2837,16 +2868,18 @@ exceeded, the least-recently-seen key is evicted.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Whether to read environment variables.</p>
-<p>Default: True.</p>
+<p>When None (the default), follow the process-wide
+<code>GREL_CONFIG_FROM_ENV</code> flag. Pass True or False to
+override the flag for this construction.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
+                      <code><span title="bool">bool</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>True</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -3774,7 +3807,7 @@ Extra context fields are added flat at the top level.</p>
     <span class="n">cost</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">key</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><span title="logging.LogRecord">LogRecord</span></span><span class="p">],</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -3826,7 +3859,8 @@ single key.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Maximum burst size.</p>
-<p>Default: 5. When unset, resolves from the environment
+<p>Default: 5. When unset and env reads are enabled (see <code>read_env</code> and
+<code>GREL_CONFIG_FROM_ENV</code>), resolves from the environment
 variable <code>GREL_RATE_LIMIT_FILTER_CAPACITY</code> if
 present, otherwise falls back to the
 <code>RateLimitFilterConfig</code> default.</p>
@@ -3955,16 +3989,18 @@ present, otherwise falls back to the
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Whether to read environment variables.</p>
-<p>Default: True.</p>
+<p>When None (the default), follow the process-wide
+<code>GREL_CONFIG_FROM_ENV</code> flag. Pass True or False to
+override the flag for this construction.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
+                      <code><span title="bool">bool</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>True</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
@@ -4342,7 +4378,7 @@ is bypassed and the config is used as-is.</p>
     <span class="n">json_serializer</span><span class="p">:</span> <span class="n"><span title="grelmicro.log.config.LoggingSerializerType">LoggingSerializerType</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">caller_enabled</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">otel_enabled</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LoggingConfig&lt;/span&gt; (&lt;code&gt;grelmicro.log.config.LoggingConfig&lt;/code&gt;)" href="#grelmicro.log.LoggingConfig">LoggingConfig</a></span>
 </code></pre></div>
 
@@ -4516,16 +4552,16 @@ is bypassed and the config is used as-is.</p>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Whether to read <code>GREL_LOG_*</code> environment variables. Default: True.</p>
+                <p>Whether to read <code>GREL_LOG_*</code> environment variables. When None (default), follow <code>GREL_CONFIG_FROM_ENV</code>. Pass True or False to override.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="bool">bool</span></code>
+                      <code><span title="bool">bool</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>True</code>
+                      <code>None</code>
                   </span>
               </p>
             </td>
