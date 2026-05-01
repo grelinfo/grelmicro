@@ -53,13 +53,41 @@ A name that produces an empty segment or one starting with a digit is rejected a
 
 ## Hot-path discipline
 
-The config model is a frozen `BaseModel` with `extra="forbid"`. Field reads cost ~2 ns and account for ~1% of a 255 ns `RateLimitFilter.filter` call. This is the budget the design protects:
+The config model is a frozen `BaseModel` with `extra="forbid"`. The hot path holds one reference to that instance and reads attributes off it. This is the budget the design protects:
 
 - Validation runs once at construction, never on a request.
 - Env reads happen at construction, never on a request.
-- The hot path holds a reference to one Pydantic instance and reads attributes.
+- Resolution (kwargs > env > default) materialises into `self._config` and is never re-evaluated.
 
-This is why the resolution table (kwargs > env > default) is materialised into `self._config` and never re-evaluated. Runtime reconfiguration, when added, will atomically swap the `self._config` pointer without touching the resolution machinery.
+Runtime reconfiguration, when added, will atomically swap the `self._config` pointer without touching the resolution machinery.
+
+### Why we don't copy fields to plain instance attrs
+
+Pydantic model attribute access is measurably slower than a plain instance attribute lookup, because field reads go through Pydantic's customized `__getattribute__` and `__pydantic_fields__` machinery. The shortcut is to mirror every frozen field onto the component (`self._name = self._config.name`, ...) so hot paths read `self._name`. We don't take it, on purpose.
+
+Typical numbers from `benchmarks/config_attr_benchmark.py` (Issue [#113](https://github.com/grelinfo/grelmicro/issues/113)) on a developer laptop:
+
+| Read pattern | ns / field | Ratio |
+|---|---:|---:|
+| Pydantic attr (`self._config.x`) | ~11 | 1.5× |
+| Plain attr (`self._x`) | ~7 | 1.0× |
+| Frozen slotted dataclass | ~8 | 1.2× |
+
+Realistic hot path: `RateLimitFilter.filter` per log record (~250 ns total):
+
+| | ns / call | Share |
+|---|---:|---:|
+| Total call | ~250 | 100% |
+| Minus the one config read | ~248 | ~99% |
+| **Config read cost** | **~2** | **<1%** |
+
+A ~2 ns saving per call disappears in the surrounding dict, lock, and math work. Against that:
+
+- **Duplicated state.** Each mirrored field stores its value twice (once on the frozen `BaseModel`, once in the component's `__dict__`). Trivial in absolute bytes, but two sources of truth where one would do.
+- **Code surface.** 43 hot-path reads across 5 modules become 43 mirror copies plus a duplication rule every new field has to follow.
+- **Desync risk.** A contributor who updates the Pydantic field and forgets the mirror introduces silent drift between `cb.config.x` and the cached `cb._x`.
+
+We keep `self._config` as the single source of truth. If a future profile shows config attribute access on the critical path of a tight loop where it actually matters, revisit per-call site, not as a sweeping refactor.
 
 ## Why `from_config` skips the env layer
 
