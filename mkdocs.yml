@@ -84,6 +84,7 @@ nav:
     - architecture/index.md
     - architecture/backends.md
     - architecture/config.md
+    - architecture/reconfigure.md
     - architecture/imports.md
     - architecture/sync.md
     - architecture/kubernetes.md
