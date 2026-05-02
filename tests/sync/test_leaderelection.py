@@ -242,7 +242,7 @@ async def test_leadership_abandon_on_renew_deadline_reached(
     # renew deadline elapses without state updates.
     is_leader_before_start = leader_election.is_leader()
 
-    async def _block_forever() -> None:
+    async def _block_forever(_: LeaderElectionConfig) -> None:
         await sleep(math.inf)
 
     # Act

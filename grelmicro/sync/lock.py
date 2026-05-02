@@ -298,12 +298,14 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
 
         """
+        config = self._config
         task_id = get_current_task().id
         if task_id in self._held_by_tasks:
             raise LockReentrantError(name=self._name)
-        token = generate_task_token(self._config.worker)
-        while not await self.do_acquire(token=token):  # noqa: ASYNC110 // Polling is intentional
-            await sleep(self._config.retry_interval)
+        token = generate_task_token(config.worker)
+        duration = config.lease_duration
+        while not await self.do_acquire(token=token, duration=duration):  # noqa: ASYNC110 // Polling is intentional
+            await sleep(config.retry_interval)
         self._held_by_tasks.add(task_id)
 
     async def acquire_nowait(self) -> None:
@@ -314,11 +316,14 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             WouldBlock: If the lock cannot be acquired without blocking.
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
+        config = self._config
         task_id = get_current_task().id
         if task_id in self._held_by_tasks:
             raise LockReentrantError(name=self._name)
-        token = generate_task_token(self._config.worker)
-        if not await self.do_acquire(token=token):
+        token = generate_task_token(config.worker)
+        if not await self.do_acquire(
+            token=token, duration=config.lease_duration
+        ):
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlock(msg)
         self._held_by_tasks.add(task_id)
@@ -361,10 +366,18 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         return await self.do_owned(generate_task_token(self._config.worker))
 
-    async def do_acquire(self, token: str) -> bool:
+    async def do_acquire(self, token: str, *, duration: Seconds) -> bool:
         """Acquire the lock.
 
         This method should not be called directly. Use `acquire` instead.
+
+        Args:
+            token: The token to register on the backend.
+            duration: The lease duration to request, in seconds. The
+                caller captures this from `self._config.lease_duration`
+                at the start of the operation so the request is
+                consistent across retries even when `reconfigure`
+                runs concurrently.
 
         Returns:
             bool: True if the lock was acquired, False if the lock was not acquired.
@@ -377,7 +390,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             return await backend.acquire(
                 name=self._lock_name,
                 token=token,
-                duration=self._config.lease_duration,
+                duration=duration,
             )
         except Exception as exc:
             raise LockAcquireError(name=self._name) from exc
@@ -426,9 +439,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             )
             raise ValueError(msg)
 
-    def _thread_token(self, thread_id: int) -> str:
-        """Build a thread token from the worker identity and the given thread ID."""
-        return f"{self._config.worker}:thread:{thread_id}"
+    def _thread_token(self, thread_id: int, worker: str | UUID) -> str:
+        """Build a thread token from a worker identity and the given thread ID."""
+        return f"{worker}:thread:{thread_id}"
 
     async def do_thread_acquire(self, thread_id: int) -> None:
         """Acquire the lock from a worker thread (blocking).
@@ -440,11 +453,13 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
+        config = self._config
         if thread_id in self._held_by_threads:
             raise LockReentrantError(name=self._name)
-        token = self._thread_token(thread_id)
-        while not await self.do_acquire(token=token):  # noqa: ASYNC110 // Polling is intentional
-            await sleep(self._config.retry_interval)
+        token = self._thread_token(thread_id, config.worker)
+        duration = config.lease_duration
+        while not await self.do_acquire(token=token, duration=duration):  # noqa: ASYNC110 // Polling is intentional
+            await sleep(config.retry_interval)
         self._held_by_threads.add(thread_id)
 
     async def do_thread_acquire_nowait(self, thread_id: int) -> None:
@@ -458,10 +473,13 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             WouldBlock: If the lock cannot be acquired without blocking.
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
+        config = self._config
         if thread_id in self._held_by_threads:
             raise LockReentrantError(name=self._name)
-        token = self._thread_token(thread_id)
-        if not await self.do_acquire(token=token):
+        token = self._thread_token(thread_id, config.worker)
+        if not await self.do_acquire(
+            token=token, duration=config.lease_duration
+        ):
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlock(msg)
         self._held_by_threads.add(thread_id)
@@ -476,7 +494,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             LockNotOwnedError: If the lock is not owned by the current token.
             LockReleaseError: If the lock cannot be released due to an error on the backend.
         """
-        token = self._thread_token(thread_id)
+        token = self._thread_token(thread_id, self._config.worker)
         # Local ownership is cleared only after the backend has
         # responded. A backend error keeps the marker so the caller
         # can retry release.
@@ -552,5 +570,5 @@ class ThreadLockAdapter:
         """Return True if the lock is currently held by the current worker thread."""
         return from_thread.run(
             self._lock.do_owned,
-            self._lock._thread_token(get_ident()),  # noqa: SLF001
+            self._lock._thread_token(get_ident(), self._lock._config.worker),  # noqa: SLF001
         )
