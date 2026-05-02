@@ -11,11 +11,12 @@ from types import TracebackType
 from typing import Annotated, Self
 from uuid import UUID
 
+import anyio
 from anyio import WouldBlock, from_thread
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._config import env_segment, resolve_config
+from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync._tokens import (
@@ -67,7 +68,7 @@ class TaskLockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore
         return self
 
 
-class TaskLock(SyncPrimitive):
+class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
     """Task Lock.
 
     A distributed lock for scheduled tasks. Unlike a regular Lock,
@@ -79,6 +80,13 @@ class TaskLock(SyncPrimitive):
     The lock relies entirely on the TTL (`max_lock_seconds`) set at acquire time.
 
     This lock is designed to be used as the `sync` parameter of `IntervalTask`.
+
+    Supports live reconfiguration via
+    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    A swap takes effect on the next acquire and on the next exit
+    re-acquire. The `worker` field is fixed for the lifetime of the
+    instance: changing it raises `ValueError`. See
+    [Live reconfiguration](../architecture/reconfigure.md).
     """
 
     _LOCK_PREFIX = "tasklock"
@@ -239,6 +247,7 @@ class TaskLock(SyncPrimitive):
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
+        self._reconfigure_lock = anyio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend: SyncBackend | None = (
             backend if not isinstance(backend, str) else None
@@ -276,11 +285,12 @@ class TaskLock(SyncPrimitive):
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
+        config = self._config
         if self._acquired_at is not None:
             raise LockReentrantError(name=self._name)
 
-        token = generate_task_token(self._config.worker, self._token_nonce)
-        if not await self.do_acquire(token):
+        token = generate_task_token(config.worker, self._token_nonce)
+        if not await self.do_acquire(token, duration=config.max_lock_seconds):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
             raise WouldBlock(msg)
 
@@ -300,13 +310,9 @@ class TaskLock(SyncPrimitive):
         Raises:
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
-        token = generate_task_token(self._config.worker, self._token_nonce)
-        await self.do_exit(token)
-
-    @property
-    def config(self) -> TaskLockConfig:
-        """Return the task lock config."""
-        return self._config
+        config = self._config
+        token = generate_task_token(config.worker, self._token_nonce)
+        await self.do_exit(token, min_lock_seconds=config.min_lock_seconds)
 
     @property
     def from_thread(self) -> "ThreadTaskLockAdapter":
@@ -327,10 +333,18 @@ class TaskLock(SyncPrimitive):
         except Exception as exc:
             raise LockLockedCheckError(name=self._name) from exc
 
-    async def do_acquire(self, token: str) -> bool:
+    async def do_acquire(self, token: str, *, duration: Seconds) -> bool:
         """Acquire the lock.
 
         This method should not be called directly. Use the context manager instead.
+
+        Args:
+            token: The token to register on the backend.
+            duration: The lease duration to request, in seconds. The
+                caller captures this from
+                `self._config.max_lock_seconds` at the start of the
+                operation so a concurrent `reconfigure` cannot change
+                the duration mid-acquire.
 
         Returns:
             bool: True if the lock was acquired, False if the lock was not acquired.
@@ -343,7 +357,7 @@ class TaskLock(SyncPrimitive):
             acquired = await backend.acquire(
                 name=self._lock_name,
                 token=token,
-                duration=self._config.max_lock_seconds,
+                duration=duration,
             )
         except Exception as exc:
             raise LockAcquireError(name=self._name) from exc
@@ -401,11 +415,12 @@ class TaskLock(SyncPrimitive):
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
+        config = self._config
         if self._acquired_at is not None:
             raise LockReentrantError(name=self._name)
 
-        token = generate_thread_token(self._config.worker, self._token_nonce)
-        if not await self.do_acquire(token):
+        token = generate_thread_token(config.worker, self._token_nonce)
+        if not await self.do_acquire(token, duration=config.max_lock_seconds):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
             raise WouldBlock(msg)
 
@@ -418,11 +433,31 @@ class TaskLock(SyncPrimitive):
         Raises:
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
-        token = generate_thread_token(self._config.worker, self._token_nonce)
-        await self.do_exit(token)
+        config = self._config
+        token = generate_thread_token(config.worker, self._token_nonce)
+        await self.do_exit(token, min_lock_seconds=config.min_lock_seconds)
 
-    async def do_exit(self, token: str) -> None:
-        """Handle exit logic: release or re-acquire based on elapsed time."""
+    async def _apply_reconfigure(self, new_config: TaskLockConfig) -> None:
+        """Validate the immutable `worker` field before publishing `new_config`."""
+        if new_config.worker != self._config.worker:
+            msg = (
+                f"reconfigure cannot change worker "
+                f"({self._config.worker!r} -> {new_config.worker!r}). "
+                f"Reuse the existing worker on the new config."
+            )
+            raise ValueError(msg)
+
+    async def do_exit(self, token: str, *, min_lock_seconds: Seconds) -> None:
+        """Handle exit logic: release or re-acquire based on elapsed time.
+
+        Args:
+            token: The token used to release or re-acquire the lock.
+            min_lock_seconds: The minimum hold duration to enforce, in
+                seconds. The caller captures this from
+                `self._config.min_lock_seconds` at the start of the
+                operation so the comparison and the
+                remaining-duration calculation always agree.
+        """
         if self._acquired_at is None:
             raise LockNotOwnedError(name=self._name)
 
@@ -430,7 +465,7 @@ class TaskLock(SyncPrimitive):
         self._acquired_at = None
         self._token_nonce = generate_token_nonce()
 
-        if elapsed >= self._config.min_lock_seconds:
+        if elapsed >= min_lock_seconds:
             # Task took longer than min_lock_seconds, release immediately
             released = await self.do_release(token)
             if not released:
@@ -438,7 +473,7 @@ class TaskLock(SyncPrimitive):
         else:
             # Re-acquire with remaining duration so the lock is held
             # until min_lock_seconds.
-            remaining = self._config.min_lock_seconds - elapsed
+            remaining = min_lock_seconds - elapsed
             re_acquired = await self.do_reacquire(token, remaining)
             if not re_acquired:
                 raise LockNotOwnedError(name=self._name)

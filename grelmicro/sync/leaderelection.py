@@ -6,6 +6,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Annotated, Self
 from uuid import UUID
 
+import anyio
 from anyio import (
     TASK_STATUS_IGNORED,
     CancelScope,
@@ -20,7 +21,7 @@ from anyio.abc import TaskStatus
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._config import env_segment, resolve_config
+from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
@@ -95,11 +96,18 @@ class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: 
         return self
 
 
-class LeaderElection(SyncPrimitive, Task):
+class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
     """Leader Election.
 
     The leader election is a synchronization primitive with the worker as scope.
     It runs as a task to acquire or renew the distributed lock.
+
+    Supports live reconfiguration via
+    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    A swap takes effect on the next iteration of the renew loop. The
+    `worker` field is fixed for the lifetime of the instance:
+    changing it raises `ValueError`. See
+    [Live reconfiguration](../architecture/reconfigure.md).
     """
 
     _LOCK_PREFIX = "leader"
@@ -303,6 +311,7 @@ class LeaderElection(SyncPrimitive, Task):
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
+        self._reconfigure_lock = anyio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend: SyncBackend | None = (
             backend if not isinstance(backend, str) else None
@@ -318,11 +327,6 @@ class LeaderElection(SyncPrimitive, Task):
         self._error_logged_at: float | None = None
         self._task_group: TaskGroup | None = None
         self._exit_stack: AsyncExitStack | None = None
-
-    @property
-    def config(self) -> LeaderElectionConfig:
-        """Return the leader election config."""
-        return self._config
 
     async def __aenter__(self) -> Self:
         """Wait for the leader with the context manager."""
@@ -372,7 +376,7 @@ class LeaderElection(SyncPrimitive, Task):
         """
         if not self._is_leader:
             return False
-        return not self._is_renew_deadline_reached()
+        return not self._is_renew_deadline_reached(self._config)
 
     async def wait_for_leader(self) -> None:
         """Wait until the current worker is the leader."""
@@ -383,7 +387,10 @@ class LeaderElection(SyncPrimitive, Task):
     async def wait_lose_leader(self) -> None:
         """Wait until the current worker is no longer the leader."""
         while self.is_leader():
-            with move_on_after(self._seconds_before_expiration_deadline()):
+            config = self._config
+            with move_on_after(
+                self._seconds_before_expiration_deadline(config)
+            ):
                 async with self._state_change_condition:
                     await self._state_change_condition.wait()
 
@@ -399,8 +406,9 @@ class LeaderElection(SyncPrimitive, Task):
         logger.info("Leader Election started: %s", self.name)
         try:
             while True:
-                await self._try_acquire_or_renew()
-                await sleep(self._config.retry_interval)
+                config = self._config
+                await self._try_acquire_or_renew(config)
+                await sleep(config.retry_interval)
         except get_cancelled_exc_class():
             logger.info("Leader Election stopped: %s", self.name)
             raise
@@ -434,22 +442,22 @@ class LeaderElection(SyncPrimitive, Task):
         async with self._state_change_condition:
             self._state_change_condition.notify_all()
 
-    async def _try_acquire_or_renew(self) -> None:
-        """Try to acquire leadership."""
+    async def _try_acquire_or_renew(self, config: LeaderElectionConfig) -> None:
+        """Try to acquire leadership using `config` as the operation snapshot."""
         backend = self.backend
         try:
-            with fail_after(self._config.backend_timeout):
+            with fail_after(config.backend_timeout):
                 is_leader = await backend.acquire(
                     name=self._lock_name,
-                    token=str(self._config.worker),
-                    duration=self._config.lease_duration,
+                    token=str(config.worker),
+                    duration=config.lease_duration,
                 )
         except Exception:
-            if self._check_error_interval():
+            if self._check_error_interval(config):
                 logger.exception(
                     "Leader Election failed to acquire lock: %s", self.name
                 )
-            if self._is_renew_deadline_reached():
+            if self._is_renew_deadline_reached(config):
                 await self._update_state(
                     is_leader=False,
                     reason_if_no_more_leader="renew deadline reached",
@@ -460,26 +468,25 @@ class LeaderElection(SyncPrimitive, Task):
                 reason_if_no_more_leader="lock not acquired",
             )
 
-    def _seconds_before_expiration_deadline(self) -> float:
+    def _seconds_before_expiration_deadline(
+        self, config: LeaderElectionConfig
+    ) -> float:
         return max(
-            self._state_updated_at + self._config.lease_duration - monotonic(),
+            self._state_updated_at + config.lease_duration - monotonic(),
             0,
         )
 
-    def _check_error_interval(self) -> bool:
+    def _check_error_interval(self, config: LeaderElectionConfig) -> bool:
         """Check if the cooldown interval allows to log the error."""
         is_logging_allowed = (
             not self._error_logged_at
-            or (monotonic() - self._error_logged_at)
-            > self._config.error_interval
+            or (monotonic() - self._error_logged_at) > config.error_interval
         )
         self._error_logged_at = monotonic()
         return is_logging_allowed
 
-    def _is_renew_deadline_reached(self) -> bool:
-        return (
-            monotonic() - self._state_updated_at
-        ) >= self._config.renew_deadline
+    def _is_renew_deadline_reached(self, config: LeaderElectionConfig) -> bool:
+        return (monotonic() - self._state_updated_at) >= config.renew_deadline
 
     def guard(self) -> "_LeaderGuard":
         """Return a non-blocking synchronization guard.
@@ -492,16 +499,29 @@ class LeaderElection(SyncPrimitive, Task):
         """
         return _LeaderGuard(self)
 
+    async def _apply_reconfigure(
+        self, new_config: LeaderElectionConfig
+    ) -> None:
+        """Validate the immutable `worker` field before publishing `new_config`."""
+        if new_config.worker != self._config.worker:
+            msg = (
+                f"reconfigure cannot change worker "
+                f"({self._config.worker!r} -> {new_config.worker!r}). "
+                f"Reuse the existing worker on the new config."
+            )
+            raise ValueError(msg)
+
     async def _release(self) -> None:
         backend = self._backend
         if backend is None:
             # Nothing was acquired, nothing to release.
             return
+        config = self._config
         try:
-            with fail_after(self._config.backend_timeout):
+            with fail_after(config.backend_timeout):
                 if not (
                     await backend.release(
-                        name=self._lock_name, token=str(self._config.worker)
+                        name=self._lock_name, token=str(config.worker)
                     )
                 ):
                     logger.info(

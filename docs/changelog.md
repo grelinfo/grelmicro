@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+* ✨ Add `reconfigure(new_config)` to `Lock`, `TaskLock`, and `LeaderElection` for atomic live config swap. The `worker` field is fixed for the lifetime of the instance: only timing fields can change. Issue [#158](https://github.com/grelinfo/grelmicro/issues/158).
+
 ## 0.19.0 - 2026-05-01
 
 Cleans out the long-deprecated APIs (`ResilienceException`, `Synchronization`, `scheduled()`, the `token=` kwarg) ahead of the 1.0.0 design work, ships a 3.4× speedup on env-driven config construction, and brings the test suite under 20s for contributors.

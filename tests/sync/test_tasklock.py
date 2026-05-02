@@ -16,7 +16,7 @@ from grelmicro.sync.errors import (
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.sync.lock import Lock
+from grelmicro.sync.lock import Lock, LockConfig
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
 
@@ -690,3 +690,100 @@ async def test_task_lock_exit_without_acquire(backend: SyncBackend) -> None:
     )
     with pytest.raises(LockNotOwnedError):
         await task_lock.__aexit__(None, None, None)
+
+
+# --- reconfigure ---
+
+
+async def test_tasklock_reconfigure_swaps_config(backend: SyncBackend) -> None:
+    """Reconfigure publishes the new config."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    new_config = task_lock.config.model_copy(
+        update={"min_lock_seconds": 2, "max_lock_seconds": 20},
+    )
+
+    await task_lock.reconfigure(new_config)
+
+    assert task_lock.config == new_config
+
+
+async def test_tasklock_reconfigure_same_config_is_noop(
+    backend: SyncBackend,
+) -> None:
+    """Equal configs short-circuit."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    same = task_lock.config.model_copy()
+
+    await task_lock.reconfigure(same)
+
+    assert task_lock.config == same
+
+
+async def test_tasklock_reconfigure_rejects_worker_change(
+    backend: SyncBackend,
+) -> None:
+    """Changing `worker` is not allowed: it is part of the live token."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    new_config = task_lock.config.model_copy(update={"worker": WORKER_2})
+
+    with pytest.raises(ValueError, match="cannot change worker"):
+        await task_lock.reconfigure(new_config)
+
+
+async def test_tasklock_reconfigure_changes_max_lock_for_next_acquire(
+    backend: SyncBackend,
+    mocker: MockerFixture,
+) -> None:
+    """Acquire after reconfigure passes the new max_lock_seconds to the backend."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    spy = mocker.spy(backend, "acquire")
+    new_config = task_lock.config.model_copy(update={"max_lock_seconds": 42})
+
+    await task_lock.reconfigure(new_config)
+    async with task_lock:
+        pass
+
+    # First call is the entry acquire (uses max_lock_seconds);
+    # the second is the exit re-acquire that holds the lock until
+    # min_lock_seconds elapsed.
+    assert spy.call_args_list[0].kwargs["duration"] == 42  # noqa: PLR2004
+
+
+async def test_tasklock_reconfigure_rejects_different_config_type(
+    backend: SyncBackend,
+) -> None:
+    """The mixin rejects config types different from the current one."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+
+    with pytest.raises(TypeError, match="TaskLockConfig"):
+        await task_lock.reconfigure(LockConfig(worker=WORKER_1))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]

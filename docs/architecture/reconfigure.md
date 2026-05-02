@@ -42,7 +42,25 @@ The mixin commits `self._config` after `_apply_reconfigure` returns. This means 
 
 ## Reader safety
 
-A reconfigurable component publishes a single immutable read-side snapshot. Each operation captures that snapshot with one attribute read at the top:
+A reconfigurable component publishes a single immutable read-side snapshot. Every public operation captures that snapshot with one attribute read at the top, then derives every config-dependent decision from the local. The same rule applies to internal helpers called by an operation: they receive the snapshot as a parameter rather than re-reading `self._config`.
+
+Single-attribute reads of a Python object reference are atomic under the GIL and remain atomic on free-threaded 3.13+, so no read-side lock is required.
+
+The snapshot has two shapes depending on whether the component caches derived state.
+
+**Components without derived state** capture the config directly:
+
+```python
+async def acquire(self) -> None:
+    config = self._config
+    token = generate_task_token(config.worker)
+    while not await self.do_acquire(token, duration=config.lease_duration):
+        await sleep(config.retry_interval)
+```
+
+Pass the relevant fields (or the whole `config`) to internal helpers so a concurrent `reconfigure` cannot change behavior mid-call. `Lock`, `TaskLock`, and `LeaderElection` follow this pattern.
+
+**Components with cached derived state** publish a frozen snapshot type:
 
 ```python
 state = self._state
@@ -50,15 +68,13 @@ config = state.config
 strategy = state.strategy
 ```
 
-Single-attribute reads of a Python object reference are atomic under the GIL and remain atomic on free-threaded 3.13+, so no read-side lock is required. Every config-dependent decision in the operation derives from `state`, never from `self._config` or any other instance attribute that could swap independently.
-
 Subclasses MUST bundle every cached derived value (config, strategy, fallback, limits) into one frozen snapshot type and publish it with a single assignment in `_apply_reconfigure`. Caching a derived value on a separate attribute reintroduces a multi-attribute window: a reader could observe the new derived value with the previous snapshot, applying mismatched parameters in one call.
 
 `RateLimiter` follows this rule: its `_State` dataclass holds both `config` and the bound `strategy`, and every hot path captures `state = self._state` once.
 
 ## Implementing `_apply_reconfigure`
 
-Components that read config fields directly per-call inherit the no-op default and need no override:
+Components without cached derived state inherit the no-op default. The only requirement on the subclass is to capture `self._config` once at the top of every public operation, as described in [Reader safety](#reader-safety):
 
 ```python
 class Lock(Reconfigurable[LockConfig]):
@@ -66,6 +82,14 @@ class Lock(Reconfigurable[LockConfig]):
         ...
         self._config = config
         self._reconfigure_lock = anyio.Lock()
+```
+
+A subclass MAY still override `_apply_reconfigure` to enforce per-field invariants on the swap. `Lock`, `TaskLock`, and `LeaderElection` reject changes to `worker` because the field is part of the live token identity:
+
+```python
+async def _apply_reconfigure(self, new_config: LockConfig) -> None:
+    if new_config.worker != self._config.worker:
+        raise ValueError(...)
 ```
 
 Components that cache derived state override `_apply_reconfigure` and rebuild those caches into instance attributes. The mixin commits `self._config` for them:
