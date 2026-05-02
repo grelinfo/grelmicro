@@ -3,6 +3,7 @@
 # dependencies = [
 #     "fonttools>=4.55",
 #     "resvg-py>=0.3",
+#     "pillow>=10.0",
 # ]
 # ///
 """Build the grelmicro logo asset set from Funnel Display glyph outlines.
@@ -27,6 +28,7 @@ directory and downloaded on first run.
 
 from __future__ import annotations
 
+import io
 import math
 import sys
 import tempfile
@@ -38,6 +40,7 @@ from fontTools.pens.boundsPen import BoundsPen
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.ttLib import TTFont
+from PIL import Image
 
 # The script sits inside the asset directory it writes to.
 OUT_DIR = Path(__file__).resolve().parent
@@ -459,14 +462,26 @@ def build_social_preview(font: TTFont, m: dict) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# Render at SUPERSAMPLE times the target size, then downsample with Lanczos.
+# resvg's direct rasterisation at 16/32/48 px makes the g's curves look
+# aliased because there are too few pixels for the renderer's AA to work
+# with. Supersampling renders the geometry into a much larger grid where
+# AA has room to breathe, and Lanczos resampling preserves the smoothness
+# when shrinking back to the target size.
+SUPERSAMPLE = 4
+
+
 def rasterise(svg: Path, png: Path, width: int, height: int) -> None:
-    """Rasterise an SVG to PNG using resvg (bundled Rust binary)."""
+    """Rasterise an SVG to PNG with supersample anti-aliasing."""
     data = resvg_py.svg_to_bytes(
         svg_string=svg.read_text(),
-        width=width,
-        height=height,
+        width=width * SUPERSAMPLE,
+        height=height * SUPERSAMPLE,
     )
-    png.write_bytes(bytes(data))
+    with Image.open(io.BytesIO(bytes(data))) as img:
+        img.resize((width, height), Image.Resampling.LANCZOS).save(
+            png, "PNG", optimize=True
+        )
 
 
 # --------------------------------------------------------------------------- #
