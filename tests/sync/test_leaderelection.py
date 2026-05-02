@@ -554,3 +554,61 @@ async def test_guard_raises_would_block_after_losing_leadership(
     with pytest.raises(WouldBlock):
         async with guard:
             pass
+
+
+# --- reconfigure ---
+
+
+async def test_leader_reconfigure_swaps_config(
+    leader_election: LeaderElection,
+) -> None:
+    """Reconfigure publishes the new config."""
+    new_config = leader_election.config.model_copy(
+        update={"lease_duration": 0.04, "renew_deadline": 0.03},
+    )
+
+    await leader_election.reconfigure(new_config)
+
+    assert leader_election.config == new_config
+
+
+async def test_leader_reconfigure_same_config_is_noop(
+    leader_election: LeaderElection,
+) -> None:
+    """Equal configs short-circuit."""
+    same = leader_election.config.model_copy()
+
+    await leader_election.reconfigure(same)
+
+    assert leader_election.config == same
+
+
+async def test_leader_reconfigure_rejects_worker_change(
+    leader_election: LeaderElection,
+) -> None:
+    """Changing `worker` is not allowed: the lease is held under that token."""
+    new_config = leader_election.config.model_copy(
+        update={"worker": "other-worker"},
+    )
+
+    with pytest.raises(ValueError, match="cannot change worker"):
+        await leader_election.reconfigure(new_config)
+
+
+async def test_leader_reconfigure_takes_effect_on_next_iteration(
+    leader_election: LeaderElection,
+) -> None:
+    """A swap during the renew loop is observed on the next read."""
+    new_error_interval = 0.5
+    async with create_task_group() as tg:
+        await tg.start(leader_election)
+        await leader_election.wait_for_leader()
+
+        new_config = leader_election.config.model_copy(
+            update={"error_interval": new_error_interval},
+        )
+        await leader_election.reconfigure(new_config)
+
+        assert leader_election.config.error_interval == new_error_interval
+
+        tg.cancel_scope.cancel()

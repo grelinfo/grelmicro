@@ -696,3 +696,63 @@ async def test_lock_retry_interval_too_small(backend: SyncBackend) -> None:
     """Test Lock rejects retry_interval below minimum."""
     with pytest.raises(ValueError, match="retry_interval must be"):
         Lock(name="test", backend=backend, retry_interval=0.0001)
+
+
+# --- reconfigure ---
+
+
+async def test_reconfigure_swaps_config(lock: Lock) -> None:
+    """Reconfigure publishes the new config."""
+    new_config = lock.config.model_copy(
+        update={"lease_duration": 5, "retry_interval": 0.05},
+    )
+
+    await lock.reconfigure(new_config)
+
+    assert lock.config == new_config
+
+
+async def test_reconfigure_same_config_is_noop(lock: Lock) -> None:
+    """Equal configs short-circuit."""
+    same = lock.config.model_copy()
+
+    await lock.reconfigure(same)
+
+    assert lock.config == same
+
+
+async def test_reconfigure_rejects_worker_change(lock: Lock) -> None:
+    """Changing `worker` is not allowed because the token identity is live."""
+    new_config = lock.config.model_copy(update={"worker": "other-worker"})
+
+    with pytest.raises(ValueError, match="cannot change worker"):
+        await lock.reconfigure(new_config)
+
+    assert lock.config.worker != "other-worker"
+
+
+async def test_reconfigure_changes_lease_duration_for_next_acquire(
+    lock: Lock,
+    backend: SyncBackend,
+    mocker: MockerFixture,
+) -> None:
+    """Acquire after reconfigure passes the new lease_duration to the backend."""
+    spy = mocker.spy(backend, "acquire")
+    new_config = lock.config.model_copy(update={"lease_duration": 42})
+
+    await lock.reconfigure(new_config)
+    await lock.acquire()
+    await lock.release()
+
+    assert spy.call_args.kwargs["duration"] == 42  # noqa: PLR2004
+
+
+async def test_reconfigure_while_held_keeps_release_working(lock: Lock) -> None:
+    """A swap during a held lease does not break the release path."""
+    new_config = lock.config.model_copy(update={"lease_duration": 5})
+
+    await lock.acquire()
+    await lock.reconfigure(new_config)
+    await lock.release()
+
+    assert await lock.locked() is False

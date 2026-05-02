@@ -5,11 +5,12 @@ from types import TracebackType
 from typing import Annotated, Self
 from uuid import UUID
 
+import anyio
 from anyio import WouldBlock, from_thread, get_current_task, sleep
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._config import env_segment, resolve_config
+from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLock, BaseLockConfig
 from grelmicro.sync._tokens import generate_task_token
@@ -56,12 +57,19 @@ class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[inv
         return self
 
 
-class Lock(BaseLock):
+class Lock(Reconfigurable[LockConfig], BaseLock):
     """Lock.
 
     This lock is a distributed lock that is used to acquire a resource across multiple workers. The
     lock is acquired asynchronously and can be extended multiple times manually. The lock is
     automatically released after a duration if not extended.
+
+    Supports live reconfiguration via
+    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    A swap takes effect on the next `acquire`, `release`, and retry
+    sleep. The `worker` field is fixed for the lifetime of the
+    instance: changing it raises `ValueError`. See
+    [Live reconfiguration](../architecture/reconfigure.md).
     """
 
     _LOCK_PREFIX = "lock"
@@ -220,6 +228,7 @@ class Lock(BaseLock):
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
+        self._reconfigure_lock = anyio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend: SyncBackend | None = (
             backend if not isinstance(backend, str) else None
@@ -273,11 +282,6 @@ class Lock(BaseLock):
 
         """
         await self.release()
-
-    @property
-    def config(self) -> LockConfig:
-        """Return the lock config."""
-        return self._config
 
     @property
     def from_thread(self) -> "ThreadLockAdapter":
@@ -411,6 +415,16 @@ class Lock(BaseLock):
             return await backend.owned(name=self._lock_name, token=token)
         except Exception as exc:
             raise LockOwnedCheckError(name=self._name) from exc
+
+    async def _apply_reconfigure(self, new_config: LockConfig) -> None:
+        """Validate the immutable `worker` field before publishing `new_config`."""
+        if new_config.worker != self._config.worker:
+            msg = (
+                f"reconfigure cannot change worker "
+                f"({self._config.worker!r} -> {new_config.worker!r}). "
+                f"Reuse the existing worker on the new config."
+            )
+            raise ValueError(msg)
 
     def _thread_token(self, thread_id: int) -> str:
         """Build a thread token from the worker identity and the given thread ID."""

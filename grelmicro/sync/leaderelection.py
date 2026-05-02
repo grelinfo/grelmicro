@@ -6,6 +6,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Annotated, Self
 from uuid import UUID
 
+import anyio
 from anyio import (
     TASK_STATUS_IGNORED,
     CancelScope,
@@ -20,7 +21,7 @@ from anyio.abc import TaskStatus
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._config import env_segment, resolve_config
+from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
@@ -95,11 +96,18 @@ class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: 
         return self
 
 
-class LeaderElection(SyncPrimitive, Task):
+class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
     """Leader Election.
 
     The leader election is a synchronization primitive with the worker as scope.
     It runs as a task to acquire or renew the distributed lock.
+
+    Supports live reconfiguration via
+    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    A swap takes effect on the next iteration of the renew loop. The
+    `worker` field is fixed for the lifetime of the instance:
+    changing it raises `ValueError`. See
+    [Live reconfiguration](../architecture/reconfigure.md).
     """
 
     _LOCK_PREFIX = "leader"
@@ -303,6 +311,7 @@ class LeaderElection(SyncPrimitive, Task):
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
+        self._reconfigure_lock = anyio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend: SyncBackend | None = (
             backend if not isinstance(backend, str) else None
@@ -318,11 +327,6 @@ class LeaderElection(SyncPrimitive, Task):
         self._error_logged_at: float | None = None
         self._task_group: TaskGroup | None = None
         self._exit_stack: AsyncExitStack | None = None
-
-    @property
-    def config(self) -> LeaderElectionConfig:
-        """Return the leader election config."""
-        return self._config
 
     async def __aenter__(self) -> Self:
         """Wait for the leader with the context manager."""
@@ -491,6 +495,18 @@ class LeaderElection(SyncPrimitive, Task):
         the guard skips the current tick and retries on the next interval.
         """
         return _LeaderGuard(self)
+
+    async def _apply_reconfigure(
+        self, new_config: LeaderElectionConfig
+    ) -> None:
+        """Validate the immutable `worker` field before publishing `new_config`."""
+        if new_config.worker != self._config.worker:
+            msg = (
+                f"reconfigure cannot change worker "
+                f"({self._config.worker!r} -> {new_config.worker!r}). "
+                f"Reuse the existing worker on the new config."
+            )
+            raise ValueError(msg)
 
     async def _release(self) -> None:
         backend = self._backend

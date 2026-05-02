@@ -11,11 +11,12 @@ from types import TracebackType
 from typing import Annotated, Self
 from uuid import UUID
 
+import anyio
 from anyio import WouldBlock, from_thread
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._config import env_segment, resolve_config
+from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync._tokens import (
@@ -67,7 +68,7 @@ class TaskLockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore
         return self
 
 
-class TaskLock(SyncPrimitive):
+class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
     """Task Lock.
 
     A distributed lock for scheduled tasks. Unlike a regular Lock,
@@ -79,6 +80,13 @@ class TaskLock(SyncPrimitive):
     The lock relies entirely on the TTL (`max_lock_seconds`) set at acquire time.
 
     This lock is designed to be used as the `sync` parameter of `IntervalTask`.
+
+    Supports live reconfiguration via
+    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    A swap takes effect on the next acquire and on the next exit
+    re-acquire. The `worker` field is fixed for the lifetime of the
+    instance: changing it raises `ValueError`. See
+    [Live reconfiguration](../architecture/reconfigure.md).
     """
 
     _LOCK_PREFIX = "tasklock"
@@ -239,6 +247,7 @@ class TaskLock(SyncPrimitive):
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
+        self._reconfigure_lock = anyio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend: SyncBackend | None = (
             backend if not isinstance(backend, str) else None
@@ -302,11 +311,6 @@ class TaskLock(SyncPrimitive):
         """
         token = generate_task_token(self._config.worker, self._token_nonce)
         await self.do_exit(token)
-
-    @property
-    def config(self) -> TaskLockConfig:
-        """Return the task lock config."""
-        return self._config
 
     @property
     def from_thread(self) -> "ThreadTaskLockAdapter":
@@ -420,6 +424,16 @@ class TaskLock(SyncPrimitive):
         """
         token = generate_thread_token(self._config.worker, self._token_nonce)
         await self.do_exit(token)
+
+    async def _apply_reconfigure(self, new_config: TaskLockConfig) -> None:
+        """Validate the immutable `worker` field before publishing `new_config`."""
+        if new_config.worker != self._config.worker:
+            msg = (
+                f"reconfigure cannot change worker "
+                f"({self._config.worker!r} -> {new_config.worker!r}). "
+                f"Reuse the existing worker on the new config."
+            )
+            raise ValueError(msg)
 
     async def do_exit(self, token: str) -> None:
         """Handle exit logic: release or re-acquire based on elapsed time."""
