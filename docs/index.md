@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <em>Micro by design. Fast by default. Import only what you need.</em>
+  <em>Async-first toolkit. Microservice patterns inside.</em>
 </p>
 
 <p align="center">
-  A toolkit of Python primitives built for production needs, for services that coordinate work across processes, workers, or clusters.
+  A Python toolkit for distributed systems: microservices, modular monoliths, and self-contained systems.
 </p>
 
 <p align="center">
@@ -34,11 +34,11 @@ ______________________________________________________________________
 
 ## Why grelmicro
 
-grelmicro gives you the building blocks every Python service needs: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Each is a small, focused module with a pluggable backend.
+Stop reinventing the wheel. grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, and battle-tested in production.
 
-It is built for any Python application, from a standalone script to full **microservice patterns** and **self-contained systems**, with a strong focus on solving **distributed system** problems. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
+It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve every **distributed system**, whether you call it **microservices**, a **modular monolith**, or a **self-contained system**. A distributed lock is a distributed lock whether your system is one process or fifty. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
 
-- **Micro**: one focused primitive per module. Import only what your code touches. Nothing else is loaded.
+- **Micro**: one focused primitive per module, each a canonical microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).
 - **Fast**: small footprint by design. We keep the layers thin so your code stays quick.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any AnyIO-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
