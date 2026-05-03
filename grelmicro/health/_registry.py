@@ -252,6 +252,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
                 Colon is allowed for namespacing, e.g.
                 ``"weather:circuitbreaker"``.
         """
+        config = self._config
         if (
             not name
             or len(name) > _NAME_MAX_LEN
@@ -270,7 +271,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
             name=name,
             func=_normalize(func),
             critical=critical,
-            timeout=timeout if timeout is not None else self._config.timeout,
+            timeout=timeout if timeout is not None else config.timeout,
         )
         self._entries = dict(sorted(self._entries.items()))
 
