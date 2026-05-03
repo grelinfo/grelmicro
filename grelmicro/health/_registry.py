@@ -13,7 +13,7 @@ from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
-from grelmicro._config import resolve_config
+from grelmicro._config import Reconfigurable, resolve_config
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
@@ -88,7 +88,7 @@ def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
     return _async_wrapper
 
 
-class HealthRegistry:
+class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
     """Registry that manages health checks and runs them concurrently.
 
     Checks are plain async functions. Register them with the
@@ -97,6 +97,15 @@ class HealthRegistry:
     check has its own timeout (falling back to the registry default)
     and its own cached result. Concurrent requests for the same check
     share a single execution via an ``anyio.Event``.
+
+    Supports live reconfiguration via
+    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    A swap takes effect on the next :meth:`run`. In-flight rounds
+    keep the ``cache_ttl`` they started with. The new default
+    ``timeout`` applies to checks registered after the swap.
+    Existing checks keep the timeout they were registered with.
+    Re-register a check to pick up the new default. See
+    [Live reconfiguration](../architecture/reconfigure.md).
     """
 
     def __init__(
@@ -190,6 +199,7 @@ class HealthRegistry:
     def _setup(self, config: HealthRegistryConfig) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._config = config
+        self._reconfigure_lock = anyio.Lock()
         self._entries: dict[str, _Entry] = {}
 
     async def __aenter__(self) -> Self:
@@ -242,6 +252,7 @@ class HealthRegistry:
                 Colon is allowed for namespacing, e.g.
                 ``"weather:circuitbreaker"``.
         """
+        config = self._config
         if (
             not name
             or len(name) > _NAME_MAX_LEN
@@ -260,7 +271,7 @@ class HealthRegistry:
             name=name,
             func=_normalize(func),
             critical=critical,
-            timeout=timeout if timeout is not None else self._config.timeout,
+            timeout=timeout if timeout is not None else config.timeout,
         )
         self._entries = dict(sorted(self._entries.items()))
 
@@ -313,6 +324,7 @@ class HealthRegistry:
             A HealthReport with the aggregate status and per-check
             results.
         """
+        config = self._config
         if exclude is None:
             excluded: frozenset[str] = frozenset()
         else:
@@ -329,7 +341,9 @@ class HealthRegistry:
         results: dict[str, CheckResult] = {}
 
         async def _run(name: str, entry: _Entry) -> None:
-            results[name] = await self._get_or_run(entry)
+            results[name] = await self._get_or_run(
+                entry, cache_ttl=config.cache_ttl
+            )
 
         async with anyio.create_task_group() as tg:
             for name, entry in selected:
@@ -341,15 +355,20 @@ class HealthRegistry:
             checks=ordered,
         )
 
-    async def _get_or_run(self, entry: _Entry) -> CheckResult:
+    async def _get_or_run(
+        self, entry: _Entry, *, cache_ttl: float
+    ) -> CheckResult:
         """Return a cached or freshly computed result for one check.
 
         Respects ``cache_ttl`` and serializes concurrent calls via a
         shared ``anyio.Event``. If the single-flight leader is
         cancelled before it produces a result, waiters take the lead
-        themselves instead of failing.
+        themselves instead of failing. The caller captures
+        ``cache_ttl`` from a snapshot at the start of the round so a
+        concurrent ``reconfigure`` cannot change the cache decision
+        mid-call.
         """
-        ttl = self._config.cache_ttl
+        ttl = cache_ttl
         while True:
             now = time.monotonic()
             if (
