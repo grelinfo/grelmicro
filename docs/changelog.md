@@ -6,6 +6,7 @@
 
 * ✨ Add `reconfigure(new_config)` to `Lock`, `TaskLock`, and `LeaderElection` for atomic live config swap. The `worker` field is fixed for the lifetime of the instance: only timing fields can change. Issue [#158](https://github.com/grelinfo/grelmicro/issues/158).
 * ✨ Add `CircuitBreaker.reconfigure(new_config)` for atomic live config swap. Runtime state (current `CircuitBreakerState`, counters, `last_error`) is preserved across the swap. `log_level` changes propagate to the instance logger. Issue [#158](https://github.com/grelinfo/grelmicro/issues/158).
+* ✨ Add `HealthRegistry.reconfigure(new_config)` for atomic live config swap. The `cache_ttl` change applies on the next round; existing checks keep their per-check timeout resolved at registration time. Issue [#162](https://github.com/grelinfo/grelmicro/issues/162).
 
 ## 0.19.0 - 2026-05-01
 

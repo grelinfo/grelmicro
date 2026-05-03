@@ -5,6 +5,7 @@ import time
 from collections.abc import Generator
 
 import anyio
+import pydantic
 import pytest
 from pydantic import ValidationError
 
@@ -555,3 +556,104 @@ def test_reset_health_registry() -> None:
 
     with pytest.raises(BackendNotLoadedError):
         get_health_registry()
+
+
+# --- reconfigure ---
+
+
+async def test_reconfigure_swaps_config() -> None:
+    """Reconfigure publishes the new config."""
+    registry = HealthRegistry(timeout=1.0, cache_ttl=1.0)
+    new_config = registry.config.model_copy(update={"cache_ttl": 5.0})
+
+    await registry.reconfigure(new_config)
+
+    assert registry.config == new_config
+
+
+async def test_reconfigure_same_config_is_noop() -> None:
+    """Equal configs short-circuit."""
+    registry = HealthRegistry(timeout=1.0, cache_ttl=1.0)
+    same = registry.config.model_copy()
+
+    await registry.reconfigure(same)
+
+    assert registry.config == same
+
+
+async def test_reconfigure_rejects_different_config_type() -> None:
+    """The mixin rejects config types different from the current one."""
+
+    class Other(pydantic.BaseModel):
+        pass
+
+    registry = HealthRegistry()
+    with pytest.raises(TypeError, match="HealthRegistryConfig"):
+        await registry.reconfigure(Other())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+async def test_reconfigure_changes_cache_ttl_for_next_run() -> None:
+    """A swap to cache_ttl=0 disables caching on the next run."""
+    call_count = 0
+
+    async def check() -> None:
+        nonlocal call_count
+        call_count += 1
+
+    registry = HealthRegistry(cache_ttl=60.0)
+    registry.add("c", check)
+
+    await registry.run()
+    await registry.run()
+    cached_calls = call_count
+
+    await registry.reconfigure(
+        registry.config.model_copy(update={"cache_ttl": 0.0})
+    )
+
+    await registry.run()
+    await registry.run()
+
+    # First two runs share cache, last two each call the check fresh.
+    assert cached_calls == 1
+    assert call_count == 3  # noqa: PLR2004
+
+
+async def test_reconfigure_during_inflight_run_uses_admission_snapshot() -> (
+    None
+):
+    """A reconfigure during a run does not change the cache decision mid-round.
+
+    The first round captures `cache_ttl=60`. A concurrent reconfigure
+    swaps to `cache_ttl=0`. The in-flight round still uses the
+    admission snapshot, so its result is cached and reused for a
+    second concurrent call inside the same round window.
+    """
+    call_count = 0
+    in_check = anyio.Event()
+    can_finish = anyio.Event()
+
+    async def slow_check() -> None:
+        nonlocal call_count
+        call_count += 1
+        in_check.set()
+        await can_finish.wait()
+
+    registry = HealthRegistry(cache_ttl=60.0)
+    registry.add("c", slow_check)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(registry.run)
+        await in_check.wait()
+        await registry.reconfigure(
+            registry.config.model_copy(update={"cache_ttl": 0.0})
+        )
+        # The reconfigure is published; subsequent runs see cache_ttl=0
+        # but the in-flight round uses its admission snapshot.
+        can_finish.set()
+
+    # First round ran once.
+    assert call_count == 1
+    # Second round (post-reconfigure) sees cache_ttl=0, runs again.
+    await registry.run()
+    assert call_count == 2  # noqa: PLR2004
