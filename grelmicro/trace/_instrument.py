@@ -69,7 +69,7 @@ def _make_extract_fields(
 
 
 @overload
-def instrument(func: Callable[P, R]) -> Callable[P, R]: ...
+def instrument[**P, R](func: Callable[P, R]) -> Callable[P, R]: ...
 
 
 @overload
@@ -81,7 +81,7 @@ def instrument(
 ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
-def instrument(  # type: ignore[return-value]
+def instrument[**P, R](  # type: ignore[return-value]
     func: Callable[P, R] | None = None,
     *,
     name: str | None = None,

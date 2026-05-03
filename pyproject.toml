@@ -54,13 +54,12 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
 
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 
 dependencies = [
     "anyio>=4.0.0",
@@ -165,7 +164,7 @@ pattern = '(src|href)="docs/img/'
 replacement = '\1="https://raw.githubusercontent.com/grelinfo/grelmicro/main/docs/img/'
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 80
 
 [tool.ruff.lint]

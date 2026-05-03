@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from grelmicro.errors import GrelmicroError
 
@@ -20,7 +20,7 @@ DEFAULT_NAME = "default"
 _ALL_REGISTRIES: dict[str, BackendRegistry[Any]] = {}
 
 
-class BackendRegistry(Generic[T]):
+class BackendRegistry[T]:
     """Multi-name backend registry with task-scoped overrides."""
 
     def __init__(self, *, name: str) -> None:
