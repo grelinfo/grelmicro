@@ -100,12 +100,11 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
 
     Supports live reconfiguration via
     [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
-    A swap takes effect on the next :meth:`run`. The ``cache_ttl``
-    change applies to subsequent cache lookups; in-flight rounds
-    finish on their admission snapshot. The default ``timeout``
-    applies to checks registered after the swap: existing entries
-    keep the per-check timeout that was resolved at :meth:`add`
-    time. Re-register a check to pick up a new default. See
+    A swap takes effect on the next :meth:`run`. In-flight rounds
+    keep the ``cache_ttl`` they started with. The new default
+    ``timeout`` applies to checks registered after the swap.
+    Existing checks keep the timeout they were registered with.
+    Re-register a check to pick up the new default. See
     [Live reconfiguration](../architecture/reconfigure.md).
     """
 

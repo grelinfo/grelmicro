@@ -176,12 +176,10 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
 
     Supports live reconfiguration via
     [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
-    Each call captures the config once on entry, so a swap takes
-    effect on the next call. The runtime state (current
-    `CircuitBreakerState`, counters, `last_error`) is preserved
-    across the swap. A change to `log_level` is applied to the
-    instance logger by `_apply_reconfigure`. See
-    [Live reconfiguration](../architecture/reconfigure.md).
+    A swap takes effect on the next call. In-flight calls keep the
+    config they entered with. The current state, counters, and
+    `last_error` are kept. A new `log_level` is applied to the
+    logger. See [Live reconfiguration](../architecture/reconfigure.md).
     """
 
     def __init__(

@@ -104,10 +104,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
 
     Supports live reconfiguration via
     [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
-    A swap takes effect on the next iteration of the renew loop. The
-    `worker` field is fixed for the lifetime of the instance:
-    changing it raises `ValueError`. See
-    [Live reconfiguration](../architecture/reconfigure.md).
+    A swap takes effect on the next renew loop iteration. The
+    `worker` field cannot change. Changing it raises `ValueError`.
+    See [Live reconfiguration](../architecture/reconfigure.md).
     """
 
     _LOCK_PREFIX = "leader"

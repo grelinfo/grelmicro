@@ -66,9 +66,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
     Supports live reconfiguration via
     [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
-    A swap takes effect on the next `acquire`, `release`, and retry
-    sleep. The `worker` field is fixed for the lifetime of the
-    instance: changing it raises `ValueError`. See
+    A swap takes effect on the next call. In-flight calls keep the
+    config they started with. The `worker` field cannot change.
+    Changing it raises `ValueError`. See
     [Live reconfiguration](../architecture/reconfigure.md).
     """
 

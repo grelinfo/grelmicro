@@ -83,9 +83,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
 
     Supports live reconfiguration via
     [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
-    A swap takes effect on the next acquire and on the next exit
-    re-acquire. The `worker` field is fixed for the lifetime of the
-    instance: changing it raises `ValueError`. See
+    A swap takes effect on the next call. An exit re-acquire uses
+    the config the call entered with. The `worker` field cannot
+    change. Changing it raises `ValueError`. See
     [Live reconfiguration](../architecture/reconfigure.md).
     """
 
