@@ -42,7 +42,7 @@ It is built for any Python application that coordinates work across processes, w
 - **Fast**: small footprint by design. We keep the layers thin so your code stays quick.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any AnyIO-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
-- **Production-ready**: 100% test coverage and full type hints. Pre-1.0 API may shift on minor bumps. `1.x` will commit to standard semver.
+- **Railguarded**: 100% pytest coverage, ty-checked, ruff-linted, Pydantic-validated. Pre-1.0 API may shift on minor bumps. `1.x` commits to standard semver.
 
 ## Modules
 
