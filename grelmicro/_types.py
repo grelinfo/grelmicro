@@ -5,7 +5,7 @@ Lightweight by design. Modules that depend on a small primitive type
 of from a heavyweight module. Keeps the import graph clean.
 """
 
-from typing import Literal, TypeAlias
+from typing import Literal
 
-LogLevel: TypeAlias = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 """Standard logging level names, matching `logging.getLevelName` output."""

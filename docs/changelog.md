@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Drop Python 3.11. The new floor is `requires-python = ">=3.12"`. RHEL 9 (App Stream `python3.12`) and RHEL 10 (default) ship 3.12 and the UBI images are available, so enterprise users are covered. Issue [#66](https://github.com/grelinfo/grelmicro/issues/66).
+
+### Internal
+
+* ♻️ Adopt PEP 695 generic syntax (`class Foo[T]:`, `def f[T](...)`, `type X = ...`) across `_backends.py`, `_config.py`, `_types.py`, `health/_types.py`, `trace/_instrument.py`, and `tests/task/conftest.py`. Two files keep the older form: the recursive aliases in `_json.py` (ty cannot expand recursive PEP 695 aliases) and the decorator factory in `cache/cached.py` (PEP 695 binds the inner decorator to the outer scope's type parameters, breaking per-decoration-site inference). Issue [#65](https://github.com/grelinfo/grelmicro/issues/65).
+* 🔨 Bump `tool.ruff.target-version` to `py312` and the CI matrix to `["3.12","3.13","3.14"]`.
+
 ## 0.20.0 - 2026-05-03
 
 Live reconfiguration is complete. Every stateful primitive now exposes `reconfigure(new_config)`, so you can hot-reload from a `ConfigMap` or SIGHUP without restarting the process. See [Live reconfiguration](architecture/reconfigure.md) for the contract.

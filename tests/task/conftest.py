@@ -2,7 +2,6 @@
 
 import warnings
 from collections.abc import AsyncGenerator, Callable
-from typing import TypeAlias
 
 import pytest
 from anyio import Event
@@ -13,7 +12,7 @@ from grelmicro.sync.tasklock import TaskLock
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 
-TaskFactory: TypeAlias = Callable[..., IntervalTask]
+type TaskFactory = Callable[..., IntervalTask]
 
 LOCK_NAME = "test_task_lock"
 

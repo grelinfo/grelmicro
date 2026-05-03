@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -112,7 +112,7 @@ def env_opt_in_enabled() -> bool:
     )
 
 
-def resolve_config(
+def resolve_config[C: BaseModel](
     config_cls: type[C],
     *,
     explicit: C | None,
@@ -163,7 +163,7 @@ def resolve_config(
 
 
 @lru_cache(maxsize=256)
-def _build_settings_cls(
+def _build_settings_cls[C: BaseModel](
     config_cls: type[C],
     env_prefix: str,
 ) -> type[BaseSettings]:
@@ -191,7 +191,7 @@ def _build_settings_cls(
     )
 
 
-class Reconfigurable(Generic[ConfigT]):
+class Reconfigurable[ConfigT: BaseModel]:
     """Mixin that adds atomic live reconfiguration to a component.
 
     Subclasses initialize `self._config` and

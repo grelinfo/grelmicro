@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, TypeAlias
 
-JSONEncodable: TypeAlias = (
+JSONEncodable: TypeAlias = (  # noqa: UP040
     str
     | int
     | float
@@ -24,10 +24,14 @@ JSONEncodable: TypeAlias = (
     | list["JSONEncodable"]
     | tuple["JSONEncodable", ...]
 )
-"""Recursive JSON-encodable value. ``datetime`` is serialized as ISO 8601 string."""
+"""Recursive JSON-encodable value. ``datetime`` is serialized as ISO 8601 string.
+
+The PEP 695 ``type`` keyword breaks recursive expansion in ``ty``. Stay on
+``TypeAlias`` until the ty bug closes.
+"""
 
 
-JSONDecodable: TypeAlias = (
+JSONDecodable: TypeAlias = (  # noqa: UP040
     dict[str, Any] | list[Any] | str | int | float | bool | None
 )
 """Types returned by ``json_loads``."""

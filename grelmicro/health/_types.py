@@ -1,20 +1,19 @@
 """Health Check Function Types."""
 
 from collections.abc import Awaitable, Callable
-from typing import TypeAlias
 
 from grelmicro._json import JSONEncodable
 
-HealthDetails: TypeAlias = dict[str, JSONEncodable]
+type HealthDetails = dict[str, JSONEncodable]
 """Per-check details payload. JSON-serializable dict keyed by string."""
 
-SyncHealthCheckFunc: TypeAlias = Callable[[], HealthDetails | None]
+type SyncHealthCheckFunc = Callable[[], HealthDetails | None]
 """Sync health check. Executed in a worker thread via ``anyio.to_thread``."""
 
-AsyncHealthCheckFunc: TypeAlias = Callable[[], Awaitable[HealthDetails | None]]
+type AsyncHealthCheckFunc = Callable[[], Awaitable[HealthDetails | None]]
 """Async health check. Awaited directly."""
 
-HealthCheckFunc: TypeAlias = SyncHealthCheckFunc | AsyncHealthCheckFunc
+type HealthCheckFunc = SyncHealthCheckFunc | AsyncHealthCheckFunc
 """Any callable acceptable as a health check.
 
 Returns:

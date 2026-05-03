@@ -1,6 +1,6 @@
 # Installation
 
-grelmicro supports Python 3.11+ and depends on Pydantic v2+, AnyIO v4+, and FastDepends.
+grelmicro supports Python 3.12+ and depends on Pydantic v2+, AnyIO v4+, and FastDepends.
 
 ## Quick install
 
