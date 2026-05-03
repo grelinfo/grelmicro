@@ -28,7 +28,6 @@ keywords = [
     "postgresql",
     "fastapi",
     "asyncio",
-    "anyio",
     "async",
     "pydantic",
 ]
@@ -62,7 +61,6 @@ classifiers = [
 requires-python = ">=3.12"
 
 dependencies = [
-    "anyio>=4.0.0",
     "pydantic>=2.5.0",
     "fast-depends>=2.0.0",
     "pydantic-settings>=2.5.0",
@@ -101,6 +99,7 @@ structlog = [
 
 [dependency-groups]
 dev = [
+    "anyio>=4.0.0",
     "pytest-cov>=6.0.0",
     "pytest>=8.0.0",
     "ruff>=0.7.4",

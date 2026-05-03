@@ -1,5 +1,6 @@
 """Health Check Registry."""
 
+import asyncio
 import re
 import time
 from collections.abc import Callable, Iterable
@@ -8,7 +9,6 @@ from logging import getLogger
 from types import TracebackType
 from typing import Annotated, Self
 
-import anyio
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
 
@@ -69,7 +69,7 @@ class _Entry:
     timeout: float
     cached_result: CheckResult | None = None
     cached_at: float = 0.0
-    inflight: anyio.Event | None = field(default=None)
+    inflight: asyncio.Event | None = field(default=None)
 
 
 def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
@@ -83,7 +83,7 @@ def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
     sync_func: Callable[[], HealthDetails | None] = func  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     async def _async_wrapper() -> HealthDetails | None:
-        return await anyio.to_thread.run_sync(sync_func)  # ty: ignore[unresolved-attribute]
+        return await asyncio.to_thread(sync_func)
 
     return _async_wrapper
 
@@ -93,10 +93,10 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
 
     Checks are plain async functions. Register them with the
     :meth:`check` decorator or the :meth:`add` method. All registered
-    checks are executed in parallel via an ``anyio`` task group. Each
+    checks are executed in parallel via an ``asyncio.TaskGroup``. Each
     check has its own timeout (falling back to the registry default)
     and its own cached result. Concurrent requests for the same check
-    share a single execution via an ``anyio.Event``.
+    share a single execution via an ``asyncio.Event``.
 
     Supports live reconfiguration via
     [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
@@ -199,7 +199,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
     def _setup(self, config: HealthRegistryConfig) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._config = config
-        self._reconfigure_lock = anyio.Lock()
+        self._reconfigure_lock = asyncio.Lock()
         self._entries: dict[str, _Entry] = {}
 
     async def __aenter__(self) -> Self:
@@ -345,9 +345,9 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
                 entry, cache_ttl=config.cache_ttl
             )
 
-        async with anyio.create_task_group() as tg:
+        async with asyncio.TaskGroup() as tg:
             for name, entry in selected:
-                tg.start_soon(_run, name, entry)
+                tg.create_task(_run(name, entry))
 
         ordered = {name: results[name] for name, _ in selected}
         return HealthReport(
@@ -361,7 +361,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
         """Return a cached or freshly computed result for one check.
 
         Respects ``cache_ttl`` and serializes concurrent calls via a
-        shared ``anyio.Event``. If the single-flight leader is
+        shared ``asyncio.Event``. If the single-flight leader is
         cancelled before it produces a result, waiters take the lead
         themselves instead of failing. The caller captures
         ``cache_ttl`` from a snapshot at the start of the round so a
@@ -383,7 +383,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
                 # Leader may have been cancelled before writing a result: loop.
                 continue
 
-            event = anyio.Event()
+            event = asyncio.Event()
             entry.inflight = event
             try:
                 result = await _run_check(entry)
@@ -415,9 +415,11 @@ async def _run_check(entry: _Entry) -> CheckResult:
     registration). No per-call branching.
     """
     try:
-        with anyio.move_on_after(entry.timeout) as cancel_scope:
-            result: HealthDetails | None = await entry.func()
-        if cancel_scope.cancelled_caught:
+        try:
+            result: HealthDetails | None = await asyncio.wait_for(
+                entry.func(), entry.timeout
+            )
+        except TimeoutError:
             logger.warning(
                 "Health check '%s' timed out after %gs",
                 entry.name,

@@ -1,14 +1,13 @@
 """Test RateLimiter implementation."""
 
+import asyncio
 from collections.abc import AsyncGenerator
 from time import monotonic
 from types import TracebackType
 from typing import Any, Self
 from unittest.mock import AsyncMock, MagicMock
 
-import anyio
 import pytest
-from anyio.lowlevel import checkpoint
 from pydantic import ValidationError
 
 from grelmicro._backends import BackendNotLoadedError
@@ -25,6 +24,12 @@ from grelmicro.resilience.algorithms import (
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.ratelimiter import RateLimiter
+
+
+async def checkpoint() -> None:
+    """Yield control briefly so other tasks can run."""
+    await asyncio.sleep(0)
+
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
 
@@ -782,10 +787,10 @@ async def test_reconfigure_concurrent_with_acquire() -> None:
             )
             await checkpoint()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(hammer)
-        tg.start_soon(hammer)
-        tg.start_soon(churn)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(hammer())
+        tg.create_task(hammer())
+        tg.create_task(churn())
 
     assert rl.config == TokenBucketConfig(capacity=80, refill_rate=100)
 
@@ -802,9 +807,9 @@ async def test_reconfigure_inner_double_check_skips_rebuild() -> None:
         capacity=CAPACITY * 2, refill_rate=REFILL_RATE
     )
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(rl.reconfigure, new_config)
-        tg.start_soon(rl.reconfigure, new_config)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(rl.reconfigure(new_config))
+        tg.create_task(rl.reconfigure(new_config))
 
     assert backend.bind.call_count == 1
     assert rl.config == new_config

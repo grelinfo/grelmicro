@@ -1,9 +1,7 @@
 """Task Abstract Base Classes and Protocols."""
 
+import asyncio
 from typing import Protocol, runtime_checkable
-
-from anyio import TASK_STATUS_IGNORED
-from anyio.abc import TaskStatus
 
 
 @runtime_checkable
@@ -21,9 +19,13 @@ class Task(Protocol):
     async def __call__(
         self,
         *,
-        task_status: TaskStatus[None] = TASK_STATUS_IGNORED,
+        ready: asyncio.Future[None] | None = None,
     ) -> None:
         """Run the task.
+
+        ``ready`` is a Future the task should resolve once it has reached
+        a steady state. The parent uses it to know when start-up has
+        finished. ``None`` means the parent does not wait.
 
         This is the entry point of the task to be run in the async event loop.
         """

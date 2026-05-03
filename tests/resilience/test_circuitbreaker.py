@@ -1,5 +1,6 @@
 """Test CircuitBreaker implementation."""
 
+import asyncio
 import logging
 import sys
 import threading
@@ -7,12 +8,11 @@ from contextlib import AsyncExitStack, suppress
 from datetime import UTC, datetime
 from typing import Literal
 
-import anyio
 import pydantic
 import pytest
-from anyio import to_thread
 from freezegun import freeze_time
 
+from grelmicro import to_thread
 from grelmicro.resilience import circuitbreaker
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
@@ -891,8 +891,8 @@ async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
     """
     cb = CircuitBreaker("rc", ignore_exceptions=RuntimeError, error_threshold=1)
     boom = RuntimeError("boom")
-    enter_event = anyio.Event()
-    can_exit = anyio.Event()
+    enter_event = asyncio.Event()
+    can_exit = asyncio.Event()
 
     async def call() -> None:
         async def body() -> None:
@@ -904,8 +904,8 @@ async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
         with pytest.raises(RuntimeError):
             await body()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(call)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(call())
         await enter_event.wait()
         await cb.reconfigure(
             cb.config.model_copy(update={"ignore_exceptions": ()})
@@ -939,8 +939,8 @@ async def test_reconfigure_during_inflight_thread_call_uses_admission_config() -
         with pytest.raises(RuntimeError):
             body()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(to_thread.run_sync, sync)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(to_thread.run_sync(sync))
         # Wait for the thread to enter the context manager.
         await to_thread.run_sync(entered.wait)
         await cb.reconfigure(

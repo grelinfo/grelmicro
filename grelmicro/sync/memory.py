@@ -11,7 +11,7 @@ class MemorySyncBackend(SyncBackend):
     """Memory Synchronization Backend.
 
     This is not a backend with a real distributed lock. It is a local lock that can be used for
-    testing purposes or for locking operations that are executed in the same AnyIO event loop.
+    testing purposes or for locking operations that are executed in the same asyncio event loop.
     """
 
     def __init__(self) -> None:

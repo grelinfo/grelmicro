@@ -37,7 +37,7 @@ stateDiagram-v2
 ```
 
 !!! warning "Thread safety"
-    The Circuit Breaker is not thread-safe. Decorated sync functions or `from_thread` methods ensure state changes run safely within the async event loop. Threaded usage is supported only in AnyIO worker threads and may be slower than pure async usage.
+    The Circuit Breaker is not thread-safe. Decorated sync functions or `from_thread` methods ensure state changes run safely within the async event loop. Threaded usage is supported only in worker threads launched via `grelmicro.to_thread.run_sync` and may be slower than pure async usage.
 
 See the [API reference](../reference/resilience.md#grelmicro.resilience.CircuitBreaker) for every option.
 

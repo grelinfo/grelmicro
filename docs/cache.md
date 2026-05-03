@@ -14,9 +14,6 @@ You must load a cache backend before using `TTLCache`.
 !!! tip "Install"
     The Redis backend needs the `redis` extra: `pip install "grelmicro[redis]"`. See the [installation guide](installation.md) for `uv` and `poetry`.
 
-!!! note
-    Although grelmicro uses AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
-
 === "Memory"
     ```python
     from grelmicro.cache.memory import MemoryCacheBackend

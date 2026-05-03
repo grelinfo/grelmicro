@@ -9,6 +9,14 @@ class GrelmicroError(Exception):
     """Base grelmicro error."""
 
 
+class WouldBlockError(GrelmicroError, RuntimeError):
+    """Raised by a non-blocking acquire that would have blocked.
+
+    Replaces the anyio.WouldBlock exception that grelmicro raised
+    before the asyncio migration in 0.21.0.
+    """
+
+
 class OutOfContextError(GrelmicroError, RuntimeError):
     """Outside Context Error.
 

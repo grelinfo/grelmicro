@@ -1,10 +1,10 @@
 """Rate Limiter."""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Annotated, Self, assert_never
 
-import anyio
 from pydantic import PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
@@ -135,7 +135,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         self._backend_name: str | None = (
             backend if isinstance(backend, str) else None
         )
-        self._reconfigure_lock = anyio.Lock()
+        self._reconfigure_lock = asyncio.Lock()
         self._config = config
         self._state = _State(config=config, strategy=None)
 

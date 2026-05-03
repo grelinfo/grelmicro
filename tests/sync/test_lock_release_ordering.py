@@ -1,9 +1,9 @@
 """Regression tests: Lock.release clears local state only after backend confirms."""
 
+from asyncio import current_task
 from collections.abc import AsyncGenerator
 
 import pytest
-from anyio import get_current_task
 from pytest_mock import MockerFixture
 
 from grelmicro.sync.abc import SyncBackend
@@ -64,7 +64,7 @@ async def test_release_keeps_state_on_backend_error(
     # The held marker survives the failed backend release. A fresh
     # acquire from the same task hits the reentrant guard, proving
     # the marker is still set.
-    assert get_current_task().id in lock._held_by_tasks
+    assert current_task() in lock._held_by_tasks
     with pytest.raises(LockReentrantError):
         await lock.acquire()
 
@@ -83,7 +83,7 @@ async def test_release_clears_state_when_backend_reports_not_owned(
 
     # The backend authoritatively said we don't own it; local state
     # should reflect that, so the held marker is gone.
-    assert get_current_task().id not in lock._held_by_tasks
+    assert current_task() not in lock._held_by_tasks
 
 
 # --- Thread release (do_thread_release) ---

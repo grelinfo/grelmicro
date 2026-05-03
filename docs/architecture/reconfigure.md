@@ -12,7 +12,7 @@ Every call enforces:
 |---|---|
 | Type match | `type(new_config) is type(self._config)` or `TypeError` |
 | Equality short-circuit | `new_config == self._config` returns immediately |
-| Writer serialization | `anyio.Lock` held for the rebuild |
+| Writer serialization | `asyncio.Lock` held for the rebuild |
 | Atomic publish | `self._config = new_config` runs after `_apply_reconfigure` |
 | Failure rollback | If `_apply_reconfigure` raises, `self._config` is untouched |
 
@@ -81,7 +81,7 @@ class Lock(Reconfigurable[LockConfig]):
     def __init__(self, name: str, ...) -> None:
         ...
         self._config = config
-        self._reconfigure_lock = anyio.Lock()
+        self._reconfigure_lock = asyncio.Lock()
 ```
 
 A subclass MAY still override `_apply_reconfigure` to enforce per-field invariants on the swap. `Lock`, `TaskLock`, and `LeaderElection` reject changes to `worker` because the field is part of the live token identity:

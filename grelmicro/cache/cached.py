@@ -7,9 +7,9 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from typing import Annotated, Any, ParamSpec, TypeVar
 
-from anyio import from_thread
 from typing_extensions import Doc
 
+from grelmicro import _from_thread
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache.ttl import TTLCache
 
@@ -232,8 +232,11 @@ def _build_sync_wrapper(
 ) -> Any:  # noqa: ANN401
     """Build sync wrapper for cached decorator.
 
-    Sync functions call the async cache via ``anyio.from_thread.run``,
-    which requires a running event loop (e.g. FastAPI, AnyIO worker).
+    Sync functions call the async cache via
+    ``grelmicro._from_thread.run``, which requires the parent event
+    loop to be reachable (spawn the worker via
+    ``grelmicro.to_thread.run_sync`` or call any grelmicro async API on
+    the cache from the parent task first).
     """
     key_locks: dict[str, threading.Lock] = {}
     key_locks_guard = threading.Lock()
@@ -241,7 +244,7 @@ def _build_sync_wrapper(
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         key = _make_key(func, args, kwargs, key_maker, typed=typed)
-        result = from_thread.run(cache.get, key, _SENTINEL)
+        result = _from_thread.run(cache._loop, cache.get, key, _SENTINEL)  # noqa: SLF001
         if result is not _SENTINEL:
             return result
 
@@ -253,7 +256,12 @@ def _build_sync_wrapper(
 
         if the_lock is not None:
             with the_lock:
-                result = from_thread.run(cache.get, key, _SENTINEL)
+                result = _from_thread.run(
+                    cache._loop,  # noqa: SLF001
+                    cache.get,
+                    key,
+                    _SENTINEL,
+                )
                 if result is not _SENTINEL:
                     return result
                 return _compute_and_cache_sync(
@@ -287,7 +295,7 @@ def _compute_and_cache_sync(
     """Execute sync function and store result in async cache."""
     result = func(*args, **kwargs)
     if skip is None or not skip(result):
-        from_thread.run(cache.set, key, result)
+        _from_thread.run(cache._loop, cache.set, key, result)  # noqa: SLF001
     return result
 
 

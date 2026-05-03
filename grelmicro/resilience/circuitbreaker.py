@@ -1,5 +1,6 @@
 """Circuit Breaker."""
 
+import asyncio
 import functools
 import logging
 import threading
@@ -17,8 +18,6 @@ from typing import (
     Self,
 )
 
-import anyio
-from anyio import from_thread
 from pydantic import (
     BaseModel,
     BeforeValidator,
@@ -30,6 +29,7 @@ from pydantic import (
 from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
+from grelmicro import _from_thread
 from grelmicro._config import (
     Reconfigurable,
     env_segment,
@@ -335,7 +335,8 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
-        self._reconfigure_lock = anyio.Lock()
+        self._reconfigure_lock = asyncio.Lock()
+        self._loop = _from_thread.capture_running_loop()
         # Per-call snapshot stack. Each `__aenter__` pushes the config
         # captured at admission; `__aexit__` pops it and uses it for
         # success/error classification. ContextVar isolates concurrent
@@ -382,6 +383,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
 
     async def __aenter__(self) -> Self:
         """Circuit breaker context manager."""
+        self._loop = _from_thread.remember_running_loop()
         config = self._config
         if not await self._try_acquire_call(config):
             raise CircuitBreakerError(
@@ -636,7 +638,11 @@ class _ThreadAdapter:
     def __enter__(self) -> Self:
         """Enter the context manager, acquiring the circuit breaker lock."""
         config = self._cb._config  # noqa: SLF001
-        if not from_thread.run(self._cb._try_acquire_call, config):  # noqa: SLF001
+        if not _from_thread.run(
+            self._cb._loop,  # noqa: SLF001
+            self._cb._try_acquire_call,  # noqa: SLF001
+            config,
+        ):
             raise CircuitBreakerError(
                 name=self._cb.name,
                 last_error_time=self._cb.last_error_time,
@@ -661,36 +667,55 @@ class _ThreadAdapter:
         success/error classification matches the admission decision.
         """
         config = self._tls.stack.pop()
-        from_thread.run(self._cb._release_call)  # noqa: SLF001
+        _from_thread.run(
+            self._cb._loop,  # noqa: SLF001
+            self._cb._release_call,  # noqa: SLF001
+        )
 
         if not exc_type or issubclass(exc_type, config.ignore_exceptions):
-            from_thread.run(self._cb._on_success, config)  # noqa: SLF001
+            _from_thread.run(
+                self._cb._loop,  # noqa: SLF001
+                self._cb._on_success,  # noqa: SLF001
+                config,
+            )
 
         elif isinstance(exc_value, Exception):
-            from_thread.run(self._cb._on_error, config, exc_value)  # noqa: SLF001
+            _from_thread.run(
+                self._cb._loop,  # noqa: SLF001
+                self._cb._on_error,  # noqa: SLF001
+                config,
+                exc_value,
+            )
 
         return None
 
     def restart(self) -> None:
         """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""
-        from_thread.run(self._cb.restart)
+        _from_thread.run(self._cb._loop, self._cb.restart)  # noqa: SLF001
 
     def transition_to_closed(self) -> None:
         """Transition the circuit breaker to CLOSED state."""
-        from_thread.run(self._cb.transition_to_closed)
+        _from_thread.run(self._cb._loop, self._cb.transition_to_closed)  # noqa: SLF001
 
     def transition_to_open(self, until: float | None = None) -> None:
         """Transition the circuit breaker to OPEN state."""
-        from_thread.run(self._cb.transition_to_open, until)
+        _from_thread.run(
+            self._cb._loop,  # noqa: SLF001
+            self._cb.transition_to_open,
+            until,
+        )
 
     def transition_to_half_open(self) -> None:
         """Transition the circuit breaker to HALF_OPEN state."""
-        from_thread.run(self._cb.transition_to_half_open)
+        _from_thread.run(self._cb._loop, self._cb.transition_to_half_open)  # noqa: SLF001
 
     def transition_to_forced_open(self) -> None:
         """Transition the circuit breaker to FORCED_OPEN state."""
-        from_thread.run(self._cb.transition_to_forced_open)
+        _from_thread.run(self._cb._loop, self._cb.transition_to_forced_open)  # noqa: SLF001
 
     def transition_to_forced_closed(self) -> None:
         """Transition the circuit breaker to FORCED_CLOSED state."""
-        from_thread.run(self._cb.transition_to_forced_closed)
+        _from_thread.run(
+            self._cb._loop,  # noqa: SLF001
+            self._cb.transition_to_forced_closed,
+        )

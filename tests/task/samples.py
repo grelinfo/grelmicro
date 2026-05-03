@@ -1,16 +1,18 @@
 """Test Samples for the Task Component."""
 
+import asyncio
+import sys
 from types import TracebackType
 from typing import Self
 
-from anyio import TASK_STATUS_IGNORED, Condition, Event, WouldBlock, sleep
-from anyio.abc import TaskStatus
 from typer import echo
 
+from grelmicro.errors import WouldBlockError as WouldBlock
 from grelmicro.sync.abc import SyncPrimitive
 from grelmicro.task.abc import Task
 
-condition = Condition()
+condition: asyncio.Condition = asyncio.Condition()
+Event = asyncio.Event
 
 # Shared state for e2e TaskLock tests
 e2e_event_1: Event = Event()
@@ -33,9 +35,14 @@ def test3(test: str = "test") -> None:  # noqa: PT028
 
 
 async def notify() -> None:
-    """Test Function that notifies the condition."""
-    async with condition:
-        condition.notify()
+    """Test Function that notifies the condition.
+
+    Reads the module-level ``condition`` lazily so the per-test
+    fixture can rebind it to a fresh event loop.
+    """
+    cond = sys.modules[__name__].condition
+    async with cond:
+        cond.notify()
 
 
 async def always_fail() -> None:
@@ -58,7 +65,7 @@ async def worker_1_hold() -> None:
     """Set e2e_event_1 then hold."""
     e2e_counter["worker_1"] += 1
     e2e_event_1.set()
-    await sleep(10)
+    await asyncio.sleep(10)
 
 
 async def count_execution() -> None:
@@ -85,9 +92,9 @@ class SimpleClass:
 class EventTask(Task):
     """Test Scheduled Task with Event."""
 
-    def __init__(self, *, event: Event | None = None) -> None:
+    def __init__(self, *, event: asyncio.Event | None = None) -> None:
         """Initialize the event task."""
-        self._event = event or Event()
+        self._event = event or asyncio.Event()
 
     @property
     def name(self) -> str:
@@ -95,10 +102,11 @@ class EventTask(Task):
         return "event_task"
 
     async def __call__(
-        self, *, task_status: TaskStatus[None] = TASK_STATUS_IGNORED
+        self, *, ready: asyncio.Future[None] | None = None
     ) -> None:
         """Run the task that sets the event."""
-        task_status.started()
+        if ready is not None and not ready.done():
+            ready.set_result(None)
         self._event.set()
 
 

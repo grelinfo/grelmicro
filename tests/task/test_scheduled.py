@@ -1,7 +1,9 @@
 """Test Scheduled Task (IntervalTask with distributed lock)."""
 
+import asyncio
+from asyncio import sleep
+
 import pytest
-from anyio import create_task_group, sleep, sleep_forever
 from pytest_mock import MockFixture
 
 from grelmicro.sync.abc import SyncBackend
@@ -10,12 +12,18 @@ from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
+from tests.task._helpers import cancel_group, start_task
 from tests.task.samples import (
     always_fail,
-    condition,
     notify,
     test1,
 )
+
+
+async def sleep_forever() -> None:
+    """Block forever on an unset event."""
+    await asyncio.Event().wait()
+
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 
@@ -138,11 +146,11 @@ async def test_interval_task_with_lock_and_resource_lock(
         backend=backend,
         sync=resource_lock,
     )
-    async with create_task_group() as tg:
-        await tg.start(task)
-        async with condition:
-            await condition.wait()
-        tg.cancel_scope.cancel()
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        async with samples.condition:
+            await samples.condition.wait()
+        cancel_group(tg)
 
 
 def test_interval_task_custom_min_lock_seconds() -> None:
@@ -169,11 +177,11 @@ async def test_interval_task_with_lock_start(backend: SyncBackend) -> None:
         backend=backend,
     )
     # Act
-    async with create_task_group() as tg:
-        await tg.start(task)
-        async with condition:
-            await condition.wait()
-        tg.cancel_scope.cancel()
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        async with samples.condition:
+            await samples.condition.wait()
+        cancel_group(tg)
 
 
 async def test_interval_task_with_lock_execution_error(
@@ -189,10 +197,10 @@ async def test_interval_task_with_lock_execution_error(
         backend=backend,
     )
     # Act
-    async with create_task_group() as tg:
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
         await sleep(SLEEP)
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert any(
@@ -220,10 +228,10 @@ async def test_interval_task_with_lock_synchronization_error(
     )
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
         await sleep(SLEEP)
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert any(
@@ -246,7 +254,8 @@ async def test_interval_task_with_lock_stop(
         pass
 
     mocker.patch(
-        "grelmicro.task._interval.sleep", side_effect=CustomBaseException
+        "grelmicro.task._interval.asyncio.sleep",
+        side_effect=CustomBaseException,
     )
     task = IntervalTask(
         seconds=1,
@@ -256,8 +265,8 @@ async def test_interval_task_with_lock_stop(
     )
 
     async def task_during_runtime_error() -> None:
-        async with create_task_group() as tg:
-            await tg.start(task)
+        async with asyncio.TaskGroup() as tg:
+            await start_task(tg, task)
             await sleep_forever()
 
     # Act
@@ -291,11 +300,11 @@ async def test_interval_task_with_leader_executes(
     )
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader)
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader)
+        await start_task(tg, task)
         await samples.e2e_event_1.wait()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
 
 async def test_interval_task_with_leader_skips_when_not_leader(
@@ -317,12 +326,12 @@ async def test_interval_task_with_leader_skips_when_not_leader(
     )
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader_1)
-        await tg.start(leader_2)
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_1)
+        await start_task(tg, leader_2)
+        await start_task(tg, task)
         await sleep(SECONDS * 3)
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert not samples.e2e_event_1.is_set()

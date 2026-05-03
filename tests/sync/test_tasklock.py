@@ -1,13 +1,15 @@
 """Test Task Lock."""
 
 import time
+from asyncio import sleep
 from collections.abc import AsyncGenerator
 
 import pytest
-from anyio import WouldBlock, sleep, to_thread
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
+from grelmicro import to_thread
+from grelmicro.errors import WouldBlockError as WouldBlock
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,

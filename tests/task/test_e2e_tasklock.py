@@ -4,11 +4,13 @@ These tests are parametrized over both the deprecated (sync=TaskLock()) and
 new (max_lock_seconds=/backend=) APIs to avoid duplication.
 """
 
+import asyncio
+
 import pytest
-from anyio import Event, create_task_group, sleep
 
 from grelmicro.sync.abc import SyncBackend
 from tests.task import samples
+from tests.task._helpers import cancel_group, start_task
 from tests.task.conftest import TaskFactory
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
@@ -30,10 +32,10 @@ async def test_tasklock_basic_execution(
         max_lock_seconds=10,
     )
 
-    async with create_task_group() as tg:
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
         await samples.e2e_event_1.wait()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
 
 async def test_tasklock_two_workers(
@@ -59,12 +61,12 @@ async def test_tasklock_two_workers(
         max_lock_seconds=10,
     )
 
-    async with create_task_group() as tg:
-        await tg.start(task_1)
-        await tg.start(task_2)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task_1)
+        await start_task(tg, task_2)
         await samples.e2e_event_1.wait()
-        await sleep(INTERVAL * 2)
-        tg.cancel_scope.cancel()
+        await asyncio.sleep(INTERVAL * 2)
+        cancel_group(tg)
 
     assert samples.e2e_event_1.is_set()
     assert not samples.e2e_event_2.is_set()
@@ -94,18 +96,18 @@ async def test_tasklock_min_lock_seconds(
         max_lock_seconds=10,
     )
 
-    async with create_task_group() as tg:
-        async with create_task_group() as tg_worker_1:
-            await tg_worker_1.start(task_1)
+    async with asyncio.TaskGroup() as tg:
+        async with asyncio.TaskGroup() as tg_worker_1:
+            await start_task(tg_worker_1, task_1)
             await samples.e2e_event_1.wait()
-            tg_worker_1.cancel_scope.cancel()
+            cancel_group(tg_worker_1)
 
-        await tg.start(task_2)
-        await sleep(min_lock * 0.4)
+        await start_task(tg, task_2)
+        await asyncio.sleep(min_lock * 0.4)
         worker_2_blocked = not samples.e2e_event_2.is_set()
-        await sleep(min_lock * 1.5)
+        await asyncio.sleep(min_lock * 1.5)
         worker_2_ran = samples.e2e_event_2.is_set()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     assert worker_2_blocked
     assert worker_2_ran
@@ -135,15 +137,15 @@ async def test_tasklock_max_lock_seconds(
         max_lock_seconds=max_lock,
     )
 
-    async with create_task_group() as tg:
-        await tg.start(task_1)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task_1)
         await samples.e2e_event_1.wait()
-        await tg.start(task_2)
-        await sleep(max_lock * 0.25)
+        await start_task(tg, task_2)
+        await asyncio.sleep(max_lock * 0.25)
         worker_2_blocked = not samples.e2e_event_2.is_set()
-        await sleep(max_lock * 1.5)
+        await asyncio.sleep(max_lock * 1.5)
         worker_2_ran = samples.e2e_event_2.is_set()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     assert worker_2_blocked
     assert worker_2_ran
@@ -175,12 +177,12 @@ async def test_tasklock_would_block_debug_log(
         max_lock_seconds=10,
     )
 
-    async with create_task_group() as tg:
-        await tg.start(task_1)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task_1)
         await samples.e2e_event_1.wait()
-        await tg.start(task_2)
-        await sleep(INTERVAL * 2)
-        tg.cancel_scope.cancel()
+        await start_task(tg, task_2)
+        await asyncio.sleep(INTERVAL * 2)
+        cancel_group(tg)
 
     assert any(
         "Task skipped:" in record.message
@@ -214,10 +216,10 @@ async def test_tasklock_same_worker_blocked_by_min_lock(
         max_lock_seconds=10,
     )
 
-    async with create_task_group() as tg:
-        await tg.start(task)
-        await sleep(min_lock * 0.5)
-        tg.cancel_scope.cancel()
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await asyncio.sleep(min_lock * 0.5)
+        cancel_group(tg)
 
     assert samples.execution_count == 1, (
         f"Expected 1 execution (min_lock_seconds={min_lock}s blocks re-acquire), "
@@ -239,9 +241,9 @@ async def test_tasklock_sequential_executions(
         max_lock_seconds=10,
     )
 
-    async with create_task_group() as tg:
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
         await samples.e2e_event_1.wait()
-        samples.e2e_event_1 = Event()
+        samples.e2e_event_1 = asyncio.Event()
         await samples.e2e_event_1.wait()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)

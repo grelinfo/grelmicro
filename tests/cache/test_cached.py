@@ -4,8 +4,6 @@ import asyncio
 import threading
 import time
 
-import anyio
-import anyio.to_thread
 import pytest
 
 from grelmicro.cache.cached import cached
@@ -486,9 +484,9 @@ class TestAsyncCachedLock:
 # ---------------------------------------------------------------------------
 # Sync function tests
 # ---------------------------------------------------------------------------
-# Sync decorated functions use anyio.from_thread.run internally to call the
+# Sync decorated functions use grelmicro._from_thread.run internally to call the
 # async TTLCache. They require a running event loop. The pattern is to call
-# them from a thread launched by anyio.to_thread.run_sync inside an async test.
+# them from a thread launched by asyncio.to_thread inside an async test.
 
 
 class TestSyncCachedBasic:
@@ -508,8 +506,8 @@ class TestSyncCachedBasic:
 
         # Act: run sync function from a thread (provides the required event loop)
         async def run() -> tuple[int, int]:
-            first = await anyio.to_thread.run_sync(lambda: compute(5))
-            second = await anyio.to_thread.run_sync(lambda: compute(5))
+            first = await asyncio.to_thread(lambda: compute(5))
+            second = await asyncio.to_thread(lambda: compute(5))
             return first, second
 
         first, second = await run()
@@ -532,8 +530,8 @@ class TestSyncCachedBasic:
             return x * 2
 
         # Act
-        await anyio.to_thread.run_sync(lambda: compute(1))
-        await anyio.to_thread.run_sync(lambda: compute(2))
+        await asyncio.to_thread(lambda: compute(1))
+        await asyncio.to_thread(lambda: compute(2))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_2
@@ -551,8 +549,8 @@ class TestSyncCachedBasic:
             return f"{greeting} {name}"
 
         # Act
-        await anyio.to_thread.run_sync(lambda: greet("alice", greeting="hello"))
-        await anyio.to_thread.run_sync(lambda: greet("alice", greeting="hey"))
+        await asyncio.to_thread(lambda: greet("alice", greeting="hello"))
+        await asyncio.to_thread(lambda: greet("alice", greeting="hey"))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_2
@@ -574,8 +572,8 @@ class TestSyncCachedSkip:
             return "data" if found else None
 
         # Act
-        await anyio.to_thread.run_sync(lambda: maybe_fetch(found=False))
-        await anyio.to_thread.run_sync(lambda: maybe_fetch(found=False))
+        await asyncio.to_thread(lambda: maybe_fetch(found=False))
+        await asyncio.to_thread(lambda: maybe_fetch(found=False))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_2
@@ -593,8 +591,8 @@ class TestSyncCachedSkip:
             return "data" if found else None
 
         # Act
-        await anyio.to_thread.run_sync(lambda: maybe_fetch(found=True))
-        await anyio.to_thread.run_sync(lambda: maybe_fetch(found=True))
+        await asyncio.to_thread(lambda: maybe_fetch(found=True))
+        await asyncio.to_thread(lambda: maybe_fetch(found=True))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_1
@@ -616,8 +614,8 @@ class TestSyncCachedTyped:
             return type(x).__name__
 
         # Act
-        await anyio.to_thread.run_sync(lambda: compute(3))
-        await anyio.to_thread.run_sync(lambda: compute(3.0))
+        await asyncio.to_thread(lambda: compute(3))
+        await asyncio.to_thread(lambda: compute(3.0))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_2
@@ -636,8 +634,8 @@ class TestSyncCachedCacheControl:
             return x * 2
 
         # Act
-        await anyio.to_thread.run_sync(lambda: compute(1))  # miss
-        await anyio.to_thread.run_sync(lambda: compute(1))  # hit
+        await asyncio.to_thread(lambda: compute(1))  # miss
+        await asyncio.to_thread(lambda: compute(1))  # hit
         info = compute.cache_info()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
         # Assert
@@ -656,12 +654,12 @@ class TestSyncCachedCacheControl:
             call_count += 1
             return x * 2
 
-        await anyio.to_thread.run_sync(lambda: compute(1))
+        await asyncio.to_thread(lambda: compute(1))
         assert call_count == EXPECTED_CALL_COUNT_1
 
         # Act: cache_clear is always a coroutine
         await compute.cache_clear()  # type: ignore[attr-defined]
-        await anyio.to_thread.run_sync(lambda: compute(1))
+        await asyncio.to_thread(lambda: compute(1))
 
         # Assert: recomputed after clear
         assert call_count == EXPECTED_CALL_COUNT_2
@@ -711,8 +709,8 @@ class TestSyncCachedKeyMaker:
             return x * 2
 
         # Act
-        await anyio.to_thread.run_sync(lambda: compute(5))
-        await anyio.to_thread.run_sync(lambda: compute(5))
+        await asyncio.to_thread(lambda: compute(5))
+        await asyncio.to_thread(lambda: compute(5))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_1
@@ -734,8 +732,8 @@ class TestSyncCachedLock:
             return x * 2
 
         # Act
-        await anyio.to_thread.run_sync(lambda: compute(5))
-        await anyio.to_thread.run_sync(lambda: compute(5))
+        await asyncio.to_thread(lambda: compute(5))
+        await asyncio.to_thread(lambda: compute(5))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_1
@@ -756,20 +754,21 @@ class TestSyncCachedLock:
             time.sleep(0.05)
             return x * 2
 
-        # Act: run two concurrent anyio worker threads, each calling slow_compute.
-        # anyio.to_thread.run_sync keeps threads inside the anyio portal so
-        # from_thread.run works correctly inside slow_compute.
-        async with anyio.create_task_group() as tg:
+        # Act: two concurrent worker threads, each calling slow_compute.
+        # asyncio.to_thread copies the calling task's context to the
+        # worker, so the parent loop captured into _from_thread's
+        # contextvar is reachable from inside slow_compute.
+        async with asyncio.TaskGroup() as tg:
             results: list[int] = []
 
             async def run_one() -> None:
-                result = await anyio.to_thread.run_sync(lambda: slow_compute(5))
+                result = await asyncio.to_thread(lambda: slow_compute(5))
                 results.append(result)
 
-            tg.start_soon(run_one)
+            tg.create_task(run_one())
             # Give the first task a moment to enter slow_compute before the second starts
             await asyncio.sleep(0.01)
-            tg.start_soon(run_one)
+            tg.create_task(run_one())
 
         # Assert: only one computation, both callers receive the same result
         assert call_count == EXPECTED_CALL_COUNT_1
@@ -788,11 +787,11 @@ class TestSyncCachedLock:
             return x * 2
 
         # Act: same key, sequential via threads
-        await anyio.to_thread.run_sync(lambda: compute(5))
-        await anyio.to_thread.run_sync(lambda: compute(5))
+        await asyncio.to_thread(lambda: compute(5))
+        await asyncio.to_thread(lambda: compute(5))
 
         # Different key should compute independently
-        await anyio.to_thread.run_sync(lambda: compute(6))
+        await asyncio.to_thread(lambda: compute(6))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_2  # 5 once, 6 once
@@ -810,8 +809,8 @@ class TestSyncCachedLock:
             return x * 2
 
         # Act
-        await anyio.to_thread.run_sync(lambda: compute(5))
-        await anyio.to_thread.run_sync(lambda: compute(5))
+        await asyncio.to_thread(lambda: compute(5))
+        await asyncio.to_thread(lambda: compute(5))
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_1

@@ -1,9 +1,8 @@
 """Shared test helpers for health checks."""
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
-
-import anyio
 
 from grelmicro.health.errors import HealthError
 
@@ -57,7 +56,7 @@ def slow(
     """Return a check that sleeps for ``delay`` seconds then returns healthy."""
 
     async def _check() -> dict[str, Any] | None:
-        await anyio.sleep(delay)
+        await asyncio.sleep(delay)
         return None
 
     return _check
@@ -87,5 +86,5 @@ class SlowCounting:
     async def __call__(self) -> dict[str, Any] | None:
         """Record the call, sleep, return healthy."""
         self.calls += 1
-        await anyio.sleep(self._delay)
+        await asyncio.sleep(self._delay)
         return None

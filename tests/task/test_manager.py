@@ -1,7 +1,8 @@
 """Test Task Manager."""
 
+from asyncio import Event
+
 import pytest
-from anyio import Event
 
 from grelmicro.errors import OutOfContextError
 from grelmicro.task import TaskManager

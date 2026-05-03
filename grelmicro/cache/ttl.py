@@ -8,9 +8,12 @@ from typing import TYPE_CHECKING, Annotated, Any, Generic
 
 from typing_extensions import Doc, TypeVar
 
+from grelmicro import _from_thread
 from grelmicro.cache._backends import get_cache_backend
 
 if TYPE_CHECKING:
+    import asyncio
+
     from grelmicro.cache._protocol import CacheBackend
     from grelmicro.cache.serializers import CacheSerializer
 
@@ -124,6 +127,13 @@ class TTLCache(Generic[T]):
         self._evictions = 0
         # LRU tracking (OrderedDict for O(1) move_to_end / popitem)
         self._keys: OrderedDict[str, None] = OrderedDict()
+        self._loop: asyncio.AbstractEventLoop | None = (
+            _from_thread.capture_running_loop()
+        )
+
+    def _remember_loop(self) -> None:
+        """Capture the running loop so worker threads can reach it."""
+        self._loop = _from_thread.remember_running_loop()
 
     def _get_backend(self) -> CacheBackend:
         """Resolve the backend (lazy, to allow registration after construction)."""
@@ -162,6 +172,7 @@ class TTLCache(Generic[T]):
         Returns the default if the key is missing or expired.
         A hit promotes the key in LRU order.
         """
+        self._remember_loop()
         raw = await self._get_backend().get(key=f"{_CACHE_PREFIX}:{key}")
         if raw is None:
             self._misses += 1
@@ -198,6 +209,7 @@ class TTLCache(Generic[T]):
             msg = "ttl must be positive"
             raise ValueError(msg)
 
+        self._remember_loop()
         entry_ttl = ttl if ttl is not None else self._ttl
         raw = self._serialize(value)
 

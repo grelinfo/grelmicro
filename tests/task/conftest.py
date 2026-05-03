@@ -1,10 +1,10 @@
 """Shared fixtures for task tests."""
 
+import asyncio
 import warnings
 from collections.abc import AsyncGenerator, Callable
 
 import pytest
-from anyio import Event
 
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.memory import MemorySyncBackend
@@ -85,7 +85,8 @@ async def backend() -> AsyncGenerator[SyncBackend]:
 @pytest.fixture(autouse=True)
 def _reset_e2e_state() -> None:
     """Reset shared e2e state before each test."""
-    samples.e2e_event_1 = Event()
-    samples.e2e_event_2 = Event()
+    samples.e2e_event_1 = asyncio.Event()
+    samples.e2e_event_2 = asyncio.Event()
+    samples.condition = asyncio.Condition()
     samples.e2e_counter = {"worker_1": 0, "worker_2": 0}
     samples.execution_count = 0
