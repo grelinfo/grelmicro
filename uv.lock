@@ -467,6 +467,7 @@ sqlite = [
 ]
 standard = [
     { name = "orjson" },
+    { name = "uvloop", marker = "sys_platform != 'win32'" },
 ]
 structlog = [
     { name = "orjson" },
@@ -525,6 +526,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.5.0" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0.0" },
     { name = "structlog", marker = "extra == 'structlog'", specifier = ">=24.1.0" },
+    { name = "uvloop", marker = "sys_platform != 'win32' and extra == 'standard'", specifier = ">=0.21.0" },
 ]
 provides-extras = ["standard", "postgres", "redis", "sqlite", "kubernetes", "opentelemetry", "structlog"]
 

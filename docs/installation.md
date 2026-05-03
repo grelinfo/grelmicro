@@ -25,7 +25,7 @@ grelmicro is modular. Install only the extras you need.
 
 | Extra | Pulls in |
 |---|---|
-| `standard` | `orjson` for fast JSON serialization. |
+| `standard` | `orjson` for fast JSON serialization. `uvloop` for a faster event loop on Linux and macOS (skipped on Windows). Activate with `uvloop.run(main())`. |
 | `redis` | `redis-py` for the Redis backends. |
 | `postgres` | `asyncpg` for the PostgreSQL sync backend. |
 | `sqlite` | `aiosqlite` for the SQLite sync backend. |
