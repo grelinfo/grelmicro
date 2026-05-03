@@ -2,7 +2,9 @@
 
 import functools
 import logging
+import threading
 from collections.abc import Callable
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from enum import StrEnum
 from inspect import iscoroutinefunction
@@ -336,6 +338,14 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         self._name = name
         self._config = config
         self._reconfigure_lock = anyio.Lock()
+        # Per-call snapshot stack. Each `__aenter__` pushes the config
+        # captured at admission; `__aexit__` pops it and uses it for
+        # success/error classification. ContextVar isolates concurrent
+        # `async with cb:` calls across tasks and supports nesting in
+        # the same task.
+        self._enter_stack: ContextVar[tuple[CircuitBreakerConfig, ...]] = (
+            ContextVar(f"_cb_enter_stack_{id(self)}", default=())
+        )
         self._state = CircuitBreakerState.CLOSED
         self._consecutive_error_count = 0
         self._consecutive_success_count = 0
@@ -381,6 +391,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
                 last_error_time=self._last_error_time,
                 last_error=self._last_error,
             )
+        self._enter_stack.set((*self._enter_stack.get(), config))
         return self
 
     async def __aexit__(
@@ -389,8 +400,17 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None:
-        """Exit the context manager."""
-        config = self._config
+        """Exit the context manager.
+
+        Uses the same config snapshot captured at `__aenter__` so the
+        success/error classification matches the admission decision
+        (the in-flight call completes on the previous config even if
+        `reconfigure` runs concurrently).
+        """
+        stack = self._enter_stack.get()
+        config = stack[-1]
+        self._enter_stack.set(stack[:-1])
+
         await self._release_call()
 
         if not exc_type or issubclass(exc_type, config.ignore_exceptions):
@@ -610,6 +630,10 @@ class _ThreadAdapter:
     def __init__(self, circuit_breaker: CircuitBreaker) -> None:
         """Initialize the adapter with a CircuitBreaker instance."""
         self._cb = circuit_breaker
+        # Per-thread snapshot stack. Each `__enter__` pushes the
+        # config captured at admission; `__exit__` pops it. Threading
+        # local isolates concurrent threads using the same adapter.
+        self._tls = threading.local()
 
     def __enter__(self) -> Self:
         """Enter the context manager, acquiring the circuit breaker lock."""
@@ -620,6 +644,11 @@ class _ThreadAdapter:
                 last_error_time=self._cb.last_error_time,
                 last_error=self._cb.last_error,
             )
+        stack = getattr(self._tls, "stack", None)
+        if stack is None:
+            stack = []
+            self._tls.stack = stack
+        stack.append(config)
         return self
 
     def __exit__(
@@ -628,8 +657,12 @@ class _ThreadAdapter:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None:
-        """Exit the context manager, releasing the circuit breaker lock."""
-        config = self._cb._config  # noqa: SLF001
+        """Exit the context manager, releasing the circuit breaker lock.
+
+        Uses the same config snapshot captured at `__enter__` so the
+        success/error classification matches the admission decision.
+        """
+        config = self._tls.stack.pop()
         from_thread.run(self._cb._release_call)  # noqa: SLF001
 
         if not exc_type or issubclass(exc_type, config.ignore_exceptions):

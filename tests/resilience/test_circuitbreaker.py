@@ -2,10 +2,12 @@
 
 import logging
 import sys
+import threading
 from contextlib import AsyncExitStack, suppress
 from datetime import UTC, datetime
 from typing import Literal
 
+import anyio
 import pydantic
 import pytest
 from anyio import to_thread
@@ -876,6 +878,79 @@ async def test_reconfigure_changes_error_threshold_for_next_call() -> None:
             raise boom
 
     assert cb.state == CircuitBreakerState.OPEN
+
+
+async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
+    """An in-flight call classifies its result against the admission config.
+
+    The call enters with `ignore_exceptions=(RuntimeError,)`, then a
+    concurrent reconfigure swaps to `ignore_exceptions=()`. The exit
+    must still treat the `RuntimeError` as ignored, leaving counters
+    unchanged: this is the documented "in-flight operations complete
+    on the previous config" guarantee.
+    """
+    cb = CircuitBreaker("rc", ignore_exceptions=RuntimeError, error_threshold=1)
+    boom = RuntimeError("boom")
+    enter_event = anyio.Event()
+    can_exit = anyio.Event()
+
+    async def call() -> None:
+        async def body() -> None:
+            async with cb:
+                enter_event.set()
+                await can_exit.wait()
+                raise boom
+
+        with pytest.raises(RuntimeError):
+            await body()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(call)
+        await enter_event.wait()
+        await cb.reconfigure(
+            cb.config.model_copy(update={"ignore_exceptions": ()})
+        )
+        can_exit.set()
+
+    # The call entered under the old `ignore_exceptions=(RuntimeError,)`
+    # so the exit must classify the RuntimeError as ignored: no error
+    # count, breaker stays CLOSED.
+    assert cb.state == CircuitBreakerState.CLOSED
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
+
+
+async def test_reconfigure_during_inflight_thread_call_uses_admission_config() -> (
+    None
+):
+    """The thread adapter preserves the admission snapshot across `__exit__`."""
+    cb = CircuitBreaker("rc", ignore_exceptions=RuntimeError, error_threshold=1)
+    boom = RuntimeError("boom")
+    entered = threading.Event()
+    can_exit = threading.Event()
+
+    def sync() -> None:
+        def body() -> None:
+            with cb.from_thread:
+                entered.set()
+                can_exit.wait()
+                raise boom
+
+        with pytest.raises(RuntimeError):
+            body()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(to_thread.run_sync, sync)
+        # Wait for the thread to enter the context manager.
+        await to_thread.run_sync(entered.wait)
+        await cb.reconfigure(
+            cb.config.model_copy(update={"ignore_exceptions": ()})
+        )
+        can_exit.set()
+
+    assert cb.state == CircuitBreakerState.CLOSED
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
 
 
 async def test_reconfigure_rejects_different_config_type() -> None:
