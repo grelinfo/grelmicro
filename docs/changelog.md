@@ -8,7 +8,7 @@
 
 ### Internal
 
-* ♻️ Adopt PEP 695 generic syntax (`class Foo[T]:`, `def f[T](...)`, `type X = ...`) across `_backends.py`, `_config.py`, `_types.py`, `health/_types.py`, `trace/_instrument.py`, and `tests/task/conftest.py`. The recursive aliases in `_json.py` stay on `TypeAlias` until ty resolves the PEP 695 recursive-expansion gap. Issue [#65](https://github.com/grelinfo/grelmicro/issues/65).
+* ♻️ Adopt PEP 695 generic syntax (`class Foo[T]:`, `def f[T](...)`, `type X = ...`) across `_backends.py`, `_config.py`, `_types.py`, `health/_types.py`, `trace/_instrument.py`, and `tests/task/conftest.py`. Two files keep the older form: the recursive aliases in `_json.py` (ty cannot expand recursive PEP 695 aliases) and the decorator factory in `cache/cached.py` (PEP 695 binds the inner decorator to the outer scope's type parameters, breaking per-decoration-site inference). Issue [#65](https://github.com/grelinfo/grelmicro/issues/65).
 * 🔨 Bump `tool.ruff.target-version` to `py312` and the CI matrix to `["3.12","3.13","3.14"]`.
 
 ## 0.20.0 - 2026-05-03

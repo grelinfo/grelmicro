@@ -13,6 +13,10 @@ from typing_extensions import Doc
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache.ttl import TTLCache
 
+# Decorator factories cannot use PEP 695 cleanly: the inner
+# ``decorator`` would inherit ``cached``'s type parameters instead
+# of being fresh-generic per decoration site. Module-level
+# ``ParamSpec``/``TypeVar`` is the working pattern.
 P = ParamSpec("P")
 R = TypeVar("R")
 
