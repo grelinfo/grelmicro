@@ -1,10 +1,14 @@
 """Test CircuitBreaker implementation."""
 
+import logging
 import sys
+import threading
 from contextlib import AsyncExitStack, suppress
 from datetime import UTC, datetime
 from typing import Literal
 
+import anyio
+import pydantic
 import pytest
 from anyio import to_thread
 from freezegun import freeze_time
@@ -101,7 +105,7 @@ async def circuit_call_not_permitted(
     # the slot below so any further call is rejected.
     cb = await create_circuit(request.param, half_open_capacity=1)
     if request.param == CircuitBreakerState.HALF_OPEN:
-        await cb._try_acquire_call()
+        await cb._try_acquire_call(cb.config)
     return cb
 
 
@@ -808,3 +812,153 @@ def test_circuitbreaker_log_level(
 
     # Assert
     assert cb.config.log_level == level
+
+
+# --- reconfigure ---
+
+
+async def test_reconfigure_swaps_config() -> None:
+    """Reconfigure publishes the new config."""
+    cb = CircuitBreaker("rc", error_threshold=5)
+    new_config = cb.config.model_copy(update={"error_threshold": 10})
+
+    await cb.reconfigure(new_config)
+
+    assert cb.config == new_config
+
+
+async def test_reconfigure_same_config_is_noop() -> None:
+    """Equal configs short-circuit."""
+    cb = CircuitBreaker("rc", error_threshold=5)
+    same = cb.config.model_copy()
+
+    await cb.reconfigure(same)
+
+    assert cb.config == same
+
+
+async def test_reconfigure_preserves_runtime_state() -> None:
+    """A swap does not reset state, counters, or last_error."""
+    cb = CircuitBreaker("rc", error_threshold=2)
+    boom = RuntimeError("boom")
+    with pytest.raises(RuntimeError):
+        async with cb:
+            raise boom
+
+    error_count_before = cb.metrics().total_error_count
+    last_error_before = cb.last_error
+
+    new_config = cb.config.model_copy(update={"error_threshold": 10})
+    await cb.reconfigure(new_config)
+
+    assert cb.metrics().total_error_count == error_count_before
+    assert cb.last_error is last_error_before
+
+
+async def test_reconfigure_updates_logger_level() -> None:
+    """`log_level` change propagates to the instance logger."""
+    cb = CircuitBreaker("rc", log_level="WARNING")
+    assert cb._logger.level == logging.WARNING
+
+    await cb.reconfigure(cb.config.model_copy(update={"log_level": "DEBUG"}))
+
+    assert cb._logger.level == logging.DEBUG
+
+
+async def test_reconfigure_changes_error_threshold_for_next_call() -> None:
+    """Error threshold change applies to the next call without resetting counters."""
+    cb = CircuitBreaker("rc", error_threshold=5)
+    new_config = cb.config.model_copy(update={"error_threshold": 1})
+
+    await cb.reconfigure(new_config)
+
+    boom = RuntimeError("boom")
+    with pytest.raises(RuntimeError):
+        async with cb:
+            raise boom
+
+    assert cb.state == CircuitBreakerState.OPEN
+
+
+async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
+    """An in-flight call classifies its result against the admission config.
+
+    The call enters with `ignore_exceptions=(RuntimeError,)`, then a
+    concurrent reconfigure swaps to `ignore_exceptions=()`. The exit
+    must still treat the `RuntimeError` as ignored, leaving counters
+    unchanged: this is the documented "in-flight operations complete
+    on the previous config" guarantee.
+    """
+    cb = CircuitBreaker("rc", ignore_exceptions=RuntimeError, error_threshold=1)
+    boom = RuntimeError("boom")
+    enter_event = anyio.Event()
+    can_exit = anyio.Event()
+
+    async def call() -> None:
+        async def body() -> None:
+            async with cb:
+                enter_event.set()
+                await can_exit.wait()
+                raise boom
+
+        with pytest.raises(RuntimeError):
+            await body()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(call)
+        await enter_event.wait()
+        await cb.reconfigure(
+            cb.config.model_copy(update={"ignore_exceptions": ()})
+        )
+        can_exit.set()
+
+    # The call entered under the old `ignore_exceptions=(RuntimeError,)`
+    # so the exit must classify the RuntimeError as ignored: no error
+    # count, breaker stays CLOSED.
+    assert cb.state == CircuitBreakerState.CLOSED
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
+
+
+async def test_reconfigure_during_inflight_thread_call_uses_admission_config() -> (
+    None
+):
+    """The thread adapter preserves the admission snapshot across `__exit__`."""
+    cb = CircuitBreaker("rc", ignore_exceptions=RuntimeError, error_threshold=1)
+    boom = RuntimeError("boom")
+    entered = threading.Event()
+    can_exit = threading.Event()
+
+    def sync() -> None:
+        def body() -> None:
+            with cb.from_thread:
+                entered.set()
+                can_exit.wait()
+                raise boom
+
+        with pytest.raises(RuntimeError):
+            body()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(to_thread.run_sync, sync)
+        # Wait for the thread to enter the context manager.
+        await to_thread.run_sync(entered.wait)
+        await cb.reconfigure(
+            cb.config.model_copy(update={"ignore_exceptions": ()})
+        )
+        can_exit.set()
+
+    assert cb.state == CircuitBreakerState.CLOSED
+    assert cb.metrics().total_error_count == 0
+    assert cb.metrics().total_success_count == 1
+
+
+async def test_reconfigure_rejects_different_config_type() -> None:
+    """The mixin rejects config types different from the current one."""
+
+    class Other(pydantic.BaseModel):
+        pass
+
+    cb = CircuitBreaker("rc")
+    with pytest.raises(TypeError, match="CircuitBreakerConfig"):
+        await cb.reconfigure(Other())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
