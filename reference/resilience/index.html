@@ -1071,17 +1071,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;config
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#grelmicro.resilience.CircuitBreaker.from_config" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1590,17 +1579,6 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;name
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.RateLimiter.config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;config
       
     </span>
   </a>
@@ -2155,6 +2133,8 @@
       
         
       
+        
+      
     
     
     
@@ -2247,6 +2227,34 @@
     
   
     Configuration internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/reconfigure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live reconfiguration
   
 
     
@@ -2571,17 +2579,6 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;last_error_time
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.CircuitBreaker.config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;config
       
     </span>
   </a>
@@ -3097,17 +3094,6 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;name
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.resilience.RateLimiter.config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;config
       
     </span>
   </a>
@@ -3670,6 +3656,8 @@
 </code></pre></div>
 
     <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="grelmicro._config.Reconfigurable">Reconfigurable</span>[<span title="grelmicro.resilience.circuitbreaker.CircuitBreakerConfig">CircuitBreakerConfig</span>]</code></p>
 
 
 
@@ -3677,6 +3665,12 @@
 <p>Implements the circuit breaker pattern. It watches calls to
 a protected service and blocks them when the service is
 failing, to avoid cascading errors.</p>
+<p>Supports live reconfiguration via
+[<code>reconfigure</code>][grelmicro._config.Reconfigurable.reconfigure].
+A swap takes effect on the next call. In-flight calls keep the
+config they entered with. The current state, counters, and
+<code>last_error</code> are kept. A new <code>log_level</code> is applied to the
+logger. See <a href="../../architecture/reconfigure/">Live reconfiguration</a>.</p>
 
         <p>Initialize the circuit breaker.</p>
 
@@ -4022,30 +4016,6 @@ override the flag for this construction.</p>
     <div class="doc doc-contents ">
 
         <p>Return the time of the last error recorded by the circuit breaker.</p>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h4 id="grelmicro.resilience.CircuitBreaker.config" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">config</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-property"><code>property</code></small>
-  </span>
-
-</h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreakerConfig">CircuitBreakerConfig</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Return the circuit breaker configuration.</p>
 
     </div>
 
@@ -5441,6 +5411,13 @@ enough tokens, otherwise <code>False</code> (nothing deducted).</p>
 </code></pre></div>
 
     <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="grelmicro._config.Reconfigurable">Reconfigurable</span>[<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;RateLimiterConfig&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;grelmicro.resilience.algorithms.RateLimiterConfig&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterConfig">RateLimiterConfig</a>]</code></p>
 
 
 
@@ -5626,35 +5603,6 @@ same time.</p>
     <div class="doc doc-contents ">
 
         <p>Return the rate limiter identity.</p>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h4 id="grelmicro.resilience.RateLimiter.config" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">config</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-property"><code>property</code></small>
-  </span>
-
-</h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;RateLimiterConfig&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro.resilience.algorithms.RateLimiterConfig&lt;/code&gt;)" href="#grelmicro.resilience.RateLimiterConfig">RateLimiterConfig</a></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Return the algorithm configuration.</p>
 
     </div>
 

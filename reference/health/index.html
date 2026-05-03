@@ -1424,6 +1424,8 @@
       
         
       
+        
+      
     
     
     
@@ -1516,6 +1518,34 @@
     
   
     Configuration internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/reconfigure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live reconfiguration
   
 
     
@@ -2462,6 +2492,8 @@ error, visible under <code>details</code> on the check entry in
 </code></pre></div>
 
     <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="grelmicro._config.Reconfigurable">Reconfigurable</span>[<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthRegistryConfig&lt;/span&gt; (&lt;code&gt;grelmicro.health._registry.HealthRegistryConfig&lt;/code&gt;)" href="#grelmicro.health.HealthRegistryConfig">HealthRegistryConfig</a>]</code></p>
 
 
 
@@ -2472,6 +2504,14 @@ checks are executed in parallel via an <code>anyio</code> task group. Each
 check has its own timeout (falling back to the registry default)
 and its own cached result. Concurrent requests for the same check
 share a single execution via an <code>anyio.Event</code>.</p>
+<p>Supports live reconfiguration via
+[<code>reconfigure</code>][grelmicro._config.Reconfigurable.reconfigure].
+A swap takes effect on the next :meth:<code>run</code>. In-flight rounds
+keep the <code>cache_ttl</code> they started with. The new default
+<code>timeout</code> applies to checks registered after the swap.
+Existing checks keep the timeout they were registered with.
+Re-register a check to pick up the new default. See
+<a href="../../architecture/reconfigure/">Live reconfiguration</a>.</p>
 
         <p>Initialize the health registry.</p>
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" shape-rendering="geometricPrecision" role="img" aria-label="grelmicro favicon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 1536" width="1536" height="1536" shape-rendering="geometricPrecision" role="img" aria-label="grelmicro favicon">
   <title>grelmicro favicon</title>
-  <rect width="512" height="512" rx="113" fill="#FAFAF7" shape-rendering="crispEdges"/>
-  <path d="M354 -252Q219 -252 134.5 -197.5Q50 -143 34 -46H210Q234 -120 349 -120Q427 -120 468.5 -84.5Q510 -49 510 18V98H505Q449 0 317 0Q232 0 169.5 37.5Q107 75 72.5 143.5Q38 212 38 306Q38 446 115.5 529.0Q193 612 328 612Q403 612 457.0 583.5Q511 555 543 502H585V600H753V436H671V16Q671 -112 588.5 -182.0Q506 -252 354 -252ZM358 144Q426 144 465.5 182.0Q505 220 505 286V328Q505 393 465.5 430.5Q426 468 358 468Q285 468 244.5 425.0Q204 382 204 305Q204 228 244.5 186.0Q285 144 358 144Z" fill="#0F0F10" transform="translate(108.617 363.520) scale(0.365714 -0.365714)"/>
-  <rect x="322.560" y="56.320" width="61.440" height="61.440" fill="#E30613"/>
+  <rect width="1536" height="1536" rx="384" fill="#FAFAF7" shape-rendering="crispEdges"/>
+  <path d="M354 -252Q219 -252 134.5 -197.5Q50 -143 34 -46H210Q234 -120 349 -120Q427 -120 468.5 -84.5Q510 -49 510 18V98H505Q449 0 317 0Q232 0 169.5 37.5Q107 75 72.5 143.5Q38 212 38 306Q38 446 115.5 529.0Q193 612 328 612Q403 612 457.0 583.5Q511 555 543 502H585V600H753V436H671V16Q671 -112 588.5 -182.0Q506 -252 354 -252ZM358 144Q426 144 465.5 182.0Q505 220 505 286V328Q505 393 465.5 430.5Q426 468 358 468Q285 468 244.5 425.0Q204 382 204 305Q204 228 244.5 186.0Q285 144 358 144Z" fill="#0F0F10" transform="translate(291.429 1104.000) scale(1.142857 -1.142857)"/>
+  <rect x="960.000" y="192.000" width="192.000" height="192.000" fill="#E30613"/>
 </svg>

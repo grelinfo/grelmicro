@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/sync/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/reconfigure/">
       
       
-        <link rel="prev" href="../imports/">
+        <link rel="prev" href="../config/">
       
       
-        <link rel="next" href="../kubernetes/">
+        <link rel="next" href="../imports/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Synchronization Internals - grelmicro</title>
+        <title>Live reconfiguration - grelmicro</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#synchronization-internals" class="md-skip">
+        <a href="#live-reconfiguration" class="md-skip">
           Skip to content
         </a>
       
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Synchronization Internals
+              Live reconfiguration
             
           </span>
         </div>
@@ -1143,10 +1143,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../reconfigure/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live reconfiguration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1162,6 +1189,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-mixin-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the mixin works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reader-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reader safety
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementing-_apply_reconfigure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementing _apply_reconfigure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1199,37 +1312,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Synchronization Internals
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../sync/" class="md-nav__link">
         
   
   
@@ -1245,87 +1331,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#worker-identity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Worker Identity
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#token-generation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Token Generation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#lock-name-and-backend-key" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lock Name and Backend Key
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#lock-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lock Cleanup
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Lock Cleanup">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#backend-specific-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Backend-specific cleanup
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1503,10 +1508,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#worker-identity" class="md-nav__link">
+  <a href="#the-contract" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worker Identity
+        The contract
       
     </span>
   </a>
@@ -1514,10 +1519,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#token-generation" class="md-nav__link">
+  <a href="#how-the-mixin-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Token Generation
+        How the mixin works
       
     </span>
   </a>
@@ -1525,10 +1530,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lock-name-and-backend-key" class="md-nav__link">
+  <a href="#reader-safety" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lock Name and Backend Key
+        Reader safety
       
     </span>
   </a>
@@ -1536,30 +1541,35 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lock-cleanup" class="md-nav__link">
+  <a href="#implementing-_apply_reconfigure" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lock Cleanup
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Lock Cleanup">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#backend-specific-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Backend-specific cleanup
+        Implementing _apply_reconfigure
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1583,107 +1593,104 @@
   
 
 
-<h1 id="synchronization-internals">Synchronization Internals</h1>
-<p>This page documents the internal design of the <a href="../../sync/">Synchronization Primitives</a>.</p>
-<h2 id="worker-identity">Worker Identity</h2>
-<p>By default, each synchronization primitive (<code>Lock</code>, <code>TaskLock</code>, <code>LeaderElection</code>) generates a unique <strong>worker identity</strong> at instantiation using <code>token_hex(4)</code> (8 random hex characters, 32 bits of entropy) when no explicit <code>worker</code> parameter is provided.</p>
-<p>This provides uniqueness across:</p>
-<ul>
-<li><strong>Multiple processes</strong> (e.g., <code>uvicorn --workers N</code>): Each worker process imports the application independently, so <code>token_hex(4)</code> is called separately per process with independent randomness.</li>
-<li><strong>Multiple instances</strong> within the same process: Each <code>Lock(...)</code> or <code>TaskLock(...)</code> call generates its own <code>token_hex(4)</code>, producing a different worker identity.</li>
-</ul>
-<div class="admonition warning">
-<p class="admonition-title">Pre-fork servers</p>
-<p>If the ASGI server uses a pre-fork model (forking after the application is loaded), worker identities generated before the fork will be duplicated across child processes. Uvicorn does <strong>not</strong> pre-fork. It spawns workers via <code>subprocess.Popen</code>, so each worker imports the application independently. If using a pre-fork server, pass an explicit <code>worker</code> identity to avoid collisions.</p>
-</div>
-<h2 id="token-generation">Token Generation</h2>
-<p>Lock tokens identify <strong>who</strong> holds a lock. They are derived deterministically from the worker identity and the current execution context using simple string concatenation:</p>
+<h1 id="live-reconfiguration">Live reconfiguration</h1>
+<p>This page is the engineering side of <code>Component.reconfigure(new_config)</code>. It documents the contract behind the [<code>Reconfigurable</code>][grelmicro._config.Reconfigurable] mixin and explains the choices a contributor needs to know before adding <code>reconfigure</code> support to a new component.</p>
+<h2 id="the-contract">The contract</h2>
+<p><code>reconfigure(new_config)</code> swaps a live component's configuration without rebuilding the component. Runtime state on the backend (token counts, lease handles, in-flight calls) is preserved across the swap.</p>
+<p>Every call enforces:</p>
 <table>
 <thead>
 <tr>
-<th>Primitive</th>
-<th>Token</th>
-<th>Scope</th>
+<th>Invariant</th>
+<th>Behavior</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>Lock</code></td>
-<td><code>{worker}:task:{task_id}</code></td>
-<td>Per async task</td>
+<td>Type match</td>
+<td><code>type(new_config) is type(self._config)</code> or <code>TypeError</code></td>
 </tr>
 <tr>
-<td><code>Lock.from_thread</code></td>
-<td><code>{worker}:thread:{thread_id}</code></td>
-<td>Per thread</td>
+<td>Equality short-circuit</td>
+<td><code>new_config == self._config</code> returns immediately</td>
 </tr>
 <tr>
-<td><code>TaskLock</code></td>
-<td><code>{worker}:task:{task_id}</code></td>
-<td>Per async task</td>
+<td>Writer serialization</td>
+<td><code>anyio.Lock</code> held for the rebuild</td>
 </tr>
 <tr>
-<td><code>TaskLock.from_thread</code></td>
-<td><code>{worker}:thread:{thread_id}</code></td>
-<td>Per thread</td>
+<td>Atomic publish</td>
+<td><code>self._config = new_config</code> runs after <code>_apply_reconfigure</code></td>
 </tr>
 <tr>
-<td><code>LeaderElection</code></td>
-<td><code>worker</code> directly</td>
-<td>Per process</td>
+<td>Failure rollback</td>
+<td>If <code>_apply_reconfigure</code> raises, <code>self._config</code> is untouched</td>
 </tr>
 </tbody>
 </table>
-<p>This design provides the following guarantees:</p>
+<p>In-flight operations on the previous config complete on the previous strategy and previous fallback. Operations started after <code>reconfigure</code> returns see the new values.</p>
+<h2 id="how-the-mixin-works">How the mixin works</h2>
+<p>The mixin is small enough to read in one screen:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">reconfigure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">new_config</span><span class="p">:</span> <span class="n">ConfigT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">current</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">new_config</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">current</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">new_config</span> <span class="o">==</span> <span class="n">current</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reconfigure_lock</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">new_config</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apply_reconfigure</span><span class="p">(</span><span class="n">new_config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_config</span> <span class="o">=</span> <span class="n">new_config</span>
+</code></pre></div>
+<p>The two equality checks are not redundant. The first runs on the hot path so the common no-op case never blocks on the lock. The second runs under the lock so two callers racing to set the same value do not both trigger a rebuild.</p>
+<p>The mixin commits <code>self._config</code> after <code>_apply_reconfigure</code> returns. This means subclasses cannot forget to assign last, and a raise inside <code>_apply_reconfigure</code> always preserves the previous config.</p>
+<h2 id="reader-safety">Reader safety</h2>
+<p>A reconfigurable component publishes a single immutable read-side snapshot. Every public operation captures that snapshot with one attribute read at the top, then derives every config-dependent decision from the local. The same rule applies to internal helpers called by an operation: they receive the snapshot as a parameter rather than re-reading <code>self._config</code>.</p>
+<p>Single-attribute reads of a Python object reference are atomic under the GIL and remain atomic on free-threaded 3.13+, so no read-side lock is required.</p>
+<p>The snapshot has two shapes depending on whether the component caches derived state.</p>
+<p><strong>Components without derived state</strong> capture the config directly:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">acquire</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span>
+    <span class="n">token</span> <span class="o">=</span> <span class="n">generate_task_token</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">worker</span><span class="p">)</span>
+    <span class="k">while</span> <span class="ow">not</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">do_acquire</span><span class="p">(</span><span class="n">token</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">lease_duration</span><span class="p">):</span>
+        <span class="k">await</span> <span class="n">sleep</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">retry_interval</span><span class="p">)</span>
+</code></pre></div>
+<p>Pass the relevant fields (or the whole <code>config</code>) to internal helpers so a concurrent <code>reconfigure</code> cannot change behavior mid-call. <code>Lock</code>, <code>TaskLock</code>, and <code>LeaderElection</code> follow this pattern.</p>
+<p><strong>Components with cached derived state</strong> publish a frozen snapshot type:</p>
+<div class="highlight"><pre><span></span><code><span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">config</span>
+<span class="n">strategy</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">strategy</span>
+</code></pre></div>
+<p>Subclasses MUST bundle every cached derived value (config, strategy, fallback, limits) into one frozen snapshot type and publish it with a single assignment in <code>_apply_reconfigure</code>. Caching a derived value on a separate attribute reintroduces a multi-attribute window: a reader could observe the new derived value with the previous snapshot, applying mismatched parameters in one call.</p>
+<p><code>RateLimiter</code> follows this rule: its <code>_State</code> dataclass holds both <code>config</code> and the bound <code>strategy</code>, and every hot path captures <code>state = self._state</code> once.</p>
+<h2 id="implementing-_apply_reconfigure">Implementing <code>_apply_reconfigure</code></h2>
+<p>Components without cached derived state inherit the no-op default. The only requirement on the subclass is to capture <code>self._config</code> once at the top of every public operation, as described in <a href="#reader-safety">Reader safety</a>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Lock</span><span class="p">(</span><span class="n">Reconfigurable</span><span class="p">[</span><span class="n">LockConfig</span><span class="p">]):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="o">...</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_config</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_reconfigure_lock</span> <span class="o">=</span> <span class="n">anyio</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+</code></pre></div>
+<p>A subclass MAY still override <code>_apply_reconfigure</code> to enforce per-field invariants on the swap. <code>Lock</code>, <code>TaskLock</code>, and <code>LeaderElection</code> reject changes to <code>worker</code> because the field is part of the live token identity:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_apply_reconfigure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">new_config</span><span class="p">:</span> <span class="n">LockConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">new_config</span><span class="o">.</span><span class="n">worker</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">worker</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<p>Components that cache derived state override <code>_apply_reconfigure</code> and rebuild those caches into instance attributes. The mixin commits <code>self._config</code> for them:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">RateLimiter</span><span class="p">(</span><span class="n">Reconfigurable</span><span class="p">[</span><span class="n">RateLimiterConfig</span><span class="p">]):</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_apply_reconfigure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">new_config</span><span class="p">):</span>
+        <span class="n">new_strategy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">backend</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">new_config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">_State</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">new_config</span><span class="p">,</span> <span class="n">strategy</span><span class="o">=</span><span class="n">new_strategy</span><span class="p">)</span>
+</code></pre></div>
+<p>Build new derived values into locals first, then publish them all in one frozen-snapshot assignment. If any step raises (for example <code>backend.bind</code>), the snapshot has not been mutated and the previous state is preserved exactly.</p>
+<h2 id="out-of-scope">Out of scope</h2>
+<p>The library does not ship file watchers, signal handlers, or ConfigMap pollers. Wiring <code>reconfigure</code> to a SIGHUP handler or a Kubernetes informer is application-level work. See <a href="../../config/">Configuration</a> for one worked example.</p>
+<p>Hot-swapping the backend from the new config is also out of scope. <code>_apply_reconfigure</code> does not read the backend identity from <code>new_config</code>. The component continues to resolve its backend the same way it did before reconfigure: a backend instance passed at construction is reused as-is, while a backend resolved through the registry is re-resolved on each call so that task-scoped overrides keep working. <code>reconfigure</code> accepts a new config of the same runtime type only, not a different config subclass.</p>
+<h2 id="related">Related</h2>
 <ul>
-<li><strong>Mutual exclusion</strong>: Different async tasks or threads produce different tokens for the same lock, ensuring only one caller holds the lock at a time.</li>
-<li><strong>Idempotent</strong>: The same async task (or thread) always produces the same deterministic token, so the backend accepts a re-acquire and extends the lease.</li>
-<li><strong>Isolation</strong>: Different lock instances have different worker identities, so their tokens never collide even when used from the same task or thread.</li>
-</ul>
-<h2 id="lock-name-and-backend-key">Lock Name and Backend Key</h2>
-<p>Each synchronization primitive automatically prefixes the user-provided <code>name</code> with a type-specific namespace to form the backend key:</p>
-<table>
-<thead>
-<tr>
-<th>Primitive</th>
-<th>Name</th>
-<th>Backend Key</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Lock("my-resource")</code></td>
-<td><code>my-resource</code></td>
-<td><code>lock:my-resource</code></td>
-</tr>
-<tr>
-<td><code>TaskLock("cleanup")</code></td>
-<td><code>cleanup</code></td>
-<td><code>tasklock:cleanup</code></td>
-</tr>
-<tr>
-<td><code>LeaderElection("main")</code></td>
-<td><code>main</code></td>
-<td><code>leader:main</code></td>
-</tr>
-</tbody>
-</table>
-<p>This prevents accidental collisions between different primitive types sharing the same backend. A <code>Lock("x")</code> and a <code>TaskLock("x")</code> operate on independent backend entries.</p>
-<div class="admonition warning">
-<p class="admonition-title">Breaking change</p>
-<p>Prior versions used the <code>name</code> parameter directly as the backend key without any prefix. After upgrading, existing locks stored in backends (Redis, PostgreSQL) will no longer match. Ensure all running instances are upgraded together so they use the same key format.</p>
-</div>
-<h2 id="lock-cleanup">Lock Cleanup</h2>
-<p>Expired locks are never actively removed during normal operation. Instead, all backends use a <strong>lazy filtering</strong> strategy combined with <strong>cleanup on exit</strong>:</p>
-<ol>
-<li><strong>Lazy filtering</strong>: Every <code>locked()</code>, <code>owned()</code>, and <code>acquire()</code> call includes an expiry check (<code>expire_at &gt;= now</code>), so expired locks are simply ignored without requiring deletion.</li>
-<li><strong>Cleanup on exit</strong>: When the backend context manager exits (<code>__aexit__</code>), all expired locks are deleted in bulk. This keeps storage clean across graceful restarts.</li>
-</ol>
-<p>If the process crashes without exiting the context manager, expired locks remain in storage but are harmless: they will be filtered out by all subsequent operations and cleaned up on the next graceful shutdown.</p>
-<h3 id="backend-specific-cleanup">Backend-specific cleanup</h3>
-<ul>
-<li><strong>SQLite / PostgreSQL</strong>: A single bulk <code>DELETE ... WHERE expire_at &lt; now</code> removes all stale rows before closing the connection.</li>
-<li><strong>Kubernetes</strong>: Lists all Lease resources labeled <code>app.kubernetes.io/managed-by: grelmicro</code> and deletes each expired lease individually. The Kubernetes API does not support bulk conditional deletion. <code>NOT_FOUND</code> errors are silently ignored to handle concurrent deletions.</li>
+<li><a href="../../config/">Configuration</a>: the three paths and the resolution order that produce a config in the first place.</li>
+<li><a href="../config/">Configuration internals</a>: the engineering side of <code>resolve_config</code> and the <code>Config</code> contract.</li>
 </ul>
 
 
