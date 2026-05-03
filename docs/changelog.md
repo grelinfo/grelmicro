@@ -2,11 +2,26 @@
 
 ## Unreleased
 
+## 0.20.0 - 2026-05-03
+
+Live reconfiguration is complete. Every stateful primitive now exposes `reconfigure(new_config)`, so you can hot-reload from a `ConfigMap` or SIGHUP without restarting the process. See [Live reconfiguration](architecture/reconfigure.md) for the contract.
+
 ### Features
 
-* ✨ Add `reconfigure(new_config)` to `Lock`, `TaskLock`, and `LeaderElection`. Swap timing fields without restarting. The `worker` field cannot change. Issue [#158](https://github.com/grelinfo/grelmicro/issues/158).
-* ✨ Add `CircuitBreaker.reconfigure(new_config)`. Swap thresholds and `ignore_exceptions` without restarting. Runtime state and `last_error` are kept. `log_level` is applied to the logger. Issue [#158](https://github.com/grelinfo/grelmicro/issues/158).
-* ✨ Add `HealthRegistry.reconfigure(new_config)`. Swap `cache_ttl` and the default `timeout` without restarting. Per-check timeouts stay as registered. Issue [#162](https://github.com/grelinfo/grelmicro/issues/162).
+* ✨ Add `RateLimiter.reconfigure(new_config)`. Swap algorithm config without rebuilding the limiter. PR [#153](https://github.com/grelinfo/grelmicro/pull/153).
+* ✨ Add `reconfigure(new_config)` to `Lock`, `TaskLock`, and `LeaderElection`. Swap timing fields without restarting. The `worker` field cannot change. PR [#159](https://github.com/grelinfo/grelmicro/pull/159).
+* ✨ Add `CircuitBreaker.reconfigure(new_config)`. Swap thresholds and `ignore_exceptions` without restarting. Runtime state and `last_error` are kept. `log_level` is applied to the logger. PR [#160](https://github.com/grelinfo/grelmicro/pull/160).
+* ✨ Add `HealthRegistry.reconfigure(new_config)`. Swap `cache_ttl` and the default `timeout` without restarting. Per-check timeouts stay as registered. PR [#180](https://github.com/grelinfo/grelmicro/pull/180).
+
+### Docs
+
+* 📝 Reframe README and docs landing as a microservice patterns toolkit. PR [#155](https://github.com/grelinfo/grelmicro/pull/155).
+* 📝 Replace "Production-ready" with "Railguarded": 100% pytest coverage, ty-checked, ruff-linted, Pydantic-validated. PR [#181](https://github.com/grelinfo/grelmicro/pull/181).
+
+### Internal
+
+* 🔨 Switch build backend to Hatch. PR [#155](https://github.com/grelinfo/grelmicro/pull/155).
+* 🎨 Supersample favicon PNGs with Lanczos downscaling for smoother anti-aliasing. PR [#156](https://github.com/grelinfo/grelmicro/pull/156).
 
 ## 0.19.0 - 2026-05-01
 
