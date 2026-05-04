@@ -178,8 +178,8 @@ class TTLCache(Generic[T]):
             self._misses += 1
             return default
         self._hits += 1
-        if self._maxsize > 0:
-            self._promote(key)
+        if self._maxsize > 0 and key in self._keys:
+            self._keys.move_to_end(key)
         return self._deserialize(raw)
 
     async def set(

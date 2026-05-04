@@ -441,14 +441,12 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         """Try to acquire leadership using `config` as the operation snapshot."""
         backend = self.backend
         try:
-            is_leader = await asyncio.wait_for(
-                backend.acquire(
+            async with asyncio.timeout(config.backend_timeout):
+                is_leader = await backend.acquire(
                     name=self._lock_name,
                     token=str(config.worker),
                     duration=config.lease_duration,
-                ),
-                config.backend_timeout,
-            )
+                )
         except Exception:
             if self._check_error_interval(config):
                 logger.exception(
@@ -515,10 +513,10 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
             return
         config = self._config
         try:
-            released = await asyncio.wait_for(
-                backend.release(name=self._lock_name, token=str(config.worker)),
-                config.backend_timeout,
-            )
+            async with asyncio.timeout(config.backend_timeout):
+                released = await backend.release(
+                    name=self._lock_name, token=str(config.worker)
+                )
             if not released:
                 logger.info(
                     "Leader Election lock already released: %s", self.name

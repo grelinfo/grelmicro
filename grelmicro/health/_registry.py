@@ -416,10 +416,12 @@ async def _run_check(entry: _Entry) -> CheckResult:
     """
     try:
         try:
-            result: HealthDetails | None = await asyncio.wait_for(
-                entry.func(), entry.timeout
-            )
+            async with asyncio.timeout(entry.timeout) as cm:
+                result: HealthDetails | None = await entry.func()
         except TimeoutError:
+            if not cm.expired():
+                # User code raised TimeoutError, not the registry timeout.
+                raise
             logger.warning(
                 "Health check '%s' timed out after %gs",
                 entry.name,

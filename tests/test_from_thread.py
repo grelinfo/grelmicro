@@ -29,8 +29,8 @@ def test_run_without_loop_raises() -> None:
     assert "captured event loop" in str(error[0])
 
 
-def test_run_with_closed_loop_falls_back_to_contextvar() -> None:
-    """A closed explicit loop falls back to the contextvar (which is unset here)."""
+def test_run_with_closed_loop_raises() -> None:
+    """A closed loop raises rather than dispatching."""
     closed_loop = asyncio.new_event_loop()
     closed_loop.close()
 
@@ -53,6 +53,12 @@ def test_run_with_closed_loop_falls_back_to_contextvar() -> None:
 def test_capture_running_loop_outside_loop_returns_none() -> None:
     """capture_running_loop returns None when no loop is running."""
     assert _from_thread.capture_running_loop() is None
+
+
+async def test_capture_running_loop_inside_loop_returns_loop() -> None:
+    """capture_running_loop returns the running loop when inside one."""
+    loop = _from_thread.capture_running_loop()
+    assert loop is asyncio.get_running_loop()
 
 
 async def test_remember_running_loop_inside_loop_returns_loop() -> None:

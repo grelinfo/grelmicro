@@ -39,6 +39,25 @@ def _clean_registry() -> Generator[None]:
     health_registry.reset()
 
 
+async def test_user_timeout_error_is_not_classified_as_registry_timeout() -> (
+    None
+):
+    """A TimeoutError raised by the check itself stays a generic failure."""
+    registry = HealthRegistry(timeout=10)
+
+    async def check_raises_timeout() -> HealthDetails | None:
+        msg = "downstream call timed out"
+        raise TimeoutError(msg)
+
+    registry.add("downstream", check_raises_timeout)
+
+    report = await registry.run()
+
+    result = report["checks"]["downstream"]
+    assert result["status"] == HealthStatus.ERROR
+    assert result["error"] == "Health check failed"
+
+
 async def test_empty_registry_is_ok() -> None:
     """An empty registry reports ok."""
     registry = HealthRegistry()

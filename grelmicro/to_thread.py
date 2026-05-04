@@ -1,19 +1,18 @@
 """Run sync code in a worker thread while keeping the parent loop reachable.
 
-A thin wrapper around ``asyncio.to_thread`` that records the running
-event loop on a contextvar so sync code in the worker thread can call
-back into the loop through any grelmicro ``from_thread`` adapter
-(e.g. ``Lock.from_thread``, ``CircuitBreaker.from_thread``).
-
-Use this in place of ``asyncio.to_thread`` when the worker function
-will touch a grelmicro primitive's sync adapter.
+Wraps :func:`asyncio.to_thread` and records the running loop in a
+contextvar so sync code in the worker thread can call back into the
+loop through any grelmicro ``from_thread`` adapter (e.g.
+``Lock.from_thread``, ``CircuitBreaker.from_thread``) even when the
+primitive itself was constructed outside of any event loop.
 
 ```python
 from grelmicro import to_thread
 from grelmicro.sync import Lock
 
+lock = Lock("cart")  # constructed outside the loop
+
 async def main():
-    lock = Lock("cart")
     await to_thread.run_sync(do_work, lock)
 
 def do_work(lock: Lock) -> None:
@@ -38,8 +37,8 @@ async def run_sync[T](
 ) -> T:
     """Run ``func(*args, **kwargs)`` in a worker thread.
 
-    Equivalent to ``asyncio.to_thread`` plus a contextvar capture so
-    sync code in the worker can reach the parent loop via the
+    Equivalent to :func:`asyncio.to_thread`, plus a contextvar capture
+    so sync code in the worker can reach the parent loop via the
     grelmicro ``from_thread`` adapters.
     """
     remember_running_loop()
