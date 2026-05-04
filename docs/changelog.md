@@ -8,6 +8,7 @@
 * 💥 Drop AnyIO. grelmicro now targets `asyncio` directly. Issue [#183](https://github.com/grelinfo/grelmicro/issues/183).
 * 💥 `CircuitBreaker` now takes a backend (``CircuitBreakerBackend``). The in-memory backend (``MemoryCircuitBreakerBackend``) is the default. A future Redis-backed implementation will share state across replicas (issue #188). The async API stays primary, sync code goes through ``cb.from_thread``.
 * 💥 The sync adapters on `Lock`, `TaskLock`, `TTLCache`, and `CircuitBreaker` now require the backend to be opened (``async with backend:`` or ``grelmicro.lifespan()``). The backend captures the running loop and the sync adapter dispatches through it. Zero hot-path overhead.
+* 💥 Resilience registries are now namespaced. The rate limiter registry name moves from ``"resilience"`` to ``"resilience.ratelimiter"`` and the circuit breaker registry is ``"resilience.circuitbreaker"``. ``grelmicro.lifespan(exclude=...)`` now matches by dotted prefix, so ``exclude={"resilience"}`` still skips both registries.
 
 ### Features
 

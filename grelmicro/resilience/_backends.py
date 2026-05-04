@@ -7,7 +7,7 @@ from grelmicro.resilience._protocol import (
 )
 
 rate_limiter_backend_registry: BackendRegistry[RateLimiterBackend] = (
-    BackendRegistry(name="resilience")
+    BackendRegistry(name="resilience.ratelimiter")
 )
 
 circuit_breaker_backend_registry: BackendRegistry[CircuitBreakerBackend] = (
