@@ -91,5 +91,16 @@ class TaskManager(TaskRouter):
                 task(ready=ready), name=task.name
             )
             self._task_handles.append(handle)
-            await ready
+            # Wait for the task to signal readiness, but surface its
+            # completion or failure too. A task that returns or raises
+            # before resolving ``ready`` would otherwise deadlock startup.
+            done, _ = await asyncio.wait(
+                {handle, ready}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if handle in done and not ready.done():
+                # Propagate the task's exception, or signal that it
+                # exited without ever becoming ready.
+                handle.result()
+                msg = f"Task {task.name!r} exited before signaling readiness"
+                raise RuntimeError(msg)
         logger.debug("%s scheduled tasks started", len(self._tasks))

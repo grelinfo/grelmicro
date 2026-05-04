@@ -97,6 +97,32 @@ async def test_task_manager_start_surfaces_early_task_failure() -> None:
     )
 
 
+async def test_task_manager_start_surfaces_early_clean_exit() -> None:
+    """A task that returns without setting ``ready`` raises instead of deadlocking."""
+    import asyncio  # noqa: PLC0415
+
+    class SilentTask:
+        @property
+        def name(self) -> str:
+            return "silent"
+
+        async def __call__(
+            self, *, ready: asyncio.Future[None] | None = None
+        ) -> None:
+            del ready
+
+    app = TaskManager(auto_start=False, tasks=[SilentTask()])
+
+    with pytest.raises(BaseExceptionGroup) as exc_info:
+        async with app:
+            await app.start()
+
+    assert any(
+        isinstance(e, RuntimeError) and "before signaling readiness" in str(e)
+        for e in exc_info.value.exceptions
+    )
+
+
 async def test_task_manager_cancels_running_tasks_on_exit() -> None:
     """Long-running tasks are cancelled on context exit."""
     import asyncio  # noqa: PLC0415
