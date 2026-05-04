@@ -20,8 +20,14 @@ from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.health._backends import health_registry
 from grelmicro.health._registry import HealthRegistry
-from grelmicro.resilience._backends import rate_limiter_backend_registry
-from grelmicro.resilience.memory import MemoryRateLimiterBackend
+from grelmicro.resilience._backends import (
+    circuit_breaker_backend_registry,
+    rate_limiter_backend_registry,
+)
+from grelmicro.resilience.memory import (
+    MemoryCircuitBreakerBackend,
+    MemoryRateLimiterBackend,
+)
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync import Lock
 from grelmicro.sync._backends import sync_backend_registry
@@ -46,6 +52,7 @@ def _clean_registries() -> None:
     sync_backend_registry.reset()
     cache_backend_registry.reset()
     rate_limiter_backend_registry.reset()
+    circuit_breaker_backend_registry.reset()
 
 
 @pytest.fixture
@@ -248,13 +255,29 @@ async def test_lifespan_excludes_named_entry() -> None:
 
 
 async def test_lifespan_excludes_resilience_module_key() -> None:
-    """``exclude={"resilience"}`` matches the rate limiter registry."""
+    """``exclude={"resilience"}`` skips every ``resilience.*`` registry."""
     rate_limiter_backend_registry.register(
         MemoryRateLimiterBackend(), "default"
+    )
+    circuit_breaker_backend_registry.register(
+        MemoryCircuitBreakerBackend(), "default"
     )
     sync_backend_registry.register(MemorySyncBackend(), "default")
     async with grelmicro.lifespan(exclude={"resilience"}):
         assert sync_backend_registry.is_loaded
+
+
+async def test_lifespan_excludes_specific_resilience_registry() -> None:
+    """``exclude={"resilience.ratelimiter"}`` skips only that registry."""
+    rate_limiter_backend_registry.register(
+        MemoryRateLimiterBackend(), "default"
+    )
+    cb = MemoryCircuitBreakerBackend()
+    circuit_breaker_backend_registry.register(cb, "default")
+    async with grelmicro.lifespan(exclude={"resilience.ratelimiter"}):
+        # CB backend was opened (its loop is captured), rate limiter
+        # was skipped.
+        assert cb._loop is not None
 
 
 def test_lock_resolves_named_backend_from_registry() -> None:

@@ -24,19 +24,27 @@ async def lifespan(
 
     Modules whose registry has not been imported are skipped:
     importing ``grelmicro`` alone walks nothing. Importing
-    ``grelmicro.sync`` makes the sync registry visible. Use
-    ``exclude={"<module>"}`` to skip a module or
-    ``exclude={"<module>.<name>"}`` to skip one named entry.
+    ``grelmicro.sync`` makes the sync registry visible.
+
+    ``exclude`` matches by dotted prefix. ``{"resilience"}`` skips
+    every ``resilience.*`` registry (rate limiter and circuit
+    breaker). ``{"resilience.ratelimiter"}`` skips only that
+    registry. ``{"resilience.ratelimiter.analytics"}`` skips just
+    the named entry inside that registry.
     """
     from grelmicro._backends import _ALL_REGISTRIES  # noqa: PLC0415
 
     excluded = frozenset(exclude)
+
+    def is_excluded(path: str) -> bool:
+        return any(path == ex or path.startswith(f"{ex}.") for ex in excluded)
+
     async with AsyncExitStack() as stack:
         for module_name, registry in _ALL_REGISTRIES.items():
-            if module_name in excluded:
+            if is_excluded(module_name):
                 continue
             for entry_name, backend in registry.items():
-                if f"{module_name}.{entry_name}" in excluded:
+                if is_excluded(f"{module_name}.{entry_name}"):
                     continue
                 await stack.enter_async_context(backend)
         for ctx in ad_hoc:
