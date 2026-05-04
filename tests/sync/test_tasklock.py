@@ -1,5 +1,6 @@
 """Test Task Lock."""
 
+import asyncio
 import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
@@ -8,7 +9,6 @@ import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
-from grelmicro import to_thread
 from grelmicro.errors import WouldBlockError as WouldBlock
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
@@ -170,7 +170,7 @@ async def test_tasklock_from_thread_nested_raises(backend: SyncBackend) -> None:
             with task_lock.from_thread:
                 pass
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 # --- Acquire + Release (elapsed >= min_lock_seconds) ---
@@ -512,7 +512,7 @@ async def test_tasklock_from_thread_acquire_release(
             time.sleep(0.01)  # Ensure elapsed > min_lock_seconds
         locked_after = task_lock.from_thread.locked()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     assert locked_before is False
     assert locked_inside is True
@@ -544,7 +544,7 @@ async def test_tasklock_from_thread_would_block(backend: SyncBackend) -> None:
         ):
             pass
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_tasklock_from_thread_stays_locked(backend: SyncBackend) -> None:
@@ -565,7 +565,7 @@ async def test_tasklock_from_thread_stays_locked(backend: SyncBackend) -> None:
             pass  # Completes almost instantly (elapsed << 0.5)
         locked_after = task_lock.from_thread.locked()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     assert locked_after is True
 
@@ -587,7 +587,7 @@ async def test_tasklock_from_thread_acquire_backend_error(
         with pytest.raises(LockAcquireError), task_lock.from_thread:
             pass
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_tasklock_from_thread_release_backend_error(
@@ -610,7 +610,7 @@ async def test_tasklock_from_thread_release_backend_error(
                     backend, "release", side_effect=Exception("Backend Error")
                 )
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_tasklock_from_thread_reacquire_backend_error(
@@ -643,7 +643,7 @@ async def test_tasklock_from_thread_reacquire_backend_error(
         with pytest.raises(LockReleaseError), task_lock.from_thread:
             pass
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_tasklock_from_thread_release_expired_raises(
@@ -663,7 +663,7 @@ async def test_tasklock_from_thread_release_expired_raises(
             with task_lock.from_thread:
                 time.sleep(0.1)  # Wait for lock to expire
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_task_lock_config_property(backend: SyncBackend) -> None:

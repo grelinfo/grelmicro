@@ -15,7 +15,6 @@ from uuid import UUID
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro import _from_thread
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.errors import WouldBlockError
 from grelmicro.sync._backends import get_sync_backend
@@ -259,7 +258,6 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         self._acquired_at: float | None = None
         self._token_nonce = generate_token_nonce()
         self._from_thread: ThreadTaskLockAdapter | None = None
-        self._loop = _from_thread.capture_running_loop()
 
     @property
     def name(self) -> str:
@@ -287,8 +285,6 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
-        self._loop = asyncio.get_running_loop()
-        _from_thread.remember_running_loop()
         config = self._config
         if self._acquired_at is not None:
             raise LockReentrantError(name=self._name)
@@ -498,7 +494,10 @@ class ThreadTaskLockAdapter:
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
-        _from_thread.run(self._task_lock._loop, self._task_lock.do_thread_enter)  # noqa: SLF001
+        asyncio.run_coroutine_threadsafe(
+            self._task_lock.do_thread_enter(),
+            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
         return self
 
     def __exit__(
@@ -512,8 +511,14 @@ class ThreadTaskLockAdapter:
         Raises:
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
-        _from_thread.run(self._task_lock._loop, self._task_lock.do_thread_exit)  # noqa: SLF001
+        asyncio.run_coroutine_threadsafe(
+            self._task_lock.do_thread_exit(),
+            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
 
     def locked(self) -> bool:
         """Return True if the lock is currently held."""
-        return _from_thread.run(self._task_lock._loop, self._task_lock.locked)  # noqa: SLF001
+        return asyncio.run_coroutine_threadsafe(
+            self._task_lock.locked(),
+            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()

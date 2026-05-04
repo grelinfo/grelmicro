@@ -86,6 +86,7 @@ nav:
     - architecture/config.md
     - architecture/reconfigure.md
     - architecture/imports.md
+    - architecture/sync-from-thread.md
     - architecture/sync.md
     - architecture/kubernetes.md
     - architecture/sqlite.md

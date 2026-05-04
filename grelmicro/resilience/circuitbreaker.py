@@ -3,7 +3,6 @@
 import asyncio
 import functools
 import logging
-import threading
 from collections.abc import Callable
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -29,7 +28,6 @@ from pydantic import (
 from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
-from grelmicro import _from_thread
 from grelmicro._config import (
     Reconfigurable,
     env_segment,
@@ -336,7 +334,6 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
-        self._loop = _from_thread.capture_running_loop()
         # Per-call snapshot stack. Each `__aenter__` pushes the config
         # captured at admission; `__aexit__` pops it and uses it for
         # success/error classification. ContextVar isolates concurrent
@@ -356,7 +353,6 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         self._active_call_count = 0
         self._logger = getLogger(f"grelmicro.circuitbreaker.{name}")
         self._logger.setLevel(config.log_level)
-        self._from_thread: _ThreadAdapter | None = None
 
     def __call__(
         self, func: Callable[..., Any] | None = None
@@ -376,16 +372,20 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
 
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            with self.from_thread:
+            with self:
                 return func(*args, **kwargs)
 
         return sync_wrapper
 
-    async def __aenter__(self) -> Self:
-        """Circuit breaker context manager."""
-        self._loop = _from_thread.remember_running_loop()
+    def __enter__(self) -> Self:
+        """Enter the circuit breaker context.
+
+        Works in both async and sync contexts. The breaker performs no
+        I/O, so the entry is sync-safe even from inside a running event
+        loop.
+        """
         config = self._config
-        if not await self._try_acquire_call(config):
+        if not self._try_acquire_call(config):
             raise CircuitBreakerError(
                 name=self.name,
                 last_error_time=self._last_error_time,
@@ -394,15 +394,15 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         self._enter_stack.set((*self._enter_stack.get(), config))
         return self
 
-    async def __aexit__(
+    def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None:
-        """Exit the context manager.
+        """Exit the circuit breaker context.
 
-        Uses the same config snapshot captured at `__aenter__` so the
+        Uses the same config snapshot captured at `__enter__` so the
         success/error classification matches the admission decision
         (the in-flight call completes on the previous config even if
         `reconfigure` runs concurrently).
@@ -411,22 +411,28 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         config = stack[-1]
         self._enter_stack.set(stack[:-1])
 
-        await self._release_call()
+        self._release_call()
 
         if not exc_type or issubclass(exc_type, config.ignore_exceptions):
-            await self._on_success(config)
+            self._on_success(config)
 
         elif isinstance(exc_value, Exception):
-            await self._on_error(config, exc_value)
+            self._on_error(config, exc_value)
 
         return None
 
-    @property
-    def from_thread(self) -> "_ThreadAdapter":
-        """Return the lock adapter for worker thread."""
-        if self._from_thread is None:
-            self._from_thread = _ThreadAdapter(self)
-        return self._from_thread
+    async def __aenter__(self) -> Self:
+        """Enter the circuit breaker context (async alias)."""
+        return self.__enter__()
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None:
+        """Exit the circuit breaker context (async alias)."""
+        return self.__exit__(exc_type, exc_value, traceback)
 
     @property
     def name(self) -> str:
@@ -463,7 +469,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             last_error=last_error,
         )
 
-    async def restart(self) -> None:
+    def restart(self) -> None:
         """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""
         self._total_error_count = 0
         self._total_success_count = 0
@@ -472,13 +478,13 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             self._config, CircuitBreakerState.CLOSED, _TransitionCause.RESTART
         )
 
-    async def transition_to_closed(self) -> None:
+    def transition_to_closed(self) -> None:
         """Transition the circuit breaker to CLOSED state."""
         self._do_transition_to_state(
             self._config, CircuitBreakerState.CLOSED, _TransitionCause.MANUAL
         )
 
-    async def transition_to_open(self, until: float | None = None) -> None:
+    def transition_to_open(self, until: float | None = None) -> None:
         """Transition the circuit breaker to OPEN state."""
         self._do_transition_to_state(
             self._config,
@@ -487,13 +493,13 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             open_until=until,
         )
 
-    async def transition_to_half_open(self) -> None:
+    def transition_to_half_open(self) -> None:
         """Transition the circuit breaker to HALF_OPEN state."""
         self._do_transition_to_state(
             self._config, CircuitBreakerState.HALF_OPEN, _TransitionCause.MANUAL
         )
 
-    async def transition_to_forced_open(self) -> None:
+    def transition_to_forced_open(self) -> None:
         """Transition the circuit breaker to FORCED_OPEN state."""
         self._do_transition_to_state(
             self._config,
@@ -501,7 +507,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             _TransitionCause.MANUAL,
         )
 
-    async def transition_to_forced_closed(self) -> None:
+    def transition_to_forced_closed(self) -> None:
         """Transition the circuit breaker to FORCED_CLOSED state."""
         self._do_transition_to_state(
             self._config,
@@ -538,7 +544,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             cause,
         )
 
-    async def _try_acquire_call(self, config: CircuitBreakerConfig) -> bool:
+    def _try_acquire_call(self, config: CircuitBreakerConfig) -> bool:
         """Attempt to acquire a call in the circuit breaker."""
         if self._state in (
             CircuitBreakerState.CLOSED,
@@ -565,14 +571,12 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             return True
         return False
 
-    async def _release_call(self) -> None:
+    def _release_call(self) -> None:
         """Release a call in the circuit breaker."""
         if self._active_call_count > 0:
             self._active_call_count -= 1
 
-    async def _on_error(
-        self, config: CircuitBreakerConfig, error: Exception
-    ) -> None:
+    def _on_error(self, config: CircuitBreakerConfig, error: Exception) -> None:
         """Record an error, update counts, and potentially transition state."""
         self._total_error_count += 1
         self._consecutive_error_count += 1
@@ -590,7 +594,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
                 _TransitionCause.ERROR_THRESHOLD,
             )
 
-    async def _on_success(self, config: CircuitBreakerConfig) -> None:
+    def _on_success(self, config: CircuitBreakerConfig) -> None:
         """Record a success, update counts, and potentially transition state."""
         self._total_success_count += 1
         self._consecutive_error_count = 0
@@ -621,101 +625,4 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             time=self._last_error_time,
             type=type(self._last_error).__name__,
             msg=str(self._last_error),
-        )
-
-
-class _ThreadAdapter:
-    """Adapter for using CircuitBreaker in a thread context."""
-
-    def __init__(self, circuit_breaker: CircuitBreaker) -> None:
-        """Initialize the adapter with a CircuitBreaker instance."""
-        self._cb = circuit_breaker
-        # Per-thread snapshot stack. Each `__enter__` pushes the
-        # config captured at admission; `__exit__` pops it. Threading
-        # local isolates concurrent threads using the same adapter.
-        self._tls = threading.local()
-
-    def __enter__(self) -> Self:
-        """Enter the context manager, acquiring the circuit breaker lock."""
-        config = self._cb._config  # noqa: SLF001
-        if not _from_thread.run(
-            self._cb._loop,  # noqa: SLF001
-            self._cb._try_acquire_call,  # noqa: SLF001
-            config,
-        ):
-            raise CircuitBreakerError(
-                name=self._cb.name,
-                last_error_time=self._cb.last_error_time,
-                last_error=self._cb.last_error,
-            )
-        stack = getattr(self._tls, "stack", None)
-        if stack is None:
-            stack = []
-            self._tls.stack = stack
-        stack.append(config)
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> bool | None:
-        """Exit the context manager, releasing the circuit breaker lock.
-
-        Uses the same config snapshot captured at `__enter__` so the
-        success/error classification matches the admission decision.
-        """
-        config = self._tls.stack.pop()
-        _from_thread.run(
-            self._cb._loop,  # noqa: SLF001
-            self._cb._release_call,  # noqa: SLF001
-        )
-
-        if not exc_type or issubclass(exc_type, config.ignore_exceptions):
-            _from_thread.run(
-                self._cb._loop,  # noqa: SLF001
-                self._cb._on_success,  # noqa: SLF001
-                config,
-            )
-
-        elif isinstance(exc_value, Exception):
-            _from_thread.run(
-                self._cb._loop,  # noqa: SLF001
-                self._cb._on_error,  # noqa: SLF001
-                config,
-                exc_value,
-            )
-
-        return None
-
-    def restart(self) -> None:
-        """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""
-        _from_thread.run(self._cb._loop, self._cb.restart)  # noqa: SLF001
-
-    def transition_to_closed(self) -> None:
-        """Transition the circuit breaker to CLOSED state."""
-        _from_thread.run(self._cb._loop, self._cb.transition_to_closed)  # noqa: SLF001
-
-    def transition_to_open(self, until: float | None = None) -> None:
-        """Transition the circuit breaker to OPEN state."""
-        _from_thread.run(
-            self._cb._loop,  # noqa: SLF001
-            self._cb.transition_to_open,
-            until,
-        )
-
-    def transition_to_half_open(self) -> None:
-        """Transition the circuit breaker to HALF_OPEN state."""
-        _from_thread.run(self._cb._loop, self._cb.transition_to_half_open)  # noqa: SLF001
-
-    def transition_to_forced_open(self) -> None:
-        """Transition the circuit breaker to FORCED_OPEN state."""
-        _from_thread.run(self._cb._loop, self._cb.transition_to_forced_open)  # noqa: SLF001
-
-    def transition_to_forced_closed(self) -> None:
-        """Transition the circuit breaker to FORCED_CLOSED state."""
-        _from_thread.run(
-            self._cb._loop,  # noqa: SLF001
-            self._cb.transition_to_forced_closed,
         )

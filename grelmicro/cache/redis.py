@@ -1,5 +1,6 @@
 """Redis Cache Backend."""
 
+import asyncio
 from types import TracebackType
 from typing import Annotated, Any, Self
 
@@ -50,9 +51,11 @@ class RedisCacheBackend:
             url, CacheSettingsValidationError
         )
         self._prefix = prefix
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
         """Open the cache connection."""
+        self._loop = asyncio.get_running_loop()
         return self
 
     async def __aexit__(

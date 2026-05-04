@@ -16,7 +16,7 @@ async def async_call():
 
 
 def sync_context_manager():
-    with circuit_breaker.from_thread:
+    with circuit_breaker:
         print("Calling external service from a worker thread...")
 
 

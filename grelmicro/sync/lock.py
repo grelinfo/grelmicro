@@ -10,7 +10,6 @@ from weakref import WeakSet
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro import _from_thread
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.errors import WouldBlockError
 from grelmicro.sync._backends import get_sync_backend
@@ -244,10 +243,6 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         self._held_by_tasks: WeakSet[asyncio.Task[object]] = WeakSet()
         self._held_by_threads: set[int] = set()
         self._from_thread: ThreadLockAdapter | None = None
-        # Captured at construction so ``lock.from_thread`` works even
-        # when the worker thread runs before any async op on this lock.
-        # Refreshed on every async op.
-        self._loop = _from_thread.capture_running_loop()
 
     @property
     def name(self) -> str:
@@ -300,13 +295,11 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         return self._from_thread
 
     def _running_task(self) -> asyncio.Task[object]:
-        """Return the running task, capturing the loop as a side effect."""
+        """Return the running task."""
         task = asyncio.current_task()
         if task is None:  # pragma: no cover
             msg = "Lock async APIs must be called from a running asyncio task"
             raise RuntimeError(msg)
-        self._loop = task.get_loop()
-        _from_thread.remember_running_loop()
         return task
 
     async def acquire(self) -> None:
@@ -558,11 +551,10 @@ class ThreadLockAdapter:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: Cannot acquire the lock due to backend error.
         """
-        _from_thread.run(
-            self._lock._loop,  # noqa: SLF001
-            self._lock.do_thread_acquire,
-            get_ident(),
-        )
+        asyncio.run_coroutine_threadsafe(
+            self._lock.do_thread_acquire(get_ident()),
+            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
 
     def acquire_nowait(self) -> None:
         """Acquire the lock, without blocking.
@@ -572,11 +564,10 @@ class ThreadLockAdapter:
             LockAcquireError: Cannot acquire the lock due to backend error.
             WouldBlockError: If the lock cannot be acquired without blocking.
         """
-        _from_thread.run(
-            self._lock._loop,  # noqa: SLF001
-            self._lock.do_thread_acquire_nowait,
-            get_ident(),
-        )
+        asyncio.run_coroutine_threadsafe(
+            self._lock.do_thread_acquire_nowait(get_ident()),
+            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
 
     def release(self) -> None:
         """Release the lock.
@@ -585,20 +576,26 @@ class ThreadLockAdapter:
             LockReleaseError: Cannot release the lock due to backend error.
             LockNotOwnedError: If the lock is not currently held.
         """
-        _from_thread.run(
-            self._lock._loop,  # noqa: SLF001
-            self._lock.do_thread_release,
-            get_ident(),
-        )
+        asyncio.run_coroutine_threadsafe(
+            self._lock.do_thread_release(get_ident()),
+            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
 
     def locked(self) -> bool:
         """Return True if the lock is currently held."""
-        return _from_thread.run(self._lock._loop, self._lock.locked)  # noqa: SLF001
+        return asyncio.run_coroutine_threadsafe(
+            self._lock.locked(),
+            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
 
     def owned(self) -> bool:
         """Return True if the lock is currently held by the current worker thread."""
-        return _from_thread.run(
-            self._lock._loop,  # noqa: SLF001
-            self._lock.do_owned,
-            self._lock._thread_token(get_ident(), self._lock._config.worker),  # noqa: SLF001
-        )
+        return asyncio.run_coroutine_threadsafe(
+            self._lock.do_owned(
+                self._lock._thread_token(  # noqa: SLF001
+                    get_ident(),
+                    self._lock._config.worker,  # noqa: SLF001
+                ),
+            ),
+            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()

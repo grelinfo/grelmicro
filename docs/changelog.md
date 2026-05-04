@@ -6,6 +6,8 @@
 
 * 💥 Drop Python 3.11. The new floor is `requires-python = ">=3.12"`. RHEL 9 (App Stream `python3.12`) and RHEL 10 (default) ship 3.12 and the UBI images are available, so enterprise users are covered. Issue [#66](https://github.com/grelinfo/grelmicro/issues/66).
 * 💥 Drop AnyIO. grelmicro now targets `asyncio` directly. Issue [#183](https://github.com/grelinfo/grelmicro/issues/183).
+* 💥 `CircuitBreaker` is sync + async on the same context manager. `with cb:` works in both async and sync handlers. The `from_thread` adapter is removed. See [Sync from thread](architecture/sync-from-thread.md).
+* 💥 The sync adapters on `Lock`, `TaskLock`, `TTLCache` now require the backend to be opened (`async with backend:` or `grelmicro.lifespan()`). The backend captures the running loop and the sync adapter dispatches through it. Zero hot-path overhead.
 
 ### Features
 

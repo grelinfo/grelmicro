@@ -3,6 +3,7 @@
 import asyncio
 import threading
 import time
+from contextlib import suppress
 
 import pytest
 
@@ -23,8 +24,16 @@ EXPECTED_CURRSIZE_2 = 2
 
 
 def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
-    """Create a TTLCache with MemoryCacheBackend and pickle serialization."""
+    """Create a TTLCache with the in-memory backend and a serializer.
+
+    Captures the running loop on the backend so the sync ``@cached``
+    wrapper can dispatch from a worker thread without an explicit
+    ``async with backend:`` setup. Production code goes through
+    ``grelmicro.lifespan()`` which does this for free.
+    """
     backend = MemoryCacheBackend()
+    with suppress(RuntimeError):
+        backend._loop = asyncio.get_running_loop()
     return TTLCache(
         maxsize=maxsize,
         ttl=ttl,

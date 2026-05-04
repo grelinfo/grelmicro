@@ -1,5 +1,6 @@
 """SQLite Synchronization Backend."""
 
+import asyncio
 import re
 from math import ceil
 from pathlib import Path
@@ -107,9 +108,11 @@ class SQLiteSyncBackend(SyncBackend):
         self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
         self._conn: aiosqlite.Connection | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
         """Open the lock backend."""
+        self._loop = asyncio.get_running_loop()
         self._conn = await aiosqlite.connect(self._path)
         await self._conn.execute("PRAGMA journal_mode=WAL;")
         await self._conn.execute(

@@ -1,5 +1,6 @@
 """PostgreSQL Synchronization Backend."""
 
+import asyncio
 import re
 from types import TracebackType
 from typing import Annotated, Self
@@ -136,9 +137,11 @@ class PostgresSyncBackend(SyncBackend):
         self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
         self._pool: Pool | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
         """Open the lock backend."""
+        self._loop = asyncio.get_running_loop()
         self._pool = await create_pool(str(self._url))
         await self._pool.execute(
             self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(

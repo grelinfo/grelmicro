@@ -10,6 +10,10 @@ class SyncBackend(Protocol):
     """Synchronization Backend Protocol.
 
     This is the low-level API for the distributed synchronization backend that is platform agnostic.
+
+    Implementations capture the running event loop on ``__aenter__``
+    in a ``_loop`` attribute so sync adapters (``Lock.from_thread``,
+    ``TaskLock.from_thread``) can dispatch coroutines back into it.
     """
 
     async def __aenter__(self) -> Self:

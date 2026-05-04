@@ -9,7 +9,6 @@ from typing import Annotated, Any, ParamSpec, TypeVar
 
 from typing_extensions import Doc
 
-from grelmicro import _from_thread
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache.ttl import TTLCache
 
@@ -232,11 +231,9 @@ def _build_sync_wrapper(
 ) -> Any:  # noqa: ANN401
     """Build sync wrapper for cached decorator.
 
-    Sync functions call the async cache via
-    ``grelmicro._from_thread.run``, which requires the parent event
-    loop to be reachable (spawn the worker via
-    ``grelmicro.to_thread.run_sync`` or call any grelmicro async API on
-    the cache from the parent task first).
+    The cache must be touched from the running event loop once
+    (typically inside lifespan startup) before the sync wrapper can
+    reach it from a worker thread.
     """
     key_locks: dict[str, threading.Lock] = {}
     key_locks_guard = threading.Lock()
@@ -244,7 +241,10 @@ def _build_sync_wrapper(
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         key = _make_key(func, args, kwargs, key_maker, typed=typed)
-        result = _from_thread.run(cache._loop, cache.get, key, _SENTINEL)  # noqa: SLF001
+        loop = cache._get_backend()._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        result = asyncio.run_coroutine_threadsafe(
+            cache.get(key, _SENTINEL), loop
+        ).result()
         if result is not _SENTINEL:
             return result
 
@@ -256,12 +256,9 @@ def _build_sync_wrapper(
 
         if the_lock is not None:
             with the_lock:
-                result = _from_thread.run(
-                    cache._loop,  # noqa: SLF001
-                    cache.get,
-                    key,
-                    _SENTINEL,
-                )
+                result = asyncio.run_coroutine_threadsafe(
+                    cache.get(key, _SENTINEL), loop
+                ).result()
                 if result is not _SENTINEL:
                     return result
                 return _compute_and_cache_sync(
@@ -295,7 +292,10 @@ def _compute_and_cache_sync(
     """Execute sync function and store result in async cache."""
     result = func(*args, **kwargs)
     if skip is None or not skip(result):
-        _from_thread.run(cache._loop, cache.set, key, result)  # noqa: SLF001
+        asyncio.run_coroutine_threadsafe(
+            cache.set(key, result),
+            cache._get_backend()._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
     return result
 
 
