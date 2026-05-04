@@ -6,7 +6,7 @@
 
 * 💥 Drop Python 3.11. The new floor is `requires-python = ">=3.12"`. RHEL 9 (App Stream `python3.12`) and RHEL 10 (default) ship 3.12 and the UBI images are available, so enterprise users are covered. Issue [#66](https://github.com/grelinfo/grelmicro/issues/66).
 * 💥 Drop AnyIO. grelmicro now targets `asyncio` directly. Issue [#183](https://github.com/grelinfo/grelmicro/issues/183).
-* 💥 `CircuitBreaker` now takes a backend (``CircuitBreakerBackend``). The in-memory backend (``MemoryCircuitBreakerBackend``) is the default; a future Redis-backed implementation will share state across replicas (issue #188). The async API stays primary; sync code goes through ``cb.from_thread``.
+* 💥 `CircuitBreaker` now takes a backend (``CircuitBreakerBackend``). The in-memory backend (``MemoryCircuitBreakerBackend``) is the default. A future Redis-backed implementation will share state across replicas (issue #188). The async API stays primary, sync code goes through ``cb.from_thread``.
 * 💥 The sync adapters on `Lock`, `TaskLock`, `TTLCache`, and `CircuitBreaker` now require the backend to be opened (``async with backend:`` or ``grelmicro.lifespan()``). The backend captures the running loop and the sync adapter dispatches through it. Zero hot-path overhead.
 
 ### Features

@@ -707,11 +707,18 @@ class _ThreadAdapter:
     def __enter__(self) -> Self:
         """Enter the breaker context from a worker thread."""
         cb = self._cb
-        cb.backend.register(cb)
+        backend = cb.backend
+        loop = backend._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        if loop is None:
+            msg = (
+                f"CircuitBreaker {cb.name!r} cannot be used from a worker "
+                "thread before its backend is opened. Wrap startup with "
+                "`async with grelmicro.lifespan():` or `async with backend:`."
+            )
+            raise RuntimeError(msg)
         config = cb._config  # noqa: SLF001
-        loop = cb.backend._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
         if not asyncio.run_coroutine_threadsafe(
-            _async_try_acquire(cb, config), loop
+            _async_admit(cb, config), loop
         ).result():
             raise CircuitBreakerError(
                 name=cb.name,
@@ -741,14 +748,17 @@ class _ThreadAdapter:
         return None
 
 
-async def _async_try_acquire(
+async def _async_admit(
     cb: CircuitBreaker, config: CircuitBreakerConfig
 ) -> bool:
-    """Async wrapper around the breaker's sync acquire path.
+    """Register and try to acquire a call. Runs on the backend loop.
 
+    Both ``register`` and the counter mutation happen on the loop
+    thread so worker threads never touch backend state directly.
     Forward-compatible: when a Redis-backed breaker arrives this
     coroutine will await backend I/O.
     """
+    cb.backend.register(cb)
     return cb._try_acquire_call(config)  # noqa: SLF001
 
 

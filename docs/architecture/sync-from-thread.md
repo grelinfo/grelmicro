@@ -1,6 +1,6 @@
 # Sync from thread
 
-grelmicro is async-first. Every primitive exposes an async API. When a synchronous handler in the host framework needs to call a primitive, grelmicro provides a sync adapter on each one: `lock.from_thread`, `task_lock.from_thread`, `cache.from_thread`, `cb.from_thread`. The adapter signals the intent explicitly so async code is never accidentally promoted to sync.
+grelmicro is async-first. Every primitive exposes an async API. When a synchronous handler in the host framework needs to call a primitive, grelmicro provides a sync entry point: `lock.from_thread`, `task_lock.from_thread`, and `cb.from_thread` for the locks and circuit breaker, and the `@cached(...)` decorator on a `def` function for `TTLCache`. Each one signals the intent explicitly so async code is never accidentally promoted to sync.
 
 ## How it works
 

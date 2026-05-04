@@ -47,6 +47,7 @@ class TaskManager(TaskRouter):
 
         self._auto_start = auto_start
         self._task_group: asyncio.TaskGroup | None = None
+        self._task_handles: list[asyncio.Task[None]] = []
 
     async def __aenter__(self) -> Self:
         """Enter the context manager."""
@@ -68,10 +69,9 @@ class TaskManager(TaskRouter):
         """Exit the context manager."""
         if not self._task_group or not self._exit_stack:
             raise OutOfContextError(self, "__aexit__")
-        # Cancel every still-running task in the group so the
-        # AsyncExitStack can close cleanly.
-        for child in list(self._task_group._tasks):  # noqa: SLF001
-            child.cancel()
+        for handle in self._task_handles:
+            handle.cancel()
+        self._task_handles.clear()
         return await self._exit_stack.__aexit__(exc_type, exc_value, traceback)
 
     async def start(self) -> None:
@@ -87,6 +87,9 @@ class TaskManager(TaskRouter):
         loop = asyncio.get_running_loop()
         for task in self.tasks:
             ready: asyncio.Future[None] = loop.create_future()
-            self._task_group.create_task(task(ready=ready), name=task.name)
+            handle = self._task_group.create_task(
+                task(ready=ready), name=task.name
+            )
+            self._task_handles.append(handle)
             await ready
         logger.debug("%s scheduled tasks started", len(self._tasks))

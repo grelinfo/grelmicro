@@ -10,11 +10,7 @@ class GrelmicroError(Exception):
 
 
 class WouldBlockError(GrelmicroError, RuntimeError):
-    """Raised by a non-blocking acquire that would have blocked.
-
-    Replaces the anyio.WouldBlock exception that grelmicro raised
-    before the asyncio migration in 0.21.0.
-    """
+    """Raised by a non-blocking acquire that would have blocked."""
 
 
 class OutOfContextError(GrelmicroError, RuntimeError):

@@ -68,7 +68,7 @@ The registry has a global default `timeout` (5.0 seconds). Per-check overrides a
 
 A slow non-critical check hits the timeout and is reported with `status: "error"` in the response body, but the aggregate stays `ok` and `/readyz` stays `200`.
 
-Timeout detection uses `asyncio.wait_for`. The wrapper distinguishes the registry-imposed timeout from a `TimeoutError` raised inside the check itself (for example a socket timeout).
+Timeout detection uses `asyncio.timeout`. The wrapper distinguishes the registry-imposed timeout from a `TimeoutError` raised inside the check itself (for example a socket timeout).
 
 ### Caching
 

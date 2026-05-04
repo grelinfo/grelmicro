@@ -493,9 +493,10 @@ class TestAsyncCachedLock:
 # ---------------------------------------------------------------------------
 # Sync function tests
 # ---------------------------------------------------------------------------
-# Sync decorated functions use grelmicro._from_thread.run internally to call the
-# async TTLCache. They require a running event loop. The pattern is to call
-# them from a thread launched by asyncio.to_thread inside an async test.
+# Sync decorated functions dispatch onto the cache backend's captured event
+# loop via asyncio.run_coroutine_threadsafe. They require a running loop, so
+# the pattern is to call them from a thread launched by asyncio.to_thread
+# inside an async test.
 
 
 class TestSyncCachedBasic:
@@ -764,9 +765,8 @@ class TestSyncCachedLock:
             return x * 2
 
         # Act: two concurrent worker threads, each calling slow_compute.
-        # asyncio.to_thread copies the calling task's context to the
-        # worker, so the parent loop captured into _from_thread's
-        # contextvar is reachable from inside slow_compute.
+        # The cache backend captured the event loop on __aenter__, so
+        # the sync wrapper inside slow_compute can dispatch onto it.
         async with asyncio.TaskGroup() as tg:
             results: list[int] = []
 

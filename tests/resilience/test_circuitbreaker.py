@@ -169,6 +169,27 @@ async def test_circuit_from_thread_init() -> None:
     assert cb
 
 
+async def test_circuit_from_thread_unopened_backend_raises() -> None:
+    """Worker-thread entry on a closed backend raises a clear error."""
+    # Arrange: register a fresh backend that we never open.
+    from grelmicro.resilience import (  # noqa: PLC0415
+        register_circuit_breaker,
+        unregister_circuit_breaker,
+    )
+
+    unregister_circuit_breaker()
+    closed_backend = MemoryCircuitBreakerBackend()
+    register_circuit_breaker(closed_backend)
+    cb = CircuitBreaker("test")
+
+    def enter() -> None:
+        cb.from_thread.__enter__()
+
+    # Act + Assert: the helpful message guides the user to open lifespan.
+    with pytest.raises(RuntimeError, match="lifespan"):
+        await asyncio.to_thread(enter)
+
+
 async def test_circuit_initial_state() -> None:
     """Test circuit breaker initial state."""
     # Arrange
