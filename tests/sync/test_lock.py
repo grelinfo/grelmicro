@@ -1,12 +1,14 @@
 """Test Lock."""
 
+import asyncio
 import time
+from asyncio import sleep
 from collections.abc import AsyncGenerator
 
 import pytest
-from anyio import WouldBlock, sleep, to_thread
 from pytest_mock import MockerFixture
 
+from grelmicro.errors import WouldBlockError as WouldBlock
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import (
     LockAcquireError,
@@ -37,7 +39,7 @@ async def backend() -> AsyncGenerator[SyncBackend]:
 
 
 @pytest.fixture
-def locks(backend: SyncBackend) -> list[Lock]:
+async def locks(backend: SyncBackend) -> list[Lock]:
     """Locks of multiple workers."""
     return [
         Lock(
@@ -52,13 +54,13 @@ def locks(backend: SyncBackend) -> list[Lock]:
 
 
 @pytest.fixture
-def lock(locks: list[Lock]) -> Lock:
+async def lock(locks: list[Lock]) -> Lock:
     """Lock."""
     return locks[WORKER_1]
 
 
 @pytest.fixture
-def reentrant_thread_lock(backend: SyncBackend) -> Lock:
+async def reentrant_thread_lock(backend: SyncBackend) -> Lock:
     """Lock with a lease long enough to outlive thread-scheduling jitter.
 
     The reentrant-from-thread tests do *acquire → attempt-reacquire-raises →
@@ -125,7 +127,7 @@ async def test_lock_from_thread_owned(locks: list[Lock]) -> None:
         worker_1_owned_after = locks[WORKER_1].from_thread.owned()
         worker_2_owned_after = locks[WORKER_2].from_thread.owned()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert worker_1_owned_before is False
@@ -166,7 +168,7 @@ async def test_lock_from_thread_context_manager_acquire(lock: Lock) -> None:
             locked_inside = lock.from_thread.locked()
         locked_after = lock.from_thread.locked()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert locked_before is False
@@ -212,7 +214,7 @@ async def test_lock_from_thread_context_manager_wait(
             locked_inside = lock.from_thread.locked()
         locked_after = lock.from_thread.locked()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert locked_before is True
@@ -247,7 +249,7 @@ async def test_lock_from_thread_acquire(lock: Lock) -> None:
         lock.from_thread.acquire()
         locked_after = lock.from_thread.locked()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert locked_before is False
@@ -284,7 +286,7 @@ async def test_lock_from_thread_acquire_wait(lock: Lock) -> None:
         lock.from_thread.acquire()
         locked_after = lock.from_thread.locked()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert locked_before is False
@@ -318,7 +320,7 @@ async def test_lock_from_thread_acquire_nowait(lock: Lock) -> None:
         lock.from_thread.acquire_nowait()
         locked_after = lock.from_thread.locked()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert locked_before is False
@@ -347,7 +349,7 @@ async def test_lock_from_thread_acquire_nowait_would_block(
         with pytest.raises(WouldBlock):
             locks[WORKER_2].from_thread.acquire_nowait()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_release(lock: Lock) -> None:
@@ -365,7 +367,7 @@ async def test_lock_from_thread_release(lock: Lock) -> None:
         with pytest.raises(LockNotOwnedError):
             lock.from_thread.release()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_release_acquired(lock: Lock) -> None:
@@ -400,7 +402,7 @@ async def test_lock_from_thread_release_acquired(lock: Lock) -> None:
         lock.from_thread.release()
         locked_after = lock.from_thread.locked()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert locked_before is True
@@ -438,7 +440,7 @@ async def test_lock_from_thread_release_expired(locks: list[Lock]) -> None:
         with pytest.raises(LockNotOwnedError):
             locks[WORKER_2].from_thread.release()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert worker_1_locked_before is False
@@ -474,7 +476,7 @@ async def test_lock_from_thread_acquire_backend_error(
         with pytest.raises(LockAcquireError):
             lock.from_thread.acquire()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_release_backend_error(
@@ -509,7 +511,7 @@ async def test_lock_from_thread_release_backend_error(
         with pytest.raises(LockReleaseError):
             lock.from_thread.release()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_owned_backend_error(
@@ -607,7 +609,7 @@ async def test_lock_reentrant_from_thread(reentrant_thread_lock: Lock) -> None:
         ):
             pass
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_reentrant_from_thread_acquire(
@@ -621,7 +623,7 @@ async def test_lock_reentrant_from_thread_acquire(
         with pytest.raises(LockReentrantError):
             lock.from_thread.acquire()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_reentrant_from_thread_acquire_nowait(
@@ -635,7 +637,7 @@ async def test_lock_reentrant_from_thread_acquire_nowait(
         with pytest.raises(LockReentrantError):
             lock.from_thread.acquire_nowait()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_reentrant_from_thread_acquire_then_acquire_nowait(
@@ -649,7 +651,7 @@ async def test_lock_reentrant_from_thread_acquire_then_acquire_nowait(
         with pytest.raises(LockReentrantError):
             lock.from_thread.acquire_nowait()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_reentrant_from_thread_acquire_nowait_then_acquire(
@@ -663,7 +665,7 @@ async def test_lock_reentrant_from_thread_acquire_nowait_then_acquire(
         with pytest.raises(LockReentrantError):
             lock.from_thread.acquire()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_from_thread_reacquire_after_release(lock: Lock) -> None:
@@ -675,7 +677,7 @@ async def test_lock_from_thread_reacquire_after_release(lock: Lock) -> None:
         lock.from_thread.acquire()
         assert lock.from_thread.locked() is True
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_from_thread_reacquire_after_context_manager(
@@ -689,7 +691,7 @@ async def test_lock_from_thread_reacquire_after_context_manager(
         with lock.from_thread:
             assert lock.from_thread.locked() is True
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_lock_retry_interval_too_small(backend: SyncBackend) -> None:

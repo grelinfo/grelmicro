@@ -1,7 +1,8 @@
 """Tests for MemoryCacheBackend."""
 
+from asyncio import sleep
+
 import pytest
-from anyio import sleep
 
 from grelmicro._backends import BackendNotLoadedError
 from grelmicro.cache import use_backend

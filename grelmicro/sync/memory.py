@@ -1,5 +1,6 @@
 """Memory Synchronization Backend."""
 
+import asyncio
 from time import monotonic
 from types import TracebackType
 from typing import Self
@@ -11,15 +12,17 @@ class MemorySyncBackend(SyncBackend):
     """Memory Synchronization Backend.
 
     This is not a backend with a real distributed lock. It is a local lock that can be used for
-    testing purposes or for locking operations that are executed in the same AnyIO event loop.
+    testing purposes or for locking operations that are executed in the same asyncio event loop.
     """
 
     def __init__(self) -> None:
         """Initialize the lock backend."""
         self._locks: dict[str, tuple[str | None, float]] = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
         """Open the lock backend."""
+        self._loop = asyncio.get_running_loop()
         return self
 
     async def __aexit__(

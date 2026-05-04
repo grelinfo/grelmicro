@@ -1,9 +1,12 @@
-"""Rate Limiter Backend and Strategy Protocols."""
+"""Rate Limiter and Circuit Breaker Backend Protocols."""
 
 from types import TracebackType
-from typing import NamedTuple, Protocol, Self
+from typing import TYPE_CHECKING, NamedTuple, Protocol, Self
 
 from grelmicro.resilience.algorithms import RateLimiterConfig
+
+if TYPE_CHECKING:
+    from grelmicro.resilience.circuitbreaker import CircuitBreaker
 
 
 class RateLimitResult(NamedTuple):
@@ -134,4 +137,35 @@ class RateLimiterBackend(Protocol):
         Returns:
             A strategy bound to `config` and this backend's storage.
         """
+        ...
+
+
+class CircuitBreakerBackend(Protocol):
+    """Protocol for circuit-breaker storage backends.
+
+    A backend owns the lifespan boundary for every circuit breaker
+    bound to it. The in-memory implementation keeps state in process.
+    A future Redis-backed implementation will share state across
+    replicas.
+
+    Implementations capture the running event loop on ``__aenter__``
+    in a ``_loop`` attribute so the sync ``from_thread`` adapter can
+    dispatch coroutines back into it.
+    """
+
+    async def __aenter__(self) -> Self:
+        """Open the backend."""
+        ...
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the backend, releasing per-breaker state."""
+        ...
+
+    def register(self, breaker: "CircuitBreaker") -> None:
+        """Bind a breaker to this backend so it is reset on close."""
         ...

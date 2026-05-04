@@ -1,8 +1,8 @@
+import asyncio
 import time
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-import anyio
 import typer
 from fast_depends import Depends
 from fastapi import FastAPI
@@ -82,7 +82,7 @@ def sync_func_with_leased_lock_10sec():
 @task.interval(seconds=15, sync=leased_lock_10sec)
 async def async_func_with_leased_lock_10sec():
     typer.echo("async_func_with_leased_lock_10sec")
-    await anyio.sleep(9)
+    await asyncio.sleep(9)
 
 
 @task.interval(seconds=15, sync=leased_lock_5sec)
@@ -98,7 +98,7 @@ async def async_func_with_async_dependency_and_leased_lock_5sec(
     async_dependency: Annotated[str, Depends(async_dependency)],
 ):
     typer.echo(async_dependency)
-    await anyio.sleep(4)
+    await asyncio.sleep(4)
 
 
 @task.interval(seconds=15, sync=leader_election)
@@ -110,4 +110,4 @@ def sync_func_with_leader_election():
 @task.interval(seconds=15, sync=leader_election)
 async def async_func_with_leader_election():
     typer.echo("async_func_with_leader_election")
-    await anyio.sleep(30)
+    await asyncio.sleep(30)

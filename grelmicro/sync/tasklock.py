@@ -5,18 +5,18 @@ A distributed lock for scheduled tasks with two time boundaries:
 - max_lock_seconds: Auto-expires the lock (deadlock protection).
 """
 
+import asyncio
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
 from typing import Annotated, Self
 from uuid import UUID
 
-import anyio
-from anyio import WouldBlock, from_thread
 from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
+from grelmicro.errors import WouldBlockError
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync._tokens import (
@@ -247,7 +247,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
-        self._reconfigure_lock = anyio.Lock()
+        self._reconfigure_lock = asyncio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend: SyncBackend | None = (
             backend if not isinstance(backend, str) else None
@@ -281,7 +281,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         """Acquire the lock with duration=max_lock_seconds.
 
         Raises:
-            WouldBlock: If the lock is already held by another worker.
+            WouldBlockError: If the lock is already held by another worker.
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
@@ -292,7 +292,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         token = generate_task_token(config.worker, self._token_nonce)
         if not await self.do_acquire(token, duration=config.max_lock_seconds):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
-            raise WouldBlock(msg)
+            raise WouldBlockError(msg)
 
         return self
 
@@ -411,7 +411,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         threads.
 
         Raises:
-            WouldBlock: If the lock is already held by another worker.
+            WouldBlockError: If the lock is already held by another worker.
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
@@ -422,7 +422,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         token = generate_thread_token(config.worker, self._token_nonce)
         if not await self.do_acquire(token, duration=config.max_lock_seconds):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
-            raise WouldBlock(msg)
+            raise WouldBlockError(msg)
 
     async def do_thread_exit(self) -> None:
         """Release or extend the lock from a worker thread.
@@ -490,11 +490,14 @@ class ThreadTaskLockAdapter:
         """Acquire the task lock with the context manager.
 
         Raises:
-            WouldBlock: If the lock is already held by another worker.
+            WouldBlockError: If the lock is already held by another worker.
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
-        from_thread.run(self._task_lock.do_thread_enter)
+        asyncio.run_coroutine_threadsafe(
+            self._task_lock.do_thread_enter(),
+            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
         return self
 
     def __exit__(
@@ -508,8 +511,14 @@ class ThreadTaskLockAdapter:
         Raises:
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
-        from_thread.run(self._task_lock.do_thread_exit)
+        asyncio.run_coroutine_threadsafe(
+            self._task_lock.do_thread_exit(),
+            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()
 
     def locked(self) -> bool:
         """Return True if the lock is currently held."""
-        return from_thread.run(self._task_lock.locked)
+        return asyncio.run_coroutine_threadsafe(
+            self._task_lock.locked(),
+            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        ).result()

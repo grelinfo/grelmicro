@@ -1,16 +1,16 @@
 """Interval Task."""
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from functools import partial
 from logging import getLogger
 from typing import Any
 from uuid import UUID
 
-from anyio import TASK_STATUS_IGNORED, WouldBlock, sleep, to_thread
-from anyio.abc import TaskStatus
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable
+from grelmicro.errors import WouldBlockError
 from grelmicro.sync.abc import SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import LockNotOwnedError
 from grelmicro.sync.leaderelection import LeaderElection
@@ -118,18 +118,21 @@ class IntervalTask(Task):
         return self._name
 
     async def __call__(
-        self, *, task_status: TaskStatus[None] = TASK_STATUS_IGNORED
+        self, *, ready: asyncio.Future[None] | None = None
     ) -> None:
         """Run the repeated task loop."""
         logger.info(
             "Task started (interval: %ss): %s", self._seconds, self.name
         )
-        task_status.started()
+        if ready is not None and not ready.done():
+            ready.set_result(None)
         try:
             while True:
                 try:
                     await self._run_with_sync(self._sync_primitives)
-                except WouldBlock as exc:
+                except asyncio.CancelledError:
+                    raise
+                except WouldBlockError as exc:
                     logger.debug("Task skipped: %s (%s)", self.name, exc)
                 except LockNotOwnedError:
                     logger.warning(
@@ -141,7 +144,13 @@ class IntervalTask(Task):
                     logger.exception(
                         "Task synchronization error: %s", self.name
                     )
-                await sleep(self._seconds)
+                # Re-raise pending cancellation that an inner cleanup
+                # may have shadowed with a regular Exception.
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    task.uncancel()
+                    raise asyncio.CancelledError
+                await asyncio.sleep(self._seconds)
         finally:
             logger.info("Task stopped: %s", self.name)
 
@@ -171,7 +180,7 @@ class IntervalTask(Task):
         return (
             function
             if is_async_callable(function)
-            else partial(to_thread.run_sync, function)
+            else partial(asyncio.to_thread, function)
         )
 
 

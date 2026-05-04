@@ -10,6 +10,10 @@ class CacheBackend(Protocol):
     All methods are async because backends typically perform I/O.
     Backends are pure key-value stores: TTL, eviction, and statistics
     are managed by ``TTLCache``.
+
+    Implementations capture the running event loop on ``__aenter__``
+    in a ``_loop`` attribute so the sync ``@cached`` wrapper can
+    dispatch coroutines back into it.
     """
 
     async def __aenter__(self) -> Self:

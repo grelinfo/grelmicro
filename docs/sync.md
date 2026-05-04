@@ -29,9 +29,6 @@ You must load a synchronization backend before using synchronization primitives.
 
     See the [installation guide](installation.md) for `uv` and `poetry`.
 
-!!! note
-    Although grelmicro uses AnyIO for concurrency, the backends generally depend on `asyncio`, therefore Trio is not supported.
-
 You can initialize a backend like this:
 
 === "Redis"
@@ -95,16 +92,16 @@ There is no background task that maintains the lock active during execution. The
 
 Leader election uses a distributed lock to make sure that only one worker in the cluster acts as the leader at any given time.
 
-The leader election service acquires and renews the distributed lock. It runs as an AnyIO task that you can start with the [Task Manager](./task.md#task-manager). The service runs in the background and renews the lock automatically so other workers cannot acquire it. The lock releases automatically when the task is cancelled or when the application shuts down.
+The leader election service acquires and renews the distributed lock. It runs as an asyncio task that you can start with the [Task Manager](./task.md#task-manager). The service runs in the background and renews the lock automatically so other workers cannot acquire it. The lock releases automatically when the task is cancelled or when the application shuts down.
 
 === "Task Manager (Recommended)"
     ```python
     --8<-- "sync/leaderelection_task.py"
     ```
 
-=== "AnyIO Task Group (Advanced)"
+=== "asyncio Task Group (Advanced)"
     ```python
-    --8<-- "sync/leaderelection_anyio.py"
+    --8<-- "sync/leaderelection_asyncio.py"
     ```
 
 ## Lock

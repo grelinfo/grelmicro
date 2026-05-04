@@ -18,7 +18,7 @@ A health check is a function returning `None` (healthy) or a `HealthDetails` dic
 - Raise `HealthError`: unhealthy. The exception message appears in the `error` field.
 - Raise any other exception: unhealthy, with a generic `"Health check failed"` message. The traceback is logged server-side to avoid leaking internal information.
 
-`HealthDetails` is a type alias for `dict[str, JSONEncodable]`. Both sync and async check functions are supported. Sync functions run in a worker thread via `anyio.to_thread.run_sync` so they never block the event loop.
+`HealthDetails` is a type alias for `dict[str, JSONEncodable]`. Both sync and async check functions are supported. Sync functions run in a worker thread via `asyncio.to_thread` so they never block the event loop.
 
 ## Registry
 
@@ -68,7 +68,7 @@ The registry has a global default `timeout` (5.0 seconds). Per-check overrides a
 
 A slow non-critical check hits the timeout and is reported with `status: "error"` in the response body, but the aggregate stays `ok` and `/readyz` stays `200`.
 
-Timeout detection uses `anyio.move_on_after`. It correctly separates registry timeouts from a `TimeoutError` raised inside the check itself (for example a socket timeout).
+Timeout detection uses `asyncio.timeout`. The wrapper distinguishes the registry-imposed timeout from a `TimeoutError` raised inside the check itself (for example a socket timeout).
 
 ### Caching
 
@@ -239,4 +239,4 @@ This mirrors FastAPI's own `@app.get("/path")` routing style and keeps grelmicro
 
 ### Concurrent Execution
 
-All selected checks run in parallel via an `anyio` task group. A slow check does not block other checks. Each check runs with its own timeout (falling back to the registry default).
+All selected checks run in parallel via an `asyncio.TaskGroup`. A slow check does not block other checks. Each check runs with its own timeout (falling back to the registry default).

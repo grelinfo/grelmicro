@@ -1,15 +1,18 @@
 """Test leader election."""
 
+import asyncio
 import math
+from asyncio import Event, sleep
 
 import pytest
-from anyio import Event, WouldBlock, create_task_group, sleep
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
+from grelmicro.errors import WouldBlockError as WouldBlock
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
 from grelmicro.sync.memory import MemorySyncBackend
+from tests.task._helpers import cancel_group, start_task
 
 LEADER_NAME = "test_leader_election"
 BACKEND_LOCK_NAME = f"leader:{LEADER_NAME}"
@@ -72,12 +75,12 @@ async def wait_first_leader(leader_elections: list[LeaderElection]) -> None:
         await leader_election.wait_for_leader()
         event.set()
 
-    async with create_task_group() as task_group:
+    async with asyncio.TaskGroup() as task_group:
         event = Event()
         for coroutine in leader_elections:
-            task_group.start_soon(wrapper, coroutine, event)
+            task_group.create_task(wrapper(coroutine, event))
         await event.wait()
-        task_group.cancel_scope.cancel()
+        cancel_group(task_group)
 
 
 def test_leader_election_config() -> None:
@@ -156,15 +159,15 @@ async def test_leader_key_prefix(
 ) -> None:
     """Test LeaderElection uses prefixed key on the backend."""
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
 
         # Assert - backend key should be prefixed
         assert await backend.locked(name=BACKEND_LOCK_NAME) is True
         # Raw name should NOT be locked
         assert await backend.locked(name=LEADER_NAME) is False
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
 
 async def test_lifecycle(leader_election: LeaderElection) -> None:
@@ -172,12 +175,12 @@ async def test_lifecycle(leader_election: LeaderElection) -> None:
     # Act
     is_leader_before_start = leader_election.is_leader()
     is_running_before_start = leader_election.is_running()
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         is_running_after_start = leader_election.is_running()
         await leader_election.wait_for_leader()
         is_leader_after_start = leader_election.is_leader()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
     is_running_after_cancel = leader_election.is_running()
     await leader_election.wait_lose_leader()
     is_leader_after_cancel = leader_election.is_leader()
@@ -198,12 +201,12 @@ async def test_leader_election_context_manager(
     """Test leader election on worker using context manager."""
     # Act
     is_leader_before_start = leader_election.is_leader()
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         async with leader_election:
             is_leader_inside_context = leader_election.is_leader()
         is_leader_after_context = leader_election.is_leader()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
     await leader_election.wait_lose_leader()
     is_leader_after_cancel = leader_election.is_leader()
 
@@ -219,11 +222,11 @@ async def test_leader_election_single_worker(
 ) -> None:
     """Test leader election on single worker."""
     # Act
-    async with create_task_group() as tg:
+    async with asyncio.TaskGroup() as tg:
         is_leader_before_start = leader_election.is_leader()
-        await tg.start(leader_election)
+        await start_task(tg, leader_election)
         is_leader_inside_context = leader_election.is_leader()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
     await leader_election.wait_lose_leader()
     is_leader_after_cancel = leader_election.is_leader()
 
@@ -246,8 +249,8 @@ async def test_leadership_abandon_on_renew_deadline_reached(
         await sleep(math.inf)
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
         is_leader_after_start = leader_election.is_leader()
         mocker.patch.object(
@@ -257,7 +260,7 @@ async def test_leadership_abandon_on_renew_deadline_reached(
         )
         await leader_election.wait_lose_leader()
         is_leader_after_not_renewed = leader_election.is_leader()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert is_leader_before_start is False
@@ -276,8 +279,8 @@ async def test_leadership_abandon_on_backend_error(
 
     # Act
     is_leader_before_start = leader_election.is_leader()
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
         is_leader_after_start = leader_election.is_leader()
         mocker.patch.object(
@@ -287,7 +290,7 @@ async def test_leadership_abandon_on_backend_error(
         )
         await leader_election.wait_lose_leader()
         is_leader_after_not_renewed = leader_election.is_leader()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert is_leader_before_start is False
@@ -306,8 +309,8 @@ async def test_unepexpected_stop(
 
     # Arrange
     async def leader_election_unexpected_exception() -> None:
-        async with create_task_group() as tg:
-            await tg.start(leader_election)
+        async with asyncio.TaskGroup() as tg:
+            await start_task(tg, leader_election)
             await leader_election.wait_for_leader()
             mocker.patch.object(
                 leader_election,
@@ -329,10 +332,10 @@ async def test_release_on_cancel(
     spy_release = mocker.spy(backend, "release")
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
     await leader_election.wait_lose_leader()
 
     # Assert
@@ -351,10 +354,10 @@ async def test_release_error_ignored(
     )
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
     await leader_election.wait_lose_leader()
 
 
@@ -364,14 +367,14 @@ async def test_only_one_leader(leader_elections: list[LeaderElection]) -> None:
     leaders_before_start = [
         leader_election.is_leader() for leader_election in leader_elections
     ]
-    async with create_task_group() as tg:
+    async with asyncio.TaskGroup() as tg:
         for leader_election in leader_elections:
-            await tg.start(leader_election)
+            await start_task(tg, leader_election)
         await wait_first_leader(leader_elections)
         leaders_after_start = [
             leader_election.is_leader() for leader_election in leader_elections
         ]
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
     for leader_election in leader_elections:
         await leader_election.wait_lose_leader()
     leaders_after_cancel = [
@@ -397,9 +400,9 @@ async def test_leader_transition(
     leaders_before_start = [
         leader_election.is_leader() for leader_election in leader_elections
     ]
-    async with create_task_group() as workers_tg:
-        async with create_task_group() as worker1_tg:
-            await worker1_tg.start(leader_elections[WORKER_1])
+    async with asyncio.TaskGroup() as workers_tg:
+        async with asyncio.TaskGroup() as worker1_tg:
+            await start_task(worker1_tg, leader_elections[WORKER_1])
             await leader_elections[WORKER_1].wait_for_leader()
             leaders_after_leader_election1_start = [
                 leader_election.is_leader()
@@ -407,12 +410,12 @@ async def test_leader_transition(
             ]
 
             for leader_election in leader_elections:
-                await workers_tg.start(leader_election)
+                await start_task(workers_tg, leader_election)
             leaders_after_all_start = [
                 leader_election.is_leader()
                 for leader_election in leader_elections
             ]
-            worker1_tg.cancel_scope.cancel()
+            cancel_group(worker1_tg)
 
         await leader_elections[WORKER_1].wait_lose_leader()
 
@@ -420,7 +423,7 @@ async def test_leader_transition(
         leaders_after_leader_election1_down = [
             leader_election.is_leader() for leader_election in leader_elections
         ]
-        workers_tg.cancel_scope.cancel()
+        cancel_group(workers_tg)
 
     for leader_election in leader_elections[WORKER_2:]:
         await leader_election.wait_lose_leader()
@@ -477,19 +480,19 @@ async def test_error_interval(
     )
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader_election_high_cooldown)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election_high_cooldown)
         await sleep(0.01)
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
     leader_election1_nb_errors = sum(
         1 for record in caplog.records if record.levelname == "ERROR"
     )
     caplog.clear()
 
-    async with create_task_group() as tg:
-        await tg.start(leader_election_low_cooldown)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election_low_cooldown)
         await sleep(0.01)
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
     leader_election2_nb_errors = sum(
         1 for record in caplog.records if record.levelname == "ERROR"
     )
@@ -524,12 +527,12 @@ async def test_guard_succeeds_when_leader(
     entered = False
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
         async with guard:
             entered = True
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert entered is True
@@ -543,10 +546,10 @@ async def test_guard_raises_would_block_after_losing_leadership(
     guard = leader_election.guard()
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     await leader_election.wait_lose_leader()
 
@@ -600,8 +603,8 @@ async def test_leader_reconfigure_takes_effect_on_next_iteration(
 ) -> None:
     """A swap during the renew loop is observed on the next read."""
     new_error_interval = 0.5
-    async with create_task_group() as tg:
-        await tg.start(leader_election)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
 
         new_config = leader_election.config.model_copy(
@@ -611,4 +614,4 @@ async def test_leader_reconfigure_takes_effect_on_next_iteration(
 
         assert leader_election.config.error_interval == new_error_interval
 
-        tg.cancel_scope.cancel()
+        cancel_group(tg)

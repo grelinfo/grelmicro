@@ -1,14 +1,17 @@
-"""Memory Rate Limiter Backend and standalone primitives."""
+"""Memory Resilience Backends and standalone primitives."""
 
+import asyncio
 import math
 from threading import Lock
 from time import monotonic
 from types import TracebackType
-from typing import Annotated, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Self, assert_never
+from weakref import WeakSet
 
 from typing_extensions import Doc
 
 from grelmicro.resilience._protocol import (
+    CircuitBreakerBackend,
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
@@ -18,6 +21,9 @@ from grelmicro.resilience.algorithms import (
     RateLimiterConfig,
     TokenBucketConfig,
 )
+
+if TYPE_CHECKING:
+    from grelmicro.resilience.circuitbreaker import CircuitBreaker
 
 _EVICTION_THRESHOLD = 1000
 
@@ -416,3 +422,44 @@ class _MemoryGCRA(RateLimiterStrategy):
         """Async reset (GCRA)."""
         with self._lock:
             self._state.pop(key, None)
+
+
+class MemoryCircuitBreakerBackend(CircuitBreakerBackend):
+    """In-memory circuit breaker backend.
+
+    State for every breaker bound to this backend is held in process.
+    Closing the backend (typically through ``grelmicro.lifespan``)
+    resets every registered breaker so the next start begins on a
+    clean slate and any references the breaker still holds are
+    released.
+
+    Use it for tests and single-process deployments. A future
+    Redis-backed implementation will share state across replicas
+    (see issue #188).
+    """
+
+    def __init__(self) -> None:
+        """Initialize the circuit breaker backend."""
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._breakers: WeakSet[CircuitBreaker] = WeakSet()
+
+    async def __aenter__(self) -> Self:
+        """Open the backend and capture the running loop."""
+        self._loop = asyncio.get_running_loop()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the backend, clearing every registered breaker."""
+        for breaker in list(self._breakers):
+            breaker._reset_state()  # noqa: SLF001
+        self._breakers.clear()
+        self._loop = None
+
+    def register(self, breaker: "CircuitBreaker") -> None:
+        """Bind a breaker so it is reset on close."""
+        self._breakers.add(breaker)

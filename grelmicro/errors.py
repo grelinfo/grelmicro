@@ -9,6 +9,10 @@ class GrelmicroError(Exception):
     """Base grelmicro error."""
 
 
+class WouldBlockError(GrelmicroError, RuntimeError):
+    """Raised by a non-blocking acquire that would have blocked."""
+
+
 class OutOfContextError(GrelmicroError, RuntimeError):
     """Outside Context Error.
 

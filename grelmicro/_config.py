@@ -29,9 +29,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from grelmicro._json import json_loads
 
 if TYPE_CHECKING:
+    import asyncio
     from collections.abc import Mapping
-
-    import anyio
 
 C = TypeVar("C", bound=BaseModel)
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
@@ -195,7 +194,7 @@ class Reconfigurable[ConfigT: BaseModel]:
     """Mixin that adds atomic live reconfiguration to a component.
 
     Subclasses initialize `self._config` and
-    `self._reconfigure_lock = anyio.Lock()` in `__init__`, and
+    `self._reconfigure_lock = asyncio.Lock()` in `__init__`, and
     override `_apply_reconfigure` to rebuild any cached derived
     state. The default `_apply_reconfigure` is a no-op.
 
@@ -204,7 +203,7 @@ class Reconfigurable[ConfigT: BaseModel]:
     """
 
     _config: ConfigT
-    _reconfigure_lock: anyio.Lock
+    _reconfigure_lock: asyncio.Lock
 
     @property
     def config(self) -> ConfigT:
@@ -232,7 +231,7 @@ class Reconfigurable[ConfigT: BaseModel]:
         if new_config == current:
             return
         async with self._reconfigure_lock:
-            if new_config == self._config:
+            if new_config == self._config:  # pragma: no cover
                 return
             await self._apply_reconfigure(new_config)
             self._config = new_config

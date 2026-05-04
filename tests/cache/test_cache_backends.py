@@ -1,9 +1,9 @@
 """Tests for Cache Backends (parametrized across all implementations)."""
 
+from asyncio import sleep
 from collections.abc import AsyncGenerator, Generator
 
 import pytest
-from anyio import sleep
 from testcontainers.redis import RedisContainer
 
 from grelmicro.cache._protocol import CacheBackend

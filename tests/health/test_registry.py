@@ -1,10 +1,10 @@
 """Tests for Health Check Registry."""
 
+import asyncio
 import logging
 import time
 from collections.abc import Generator
 
-import anyio
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -37,6 +37,25 @@ def _clean_registry() -> Generator[None]:
     health_registry.reset()
     yield
     health_registry.reset()
+
+
+async def test_user_timeout_error_is_not_classified_as_registry_timeout() -> (
+    None
+):
+    """A TimeoutError raised by the check itself stays a generic failure."""
+    registry = HealthRegistry(timeout=10)
+
+    async def check_raises_timeout() -> HealthDetails | None:
+        msg = "downstream call timed out"
+        raise TimeoutError(msg)
+
+    registry.add("downstream", check_raises_timeout)
+
+    report = await registry.run()
+
+    result = report["checks"]["downstream"]
+    assert result["status"] == HealthStatus.ERROR
+    assert result["error"] == "Health check failed"
 
 
 async def test_empty_registry_is_ok() -> None:
@@ -80,7 +99,7 @@ async def test_decorator_registers_check() -> None:
 
 
 async def test_sync_check_runs_in_thread() -> None:
-    """A sync check function is executed via ``anyio.to_thread.run_sync``."""
+    """A sync check function is executed via ``asyncio.to_thread``."""
     registry = HealthRegistry(cache_ttl=0)
 
     def sync_check() -> HealthDetails | None:
@@ -112,7 +131,7 @@ async def test_decorator_with_options() -> None:
 
     @registry.check("analytics", critical=False, timeout=0.1)
     async def _check() -> HealthDetails | None:
-        await anyio.sleep(1.0)
+        await asyncio.sleep(1.0)
         return None
 
     started = time.monotonic()
@@ -287,7 +306,7 @@ async def test_cache_expires() -> None:
     registry.add("db", check)
 
     await registry.run()
-    await anyio.sleep(0.1)
+    await asyncio.sleep(0.1)
     await registry.run()
 
     expected_calls = 2
@@ -313,9 +332,9 @@ async def test_single_flight_coalesces_concurrent_calls() -> None:
     check = SlowCounting(delay=0.1)
     registry.add("db", check)
 
-    async with anyio.create_task_group() as tg:
+    async with asyncio.TaskGroup() as tg:
         for _ in range(5):
-            tg.start_soon(registry.run)
+            tg.create_task(registry.run())
 
     assert check.calls == 1
 
@@ -631,8 +650,8 @@ async def test_reconfigure_during_inflight_run_uses_admission_snapshot() -> (
     `run()` after the cache window expires runs fresh.
     """
     call_count = 0
-    in_check = anyio.Event()
-    can_finish = anyio.Event()
+    in_check = asyncio.Event()
+    can_finish = asyncio.Event()
 
     async def slow_check() -> None:
         nonlocal call_count
@@ -643,8 +662,8 @@ async def test_reconfigure_during_inflight_run_uses_admission_snapshot() -> (
     registry = HealthRegistry(cache_ttl=60.0)
     registry.add("c", slow_check)
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(registry.run)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(registry.run())
         await in_check.wait()
         await registry.reconfigure(
             registry.config.model_copy(update={"cache_ttl": 0.0})
@@ -668,8 +687,8 @@ async def test_reconfigure_round_is_consistent_across_checks() -> None:
     """
     fast_calls = 0
     slow_calls = 0
-    slow_started = anyio.Event()
-    slow_can_finish = anyio.Event()
+    slow_started = asyncio.Event()
+    slow_can_finish = asyncio.Event()
 
     async def fast_check() -> None:
         nonlocal fast_calls
@@ -685,8 +704,8 @@ async def test_reconfigure_round_is_consistent_across_checks() -> None:
     registry.add("fast", fast_check)
     registry.add("slow", slow_check)
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(registry.run)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(registry.run())
         await slow_started.wait()
         # Reconfigure to disable cache while the round is in flight.
         await registry.reconfigure(

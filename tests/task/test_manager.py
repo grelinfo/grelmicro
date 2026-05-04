@@ -1,7 +1,8 @@
 """Test Task Manager."""
 
+from asyncio import Event
+
 import pytest
-from anyio import Event
 
 from grelmicro.errors import OutOfContextError
 from grelmicro.task import TaskManager
@@ -66,6 +67,88 @@ async def test_task_manager_already_started_error() -> None:
     async with app:
         with pytest.raises(TaskAddOperationError):
             await app.start()
+
+
+async def test_task_manager_start_surfaces_early_task_failure() -> None:
+    """A task that raises before setting ``ready`` surfaces the error from start()."""
+    import asyncio  # noqa: PLC0415
+
+    class FailingTask:
+        @property
+        def name(self) -> str:
+            return "boom"
+
+        async def __call__(
+            self, *, ready: asyncio.Future[None] | None = None
+        ) -> None:
+            del ready
+            msg = "early failure"
+            raise RuntimeError(msg)
+
+    app = TaskManager(auto_start=False, tasks=[FailingTask()])
+
+    with pytest.raises(BaseExceptionGroup) as exc_info:
+        async with app:
+            await app.start()
+
+    assert any(
+        isinstance(e, RuntimeError) and str(e) == "early failure"
+        for e in exc_info.value.exceptions
+    )
+
+
+async def test_task_manager_start_surfaces_early_clean_exit() -> None:
+    """A task that returns without setting ``ready`` raises instead of deadlocking."""
+    import asyncio  # noqa: PLC0415
+
+    class SilentTask:
+        @property
+        def name(self) -> str:
+            return "silent"
+
+        async def __call__(
+            self, *, ready: asyncio.Future[None] | None = None
+        ) -> None:
+            del ready
+
+    app = TaskManager(auto_start=False, tasks=[SilentTask()])
+
+    with pytest.raises(BaseExceptionGroup) as exc_info:
+        async with app:
+            await app.start()
+
+    assert any(
+        isinstance(e, RuntimeError) and "before signaling readiness" in str(e)
+        for e in exc_info.value.exceptions
+    )
+
+
+async def test_task_manager_cancels_running_tasks_on_exit() -> None:
+    """Long-running tasks are cancelled on context exit."""
+    import asyncio  # noqa: PLC0415
+
+    cancelled = asyncio.Event()
+
+    class LongRunningTask:
+        @property
+        def name(self) -> str:
+            return "long"
+
+        async def __call__(
+            self, *, ready: asyncio.Future[None] | None = None
+        ) -> None:
+            if ready is not None:
+                ready.set_result(None)
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+    async with TaskManager(tasks=[LongRunningTask()]):
+        pass
+
+    assert cancelled.is_set()
 
 
 async def test_task_manager_out_of_context_errors() -> None:

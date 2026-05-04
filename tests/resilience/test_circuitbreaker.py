@@ -1,16 +1,16 @@
 """Test CircuitBreaker implementation."""
 
+import asyncio
 import logging
 import sys
 import threading
+from collections.abc import AsyncGenerator, Iterator
 from contextlib import AsyncExitStack, suppress
 from datetime import UTC, datetime
 from typing import Literal
 
-import anyio
 import pydantic
 import pytest
-from anyio import to_thread
 from freezegun import freeze_time
 
 from grelmicro.resilience import circuitbreaker
@@ -21,6 +21,7 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerState,
     ErrorDetails,
 )
+from grelmicro.resilience.memory import MemoryCircuitBreakerBackend
 
 
 class SentinelError(Exception):
@@ -40,19 +41,42 @@ ALL_STATES = [
 pytestmark = pytest.mark.anyio
 
 
+@pytest.fixture(autouse=True)
+def _register_cb_backend() -> Iterator[MemoryCircuitBreakerBackend]:
+    """Register an in-memory circuit breaker backend for every test."""
+    from grelmicro.resilience import (  # noqa: PLC0415
+        register_circuit_breaker,
+        unregister_circuit_breaker,
+    )
+
+    backend = MemoryCircuitBreakerBackend()
+    register_circuit_breaker(backend)
+    yield backend
+    unregister_circuit_breaker()
+
+
+@pytest.fixture(autouse=True)
+async def _open_cb_backend(
+    _register_cb_backend: MemoryCircuitBreakerBackend,
+) -> AsyncGenerator[None]:
+    """Open the registered backend so its loop is captured for ``from_thread``."""
+    async with _register_cb_backend:
+        yield
+
+
 async def transition(cb: CircuitBreaker, state: CircuitBreakerState) -> None:
     """Transition the circuit breaker to the specified state."""
     match state:
         case CircuitBreakerState.OPEN:
-            await cb.transition_to_open()
+            cb.transition_to_open()
         case CircuitBreakerState.HALF_OPEN:
-            await cb.transition_to_half_open()
+            cb.transition_to_half_open()
         case CircuitBreakerState.CLOSED:
-            await cb.transition_to_closed()
+            cb.transition_to_closed()
         case CircuitBreakerState.FORCED_CLOSED:
-            await cb.transition_to_forced_closed()
+            cb.transition_to_forced_closed()
         case CircuitBreakerState.FORCED_OPEN:
-            await cb.transition_to_forced_open()
+            cb.transition_to_forced_open()
 
 
 async def create_circuit(
@@ -105,7 +129,7 @@ async def circuit_call_not_permitted(
     # the slot below so any further call is rejected.
     cb = await create_circuit(request.param, half_open_capacity=1)
     if request.param == CircuitBreakerState.HALF_OPEN:
-        await cb._try_acquire_call(cb.config)
+        cb._try_acquire_call(cb.config)
     return cb
 
 
@@ -127,7 +151,7 @@ async def circuit_call_permitted(
     )
 
 
-def test_circuit_init() -> None:
+async def test_circuit_init() -> None:
     """Test circuit breaker initialization."""
     # Act
     cb = CircuitBreaker("test")
@@ -136,16 +160,37 @@ def test_circuit_init() -> None:
     assert cb.name == "test"
 
 
-def test_circuit_from_thread_init() -> None:
+async def test_circuit_from_thread_init() -> None:
     """Test from_thread initialization."""
     # Arrange
     cb = CircuitBreaker("test")
 
     # Act & Assert
-    assert cb.from_thread
+    assert cb
 
 
-def test_circuit_initial_state() -> None:
+async def test_circuit_from_thread_unopened_backend_raises() -> None:
+    """Worker-thread entry on a closed backend raises a clear error."""
+    # Arrange: register a fresh backend that we never open.
+    from grelmicro.resilience import (  # noqa: PLC0415
+        register_circuit_breaker,
+        unregister_circuit_breaker,
+    )
+
+    unregister_circuit_breaker()
+    closed_backend = MemoryCircuitBreakerBackend()
+    register_circuit_breaker(closed_backend)
+    cb = CircuitBreaker("test")
+
+    def enter() -> None:
+        cb.from_thread.__enter__()
+
+    # Act + Assert: the helpful message guides the user to open lifespan.
+    with pytest.raises(RuntimeError, match="lifespan"):
+        await asyncio.to_thread(enter)
+
+
+async def test_circuit_initial_state() -> None:
     """Test circuit breaker initial state."""
     # Arrange
     cb = CircuitBreaker("test")
@@ -172,7 +217,7 @@ async def test_circuit_from_thread_protect_success() -> None:
             pass
 
     # Act
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
 
 async def test_circuit_decorator_with_call_permitted(
@@ -211,8 +256,8 @@ async def test_circuit_from_thread_decorator_with_call_permitted(
         return bool(pos == "positional")
 
     # Act & Assert
-    await to_thread.run_sync(protected_function)
-    await to_thread.run_sync(another_protected_function, "positional")
+    await asyncio.to_thread(protected_function)
+    await asyncio.to_thread(another_protected_function, "positional")
 
 
 async def test_circuit_error_raises(
@@ -237,7 +282,7 @@ async def test_circuitbreaker_from_thread_error_raises(
 
     # Act & Assert
     with pytest.raises(SentinelError):
-        await to_thread.run_sync(sync)
+        await asyncio.to_thread(sync)
 
 
 async def test_circuit_decorator_error_raises(
@@ -276,9 +321,9 @@ async def test_circuit_from_thread_decorator_error_raises(
 
     # Act & Assert
     with pytest.raises(SentinelError):
-        await to_thread.run_sync(protected_function)
+        await asyncio.to_thread(protected_function)
     with pytest.raises(SentinelError):
-        await to_thread.run_sync(another_protected_function)
+        await asyncio.to_thread(another_protected_function)
 
 
 async def test_circuit_with_call_not_permitted(
@@ -303,7 +348,7 @@ async def test_circuit_from_thread_with_call_not_permitted(
 
     # Act & Assert
     with pytest.raises(CircuitBreakerError):
-        await to_thread.run_sync(sync)
+        await asyncio.to_thread(sync)
 
 
 async def test_circuit_decorator_with_call_not_permitted(
@@ -343,9 +388,9 @@ async def test_circuit_from_thread_decorator_with_call_not_permitted(
 
     # Act & Assert
     with pytest.raises(CircuitBreakerError):
-        await to_thread.run_sync(protected_function)
+        await asyncio.to_thread(protected_function)
     with pytest.raises(CircuitBreakerError):
-        await to_thread.run_sync(another_protected_function)
+        await asyncio.to_thread(another_protected_function)
 
 
 @pytest.mark.parametrize("error_count", [1, 3, 5])
@@ -506,7 +551,7 @@ async def test_circuit_from_thread_with_ignore_exceptions(
 
     # Act & Assert
     with pytest.raises(error):
-        await to_thread.run_sync(sync)
+        await asyncio.to_thread(sync)
 
 
 @freeze_time()
@@ -525,7 +570,7 @@ async def test_circuit_breaker_last_error() -> None:
     assert cb.last_error_time == datetime.now(UTC)
 
 
-def test_circuit_metrics_initial() -> None:
+async def test_circuit_metrics_initial() -> None:
     """Test metrics reflect circuit breaker state."""
     # Arrange
     cb = CircuitBreaker("test")
@@ -716,7 +761,7 @@ async def test_circuit_restart() -> None:
     await generate_success(cb)
 
     # Act
-    await cb.restart()
+    cb.restart()
 
     # Assert
     assert cb.metrics() == CircuitBreakerMetrics(
@@ -740,9 +785,9 @@ async def test_circuit_from_thread_restart() -> None:
 
     # Act
     def sync() -> None:
-        cb.from_thread.restart()
+        cb.restart()
 
-    await to_thread.run_sync(sync)
+    await asyncio.to_thread(sync)
 
     # Assert
     assert cb.metrics() == CircuitBreakerMetrics(
@@ -786,24 +831,24 @@ async def test_circuit_from_thread_state_transition(
     def sync_transition() -> None:
         match to_state:
             case CircuitBreakerState.OPEN:
-                cb.from_thread.transition_to_open()
+                cb.transition_to_open()
             case CircuitBreakerState.HALF_OPEN:
-                cb.from_thread.transition_to_half_open()
+                cb.transition_to_half_open()
             case CircuitBreakerState.CLOSED:
-                cb.from_thread.transition_to_closed()
+                cb.transition_to_closed()
             case CircuitBreakerState.FORCED_CLOSED:
-                cb.from_thread.transition_to_forced_closed()
+                cb.transition_to_forced_closed()
             case CircuitBreakerState.FORCED_OPEN:
-                cb.from_thread.transition_to_forced_open()
+                cb.transition_to_forced_open()
 
-    await to_thread.run_sync(sync_transition)
+    await asyncio.to_thread(sync_transition)
     assert cb.state == to_state
 
 
 @pytest.mark.parametrize(
     "level", ["WARNING", "DEBUG", "INFO", "ERROR", "CRITICAL"]
 )
-def test_circuitbreaker_log_level(
+async def test_circuitbreaker_log_level(
     level: Literal["WARNING", "DEBUG", "INFO", "ERROR", "CRITICAL"],
 ) -> None:
     """`log_level` is read from the frozen config."""
@@ -891,8 +936,8 @@ async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
     """
     cb = CircuitBreaker("rc", ignore_exceptions=RuntimeError, error_threshold=1)
     boom = RuntimeError("boom")
-    enter_event = anyio.Event()
-    can_exit = anyio.Event()
+    enter_event = asyncio.Event()
+    can_exit = asyncio.Event()
 
     async def call() -> None:
         async def body() -> None:
@@ -904,8 +949,8 @@ async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
         with pytest.raises(RuntimeError):
             await body()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(call)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(call())
         await enter_event.wait()
         await cb.reconfigure(
             cb.config.model_copy(update={"ignore_exceptions": ()})
@@ -939,10 +984,10 @@ async def test_reconfigure_during_inflight_thread_call_uses_admission_config() -
         with pytest.raises(RuntimeError):
             body()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(to_thread.run_sync, sync)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(asyncio.to_thread(sync))
         # Wait for the thread to enter the context manager.
-        await to_thread.run_sync(entered.wait)
+        await asyncio.to_thread(entered.wait)
         await cb.reconfigure(
             cb.config.model_copy(update={"ignore_exceptions": ()})
         )

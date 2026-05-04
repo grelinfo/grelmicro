@@ -1,5 +1,6 @@
 """Kubernetes Synchronization Backend."""
 
+import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
@@ -103,9 +104,11 @@ class KubernetesSyncBackend(SyncBackend):
         self._prefix = prefix
         self._kubeconfig = kubeconfig
         self._client: AsyncClient | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
         """Open the lock backend."""
+        self._loop = asyncio.get_running_loop()
         config = (
             KubeConfig.from_file(self._kubeconfig) if self._kubeconfig else None
         )

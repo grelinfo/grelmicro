@@ -1,10 +1,10 @@
 """Tests for Synchronization Tokens."""
 
+import asyncio
 from threading import get_ident
 from uuid import uuid1
 
 import pytest
-from anyio import get_current_task
 
 from grelmicro.sync._tokens import (
     generate_task_token,
@@ -48,7 +48,7 @@ async def test_generate_task_token_with_uuid() -> None:
     token = generate_task_token(worker)
 
     # Assert
-    task_id = get_current_task().id
+    task_id = id(asyncio.current_task())
     assert token == f"{worker}:task:{task_id}"
 
 
@@ -58,7 +58,7 @@ async def test_generate_task_token_with_string() -> None:
     token = generate_task_token("my-worker")
 
     # Assert
-    task_id = get_current_task().id
+    task_id = id(asyncio.current_task())
     assert token == f"my-worker:task:{task_id}"
 
 
@@ -71,7 +71,7 @@ async def test_generate_task_token_with_nonce() -> None:
     token = generate_task_token("my-worker", nonce)
 
     # Assert
-    task_id = get_current_task().id
+    task_id = id(asyncio.current_task())
     assert token == f"my-worker:task:{task_id}:42"
 
 

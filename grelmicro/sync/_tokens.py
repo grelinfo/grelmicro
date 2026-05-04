@@ -1,11 +1,10 @@
 """Synchronization Tokens."""
 
+from asyncio import current_task
 from itertools import count
 from secrets import token_hex
 from threading import get_ident
 from uuid import UUID
-
-from anyio import get_current_task
 
 _guard_counter = count()
 
@@ -17,8 +16,11 @@ def generate_worker_id() -> str:
 
 def generate_task_token(worker: UUID | str, nonce: str = "") -> str:
     """Generate a task token from the worker identity and the async task ID."""
-    task_id = get_current_task().id
-    return f"{worker}:task:{task_id}{nonce}"
+    task = current_task()
+    if task is None:  # pragma: no cover
+        msg = "generate_task_token must be called from a running asyncio task"
+        raise RuntimeError(msg)
+    return f"{worker}:task:{id(task)}{nonce}"
 
 
 def generate_token_nonce() -> str:

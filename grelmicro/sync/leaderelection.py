@@ -1,36 +1,21 @@
 """Leader Election."""
 
+import asyncio
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
-from typing import TYPE_CHECKING, Annotated, Self
+from typing import Annotated, Self
 from uuid import UUID
 
-import anyio
-from anyio import (
-    TASK_STATUS_IGNORED,
-    CancelScope,
-    Condition,
-    WouldBlock,
-    fail_after,
-    get_cancelled_exc_class,
-    move_on_after,
-    sleep,
-)
-from anyio.abc import TaskStatus
 from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
+from grelmicro.errors import WouldBlockError
 from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
 from grelmicro.task.abc import Task
-
-if TYPE_CHECKING:
-    from contextlib import AsyncExitStack
-
-    from anyio.abc import TaskGroup
 
 logger = getLogger("grelmicro.leader_election")
 
@@ -310,7 +295,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
-        self._reconfigure_lock = anyio.Lock()
+        self._reconfigure_lock = asyncio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
         self._backend: SyncBackend | None = (
             backend if not isinstance(backend, str) else None
@@ -320,12 +305,10 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         )
 
         self._service_running = False
-        self._state_change_condition: Condition = Condition()
+        self._state_change_condition: asyncio.Condition = asyncio.Condition()
         self._is_leader: bool = False
         self._state_updated_at: float = monotonic()
         self._error_logged_at: float | None = None
-        self._task_group: TaskGroup | None = None
-        self._exit_stack: AsyncExitStack | None = None
 
     async def __aenter__(self) -> Self:
         """Wait for the leader with the context manager."""
@@ -387,17 +370,21 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         """Wait until the current worker is no longer the leader."""
         while self.is_leader():
             config = self._config
-            with move_on_after(
-                self._seconds_before_expiration_deadline(config)
-            ):
+            timeout = self._seconds_before_expiration_deadline(config)
+            try:
                 async with self._state_change_condition:
-                    await self._state_change_condition.wait()
+                    await asyncio.wait_for(
+                        self._state_change_condition.wait(), timeout
+                    )
+            except TimeoutError:
+                pass
 
     async def __call__(
-        self, *, task_status: TaskStatus[None] = TASK_STATUS_IGNORED
+        self, *, ready: asyncio.Future[None] | None = None
     ) -> None:
         """Run polling loop service to acquire or renew the distributed lock."""
-        task_status.started()
+        if ready is not None and not ready.done():
+            ready.set_result(None)
         if self._service_running:
             logger.warning("Leader Election already running: %s", self.name)
             return
@@ -407,8 +394,8 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
             while True:
                 config = self._config
                 await self._try_acquire_or_renew(config)
-                await sleep(config.retry_interval)
-        except get_cancelled_exc_class():
+                await asyncio.sleep(config.retry_interval)
+        except asyncio.CancelledError:
             logger.info("Leader Election stopped: %s", self.name)
             raise
         except BaseException:
@@ -416,8 +403,17 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
             raise
         finally:
             self._service_running = False
-            with CancelScope(shield=True):
-                await self._release()
+            # Run release as a separate task and keep waiting through
+            # repeated cancellations so the lock is released on the
+            # backend before the loop unwinds. asyncio.shield only
+            # protects the inner task from the awaiter's cancel; on a
+            # re-cancel of the awaiter, the inner task keeps running.
+            release_task = asyncio.ensure_future(self._release())
+            while not release_task.done():
+                try:
+                    await asyncio.shield(release_task)
+                except asyncio.CancelledError:  # pragma: no cover
+                    continue
 
     async def _update_state(
         self, *, is_leader: bool, reason_if_no_more_leader: str
@@ -445,7 +441,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         """Try to acquire leadership using `config` as the operation snapshot."""
         backend = self.backend
         try:
-            with fail_after(config.backend_timeout):
+            async with asyncio.timeout(config.backend_timeout):
                 is_leader = await backend.acquire(
                     name=self._lock_name,
                     token=str(config.worker),
@@ -517,15 +513,14 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
             return
         config = self._config
         try:
-            with fail_after(config.backend_timeout):
-                if not (
-                    await backend.release(
-                        name=self._lock_name, token=str(config.worker)
-                    )
-                ):
-                    logger.info(
-                        "Leader Election lock already released: %s", self.name
-                    )
+            async with asyncio.timeout(config.backend_timeout):
+                released = await backend.release(
+                    name=self._lock_name, token=str(config.worker)
+                )
+            if not released:
+                logger.info(
+                    "Leader Election lock already released: %s", self.name
+                )
         except Exception:
             logger.exception(
                 "Leader Election failed to release lock: %s", self.name
@@ -542,10 +537,10 @@ class _LeaderGuard(SyncPrimitive):
         self._election = election
 
     async def __aenter__(self) -> Self:
-        """Enter the guard, raising WouldBlock if not leader."""
+        """Enter the guard, raising WouldBlockError if not leader."""
         if not self._election.is_leader():
             msg = f"Not leader: {self._election.name}"
-            raise WouldBlock(msg)
+            raise WouldBlockError(msg)
         return self
 
     async def __aexit__(

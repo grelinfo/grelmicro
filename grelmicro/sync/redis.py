@@ -1,5 +1,6 @@
 """Redis Synchronization Backend."""
 
+import asyncio
 from types import TracebackType
 from typing import Annotated, Self
 
@@ -65,9 +66,11 @@ class RedisSyncBackend(SyncBackend):
         self._lua_acquire = self._redis.register_script(
             self._LUA_ACQUIRE_OR_EXTEND
         )
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
         """Open the lock backend."""
+        self._loop = asyncio.get_running_loop()
         return self
 
     async def __aexit__(

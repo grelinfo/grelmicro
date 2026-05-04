@@ -1,8 +1,10 @@
 """Test utilities for Lock."""
 
-from anyio import Event, create_task_group, fail_after
+import asyncio
+from asyncio import Event
 
 from grelmicro.sync._base import BaseLock
+from tests.task._helpers import cancel_group
 
 
 async def wait_first_acquired(locks: list[BaseLock]) -> None:
@@ -10,14 +12,15 @@ async def wait_first_acquired(locks: list[BaseLock]) -> None:
 
     async def wrapper(lock: BaseLock, event: Event) -> None:
         """Send event when lock is acquired."""
-        with fail_after(1):
-            await lock.acquire()
-            event.set()
+        await asyncio.wait_for(lock.acquire(), 1)
+        event.set()
 
-    with fail_after(1):
-        async with create_task_group() as task_group:
+    async def _run() -> None:
+        async with asyncio.TaskGroup() as task_group:
             event = Event()
             for lock in locks:
-                task_group.start_soon(wrapper, lock, event)
+                task_group.create_task(wrapper(lock, event))
             await event.wait()
-            task_group.cancel_scope.cancel()
+            cancel_group(task_group)
+
+    await asyncio.wait_for(_run(), 1)

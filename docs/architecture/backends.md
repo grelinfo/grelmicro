@@ -103,7 +103,7 @@ async def test_checkout():
         await checkout()
 ```
 
-The override propagates downward through `await`, `start_soon`, and `to_thread.run_sync` (AnyIO copies the context at every concurrency boundary). Set the override on the side that *calls into* the registry: an override set inside a worker thread is invisible to `from_thread.run` callbacks (which run on the loop's context).
+The override propagates downward through `await`, `asyncio.create_task`, and `asyncio.to_thread` (asyncio copies the calling context at every concurrency boundary). Set the override on the side that *calls into* the registry. A `from_thread` adapter dispatches the coroutine onto the parent loop with `asyncio.run_coroutine_threadsafe`, so the registry sees the worker thread's contextvars (those are copied across by `asyncio.to_thread`), not the loop's.
 
 ## Lazy registration
 

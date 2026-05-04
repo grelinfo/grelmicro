@@ -1,18 +1,27 @@
 """Test Interval Task."""
 
+import asyncio
+from asyncio import sleep
+
 import pytest
-from anyio import create_task_group, sleep, sleep_forever
 from pytest_mock import MockFixture
 
 from grelmicro.task._interval import IntervalTask
+from tests.task import samples
+from tests.task._helpers import cancel_group, start_task
 from tests.task.samples import (
     BadLock,
     WouldBlockLock,
     always_fail,
-    condition,
     notify,
     test1,
 )
+
+
+async def sleep_forever() -> None:
+    """Block forever on an unset event."""
+    await asyncio.Event().wait()
+
 
 pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
 
@@ -47,11 +56,11 @@ async def test_interval_task_start() -> None:
     # Arrange
     task = IntervalTask(seconds=1, function=notify)
     # Act
-    async with create_task_group() as tg:
-        await tg.start(task)
-        async with condition:
-            await condition.wait()
-        tg.cancel_scope.cancel()
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        async with samples.condition:
+            await samples.condition.wait()
+        cancel_group(tg)
 
 
 async def test_interval_task_execution_error(
@@ -61,10 +70,10 @@ async def test_interval_task_execution_error(
     # Arrange
     task = IntervalTask(seconds=1, function=always_fail)
     # Act
-    async with create_task_group() as tg:
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
         await sleep(SLEEP)
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert any(
@@ -83,10 +92,10 @@ async def test_interval_task_would_block(
     task = IntervalTask(seconds=1, function=notify, sync=WouldBlockLock())
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
         await sleep(SLEEP)
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert any(
@@ -109,10 +118,10 @@ async def test_interval_task_synchronization_error(
     task = IntervalTask(seconds=1, function=notify, sync=BadLock())
 
     # Act
-    async with create_task_group() as tg:
-        await tg.start(task)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
         await sleep(SLEEP)
-        tg.cancel_scope.cancel()
+        cancel_group(tg)
 
     # Assert
     assert any(
@@ -133,13 +142,14 @@ async def test_interval_stop(
         pass
 
     mocker.patch(
-        "grelmicro.task._interval.sleep", side_effect=CustomBaseException
+        "grelmicro.task._interval.asyncio.sleep",
+        side_effect=CustomBaseException,
     )
     task = IntervalTask(seconds=1, function=test1)
 
     async def leader_election_during_runtime_error() -> None:
-        async with create_task_group() as tg:
-            await tg.start(task)
+        async with asyncio.TaskGroup() as tg:
+            await start_task(tg, task)
             await sleep_forever()
 
     # Act
