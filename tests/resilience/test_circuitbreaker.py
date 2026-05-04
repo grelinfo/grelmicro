@@ -4,6 +4,7 @@ import asyncio
 import logging
 import sys
 import threading
+from collections.abc import AsyncGenerator, Iterator
 from contextlib import AsyncExitStack, suppress
 from datetime import UTC, datetime
 from typing import Literal
@@ -20,6 +21,7 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerState,
     ErrorDetails,
 )
+from grelmicro.resilience.memory import MemoryCircuitBreakerBackend
 
 
 class SentinelError(Exception):
@@ -37,6 +39,29 @@ ALL_STATES = [
 ]
 
 pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(autouse=True)
+def _register_cb_backend() -> Iterator[MemoryCircuitBreakerBackend]:
+    """Register an in-memory circuit breaker backend for every test."""
+    from grelmicro.resilience import (  # noqa: PLC0415
+        register_circuit_breaker,
+        unregister_circuit_breaker,
+    )
+
+    backend = MemoryCircuitBreakerBackend()
+    register_circuit_breaker(backend)
+    yield backend
+    unregister_circuit_breaker()
+
+
+@pytest.fixture(autouse=True)
+async def _open_cb_backend(
+    _register_cb_backend: MemoryCircuitBreakerBackend,
+) -> AsyncGenerator[None]:
+    """Open the registered backend so its loop is captured for ``from_thread``."""
+    async with _register_cb_backend:
+        yield
 
 
 async def transition(cb: CircuitBreaker, state: CircuitBreakerState) -> None:
@@ -126,7 +151,7 @@ async def circuit_call_permitted(
     )
 
 
-def test_circuit_init() -> None:
+async def test_circuit_init() -> None:
     """Test circuit breaker initialization."""
     # Act
     cb = CircuitBreaker("test")
@@ -135,7 +160,7 @@ def test_circuit_init() -> None:
     assert cb.name == "test"
 
 
-def test_circuit_from_thread_init() -> None:
+async def test_circuit_from_thread_init() -> None:
     """Test from_thread initialization."""
     # Arrange
     cb = CircuitBreaker("test")
@@ -144,7 +169,7 @@ def test_circuit_from_thread_init() -> None:
     assert cb
 
 
-def test_circuit_initial_state() -> None:
+async def test_circuit_initial_state() -> None:
     """Test circuit breaker initial state."""
     # Arrange
     cb = CircuitBreaker("test")
@@ -167,7 +192,7 @@ async def test_circuit_from_thread_protect_success() -> None:
     cb = CircuitBreaker("test")
 
     def sync() -> None:
-        with cb:
+        with cb.from_thread:
             pass
 
     # Act
@@ -231,7 +256,7 @@ async def test_circuitbreaker_from_thread_error_raises(
 
     # Arrange
     def sync() -> None:
-        with circuit_call_permitted:
+        with circuit_call_permitted.from_thread:
             raise sentinel_error
 
     # Act & Assert
@@ -297,7 +322,7 @@ async def test_circuit_from_thread_with_call_not_permitted(
 
     # Arrange
     def sync() -> None:
-        with circuit_call_not_permitted:
+        with circuit_call_not_permitted.from_thread:
             pytest.fail("Expected not reached")
 
     # Act & Assert
@@ -500,7 +525,7 @@ async def test_circuit_from_thread_with_ignore_exceptions(
     )  # success_threshold=1 avoids immediate closure
 
     def sync() -> None:
-        with cb:
+        with cb.from_thread:
             raise error()
 
     # Act & Assert
@@ -524,7 +549,7 @@ async def test_circuit_breaker_last_error() -> None:
     assert cb.last_error_time == datetime.now(UTC)
 
 
-def test_circuit_metrics_initial() -> None:
+async def test_circuit_metrics_initial() -> None:
     """Test metrics reflect circuit breaker state."""
     # Arrange
     cb = CircuitBreaker("test")
@@ -802,7 +827,7 @@ async def test_circuit_from_thread_state_transition(
 @pytest.mark.parametrize(
     "level", ["WARNING", "DEBUG", "INFO", "ERROR", "CRITICAL"]
 )
-def test_circuitbreaker_log_level(
+async def test_circuitbreaker_log_level(
     level: Literal["WARNING", "DEBUG", "INFO", "ERROR", "CRITICAL"],
 ) -> None:
     """`log_level` is read from the frozen config."""
@@ -930,7 +955,7 @@ async def test_reconfigure_during_inflight_thread_call_uses_admission_config() -
 
     def sync() -> None:
         def body() -> None:
-            with cb:
+            with cb.from_thread:
                 entered.set()
                 can_exit.wait()
                 raise boom

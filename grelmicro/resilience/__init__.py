@@ -6,8 +6,12 @@ from typing import Annotated
 from typing_extensions import Doc
 
 from grelmicro._backends import DEFAULT_NAME
-from grelmicro.resilience._backends import rate_limiter_backend_registry
+from grelmicro.resilience._backends import (
+    circuit_breaker_backend_registry,
+    rate_limiter_backend_registry,
+)
 from grelmicro.resilience._protocol import (
+    CircuitBreakerBackend,
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
@@ -79,8 +83,46 @@ def use(
     return rate_limiter_backend_registry.use(backend, **named)
 
 
+def register_circuit_breaker(
+    backend: Annotated[
+        CircuitBreakerBackend, Doc("The circuit breaker backend.")
+    ],
+    name: Annotated[
+        str, Doc("Name to register the backend under.")
+    ] = DEFAULT_NAME,
+) -> None:
+    """Register a circuit breaker ``backend`` under ``name``."""
+    circuit_breaker_backend_registry.register(backend, name)
+
+
+def unregister_circuit_breaker(
+    name: Annotated[
+        str, Doc("Name of the registered backend to remove.")
+    ] = DEFAULT_NAME,
+    backend: Annotated[
+        CircuitBreakerBackend | None,
+        Doc("Optional backend instance for an identity-checked removal."),
+    ] = None,
+) -> None:
+    """Remove the registered circuit breaker backend under ``name``."""
+    circuit_breaker_backend_registry.unregister(name, backend)
+
+
+def use_circuit_breaker_backend(
+    backend: Annotated[
+        CircuitBreakerBackend,
+        Doc("The circuit breaker backend to register as the default."),
+    ],
+) -> None:
+    """Register a circuit breaker ``backend`` under the ``"default"`` name."""
+    circuit_breaker_backend_registry.register(
+        backend, DEFAULT_NAME
+    )  # pragma: no cover
+
+
 __all__ = [
     "CircuitBreaker",
+    "CircuitBreakerBackend",
     "CircuitBreakerConfig",
     "CircuitBreakerError",
     "CircuitBreakerMetrics",
@@ -98,7 +140,10 @@ __all__ = [
     "ResilienceSettingsValidationError",
     "TokenBucketConfig",
     "register",
+    "register_circuit_breaker",
     "unregister",
+    "unregister_circuit_breaker",
     "use",
     "use_backend",
+    "use_circuit_breaker_backend",
 ]

@@ -29,6 +29,7 @@ def test_resilience_module_exports() -> None:
     """Test resilience module __all__ contains expected symbols."""
     expected = {
         "CircuitBreaker",
+        "CircuitBreakerBackend",
         "CircuitBreakerConfig",
         "CircuitBreakerError",
         "CircuitBreakerMetrics",
@@ -46,8 +47,11 @@ def test_resilience_module_exports() -> None:
         "ResilienceSettingsValidationError",
         "TokenBucketConfig",
         "register",
+        "register_circuit_breaker",
         "unregister",
+        "unregister_circuit_breaker",
         "use",
         "use_backend",
+        "use_circuit_breaker_backend",
     }
     assert set(resilience_mod.__all__) == expected

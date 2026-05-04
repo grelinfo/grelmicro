@@ -3,6 +3,7 @@
 import asyncio
 import functools
 import logging
+import threading
 from collections.abc import Callable
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -35,6 +36,8 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._types import LogLevel
+from grelmicro.resilience._backends import get_circuit_breaker_backend
+from grelmicro.resilience._protocol import CircuitBreakerBackend
 from grelmicro.resilience.errors import CircuitBreakerError
 
 __all__ = [
@@ -285,6 +288,20 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
                 """
             ),
         ] = None,
+        backend: Annotated[
+            CircuitBreakerBackend | str | None,
+            Doc(
+                """
+                The circuit breaker backend that owns the lifespan
+                and (in a future Redis-backed implementation) the
+                shared state.
+
+                Accepts a backend instance, the name of a registered
+                backend (e.g. ``"analytics"``), or ``None`` to use the
+                registered ``"default"`` backend.
+                """
+            ),
+        ] = None,
     ) -> None:
         """Initialize the circuit breaker."""
         config = resolve_config(
@@ -302,7 +319,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             or f"GREL_CIRCUIT_BREAKER_{env_segment(name)}_",
             read_env=read_env,
         )
-        self._setup(name, config)
+        self._setup(name, config, backend)
 
     @classmethod
     def from_config(
@@ -323,17 +340,34 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
                 """
             ),
         ],
+        *,
+        backend: Annotated[
+            CircuitBreakerBackend | str | None,
+            Doc("The circuit breaker backend."),
+        ] = None,
     ) -> Self:
         """Construct a `CircuitBreaker` from a name and a pre-built `CircuitBreakerConfig`."""
         instance = cls.__new__(cls)
-        instance._setup(name, config)  # noqa: SLF001
+        instance._setup(name, config, backend)  # noqa: SLF001
         return instance
 
-    def _setup(self, name: str, config: CircuitBreakerConfig) -> None:
+    def _setup(
+        self,
+        name: str,
+        config: CircuitBreakerConfig,
+        backend: CircuitBreakerBackend | str | None,
+    ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
+        self._backend: CircuitBreakerBackend | None = (
+            backend if not isinstance(backend, str) else None
+        )
+        self._backend_name: str | None = (
+            backend if isinstance(backend, str) else None
+        )
+        self._from_thread: _ThreadAdapter | None = None
         # Per-call snapshot stack. Each `__aenter__` pushes the config
         # captured at admission; `__aexit__` pops it and uses it for
         # success/error classification. ContextVar isolates concurrent
@@ -372,18 +406,48 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
 
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            with self:
+            with self.from_thread:
                 return func(*args, **kwargs)
 
         return sync_wrapper
 
-    def __enter__(self) -> Self:
+    @property
+    def backend(self) -> CircuitBreakerBackend:
+        """Bound circuit breaker backend, resolved on each call.
+
+        When a backend instance was passed at construction it is
+        always returned. Otherwise the registry is consulted on
+        every access so that scoped overrides take effect.
+        """
+        if self._backend is not None:  # pragma: no cover
+            return self._backend
+        return get_circuit_breaker_backend(self._backend_name or "default")
+
+    @property
+    def from_thread(self) -> "_ThreadAdapter":
+        """Sync adapter for use from a worker thread.
+
+        Use it from a synchronous handler that the host framework runs
+        in a worker thread. The adapter signals the intent explicitly
+        so the async API stays the documented default.
+        """
+        if self._from_thread is None:
+            self._from_thread = _ThreadAdapter(self)
+        return self._from_thread
+
+    async def __aenter__(self) -> Self:
         """Enter the circuit breaker context.
 
-        Works in both async and sync contexts. The breaker performs no
-        I/O, so the entry is sync-safe even from inside a running event
-        loop.
+        Async is the primary API. It stays compatible with a future
+        Redis-backed circuit breaker (issue #188) where ``__aenter__``
+        will await backend I/O. Synchronous handlers go through
+        ``cb.from_thread``.
         """
+        backend = self.backend
+        loop: asyncio.AbstractEventLoop | None = backend._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        if loop is None:  # pragma: no cover
+            backend._loop = asyncio.get_running_loop()  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        backend.register(self)
         config = self._config
         if not self._try_acquire_call(config):
             raise CircuitBreakerError(
@@ -394,7 +458,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         self._enter_stack.set((*self._enter_stack.get(), config))
         return self
 
-    def __exit__(
+    async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
@@ -402,10 +466,8 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
     ) -> bool | None:
         """Exit the circuit breaker context.
 
-        Uses the same config snapshot captured at `__enter__` so the
-        success/error classification matches the admission decision
-        (the in-flight call completes on the previous config even if
-        `reconfigure` runs concurrently).
+        Uses the same config snapshot captured at ``__aenter__`` so the
+        success/error classification matches the admission decision.
         """
         stack = self._enter_stack.get()
         config = stack[-1]
@@ -421,18 +483,17 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
 
         return None
 
-    async def __aenter__(self) -> Self:
-        """Enter the circuit breaker context (async alias)."""
-        return self.__enter__()
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> bool | None:
-        """Exit the circuit breaker context (async alias)."""
-        return self.__exit__(exc_type, exc_value, traceback)
+    def _reset_state(self) -> None:
+        """Clear runtime counters. Called by the backend on close."""
+        self._state = CircuitBreakerState.CLOSED
+        self._consecutive_error_count = 0
+        self._consecutive_success_count = 0
+        self._total_error_count = 0
+        self._total_success_count = 0
+        self._last_error = None
+        self._last_error_time = None
+        self._open_until_time = 0.0
+        self._active_call_count = 0
 
     @property
     def name(self) -> str:
@@ -626,3 +687,80 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             type=type(self._last_error).__name__,
             msg=str(self._last_error),
         )
+
+
+class _ThreadAdapter:
+    """Sync adapter for ``CircuitBreaker`` use from a worker thread.
+
+    Stays forward-compatible with a future backend that performs real
+    I/O: each entry/exit dispatches the corresponding internal helper
+    on the loop captured by the backend. The admission-config snapshot
+    stack is held in ``threading.local`` so concurrent worker threads
+    do not collide.
+    """
+
+    def __init__(self, circuit_breaker: CircuitBreaker) -> None:
+        """Initialize the adapter."""
+        self._cb = circuit_breaker
+        self._tls = threading.local()
+
+    def __enter__(self) -> Self:
+        """Enter the breaker context from a worker thread."""
+        cb = self._cb
+        cb.backend.register(cb)
+        config = cb._config  # noqa: SLF001
+        loop = cb.backend._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        if not asyncio.run_coroutine_threadsafe(
+            _async_try_acquire(cb, config), loop
+        ).result():
+            raise CircuitBreakerError(
+                name=cb.name,
+                last_error_time=cb.last_error_time,
+                last_error=cb.last_error,
+            )
+        stack = getattr(self._tls, "stack", None)
+        if stack is None:
+            stack = []
+            self._tls.stack = stack
+        stack.append(config)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None:
+        """Exit the breaker context from a worker thread."""
+        cb = self._cb
+        config = self._tls.stack.pop()
+        loop = cb.backend._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        asyncio.run_coroutine_threadsafe(
+            _async_handle_exit(cb, config, exc_type, exc_value), loop
+        ).result()
+        return None
+
+
+async def _async_try_acquire(
+    cb: CircuitBreaker, config: CircuitBreakerConfig
+) -> bool:
+    """Async wrapper around the breaker's sync acquire path.
+
+    Forward-compatible: when a Redis-backed breaker arrives this
+    coroutine will await backend I/O.
+    """
+    return cb._try_acquire_call(config)  # noqa: SLF001
+
+
+async def _async_handle_exit(
+    cb: CircuitBreaker,
+    config: CircuitBreakerConfig,
+    exc_type: type[BaseException] | None,
+    exc_value: BaseException | None,
+) -> None:
+    """Async wrapper around the breaker's sync exit path."""
+    cb._release_call()  # noqa: SLF001
+    if not exc_type or issubclass(exc_type, config.ignore_exceptions):
+        cb._on_success(config)  # noqa: SLF001
+    elif isinstance(exc_value, Exception):
+        cb._on_error(config, exc_value)  # noqa: SLF001
