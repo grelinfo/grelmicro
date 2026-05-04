@@ -1,6 +1,7 @@
 """Backend lifecycle: explicit named registration, scoped overrides, lifespan."""
 
 import warnings
+from typing import Self
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -254,29 +255,42 @@ async def test_lifespan_excludes_named_entry() -> None:
         assert sync_backend_registry.get("primary") is primary
 
 
+class _CountingRateLimiterBackend(MemoryRateLimiterBackend):
+    """``MemoryRateLimiterBackend`` that tracks ``__aenter__`` calls."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = 0
+
+    async def __aenter__(self) -> Self:
+        self.entered += 1
+        await super().__aenter__()
+        return self
+
+
 async def test_lifespan_excludes_resilience_module_key() -> None:
     """``exclude={"resilience"}`` skips every ``resilience.*`` registry."""
-    rate_limiter_backend_registry.register(
-        MemoryRateLimiterBackend(), "default"
-    )
-    circuit_breaker_backend_registry.register(
-        MemoryCircuitBreakerBackend(), "default"
-    )
+    rl = _CountingRateLimiterBackend()
+    cb = MemoryCircuitBreakerBackend()
+    rate_limiter_backend_registry.register(rl, "default")
+    circuit_breaker_backend_registry.register(cb, "default")
     sync_backend_registry.register(MemorySyncBackend(), "default")
     async with grelmicro.lifespan(exclude={"resilience"}):
         assert sync_backend_registry.is_loaded
+        # Neither resilience backend was entered.
+        assert rl.entered == 0
+        assert cb._loop is None
 
 
 async def test_lifespan_excludes_specific_resilience_registry() -> None:
     """``exclude={"resilience.ratelimiter"}`` skips only that registry."""
-    rate_limiter_backend_registry.register(
-        MemoryRateLimiterBackend(), "default"
-    )
+    rl = _CountingRateLimiterBackend()
     cb = MemoryCircuitBreakerBackend()
+    rate_limiter_backend_registry.register(rl, "default")
     circuit_breaker_backend_registry.register(cb, "default")
     async with grelmicro.lifespan(exclude={"resilience.ratelimiter"}):
-        # CB backend was opened (its loop is captured), rate limiter
-        # was skipped.
+        # Rate limiter was skipped, CB was opened.
+        assert rl.entered == 0
         assert cb._loop is not None
 
 
