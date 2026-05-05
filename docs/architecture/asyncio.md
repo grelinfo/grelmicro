@@ -10,4 +10,5 @@ asyncio is in the standard library. Every Python web framework grelmicro is mean
 
 - Use `asyncio.run(main())` or `uvloop.run(main())`. The `standard` extra ships uvloop on Linux and macOS.
 - Sync code that needs to call a primitive uses the per-component sync adapter (`lock.from_thread`, `cb.from_thread`, `@cached(...)`). It does not need a separate runtime bridge.
-- AnyIO is not a dependency at all. The test suite runs on `pytest-asyncio` with `asyncio_mode = "auto"`.
+- grelmicro does not import or depend on AnyIO directly. AnyIO may still be present in the environment transitively (for example through `fast-depends`), but no grelmicro code uses it.
+- The test suite runs on `pytest-asyncio` with `asyncio_mode = "auto"`.
