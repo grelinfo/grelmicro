@@ -17,7 +17,7 @@ from grelmicro.resilience.algorithms import (
 from grelmicro.resilience.memory import MemoryRateLimiterBackend
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.timeout(30)]
 
 LIMIT = 5
 WINDOW = 60.0
@@ -26,12 +26,6 @@ REFILL_RATE = 0.1  # slow enough to not refill between assertions
 
 
 # --- Fixtures (parametrized across backends + algorithms) ---
-
-
-@pytest.fixture(scope="module")
-def anyio_backend() -> str:
-    """AnyIO Backend Module Scope."""
-    return "asyncio"
 
 
 @pytest.fixture(

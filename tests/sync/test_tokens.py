@@ -4,16 +4,12 @@ import asyncio
 from threading import get_ident
 from uuid import uuid1
 
-import pytest
-
 from grelmicro.sync._tokens import (
     generate_task_token,
     generate_thread_token,
     generate_token_nonce,
     generate_worker_id,
 )
-
-pytestmark = pytest.mark.anyio
 
 WORKER_ID_LENGTH = 16
 

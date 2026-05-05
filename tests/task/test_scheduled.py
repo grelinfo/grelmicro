@@ -25,7 +25,7 @@ async def sleep_forever() -> None:
     await asyncio.Event().wait()
 
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
+pytestmark = [pytest.mark.timeout(10)]
 
 SECONDS = 0.1
 SLEEP = 0.01

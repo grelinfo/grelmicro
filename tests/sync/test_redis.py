@@ -5,7 +5,7 @@ import pytest
 from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.redis import RedisSyncBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(1)]
 
 URL = "redis://:test_password@test_host:1234/0"
 

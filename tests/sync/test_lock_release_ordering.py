@@ -15,7 +15,7 @@ from grelmicro.sync.errors import (
 from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(1)]
 
 LOCK_NAME = "test_lock_release_ordering"
 WORKER = "worker_1"

@@ -38,14 +38,6 @@ from grelmicro.sync.postgres import PostgresSyncBackend
 from grelmicro.sync.redis import RedisSyncBackend
 from grelmicro.sync.sqlite import SQLiteSyncBackend
 
-pytestmark = [pytest.mark.anyio]
-
-
-@pytest.fixture
-def anyio_backend() -> str:
-    """Use asyncio for async lifecycle tests."""
-    return "asyncio"
-
 
 @pytest.fixture(autouse=True)
 def _clean_registries() -> None:

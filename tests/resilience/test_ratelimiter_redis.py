@@ -6,7 +6,7 @@ from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience.errors import ResilienceSettingsValidationError
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(1)]
 
 URL = "redis://:test_password@test_host:1234/0"
 

@@ -82,6 +82,7 @@ nav:
     - reference/task.md
 - Architecture:
     - architecture/index.md
+    - architecture/asyncio.md
     - architecture/backends.md
     - architecture/config.md
     - architecture/reconfigure.md

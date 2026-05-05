@@ -3,12 +3,6 @@
 import pytest
 
 
-@pytest.fixture
-def anyio_backend() -> str:
-    """AnyIO Backend."""
-    return "asyncio"
-
-
 @pytest.fixture(autouse=True)
 def _opt_in_env_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """Enable the Environmental config path for all tests by default.

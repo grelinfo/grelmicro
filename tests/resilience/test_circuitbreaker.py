@@ -38,8 +38,6 @@ ALL_STATES = [
     CircuitBreakerState.FORCED_OPEN,
 ]
 
-pytestmark = pytest.mark.anyio
-
 
 @pytest.fixture(autouse=True)
 def _register_cb_backend() -> Iterator[MemoryCircuitBreakerBackend]:

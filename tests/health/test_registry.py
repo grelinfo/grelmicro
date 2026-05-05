@@ -28,7 +28,7 @@ from .conftest import (
     unhealthy_with_health_error,
 )
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
+pytestmark = [pytest.mark.timeout(10)]
 
 
 @pytest.fixture(autouse=True)

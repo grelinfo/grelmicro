@@ -100,7 +100,7 @@ structlog = [
 
 [dependency-groups]
 dev = [
-    "anyio>=4.0.0",
+    "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "pytest>=8.0.0",
     "ruff>=0.7.4",
@@ -233,6 +233,9 @@ addopts = """
     --strict-markers
     -n auto
 """
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 markers = """
     integration: mark a test as an integration test
 """
