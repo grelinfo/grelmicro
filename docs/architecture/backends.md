@@ -14,7 +14,8 @@ All backends use **async** methods because they perform network or disk I/O (Red
 |---|---|---|---|
 | `grelmicro.sync` | `sync` | `SyncBackend` | Redis, PostgreSQL, SQLite, Kubernetes, Memory |
 | `grelmicro.cache` | `cache` | `CacheBackend` | Redis, Memory |
-| `grelmicro.resilience` | `resilience` | `RateLimiterBackend` | Redis, Memory |
+| `grelmicro.resilience` (rate limiter) | `resilience.ratelimiter` | `RateLimiterBackend` | Redis, Memory |
+| `grelmicro.resilience` (circuit breaker) | `resilience.circuitbreaker` | `CircuitBreakerBackend` | Memory |
 | `grelmicro.health` | `health` | `HealthRegistry` | (any number of named registries) |
 
 A registry holds zero or more named entries. Backends are looked up by name at call time, and each entry is independent. The `"default"` slot is the implicit name when no `backend=` is passed.
@@ -40,7 +41,7 @@ async with grelmicro.lifespan():
 # every registered backend is closed on exit (LIFO)
 ```
 
-`grelmicro.lifespan()` walks every grelmicro registry that has been imported in the current process, opens each entry via its async context manager, and closes them in reverse order on exit. Use `exclude={"<module>"}` to skip a whole module or `exclude={"<module>.<name>"}` to skip one entry.
+`grelmicro.lifespan()` walks every grelmicro registry that has been imported in the current process, opens each entry via its async context manager, and closes them in reverse order on exit. `exclude={...}` matches by dotted prefix: `{"sync"}` skips the whole sync registry, `{"resilience"}` skips both `resilience.ratelimiter` and `resilience.circuitbreaker`, `{"resilience.ratelimiter"}` skips only that registry, and `{"sync.analytics"}` skips just the named entry.
 
 **2. Module-level `use_backend` shorthand.** Equivalent to `register("default", backend)`:
 
