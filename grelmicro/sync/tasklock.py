@@ -82,7 +82,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
     This lock is designed to be used as the `sync` parameter of `IntervalTask`.
 
     Supports live reconfiguration via
-    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    `reconfigure(new_config)`.
     A swap takes effect on the next call. An exit re-acquire uses
     the config the call entered with. The `worker` field cannot
     change. Changing it raises `ValueError`. See

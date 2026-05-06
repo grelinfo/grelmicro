@@ -1,6 +1,6 @@
 # Live reconfiguration
 
-This page is the engineering side of `Component.reconfigure(new_config)`. It documents the contract behind the [`Reconfigurable`][grelmicro._config.Reconfigurable] mixin and explains the choices a contributor needs to know before adding `reconfigure` support to a new component.
+This page is the engineering side of `Component.reconfigure(new_config)`. It documents the contract behind the `Reconfigurable` mixin and explains the choices a contributor needs to know before adding `reconfigure` support to a new component.
 
 ## The contract
 

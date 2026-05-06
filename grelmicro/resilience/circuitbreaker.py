@@ -176,7 +176,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
     failing, to avoid cascading errors.
 
     Supports live reconfiguration via
-    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    `reconfigure(new_config)`.
     A swap takes effect on the next call. In-flight calls keep the
     config they entered with. The current state, counters, and
     `last_error` are kept. A new `log_level` is applied to the

@@ -66,7 +66,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
     automatically released after a duration if not extended.
 
     Supports live reconfiguration via
-    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    `reconfigure(new_config)`.
     A swap takes effect on the next call. In-flight calls keep the
     config they started with. The `worker` field cannot change.
     Changing it raises `ValueError`. See
