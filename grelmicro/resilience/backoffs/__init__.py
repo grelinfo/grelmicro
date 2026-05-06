@@ -15,9 +15,16 @@ from grelmicro.resilience.backoffs.constant import ConstantBackoffConfig
 from grelmicro.resilience.backoffs.exponential import (
     ExponentialBackoffConfig,
 )
+from grelmicro.resilience.backoffs.fibonacci import FibonacciBackoffConfig
+from grelmicro.resilience.backoffs.linear import LinearBackoffConfig
+from grelmicro.resilience.backoffs.random import RandomBackoffConfig
 
 RetryBackoffConfig = Annotated[
-    ExponentialBackoffConfig | ConstantBackoffConfig,
+    ExponentialBackoffConfig
+    | ConstantBackoffConfig
+    | LinearBackoffConfig
+    | FibonacciBackoffConfig
+    | RandomBackoffConfig,
     Discriminator("type"),
 ]
 """Discriminated union of supported retry backoff configurations."""
@@ -25,5 +32,8 @@ RetryBackoffConfig = Annotated[
 __all__ = [
     "ConstantBackoffConfig",
     "ExponentialBackoffConfig",
+    "FibonacciBackoffConfig",
+    "LinearBackoffConfig",
+    "RandomBackoffConfig",
     "RetryBackoffConfig",
 ]

@@ -45,12 +45,14 @@ class ExponentialBackoffConfig(BaseModel, frozen=True, extra="forbid"):
     ] = 30.0
 
     jitter: Annotated[
-        Literal["none", "full", "decorrelated"],
+        Literal["none", "full", "equal", "decorrelated"],
         Doc(
             "Jitter mode. ``full`` is the AWS recipe and the safest "
-            "default for retry storms. ``decorrelated`` chains samples "
-            "across attempts for high-contention systems. ``none`` "
-            "disables jitter."
+            "default for retry storms (samples from ``[0, raw]``). "
+            "``equal`` is AWS's smoother variant (``raw/2 + "
+            "random(0, raw/2)``), keeps growth predictable. "
+            "``decorrelated`` chains samples across attempts for "
+            "high-contention systems. ``none`` disables jitter."
         ),
     ] = "full"
 
@@ -76,6 +78,9 @@ class _ExponentialStrategy:
                 jittered = raw
             case "full":
                 jittered = random.uniform(0.0, raw)  # noqa: S311
+            case "equal":
+                half = raw / 2
+                jittered = half + random.uniform(0.0, half)  # noqa: S311
             case "decorrelated":
                 jittered = min(
                     config.max_delay,

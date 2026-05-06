@@ -26,6 +26,9 @@ from grelmicro.resilience.algorithms import (
 from grelmicro.resilience.backoffs import (
     ConstantBackoffConfig,
     ExponentialBackoffConfig,
+    FibonacciBackoffConfig,
+    LinearBackoffConfig,
+    RandomBackoffConfig,
     RetryBackoffConfig,
 )
 from grelmicro.resilience.circuitbreaker import (
@@ -193,8 +196,11 @@ __all__ = [
     "ConstantBackoffConfig",
     "ErrorDetails",
     "ExponentialBackoffConfig",
+    "FibonacciBackoffConfig",
     "GCRAConfig",
+    "LinearBackoffConfig",
     "MemoryTokenBucket",
+    "RandomBackoffConfig",
     "RateLimitExceededError",
     "RateLimitResult",
     "RateLimiter",

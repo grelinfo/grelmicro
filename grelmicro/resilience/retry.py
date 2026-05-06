@@ -64,6 +64,10 @@ A class, a tuple of classes, or a predicate callable.
 """
 
 
+Matcher = Callable[[BaseException], bool]
+"""Compiled exception matcher: takes an exception, returns True to retry."""
+
+
 def _normalize_filter(
     on: ExceptionFilter,
 ) -> tuple[type[BaseException], ...] | Callable[[BaseException], bool]:
@@ -73,14 +77,19 @@ def _normalize_filter(
     return on
 
 
-def _matches(
-    exc: BaseException,
-    matcher: tuple[type[BaseException], ...] | Callable[[BaseException], bool],
-) -> bool:
-    """Return True if ``exc`` matches ``matcher``."""
-    if not isinstance(matcher, tuple):
-        return matcher(exc)
-    return isinstance(exc, matcher)
+def _build_matcher(
+    on: tuple[type[BaseException], ...] | Callable[[BaseException], bool],
+) -> Matcher:
+    """Compile ``on`` into a single-call matcher.
+
+    Built once per snapshot (at construction or reconfigure) so the
+    hot path is one callable invocation per fail, with no isinstance
+    branch on the union type.
+    """
+    if isinstance(on, tuple):
+        classes = on
+        return lambda exc: isinstance(exc, classes)
+    return on
 
 
 class RetryConfig(BaseModel, frozen=True, extra="forbid"):
@@ -127,14 +136,17 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
 
 @dataclass(frozen=True, slots=True)
 class _State:
-    """Read-side snapshot bundling the config with no live strategy.
+    """Read-side snapshot bundling the config with its compiled matcher.
 
     A fresh ``RetryStrategy`` is built per loop from
-    ``state.config.backoff``, so the snapshot only carries the
-    immutable config. Reconfigure swaps the snapshot atomically.
+    ``state.config.backoff`` (strategies are stateful for jitter).
+    The matcher is bound once per snapshot so the hot path is a
+    single callable invocation. Reconfigure swaps the snapshot
+    atomically.
     """
 
     config: RetryConfig
+    matcher: Matcher
 
 
 class RetryAttempt:
@@ -162,8 +174,7 @@ class RetryAttempt:
         number: int,
         delay_before: float,
         attempts: int,
-        matcher: tuple[type[BaseException], ...]
-        | Callable[[BaseException], bool],
+        matcher: Matcher,
         loop: "_AttemptLoop",
         started_at: float,
     ) -> None:
@@ -209,7 +220,7 @@ class RetryAttempt:
         if exc is None:
             self._loop.stop()
             return False
-        if not _matches(exc, self._matcher):
+        if not self._matcher(exc):
             return False
         if self.number >= self._attempts:
             elapsed = time.monotonic() - self._started_at
@@ -246,7 +257,7 @@ def _backoff_name(config: RetryBackoffConfig) -> str:
 
 async def _async_iter(
     config: RetryConfig,
-    matcher: tuple[type[BaseException], ...] | Callable[[BaseException], bool],
+    matcher: Matcher,
 ) -> AsyncIterator[RetryAttempt]:
     """Yield successive ``RetryAttempt`` objects, sleeping between attempts."""
     strategy = build_retry_strategy(config.backoff)
@@ -271,7 +282,7 @@ async def _async_iter(
 
 def _sync_iter(
     config: RetryConfig,
-    matcher: tuple[type[BaseException], ...] | Callable[[BaseException], bool],
+    matcher: Matcher,
 ) -> Iterator[RetryAttempt]:
     """Yield successive ``RetryAttempt`` objects, sleeping between attempts."""
     strategy = build_retry_strategy(config.backoff)
@@ -369,7 +380,9 @@ class Retry(Reconfigurable[RetryConfig]):
             read_env=read_env,
         )
         self._config = resolved
-        self._state = _State(config=resolved)
+        self._state = _State(
+            config=resolved, matcher=_build_matcher(resolved.on)
+        )  # type: ignore[arg-type]
         self._reconfigure_lock = asyncio.Lock()
 
     @property
@@ -463,15 +476,13 @@ class Retry(Reconfigurable[RetryConfig]):
 
     def __aiter__(self) -> AsyncIterator[RetryAttempt]:
         """Yield successive attempts for async block-form usage."""
-        config = self._state.config
-        matcher = _normalize_filter(config.on)  # type: ignore[arg-type]
-        return _async_iter(config, matcher)
+        state = self._state
+        return _async_iter(state.config, state.matcher)
 
     def __iter__(self) -> Iterator[RetryAttempt]:
         """Yield successive attempts for sync block-form usage."""
-        config = self._state.config
-        matcher = _normalize_filter(config.on)  # type: ignore[arg-type]
-        return _sync_iter(config, matcher)
+        state = self._state
+        return _sync_iter(state.config, state.matcher)
 
     @overload
     def __call__(
@@ -507,7 +518,10 @@ class Retry(Reconfigurable[RetryConfig]):
 
     async def _apply_reconfigure(self, new_config: RetryConfig) -> None:
         """Publish a fresh snapshot. In-flight loops keep their snapshot."""
-        self._state = _State(config=new_config)
+        self._state = _State(
+            config=new_config,
+            matcher=_build_matcher(new_config.on),  # type: ignore[arg-type]
+        )
 
 
 # --- Module-level decorator factory --------------------------------------
@@ -520,10 +534,11 @@ def _decorator(
     backoff: RetryBackoffConfig | None,
 ) -> Callable[[F], F]:
     """Build a decorator from anonymous Retry kwargs."""
-    matcher = _normalize_filter(on)
+    normalized = _normalize_filter(on)
+    matcher = _build_matcher(normalized)
     config = RetryConfig.model_construct(
         attempts=attempts,
-        on=matcher,
+        on=normalized,
         backoff=backoff or ExponentialBackoffConfig(),
     )
 
@@ -641,10 +656,11 @@ class _RetryingFactory:
         ] = None,
     ) -> AsyncIterator[RetryAttempt]:
         """Yield successive attempts for the block form."""
-        matcher = _normalize_filter(on)
+        normalized = _normalize_filter(on)
+        matcher = _build_matcher(normalized)
         config = RetryConfig.model_construct(
             attempts=attempts,
-            on=matcher,
+            on=normalized,
             backoff=backoff or ExponentialBackoffConfig(),
         )
         return _async_iter(config, matcher)

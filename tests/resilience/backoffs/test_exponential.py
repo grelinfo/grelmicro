@@ -61,6 +61,18 @@ def test_full_jitter_returns_value_within_bounds() -> None:
         assert 0.0 <= d <= upper
 
 
+def test_equal_jitter_within_bounds() -> None:
+    """Equal jitter samples in `[raw/2, raw]`."""
+    config = ExponentialBackoffConfig(
+        base_delay=_DEFAULT_BASE, max_delay=10.0, jitter="equal"
+    )
+    strategy = _ExponentialStrategy(config)
+    for n in range(1, 6):
+        raw = min(_DEFAULT_BASE * (2 ** (n - 1)), 10.0)
+        d = strategy.delay(n)
+        assert raw / 2 <= d <= raw
+
+
 _DECORR_MAX = 5.0
 
 
