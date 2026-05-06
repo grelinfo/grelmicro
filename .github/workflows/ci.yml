@@ -69,7 +69,7 @@ jobs:
       - name: Install dependencies
         run: uv sync
       - name: Run Unit Tests
-        run: pytest -x -m "not integration" --cov --junitxml=junit.xml -o junit_family=legacy
+        run: pytest -x -m "not integration and not slow" --cov --junitxml=junit.xml -o junit_family=legacy
       - name: Upload Unit Test Coverage to Codecov
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v5.6.0
         with:
@@ -79,6 +79,27 @@ jobs:
         uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.0
         with:
           flags: "unit,python${{ matrix.python }}"
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Run Slow Tests
+        # Exit code 5 means "no tests collected", which is fine while the
+        # slow tier is empty.
+        run: |
+          set +e
+          pytest -x -m "slow and not integration" --cov --junitxml=junit.xml -o junit_family=legacy
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 5 ]; then
+            exit "$status"
+          fi
+      - name: Upload Slow Test Coverage to Codecov
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v5.6.0
+        with:
+          flags: "slow,python${{ matrix.python }}"
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload Slow Test Results to Codecov
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.0
+        with:
+          flags: "slow,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Run Integration Tests
         id: integration_tests
