@@ -1,3 +1,8 @@
+<!-- Hide the auto-generated h1 on the docs landing page. GitHub strips <style> from rendered README, so this is a no-op there. -->
+<style>
+  .md-content .md-typeset h1 { display: none; }
+</style>
+
 <p align="center">
   <a href="https://grelinfo.github.io/grelmicro">
     <img alt="grelmicro" class="grel-wordmark" src="docs/img/logo/wordmark.svg" width="360">
