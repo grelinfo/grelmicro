@@ -16,7 +16,7 @@
         <link rel="prev" href="../reference/task/">
       
       
-        <link rel="next" href="backends/">
+        <link rel="next" href="asyncio/">
       
       
         
@@ -1034,6 +1034,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1081,6 +1085,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1182,6 +1214,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -1409,6 +1469,7 @@
 <h1 id="architecture">Architecture</h1>
 <p>This section documents the internal design decisions and guarantees of grelmicro.</p>
 <ul>
+<li><strong><a href="asyncio/">Concurrency runtime</a></strong>: Why grelmicro targets asyncio directly and not Trio or AnyIO.</li>
 <li><strong><a href="backends/">Backend Registry</a></strong>: Shared registry pattern for swappable backends.</li>
 <li><strong><a href="config/">Configuration</a></strong>: Explicit construction paths, <code>from_config(...)</code>, optional env resolution where it fits, and the library-not-app boundary.</li>
 <li><strong><a href="reconfigure/">Live reconfiguration</a></strong>: Atomic config swap on a live component, the <code>Reconfigurable</code> mixin, and reader safety.</li>

@@ -1034,6 +1034,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1081,6 +1085,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1295,6 +1327,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -1594,7 +1654,7 @@
 
 
 <h1 id="live-reconfiguration">Live reconfiguration</h1>
-<p>This page is the engineering side of <code>Component.reconfigure(new_config)</code>. It documents the contract behind the [<code>Reconfigurable</code>][grelmicro._config.Reconfigurable] mixin and explains the choices a contributor needs to know before adding <code>reconfigure</code> support to a new component.</p>
+<p>This page is the engineering side of <code>Component.reconfigure(new_config)</code>. It documents the contract behind the <code>Reconfigurable</code> mixin and explains the choices a contributor needs to know before adding <code>reconfigure</code> support to a new component.</p>
 <h2 id="the-contract">The contract</h2>
 <p><code>reconfigure(new_config)</code> swaps a live component's configuration without rebuilding the component. Runtime state on the backend (token counts, lease handles, in-flight calls) is preserved across the swap.</p>
 <p>Every call enforces:</p>
@@ -1616,7 +1676,7 @@
 </tr>
 <tr>
 <td>Writer serialization</td>
-<td><code>anyio.Lock</code> held for the rebuild</td>
+<td><code>asyncio.Lock</code> held for the rebuild</td>
 </tr>
 <tr>
 <td>Atomic publish</td>
@@ -1670,7 +1730,7 @@
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="o">...</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_config</span> <span class="o">=</span> <span class="n">config</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_reconfigure_lock</span> <span class="o">=</span> <span class="n">anyio</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_reconfigure_lock</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
 </code></pre></div>
 <p>A subclass MAY still override <code>_apply_reconfigure</code> to enforce per-field invariants on the swap. <code>Lock</code>, <code>TaskLock</code>, and <code>LeaderElection</code> reject changes to <code>worker</code> because the field is part of the live token identity:</p>
 <div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_apply_reconfigure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">new_config</span><span class="p">:</span> <span class="n">LockConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>

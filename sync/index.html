@@ -1153,6 +1153,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1200,6 +1204,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1301,6 +1333,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -1632,10 +1692,6 @@
 </ul>
 <p>See the <a href="../installation/">installation guide</a> for <code>uv</code> and <code>poetry</code>.</p>
 </div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Although grelmicro uses AnyIO for concurrency, the backends generally depend on <code>asyncio</code>, therefore Trio is not supported.</p>
-</div>
 <p>You can initialize a backend like this:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:5"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Redis</label><label for="__tabbed_1_2">Postgres</label><label for="__tabbed_1_3">Kubernetes</label><label for="__tabbed_1_4">SQLite</label><label for="__tabbed_1_5">Memory</label></div>
 <div class="tabbed-content">
@@ -1750,8 +1806,8 @@
 </div>
 <h2 id="leader-election">Leader Election</h2>
 <p>Leader election uses a distributed lock to make sure that only one worker in the cluster acts as the leader at any given time.</p>
-<p>The leader election service acquires and renews the distributed lock. It runs as an AnyIO task that you can start with the <a href="../task/#task-manager">Task Manager</a>. The service runs in the background and renews the lock automatically so other workers cannot acquire it. The lock releases automatically when the task is cancelled or when the application shuts down.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Task Manager (Recommended)</label><label for="__tabbed_2_2">AnyIO Task Group (Advanced)</label></div>
+<p>The leader election service acquires and renews the distributed lock. It runs as an asyncio task that you can start with the <a href="../task/#task-manager">Task Manager</a>. The service runs in the background and renews the lock automatically so other workers cannot acquire it. The lock releases automatically when the task is cancelled or when the application shuts down.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Task Manager (Recommended)</label><label for="__tabbed_2_2">asyncio Task Group (Advanced)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">LeaderElection</span>
@@ -1763,7 +1819,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">anyio</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_task_group</span><span class="p">,</span> <span class="n">sleep_forever</span>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">LeaderElection</span>
 
@@ -1771,9 +1827,11 @@
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">create_task_group</span><span class="p">()</span> <span class="k">as</span> <span class="n">tg</span><span class="p">:</span>
-        <span class="k">await</span> <span class="n">tg</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="n">leader</span><span class="p">)</span>
-        <span class="k">await</span> <span class="n">sleep_forever</span><span class="p">()</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">TaskGroup</span><span class="p">()</span> <span class="k">as</span> <span class="n">tg</span><span class="p">:</span>
+        <span class="n">ready</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Future</span><span class="p">[</span><span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span><span class="o">.</span><span class="n">create_future</span><span class="p">()</span>
+        <span class="n">tg</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">leader</span><span class="p">(</span><span class="n">ready</span><span class="o">=</span><span class="n">ready</span><span class="p">))</span>
+        <span class="k">await</span> <span class="n">ready</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>  <span class="c1"># sleep forever</span>
 </code></pre></div>
 </div>
 </div>

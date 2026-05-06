@@ -1145,6 +1145,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1192,6 +1196,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="architecture/asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1293,6 +1325,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="architecture/sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -1634,7 +1694,7 @@
 <ul>
 <li><strong>Micro</strong>: one focused primitive per module, each a canonical microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).</li>
 <li><strong>Fast</strong>: small footprint by design. We keep the layers thin so your code stays quick.</li>
-<li><strong>Async-first</strong>: every I/O call is <code>async</code> / <code>await</code>. Drops into FastAPI, FastStream, and any AnyIO-based stack.</li>
+<li><strong>Async-first</strong>: every I/O call is <code>async</code> / <code>await</code>. Drops into FastAPI, FastStream, and any asyncio-based stack.</li>
 <li><strong>Backend-agnostic</strong>: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.</li>
 <li><strong>Railguarded</strong>: 100% pytest coverage, ty-checked, ruff-linted, Pydantic-validated. Pre-1.0 API may shift on minor bumps. <code>1.x</code> commits to standard semver.</li>
 </ul>

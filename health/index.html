@@ -1292,6 +1292,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1339,6 +1343,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1440,6 +1472,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -1923,7 +1983,7 @@
 <li>Raise <code>HealthError</code>: unhealthy. The exception message appears in the <code>error</code> field.</li>
 <li>Raise any other exception: unhealthy, with a generic <code>"Health check failed"</code> message. The traceback is logged server-side to avoid leaking internal information.</li>
 </ul>
-<p><code>HealthDetails</code> is a type alias for <code>dict[str, JSONEncodable]</code>. Both sync and async check functions are supported. Sync functions run in a worker thread via <code>anyio.to_thread.run_sync</code> so they never block the event loop.</p>
+<p><code>HealthDetails</code> is a type alias for <code>dict[str, JSONEncodable]</code>. Both sync and async check functions are supported. Sync functions run in a worker thread via <code>asyncio.to_thread</code> so they never block the event loop.</p>
 <h2 id="registry">Registry</h2>
 <p>Create a <code>HealthRegistry</code> and register checks with the <code>@registry.check(name)</code> decorator:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.health</span><span class="w"> </span><span class="kn">import</span> <span class="n">HealthDetails</span><span class="p">,</span> <span class="n">HealthRegistry</span>
@@ -2030,7 +2090,7 @@
     <span class="k">return</span> <span class="kc">None</span>
 </code></pre></div>
 <p>A slow non-critical check hits the timeout and is reported with <code>status: "error"</code> in the response body, but the aggregate stays <code>ok</code> and <code>/readyz</code> stays <code>200</code>.</p>
-<p>Timeout detection uses <code>anyio.move_on_after</code>. It correctly separates registry timeouts from a <code>TimeoutError</code> raised inside the check itself (for example a socket timeout).</p>
+<p>Timeout detection uses <code>asyncio.timeout</code>. The wrapper distinguishes the registry-imposed timeout from a <code>TimeoutError</code> raised inside the check itself (for example a socket timeout).</p>
 <h3 id="caching">Caching</h3>
 <p>The registry caches each check's result for <code>cache_ttl</code> seconds (default <code>1.0</code>) and coalesces concurrent calls via single-flight per check. A given check runs at most once per TTL regardless of how many endpoints or concurrent requests are in flight. This prevents probe traffic from amplifying onto your database.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.health</span><span class="w"> </span><span class="kn">import</span> <span class="n">HealthRegistry</span>
@@ -2367,7 +2427,7 @@ GET /healthz?exclude=analytics
 </code></pre></div>
 <p>This mirrors FastAPI's own <code>@app.get("/path")</code> routing style and keeps grelmicro small. Return types are statically checked. <code>JSONEncodable</code> (recursive) includes primitives, <code>datetime</code>, nested <code>dict</code> / <code>list</code> / <code>tuple</code>, and any <code>Mapping</code> subclass. Type checkers (mypy, ty) catch non-serializable returns like <code>bytes</code> or custom objects at authoring time.</p>
 <h3 id="concurrent-execution">Concurrent Execution</h3>
-<p>All selected checks run in parallel via an <code>anyio</code> task group. A slow check does not block other checks. Each check runs with its own timeout (falling back to the registry default).</p>
+<p>All selected checks run in parallel via an <code>asyncio.TaskGroup</code>. A slow check does not block other checks. Each check runs with its own timeout (falling back to the registry default).</p>
 
 
 

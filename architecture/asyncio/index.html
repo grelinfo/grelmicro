@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/sync/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/asyncio/">
       
       
-        <link rel="prev" href="../sync-from-thread/">
+        <link rel="prev" href="../">
       
       
-        <link rel="next" href="../kubernetes/">
+        <link rel="next" href="../backends/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Synchronization Internals - grelmicro</title>
+        <title>Concurrency runtime - grelmicro</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#synchronization-internals" class="md-skip">
+        <a href="#concurrency-runtime" class="md-skip">
           Skip to content
         </a>
       
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Synchronization Internals
+              Concurrency runtime
             
           </span>
         </div>
@@ -1091,10 +1091,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../asyncio/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1110,6 +1137,48 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-asyncio-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why asyncio only
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-means-in-practice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this means in practice
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1259,37 +1328,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Synchronization Internals
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../sync/" class="md-nav__link">
         
   
   
@@ -1305,87 +1347,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#worker-identity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Worker Identity
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#token-generation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Token Generation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#lock-name-and-backend-key" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lock Name and Backend Key
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#lock-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lock Cleanup
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Lock Cleanup">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#backend-specific-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Backend-specific cleanup
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1563,10 +1524,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#worker-identity" class="md-nav__link">
+  <a href="#why-asyncio-only" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worker Identity
+        Why asyncio only
       
     </span>
   </a>
@@ -1574,52 +1535,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#token-generation" class="md-nav__link">
+  <a href="#what-this-means-in-practice" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Token Generation
+        What this means in practice
       
     </span>
   </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#lock-name-and-backend-key" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lock Name and Backend Key
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#lock-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lock Cleanup
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Lock Cleanup">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#backend-specific-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Backend-specific cleanup
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1643,107 +1565,16 @@
   
 
 
-<h1 id="synchronization-internals">Synchronization Internals</h1>
-<p>This page documents the internal design of the <a href="../../sync/">Synchronization Primitives</a>.</p>
-<h2 id="worker-identity">Worker Identity</h2>
-<p>By default, each synchronization primitive (<code>Lock</code>, <code>TaskLock</code>, <code>LeaderElection</code>) generates a unique <strong>worker identity</strong> at instantiation using <code>token_hex(4)</code> (8 random hex characters, 32 bits of entropy) when no explicit <code>worker</code> parameter is provided.</p>
-<p>This provides uniqueness across:</p>
+<h1 id="concurrency-runtime">Concurrency runtime</h1>
+<p>grelmicro targets <code>asyncio</code> directly. Trio and the AnyIO compatibility layer are not supported.</p>
+<h2 id="why-asyncio-only">Why asyncio only</h2>
+<p>asyncio is in the standard library. Every Python web framework grelmicro is meant to plug into (FastAPI, Starlette, Litestar, Sanic, AIOHTTP) runs on asyncio. Targeting one runtime keeps the bridge code small: backends capture the running loop in <code>__aenter__</code> and the sync adapters dispatch through <code>asyncio.run_coroutine_threadsafe</code> with no abstraction in the hot path. See <a href="../sync-from-thread/">Sync from thread</a> for how that bridge works.</p>
+<h2 id="what-this-means-in-practice">What this means in practice</h2>
 <ul>
-<li><strong>Multiple processes</strong> (e.g., <code>uvicorn --workers N</code>): Each worker process imports the application independently, so <code>token_hex(4)</code> is called separately per process with independent randomness.</li>
-<li><strong>Multiple instances</strong> within the same process: Each <code>Lock(...)</code> or <code>TaskLock(...)</code> call generates its own <code>token_hex(4)</code>, producing a different worker identity.</li>
-</ul>
-<div class="admonition warning">
-<p class="admonition-title">Pre-fork servers</p>
-<p>If the ASGI server uses a pre-fork model (forking after the application is loaded), worker identities generated before the fork will be duplicated across child processes. Uvicorn does <strong>not</strong> pre-fork. It spawns workers via <code>subprocess.Popen</code>, so each worker imports the application independently. If using a pre-fork server, pass an explicit <code>worker</code> identity to avoid collisions.</p>
-</div>
-<h2 id="token-generation">Token Generation</h2>
-<p>Lock tokens identify <strong>who</strong> holds a lock. They are derived deterministically from the worker identity and the current execution context using simple string concatenation:</p>
-<table>
-<thead>
-<tr>
-<th>Primitive</th>
-<th>Token</th>
-<th>Scope</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Lock</code></td>
-<td><code>{worker}:task:{task_id}</code></td>
-<td>Per async task</td>
-</tr>
-<tr>
-<td><code>Lock.from_thread</code></td>
-<td><code>{worker}:thread:{thread_id}</code></td>
-<td>Per thread</td>
-</tr>
-<tr>
-<td><code>TaskLock</code></td>
-<td><code>{worker}:task:{task_id}</code></td>
-<td>Per async task</td>
-</tr>
-<tr>
-<td><code>TaskLock.from_thread</code></td>
-<td><code>{worker}:thread:{thread_id}</code></td>
-<td>Per thread</td>
-</tr>
-<tr>
-<td><code>LeaderElection</code></td>
-<td><code>worker</code> directly</td>
-<td>Per process</td>
-</tr>
-</tbody>
-</table>
-<p>This design provides the following guarantees:</p>
-<ul>
-<li><strong>Mutual exclusion</strong>: Different async tasks or threads produce different tokens for the same lock, ensuring only one caller holds the lock at a time.</li>
-<li><strong>Idempotent</strong>: The same async task (or thread) always produces the same deterministic token, so the backend accepts a re-acquire and extends the lease.</li>
-<li><strong>Isolation</strong>: Different lock instances have different worker identities, so their tokens never collide even when used from the same task or thread.</li>
-</ul>
-<h2 id="lock-name-and-backend-key">Lock Name and Backend Key</h2>
-<p>Each synchronization primitive automatically prefixes the user-provided <code>name</code> with a type-specific namespace to form the backend key:</p>
-<table>
-<thead>
-<tr>
-<th>Primitive</th>
-<th>Name</th>
-<th>Backend Key</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Lock("my-resource")</code></td>
-<td><code>my-resource</code></td>
-<td><code>lock:my-resource</code></td>
-</tr>
-<tr>
-<td><code>TaskLock("cleanup")</code></td>
-<td><code>cleanup</code></td>
-<td><code>tasklock:cleanup</code></td>
-</tr>
-<tr>
-<td><code>LeaderElection("main")</code></td>
-<td><code>main</code></td>
-<td><code>leader:main</code></td>
-</tr>
-</tbody>
-</table>
-<p>This prevents accidental collisions between different primitive types sharing the same backend. A <code>Lock("x")</code> and a <code>TaskLock("x")</code> operate on independent backend entries.</p>
-<div class="admonition warning">
-<p class="admonition-title">Breaking change</p>
-<p>Prior versions used the <code>name</code> parameter directly as the backend key without any prefix. After upgrading, existing locks stored in backends (Redis, PostgreSQL) will no longer match. Ensure all running instances are upgraded together so they use the same key format.</p>
-</div>
-<h2 id="lock-cleanup">Lock Cleanup</h2>
-<p>Expired locks are never actively removed during normal operation. Instead, all backends use a <strong>lazy filtering</strong> strategy combined with <strong>cleanup on exit</strong>:</p>
-<ol>
-<li><strong>Lazy filtering</strong>: Every <code>locked()</code>, <code>owned()</code>, and <code>acquire()</code> call includes an expiry check (<code>expire_at &gt;= now</code>), so expired locks are simply ignored without requiring deletion.</li>
-<li><strong>Cleanup on exit</strong>: When the backend context manager exits (<code>__aexit__</code>), all expired locks are deleted in bulk. This keeps storage clean across graceful restarts.</li>
-</ol>
-<p>If the process crashes without exiting the context manager, expired locks remain in storage but are harmless: they will be filtered out by all subsequent operations and cleaned up on the next graceful shutdown.</p>
-<h3 id="backend-specific-cleanup">Backend-specific cleanup</h3>
-<ul>
-<li><strong>SQLite / PostgreSQL</strong>: A single bulk <code>DELETE ... WHERE expire_at &lt; now</code> removes all stale rows before closing the connection.</li>
-<li><strong>Kubernetes</strong>: Lists all Lease resources labeled <code>app.kubernetes.io/managed-by: grelmicro</code> and deletes each expired lease individually. The Kubernetes API does not support bulk conditional deletion. <code>NOT_FOUND</code> errors are silently ignored to handle concurrent deletions.</li>
+<li>Use <code>asyncio.run(main())</code> or <code>uvloop.run(main())</code>. The <code>standard</code> extra ships uvloop on Linux and macOS.</li>
+<li>Sync code that needs to call a primitive uses the per-component sync adapter (<code>lock.from_thread</code>, <code>cb.from_thread</code>, <code>@cached(...)</code>). It does not need a separate runtime bridge.</li>
+<li>grelmicro does not import or depend on AnyIO directly. AnyIO may still be present in the environment transitively (for example through <code>fast-depends</code>), but no grelmicro code uses it.</li>
+<li>The test suite runs on <code>pytest-asyncio</code> with <code>asyncio_mode = "auto"</code>.</li>
 </ul>
 
 

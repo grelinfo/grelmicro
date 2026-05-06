@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/sync/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/sync-from-thread/">
       
       
-        <link rel="prev" href="../sync-from-thread/">
+        <link rel="prev" href="../imports/">
       
       
-        <link rel="next" href="../kubernetes/">
+        <link rel="next" href="../sync/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Synchronization Internals - grelmicro</title>
+        <title>Sync from thread - grelmicro</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#synchronization-internals" class="md-skip">
+        <a href="#sync-from-thread" class="md-skip">
           Skip to content
         </a>
       
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Synchronization Internals
+              Sync from thread
             
           </span>
         </div>
@@ -1231,34 +1231,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../sync-from-thread/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Sync from thread
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -1278,7 +1250,7 @@
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Sync from thread
   
 
     
@@ -1296,7 +1268,7 @@
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Sync from thread
   
 
     
@@ -1322,10 +1294,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#worker-identity" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worker Identity
+        How it works
       
     </span>
   </a>
@@ -1333,10 +1305,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#token-generation" class="md-nav__link">
+  <a href="#usage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Token Generation
+        Usage
       
     </span>
   </a>
@@ -1344,10 +1316,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lock-name-and-backend-key" class="md-nav__link">
+  <a href="#why-every-primitive-has-a-backend-including-circuitbreaker" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lock Name and Backend Key
+        Why every primitive has a backend (including CircuitBreaker)
       
     </span>
   </a>
@@ -1355,30 +1327,24 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lock-cleanup" class="md-nav__link">
+  <a href="#constraints" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lock Cleanup
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Lock Cleanup">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#backend-specific-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Backend-specific cleanup
+        Constraints
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#industry-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Industry alignment
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1386,6 +1352,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synchronization Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1563,10 +1557,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#worker-identity" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worker Identity
+        How it works
       
     </span>
   </a>
@@ -1574,10 +1568,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#token-generation" class="md-nav__link">
+  <a href="#usage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Token Generation
+        Usage
       
     </span>
   </a>
@@ -1585,10 +1579,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lock-name-and-backend-key" class="md-nav__link">
+  <a href="#why-every-primitive-has-a-backend-including-circuitbreaker" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lock Name and Backend Key
+        Why every primitive has a backend (including CircuitBreaker)
       
     </span>
   </a>
@@ -1596,30 +1590,24 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#lock-cleanup" class="md-nav__link">
+  <a href="#constraints" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lock Cleanup
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Lock Cleanup">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#backend-specific-cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Backend-specific cleanup
+        Constraints
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#industry-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Industry alignment
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1643,108 +1631,76 @@
   
 
 
-<h1 id="synchronization-internals">Synchronization Internals</h1>
-<p>This page documents the internal design of the <a href="../../sync/">Synchronization Primitives</a>.</p>
-<h2 id="worker-identity">Worker Identity</h2>
-<p>By default, each synchronization primitive (<code>Lock</code>, <code>TaskLock</code>, <code>LeaderElection</code>) generates a unique <strong>worker identity</strong> at instantiation using <code>token_hex(4)</code> (8 random hex characters, 32 bits of entropy) when no explicit <code>worker</code> parameter is provided.</p>
-<p>This provides uniqueness across:</p>
-<ul>
-<li><strong>Multiple processes</strong> (e.g., <code>uvicorn --workers N</code>): Each worker process imports the application independently, so <code>token_hex(4)</code> is called separately per process with independent randomness.</li>
-<li><strong>Multiple instances</strong> within the same process: Each <code>Lock(...)</code> or <code>TaskLock(...)</code> call generates its own <code>token_hex(4)</code>, producing a different worker identity.</li>
-</ul>
-<div class="admonition warning">
-<p class="admonition-title">Pre-fork servers</p>
-<p>If the ASGI server uses a pre-fork model (forking after the application is loaded), worker identities generated before the fork will be duplicated across child processes. Uvicorn does <strong>not</strong> pre-fork. It spawns workers via <code>subprocess.Popen</code>, so each worker imports the application independently. If using a pre-fork server, pass an explicit <code>worker</code> identity to avoid collisions.</p>
-</div>
-<h2 id="token-generation">Token Generation</h2>
-<p>Lock tokens identify <strong>who</strong> holds a lock. They are derived deterministically from the worker identity and the current execution context using simple string concatenation:</p>
-<table>
-<thead>
-<tr>
-<th>Primitive</th>
-<th>Token</th>
-<th>Scope</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Lock</code></td>
-<td><code>{worker}:task:{task_id}</code></td>
-<td>Per async task</td>
-</tr>
-<tr>
-<td><code>Lock.from_thread</code></td>
-<td><code>{worker}:thread:{thread_id}</code></td>
-<td>Per thread</td>
-</tr>
-<tr>
-<td><code>TaskLock</code></td>
-<td><code>{worker}:task:{task_id}</code></td>
-<td>Per async task</td>
-</tr>
-<tr>
-<td><code>TaskLock.from_thread</code></td>
-<td><code>{worker}:thread:{thread_id}</code></td>
-<td>Per thread</td>
-</tr>
-<tr>
-<td><code>LeaderElection</code></td>
-<td><code>worker</code> directly</td>
-<td>Per process</td>
-</tr>
-</tbody>
-</table>
-<p>This design provides the following guarantees:</p>
-<ul>
-<li><strong>Mutual exclusion</strong>: Different async tasks or threads produce different tokens for the same lock, ensuring only one caller holds the lock at a time.</li>
-<li><strong>Idempotent</strong>: The same async task (or thread) always produces the same deterministic token, so the backend accepts a re-acquire and extends the lease.</li>
-<li><strong>Isolation</strong>: Different lock instances have different worker identities, so their tokens never collide even when used from the same task or thread.</li>
-</ul>
-<h2 id="lock-name-and-backend-key">Lock Name and Backend Key</h2>
-<p>Each synchronization primitive automatically prefixes the user-provided <code>name</code> with a type-specific namespace to form the backend key:</p>
-<table>
-<thead>
-<tr>
-<th>Primitive</th>
-<th>Name</th>
-<th>Backend Key</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Lock("my-resource")</code></td>
-<td><code>my-resource</code></td>
-<td><code>lock:my-resource</code></td>
-</tr>
-<tr>
-<td><code>TaskLock("cleanup")</code></td>
-<td><code>cleanup</code></td>
-<td><code>tasklock:cleanup</code></td>
-</tr>
-<tr>
-<td><code>LeaderElection("main")</code></td>
-<td><code>main</code></td>
-<td><code>leader:main</code></td>
-</tr>
-</tbody>
-</table>
-<p>This prevents accidental collisions between different primitive types sharing the same backend. A <code>Lock("x")</code> and a <code>TaskLock("x")</code> operate on independent backend entries.</p>
-<div class="admonition warning">
-<p class="admonition-title">Breaking change</p>
-<p>Prior versions used the <code>name</code> parameter directly as the backend key without any prefix. After upgrading, existing locks stored in backends (Redis, PostgreSQL) will no longer match. Ensure all running instances are upgraded together so they use the same key format.</p>
-</div>
-<h2 id="lock-cleanup">Lock Cleanup</h2>
-<p>Expired locks are never actively removed during normal operation. Instead, all backends use a <strong>lazy filtering</strong> strategy combined with <strong>cleanup on exit</strong>:</p>
+<h1 id="sync-from-thread">Sync from thread</h1>
+<p>grelmicro is async-first. Every primitive exposes an async API. When a synchronous handler in the host framework needs to call a primitive, grelmicro provides a sync entry point: <code>lock.from_thread</code>, <code>task_lock.from_thread</code>, and <code>cb.from_thread</code> for the locks and circuit breaker, and the <code>@cached(...)</code> decorator on a <code>def</code> function for <code>TTLCache</code>. Each one signals the intent explicitly so async code is never accidentally promoted to sync.</p>
+<h2 id="how-it-works">How it works</h2>
+<p>The synchronous handler runs in a worker thread, with no event loop in scope. The sync adapter cannot <code>await</code>, so it schedules the coroutine on the parent loop with <code>asyncio.run_coroutine_threadsafe(coro, loop).result()</code> and blocks until the result is ready.</p>
+<p>The loop reference is captured on the <strong>backend</strong> when the backend is opened during lifespan startup:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__aenter__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span>
+    <span class="k">return</span> <span class="bp">self</span>
+</code></pre></div>
+<p>Each primitive reads the loop through its bound backend (<code>self.backend._loop</code>) when its sync adapter is invoked. No globals, zero hot-path overhead on the async API.</p>
+<h2 id="usage">Usage</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">lifespan</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemorySyncBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">use_backend</span>
+
+<span class="n">use_backend</span><span class="p">(</span><span class="n">MemorySyncBackend</span><span class="p">())</span>
+<span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@asynccontextmanager</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">app_lifespan</span><span class="p">(</span><span class="n">app</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">lifespan</span><span class="p">():</span>       <span class="c1"># opens every registered backend</span>
+        <span class="k">yield</span>
+
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/async-route&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">async_route</span><span class="p">():</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
+        <span class="o">...</span>
+
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/sync-route&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sync_route</span><span class="p">():</span>                <span class="c1"># runs in a worker thread</span>
+    <span class="k">with</span> <span class="n">lock</span><span class="o">.</span><span class="n">from_thread</span><span class="p">:</span>
+        <span class="o">...</span>
+</code></pre></div>
+<h2 id="why-every-primitive-has-a-backend-including-circuitbreaker">Why every primitive has a backend (including CircuitBreaker)</h2>
+<p><code>CircuitBreaker</code> performs no I/O today. It still has a backend so:</p>
 <ol>
-<li><strong>Lazy filtering</strong>: Every <code>locked()</code>, <code>owned()</code>, and <code>acquire()</code> call includes an expiry check (<code>expire_at &gt;= now</code>), so expired locks are simply ignored without requiring deletion.</li>
-<li><strong>Cleanup on exit</strong>: When the backend context manager exits (<code>__aexit__</code>), all expired locks are deleted in bulk. This keeps storage clean across graceful restarts.</li>
+<li><strong>Lifespan ownership.</strong> The in-memory backend resets every breaker bound to it on close, so process-level state is freed deterministically.</li>
+<li><strong>Loop capture.</strong> The sync adapter dispatches through <code>backend._loop</code>, the same pattern used by every other primitive. One mental model.</li>
+<li><strong>Forward compatibility.</strong> A future Redis-backed circuit breaker (issue #188) shares state across replicas. Switching is a backend swap, not an API change.</li>
 </ol>
-<p>If the process crashes without exiting the context manager, expired locks remain in storage but are harmless: they will be filtered out by all subsequent operations and cleaned up on the next graceful shutdown.</p>
-<h3 id="backend-specific-cleanup">Backend-specific cleanup</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">use_circuit_breaker_backend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerBackend</span>
+
+<span class="n">use_circuit_breaker_backend</span><span class="p">(</span><span class="n">MemoryCircuitBreakerBackend</span><span class="p">())</span>
+
+<span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;payment&quot;</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">async_route</span><span class="p">():</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">cb</span><span class="p">:</span>
+        <span class="o">...</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">sync_route</span><span class="p">():</span>
+    <span class="k">with</span> <span class="n">cb</span><span class="o">.</span><span class="n">from_thread</span><span class="p">:</span>
+        <span class="o">...</span>
+</code></pre></div>
+<h2 id="constraints">Constraints</h2>
 <ul>
-<li><strong>SQLite / PostgreSQL</strong>: A single bulk <code>DELETE ... WHERE expire_at &lt; now</code> removes all stale rows before closing the connection.</li>
-<li><strong>Kubernetes</strong>: Lists all Lease resources labeled <code>app.kubernetes.io/managed-by: grelmicro</code> and deletes each expired lease individually. The Kubernetes API does not support bulk conditional deletion. <code>NOT_FOUND</code> errors are silently ignored to handle concurrent deletions.</li>
+<li><strong>The backend must be opened.</strong> <code>async with backend:</code> (or <code>async with grelmicro.lifespan():</code>) captures the loop. Without it, the sync adapter raises <code>AttributeError</code> because <code>backend._loop</code> is <code>None</code>.</li>
+<li><strong>Same loop for the lifetime of the backend.</strong> Sync calls dispatch to the loop the backend was opened on.</li>
+<li><strong>Async is the default API.</strong> Use <code>with cb.from_thread:</code> only inside a sync handler, to make the boundary explicit.</li>
 </ul>
+<h2 id="industry-alignment">Industry alignment</h2>
+<p>Per-resource loop reference is the same pattern used by <code>redis-py</code> (loop on the connection pool), <code>aioredis</code>, <code>httpx</code> sync wrapper, and SQLAlchemy <code>AsyncEngine</code>. It scales naturally to PEP 703 free-threaded Python: each backend instance carries its own loop reference, so multiple loops in the same process do not conflict.</p>
 
 
 

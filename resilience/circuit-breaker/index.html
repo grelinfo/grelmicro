@@ -1155,6 +1155,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1202,6 +1206,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1303,6 +1335,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -1674,16 +1734,16 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">sync_context_manager</span><span class="p">():</span>
     <span class="k">with</span> <span class="n">circuit_breaker</span><span class="o">.</span><span class="n">from_thread</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service from AnyIO worker thread...&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service from a worker thread...&quot;</span><span class="p">)</span>
 
 
 <span class="nd">@circuit_breaker</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">sync_call</span><span class="p">():</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service from AnyIO worker thread...&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling external service from a worker thread...&quot;</span><span class="p">)</span>
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Thread safety</p>
-<p>The Circuit Breaker is not thread-safe. Decorated sync functions or <code>from_thread</code> methods ensure state changes run safely within the async event loop. Threaded usage is supported only in AnyIO worker threads and may be slower than pure async usage.</p>
+<p>The Circuit Breaker is not thread-safe. The async API (<code>async with cb:</code> or <code>@cb</code> on <code>async def</code>) is the default. From a synchronous handler running in a worker thread (for example a sync route in your web framework), use <code>with cb.from_thread:</code> or apply <code>@cb</code> to a sync function. The adapter dispatches state changes onto the parent event loop captured by the backend, so calls stay serialized. See <a href="../../architecture/sync-from-thread/">Sync from thread</a>.</p>
 </div>
 <p>See the <a href="../../reference/resilience/#grelmicro.resilience.CircuitBreaker">API reference</a> for every option.</p>
 <h2 id="configuration">Configuration</h2>

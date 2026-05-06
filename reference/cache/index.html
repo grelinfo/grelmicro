@@ -1687,6 +1687,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1734,6 +1738,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1835,6 +1867,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -2730,6 +2790,9 @@
 <p>All methods are async because backends typically perform I/O.
 Backends are pure key-value stores: TTL, eviction, and statistics
 are managed by <code>TTLCache</code>.</p>
+<p>Implementations capture the running event loop on <code>__aenter__</code>
+in a <code>_loop</code> attribute so the sync <code>@cached</code> wrapper can
+dispatch coroutines back into it.</p>
 
 
 

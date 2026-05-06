@@ -1556,6 +1556,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1603,6 +1607,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1704,6 +1736,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -2481,7 +2541,7 @@
 <p>The leader election is a synchronization primitive with the worker as scope.
 It runs as a task to acquire or renew the distributed lock.</p>
 <p>Supports live reconfiguration via
-[<code>reconfigure</code>][grelmicro._config.Reconfigurable.reconfigure].
+<code>reconfigure(new_config)</code>.
 A swap takes effect on the next renew loop iteration. The
 <code>worker</code> field cannot change. Changing it raises <code>ValueError</code>.
 See <a href="../../architecture/reconfigure/">Live reconfiguration</a>.</p>
@@ -3081,7 +3141,7 @@ the guard skips the current tick and retries on the next interval.</p>
 lock is acquired asynchronously and can be extended multiple times manually. The lock is
 automatically released after a duration if not extended.</p>
 <p>Supports live reconfiguration via
-[<code>reconfigure</code>][grelmicro._config.Reconfigurable.reconfigure].
+<code>reconfigure(new_config)</code>.
 A swap takes effect on the next call. In-flight calls keep the
 config they started with. The <code>worker</code> field cannot change.
 Changing it raises <code>ValueError</code>. See
@@ -3347,7 +3407,7 @@ overrides take effect.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Return the lock adapter for worker thread.</p>
+        <p>Return the lock adapter for a worker thread.</p>
 
     </div>
 
@@ -3561,7 +3621,7 @@ path is bypassed and the config is used as-is.</p>
           <tr class="doc-section-item">
             <td>
               <span class="doc-raises-annotation">
-                  <code><span title="anyio.WouldBlock">WouldBlock</span></code>
+                  <code><span title="grelmicro.errors.WouldBlockError">WouldBlockError</span></code>
               </span>
             </td>
             <td class="doc-raises-details">
@@ -4043,8 +4103,8 @@ runs concurrently.</p>
     <div class="doc doc-contents ">
 
         <p>Acquire the lock from a worker thread (blocking).</p>
-<p>Runs on the event loop so the reentrant check and backend acquire are
-atomic with respect to other threads.</p>
+<p>Runs on the event loop so the reentrant check and backend acquire
+are atomic with respect to other threads.</p>
 
 
 <table>
@@ -4105,8 +4165,8 @@ atomic with respect to other threads.</p>
     <div class="doc doc-contents ">
 
         <p>Acquire the lock from a worker thread (non-blocking).</p>
-<p>Runs on the event loop so the reentrant check and backend acquire are
-atomic with respect to other threads.</p>
+<p>Runs on the event loop so the reentrant check and backend acquire
+are atomic with respect to other threads.</p>
 
 
 <table>
@@ -4132,7 +4192,7 @@ atomic with respect to other threads.</p>
           <tr class="doc-section-item">
             <td>
               <span class="doc-raises-annotation">
-                  <code><span title="anyio.WouldBlock">WouldBlock</span></code>
+                  <code><span title="grelmicro.errors.WouldBlockError">WouldBlockError</span></code>
               </span>
             </td>
             <td class="doc-raises-details">
@@ -4396,7 +4456,7 @@ on other nodes.</p>
 The lock relies entirely on the TTL (<code>max_lock_seconds</code>) set at acquire time.</p>
 <p>This lock is designed to be used as the <code>sync</code> parameter of <code>IntervalTask</code>.</p>
 <p>Supports live reconfiguration via
-[<code>reconfigure</code>][grelmicro._config.Reconfigurable.reconfigure].
+<code>reconfigure(new_config)</code>.
 A swap takes effect on the next call. An exit re-acquire uses
 the config the call entered with. The <code>worker</code> field cannot
 change. Changing it raises <code>ValueError</code>. See
@@ -5132,7 +5192,7 @@ threads.</p>
           <tr class="doc-section-item">
             <td>
               <span class="doc-raises-annotation">
-                  <code><span title="anyio.WouldBlock">WouldBlock</span></code>
+                  <code><span title="grelmicro.errors.WouldBlockError">WouldBlockError</span></code>
               </span>
             </td>
             <td class="doc-raises-details">

@@ -1181,6 +1181,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1228,6 +1232,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1329,6 +1361,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -1673,10 +1733,6 @@
 <div class="admonition tip">
 <p class="admonition-title">Install</p>
 <p>The Redis backend needs the <code>redis</code> extra: <code>pip install "grelmicro[redis]"</code>. See the <a href="../installation/">installation guide</a> for <code>uv</code> and <code>poetry</code>.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Although grelmicro uses AnyIO for concurrency, the backends generally depend on <code>asyncio</code>, therefore Trio is not supported.</p>
 </div>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Memory</label><label for="__tabbed_1_2">Redis</label></div>
 <div class="tabbed-content">

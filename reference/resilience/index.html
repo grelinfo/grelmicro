@@ -1016,6 +1016,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#grelmicro.resilience.CircuitBreaker.backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.resilience.CircuitBreaker.from_thread" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2135,6 +2146,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2182,6 +2197,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/asyncio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concurrency runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -2283,6 +2326,34 @@
     
   
     Import Strategy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/sync-from-thread/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync from thread
   
 
     
@@ -2529,6 +2600,17 @@
   
     <nav class="md-nav" aria-label=" CircuitBreaker">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.CircuitBreaker.backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;backend
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#grelmicro.resilience.CircuitBreaker.from_thread" class="md-nav__link">
@@ -3652,6 +3734,7 @@
     <span class="n">log_level</span><span class="p">:</span> <span class="n"><span title="grelmicro._types.LogLevel">LogLevel</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">read_env</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.resilience._protocol.CircuitBreakerBackend">CircuitBreakerBackend</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -3666,7 +3749,7 @@
 a protected service and blocks them when the service is
 failing, to avoid cascading errors.</p>
 <p>Supports live reconfiguration via
-[<code>reconfigure</code>][grelmicro._config.Reconfigurable.reconfigure].
+<code>reconfigure(new_config)</code>.
 A swap takes effect on the next call. In-flight calls keep the
 config they entered with. The current state, counters, and
 <code>last_error</code> are kept. A new <code>log_level</code> is applied to the
@@ -3880,6 +3963,31 @@ override the flag for this construction.</p>
               </p>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>backend</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The circuit breaker backend that owns the lifespan
+and (in a future Redis-backed implementation) the
+shared state.</p>
+<p>Accepts a backend instance, the name of a registered
+backend (e.g. <code>"analytics"</code>), or <code>None</code> to use the
+registered <code>"default"</code> backend.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="grelmicro.resilience._protocol.CircuitBreakerBackend">CircuitBreakerBackend</span> | <span title="str">str</span> | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -3905,6 +4013,33 @@ override the flag for this construction.</p>
 
 
 
+<h4 id="grelmicro.resilience.CircuitBreaker.backend" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">backend</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.resilience._protocol.CircuitBreakerBackend">CircuitBreakerBackend</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Bound circuit breaker backend, resolved on each call.</p>
+<p>When a backend instance was passed at construction it is
+always returned. Otherwise the registry is consulted on
+every access so that scoped overrides take effect.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
 <h4 id="grelmicro.resilience.CircuitBreaker.from_thread" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">from_thread</span>
 
@@ -3919,7 +4054,10 @@ override the flag for this construction.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Return the lock adapter for worker thread.</p>
+        <p>Sync adapter for use from a worker thread.</p>
+<p>Use it from a synchronous handler that the host framework runs
+in a worker thread. The adapter signals the intent explicitly
+so the async API stays the documented default.</p>
 
     </div>
 
@@ -4037,7 +4175,10 @@ override the flag for this construction.</p>
 
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_config</span><span class="p">(</span>
-    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreakerConfig">CircuitBreakerConfig</span></span>
+    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker.CircuitBreakerConfig">CircuitBreakerConfig</span></span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.resilience._protocol.CircuitBreakerBackend">CircuitBreakerBackend</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -4089,6 +4230,26 @@ bypassed and the config is used as-is.</p>
               </p>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>backend</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The circuit breaker backend.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="grelmicro.resilience._protocol.CircuitBreakerBackend">CircuitBreakerBackend</span> | <span title="str">str</span> | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -4124,10 +4285,6 @@ bypassed and the config is used as-is.</p>
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">restart</span>
 
 
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
-
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">restart</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
@@ -4147,10 +4304,6 @@ bypassed and the config is used as-is.</p>
 <h4 id="grelmicro.resilience.CircuitBreaker.transition_to_closed" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">transition_to_closed</span>
 
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
 
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">transition_to_closed</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
@@ -4172,10 +4325,6 @@ bypassed and the config is used as-is.</p>
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">transition_to_open</span>
 
 
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
-
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">transition_to_open</span><span class="p">(</span><span class="n">until</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
@@ -4195,10 +4344,6 @@ bypassed and the config is used as-is.</p>
 <h4 id="grelmicro.resilience.CircuitBreaker.transition_to_half_open" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">transition_to_half_open</span>
 
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
 
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">transition_to_half_open</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
@@ -4220,10 +4365,6 @@ bypassed and the config is used as-is.</p>
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">transition_to_forced_open</span>
 
 
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
-
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">transition_to_forced_open</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
@@ -4243,10 +4384,6 @@ bypassed and the config is used as-is.</p>
 <h4 id="grelmicro.resilience.CircuitBreaker.transition_to_forced_closed" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">transition_to_forced_closed</span>
 
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-async"><code>async</code></small>
-  </span>
 
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">transition_to_forced_closed</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
@@ -7374,7 +7511,7 @@ token bucket is a common choice for bursty rate limiting.</p>
 
     <div class="doc doc-contents first">
 
-        <p>Memory Rate Limiter Backend and standalone primitives.</p>
+        <p>Memory Resilience Backends and standalone primitives.</p>
 
 
 
