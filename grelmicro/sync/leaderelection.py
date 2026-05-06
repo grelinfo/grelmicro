@@ -88,7 +88,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
     It runs as a task to acquire or renew the distributed lock.
 
     Supports live reconfiguration via
-    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    `reconfigure(new_config)`.
     A swap takes effect on the next renew loop iteration. The
     `worker` field cannot change. Changing it raises `ValueError`.
     See [Live reconfiguration](../architecture/reconfigure.md).

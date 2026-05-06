@@ -99,7 +99,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
     share a single execution via an ``asyncio.Event``.
 
     Supports live reconfiguration via
-    [`reconfigure`][grelmicro._config.Reconfigurable.reconfigure].
+    `reconfigure(new_config)`.
     A swap takes effect on the next :meth:`run`. In-flight rounds
     keep the ``cache_ttl`` they started with. The new default
     ``timeout`` applies to checks registered after the swap.
