@@ -15,7 +15,7 @@ The key features are:
 
 ## Task Manager
 
-The `TaskManager` class is the main entry point to manage tasks. Start it using the application lifespan:
+The `TaskManager` class is the main entry point to manage tasks. Register it with `grelmicro.task.use_manager()` and let `grelmicro.lifespan()` start and stop it with every other grelmicro component.
 
 === "FastAPI"
 
@@ -26,7 +26,6 @@ The `TaskManager` class is the main entry point to manage tasks. Start it using 
 === "FastStream"
 
     ```python
-
     --8<-- "task/faststream.py"
     ```
 

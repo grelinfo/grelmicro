@@ -3,14 +3,16 @@ from contextlib import asynccontextmanager
 from faststream import ContextRepo, FastStream
 from faststream.redis import RedisBroker
 
-from grelmicro.task import TaskManager
+import grelmicro
+import grelmicro.task
 
-task = TaskManager()
+manager = grelmicro.task.TaskManager()
+grelmicro.task.use_manager(manager)
 
 
 @asynccontextmanager
 async def lifespan(context: ContextRepo):
-    async with task:
+    async with grelmicro.lifespan():
         yield
 
 

@@ -2,14 +2,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from grelmicro.task import TaskManager
+import grelmicro
+import grelmicro.task
 
-task = TaskManager()
+manager = grelmicro.task.TaskManager()
+grelmicro.task.use_manager(manager)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with task:
+    async with grelmicro.lifespan():
         yield
 
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add `grelmicro.task.use_manager(manager)`. `grelmicro.lifespan()` now starts and stops the registered `TaskManager` alongside every other component. The full helper set (`register`, `unregister`, `use_manager`, `use`) mirrors `grelmicro.sync.*`. Issue [#184](https://github.com/grelinfo/grelmicro/issues/184).
+
 ## 0.21.0 - 2026-05-06
 
 ### Breaking
