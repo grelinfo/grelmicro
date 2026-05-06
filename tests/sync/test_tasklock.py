@@ -22,7 +22,7 @@ from grelmicro.sync.lock import Lock, LockConfig
 from grelmicro.sync.memory import MemorySyncBackend
 from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
+pytestmark = [pytest.mark.timeout(10)]
 
 LOCK_NAME = "test_task_lock"
 BACKEND_LOCK_NAME = f"tasklock:{LOCK_NAME}"

@@ -22,7 +22,6 @@ def backend() -> SyncBackend:
     return MemorySyncBackend()
 
 
-@pytest.mark.anyio
 async def test_release_is_noop_when_backend_was_never_resolved() -> None:
     """`_release` returns silently when no backend was ever bound."""
     le = LeaderElection("svc")

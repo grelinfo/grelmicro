@@ -12,7 +12,7 @@ from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import CacheInfo, TTLCache
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
+pytestmark = [pytest.mark.timeout(10)]
 
 EXPECTED_HITS_2 = 2
 EXPECTED_OVERWRITE_VALUE = 10

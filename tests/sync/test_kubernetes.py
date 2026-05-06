@@ -20,7 +20,7 @@ from grelmicro.sync.kubernetes import (
     _sanitize_lease_name,
 )
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(1)]
 
 TOKEN = "test-token"  # noqa: S105
 

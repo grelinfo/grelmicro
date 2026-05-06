@@ -23,7 +23,7 @@ from grelmicro.health.fastapi import health_router
 
 from .conftest import healthy, healthy_with_details, unhealthy
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
+pytestmark = [pytest.mark.timeout(10)]
 
 
 @pytest.fixture(autouse=True)

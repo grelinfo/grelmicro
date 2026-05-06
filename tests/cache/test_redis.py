@@ -11,7 +11,7 @@ from grelmicro.cache._backends import cache_backend_registry, get_cache_backend
 from grelmicro.cache.errors import CacheSettingsValidationError
 from grelmicro.cache.redis import RedisCacheBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(1)]
 
 URL = "redis://:test_password@test_host:1234/0"
 

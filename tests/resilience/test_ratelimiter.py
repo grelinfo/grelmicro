@@ -31,7 +31,7 @@ async def checkpoint() -> None:
     await asyncio.sleep(0)
 
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(1)]
 
 LIMIT = 5
 WINDOW = 60.0
@@ -58,7 +58,7 @@ def _sync_backend() -> MemoryRateLimiterBackend:
     """Create and register a memory backend for sync-only tests.
 
     Sync tests can't consume the async `_backend` fixture
-    (pytest-anyio doesn't bridge them).
+    (pytest-asyncio doesn't bridge them).
     """
     backend = MemoryRateLimiterBackend()
     rate_limiter_backend_registry.register(backend, "default")

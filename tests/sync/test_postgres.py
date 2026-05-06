@@ -7,7 +7,7 @@ from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.postgres import PostgresSyncBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(1)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 URL_DEFAULT_PORT = "postgresql://test_user:test_password@test_host:5432/test_db"

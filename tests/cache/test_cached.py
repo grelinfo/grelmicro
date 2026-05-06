@@ -12,7 +12,7 @@ from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(10)]
+pytestmark = [pytest.mark.timeout(10)]
 
 EXPECTED_DOUBLE_5 = 10
 EXPECTED_CALL_COUNT_1 = 1

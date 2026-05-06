@@ -9,7 +9,7 @@ from grelmicro.cache import use_backend
 from grelmicro.cache._backends import cache_backend_registry, get_cache_backend
 from grelmicro.cache.memory import MemoryCacheBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(5)]
+pytestmark = [pytest.mark.timeout(5)]
 
 
 class TestMemoryCacheBackendGet:

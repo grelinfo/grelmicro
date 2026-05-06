@@ -13,16 +13,10 @@ from grelmicro.cache.redis import RedisCacheBackend
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.timeout(30)]
 
 
 # --- Fixtures (parametrized across backends) ---
-
-
-@pytest.fixture(scope="module")
-def anyio_backend() -> str:
-    """AnyIO Backend Module Scope."""
-    return "asyncio"
 
 
 @pytest.fixture(

@@ -2,11 +2,11 @@
 
 import tempfile
 import time as time_module
+from asyncio import sleep
 from collections.abc import AsyncGenerator, Callable, Generator
 from uuid import uuid4
 
 import pytest
-from anyio import sleep
 from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
@@ -21,7 +21,7 @@ from grelmicro.sync.postgres import PostgresSyncBackend
 from grelmicro.sync.redis import RedisSyncBackend
 from grelmicro.sync.sqlite import SQLiteSyncBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.timeout(30)]
 
 
 def _wait_for_k3s(
@@ -46,12 +46,6 @@ def _extract_kubeconfig(container: DockerContainer) -> str:
         msg = "Failed to extract kubeconfig"
         raise RuntimeError(msg)
     return output.decode()
-
-
-@pytest.fixture(scope="module")
-def anyio_backend() -> str:
-    """AnyIO Backend Module Scope."""
-    return "asyncio"
 
 
 @pytest.fixture(scope="module")

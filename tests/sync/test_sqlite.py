@@ -7,7 +7,7 @@ from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.sqlite import SQLiteSyncBackend
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(1)]
+pytestmark = [pytest.mark.timeout(1)]
 
 
 @pytest.mark.parametrize(

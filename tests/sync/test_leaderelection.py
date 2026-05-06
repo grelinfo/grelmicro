@@ -21,7 +21,7 @@ WORKER_1 = 0
 WORKER_2 = 1
 TEST_TIMEOUT = 1
 
-pytestmark = [pytest.mark.anyio, pytest.mark.timeout(TEST_TIMEOUT)]
+pytestmark = [pytest.mark.timeout(TEST_TIMEOUT)]
 
 
 @pytest.fixture
