@@ -8,7 +8,7 @@ All backends use **async** methods because they perform network or disk I/O (Red
 
 ## Design
 
-`BackendRegistry[T]` is a generic, typed, multi-name container with task-scoped overrides. Each module maintains its own registry. The registry key matches the module name and is the value to use in `lifespan(exclude={...})`:
+`BackendRegistry[T]` is a generic, typed, multi-name container with task-scoped overrides. Each module owns one or more registries. The registry key is the value to use in `lifespan(exclude={...})` and follows the module path: a single-registry module reuses the module name (`sync`, `cache`, `health`), and modules with multiple registries add a suffix (`resilience.ratelimiter`, `resilience.circuitbreaker`).
 
 | Module | Registry key | Protocol / Type | Backends |
 |---|---|---|---|
