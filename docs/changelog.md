@@ -8,6 +8,7 @@
 * ✨ Add `Sync` module. Wraps a `SyncBackend` and exposes `lock(...)`, `task_lock(...)`, `leader_election(...)` factories. Use it via `Grelmicro(uses=[Sync(RedisSyncAdapter(...))])` and reach it on `micro.sync`. Issue [#210](https://github.com/grelinfo/grelmicro/issues/210).
 * ✨ Add `Cache` module. Wraps a `CacheBackend` and exposes a `ttl(...)` factory that builds a `TTLCache` bound to the wrapped backend. Use it via `Grelmicro(uses=[Cache(RedisCacheAdapter(...))])` and reach it on `micro.cache`. Issue [#212](https://github.com/grelinfo/grelmicro/issues/212).
 * ✨ Add `Grelmicro.current()` classmethod for ambient lookup. Inside `async with micro:` it returns the active app for the current asyncio task. Matches Tokio's `Handle::current()` shape.
+* ✨ Add `Retry` primitive with decorator, block, and class forms. Two backoff algorithms ship: `ExponentialBackoffConfig` (AWS recipe: exponential + full jitter) and `ConstantBackoffConfig`. `on=` is required (class, tuple, or callable predicate). Live reconfiguration via `Reconfigurable[RetryConfig]`. Three-paths configuration. Underlying exception is re-raised with a PEP 678 note on exhaustion. Issue [#165](https://github.com/grelinfo/grelmicro/issues/165).
 
 ### Breaking
 

@@ -71,6 +71,7 @@ nav:
         - resilience/index.md
         - resilience/circuit-breaker.md
         - resilience/rate-limiter.md
+        - resilience/retry.md
     - sync.md
     - task.md
 - API Reference:

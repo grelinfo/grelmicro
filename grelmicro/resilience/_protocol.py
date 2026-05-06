@@ -1,4 +1,4 @@
-"""Rate Limiter and Circuit Breaker Backend Protocols."""
+"""Rate Limiter, Circuit Breaker, and Retry Protocols."""
 
 from types import TracebackType
 from typing import TYPE_CHECKING, NamedTuple, Protocol, Self
@@ -7,6 +7,26 @@ from grelmicro.resilience.algorithms import RateLimiterConfig
 
 if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker import CircuitBreaker
+
+
+class RetryStrategy(Protocol):
+    """A retry strategy for a specific backoff algorithm.
+
+    Built once per retry loop from a backoff config. The strategy
+    holds any state the algorithm needs (for example the previous
+    delay for decorrelated jitter) and computes one delay per
+    upcoming attempt.
+    """
+
+    def delay(self, attempt: int) -> float:
+        """Return the delay in seconds before retry ``attempt``.
+
+        ``attempt`` is the upcoming retry number. ``attempt=1`` is
+        the delay before the first retry (after the initial call
+        failed). The strategy may apply jitter and clamp to its
+        configured maximum.
+        """
+        ...
 
 
 class RateLimitResult(NamedTuple):
