@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from grelmicro import Grelmicro, Module
 from grelmicro.sync import LeaderElection, Lock, Sync, TaskLock
 from grelmicro.sync.memory import MemorySyncBackend
@@ -80,6 +82,38 @@ async def test_sync_lock_via_micro_attribute() -> None:
     micro = Grelmicro(modules=[Sync(MemorySyncBackend())])
     async with micro, micro.sync.lock("cart"):
         pass
+
+
+async def test_micro_sync_prefers_default_when_named_also_registered() -> None:
+    """`micro.sync` resolves to the `(sync, default)` module even after named registrations."""
+    primary = MemorySyncBackend()
+    analytics = MemorySyncBackend()
+    micro = Grelmicro(
+        modules=[
+            Sync(primary),
+            Sync(analytics, name="analytics"),
+        ]
+    )
+    assert micro.sync.backend is primary
+
+
+async def test_micro_sync_returns_sole_entry_when_no_default() -> None:
+    """`micro.sync` returns the only registered Sync when no default exists."""
+    only = MemorySyncBackend()
+    micro = Grelmicro(modules=[Sync(only, name="primary")])
+    assert micro.sync.backend is only
+
+
+async def test_micro_sync_raises_when_ambiguous() -> None:
+    """`micro.sync` raises when multiple non-default modules exist with no default."""
+    micro = Grelmicro(
+        modules=[
+            Sync(MemorySyncBackend(), name="primary"),
+            Sync(MemorySyncBackend(), name="analytics"),
+        ]
+    )
+    with pytest.raises(AttributeError, match="multiple 'sync' modules"):
+        _ = micro.sync
 
 
 async def test_sync_multi_backend_named_lookup() -> None:
