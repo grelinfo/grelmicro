@@ -480,3 +480,71 @@ async def test_attempts_one_runs_once_no_retry(
     with pytest.raises(ValueError, match="boom"):
         await fn()
     assert len(calls) == 1
+
+
+# --- Env-driven configuration ---------------------------------------------
+
+
+async def test_env_populates_attempts_and_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`GREL_RETRY_{NAME}_ATTEMPTS` and `_ON` populate unset fields."""
+    monkeypatch.setenv("GREL_RETRY_PAYMENTS_ATTEMPTS", "7")
+    monkeypatch.setenv("GREL_RETRY_PAYMENTS_ON", "builtins.ValueError")
+    policy = Retry("payments")  # type: ignore[call-arg]
+    expected_attempts = 7
+    assert policy.config.attempts == expected_attempts
+    assert policy.config.on == (ValueError,)
+
+
+async def test_env_backoff_via_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`GREL_RETRY_{NAME}_BACKOFF` accepts a JSON object."""
+    monkeypatch.setenv("GREL_RETRY_FOO_ATTEMPTS", "3")
+    monkeypatch.setenv("GREL_RETRY_FOO_ON", "builtins.ValueError")
+    monkeypatch.setenv(
+        "GREL_RETRY_FOO_BACKOFF", '{"type":"constant","delay":2.5}'
+    )
+    policy = Retry("foo")  # type: ignore[call-arg]
+    assert isinstance(policy.config.backoff, ConstantBackoffConfig)
+    expected_delay = 2.5
+    assert policy.config.backoff.delay == expected_delay
+
+
+async def test_kwargs_override_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Caller kwargs win over env."""
+    monkeypatch.setenv("GREL_RETRY_BAR_ATTEMPTS", "9")
+    policy = Retry("bar", on=ValueError, attempts=_TWO)
+    assert policy.config.attempts == _TWO
+
+
+async def test_from_config_bypasses_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`Retry.from_config()` ignores env even when set."""
+    monkeypatch.setenv("GREL_RETRY_BAZ_ATTEMPTS", "9")
+    cfg = RetryConfig(attempts=_TWO, on=(ValueError,))  # ty: ignore[missing-argument]
+    policy = Retry.from_config("baz", cfg)
+    assert policy.config.attempts == _TWO
+
+
+# --- BaseException safety -------------------------------------------------
+
+
+async def test_cancellederror_propagates_even_with_broad_filter(
+    fast_constant: ConstantBackoffConfig,
+) -> None:
+    """`asyncio.CancelledError` propagates regardless of the filter."""
+    calls: list[int] = []
+
+    @retry(
+        on=lambda exc: True,  # noqa: ARG005  # would match anything
+        attempts=_FIVE,
+        backoff=fast_constant,
+    )
+    async def fn() -> None:
+        calls.append(1)
+        raise _asyncio.CancelledError
+
+    with pytest.raises(_asyncio.CancelledError):
+        await fn()
+    assert len(calls) == 1

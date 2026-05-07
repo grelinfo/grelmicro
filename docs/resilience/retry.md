@@ -78,11 +78,17 @@ Prefix: `GREL_RETRY_{NAME_UPPER}_`
 |---|---|---|---|
 | `GREL_RETRY_{NAME_UPPER}_ATTEMPTS` | `attempts` | `int` (>= 1) | `3` |
 | `GREL_RETRY_{NAME_UPPER}_ON` | `on` | CSV or JSON list of FQN strings (e.g. `httpx.HTTPError`) | required |
-| `GREL_RETRY_{NAME_UPPER}_BACKOFF` | `backoff.type` | `exponential` or `constant` | `exponential` |
-| `GREL_RETRY_{NAME_UPPER}_BASE_DELAY` | `backoff.base_delay` (exponential only) | `float` (> 0) | `0.1` |
-| `GREL_RETRY_{NAME_UPPER}_MAX_DELAY` | `backoff.max_delay` (exponential only) | `float` (> 0) | `30.0` |
-| `GREL_RETRY_{NAME_UPPER}_JITTER` | `backoff.jitter` (exponential only) | `none` / `full` / `decorrelated` | `full` |
-| `GREL_RETRY_{NAME_UPPER}_DELAY` | `backoff.delay` (constant only) | `float` (> 0) | `1.0` |
+| `GREL_RETRY_{NAME_UPPER}_BACKOFF` | `backoff` | JSON object with a `type` field (see below) | `{"type":"exponential"}` |
+
+The full backoff config is a discriminated Pydantic union, so the env value is parsed as one JSON object. Each algorithm accepts the same fields it takes in code:
+
+| `type` | Fields |
+|---|---|
+| `exponential` | `base_delay`, `max_delay`, `jitter` (`none` / `full` / `equal` / `decorrelated`) |
+| `constant` | `delay` |
+| `linear` | `base_delay`, `max_delay` |
+| `fibonacci` | `base_delay`, `max_delay` |
+| `random` | `min_delay`, `max_delay` |
 
 ```python
 --8<-- "resilience/retry_environmental.py"

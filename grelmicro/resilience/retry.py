@@ -24,6 +24,7 @@ from pydantic import (
     ImportString,
     PositiveFloat,
     PositiveInt,
+    field_validator,
 )
 from pydantic_settings import NoDecode
 from typing_extensions import Doc
@@ -54,23 +55,24 @@ logger = getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
 
 ExceptionFilter = (
-    type[BaseException]
-    | tuple[type[BaseException], ...]
-    | Callable[[BaseException], bool]
+    type[Exception] | tuple[type[Exception], ...] | Callable[[Exception], bool]
 )
 """User-facing filter accepted by ``on=``.
 
-A class, a tuple of classes, or a predicate callable.
+A class, a tuple of classes, or a predicate callable. ``BaseException``
+subclasses outside ``Exception`` (``CancelledError``, ``KeyboardInterrupt``,
+``SystemExit``) are never retried, regardless of the filter, so cooperative
+cancellation and shutdown signals always propagate.
 """
 
 
-Matcher = Callable[[BaseException], bool]
+Matcher = Callable[[Exception], bool]
 """Compiled exception matcher: takes an exception, returns True to retry."""
 
 
 def _normalize_filter(
     on: ExceptionFilter,
-) -> tuple[type[BaseException], ...] | Callable[[BaseException], bool]:
+) -> tuple[type[Exception], ...] | Callable[[Exception], bool]:
     """Normalize ``on`` to a tuple of classes or a predicate."""
     if isinstance(on, type):
         return (on,)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
@@ -78,7 +80,7 @@ def _normalize_filter(
 
 
 def _build_matcher(
-    on: tuple[type[BaseException], ...] | Callable[[BaseException], bool],
+    on: tuple[type[Exception], ...] | Callable[[Exception], bool],
 ) -> Matcher:
     """Compile ``on`` into a single-call matcher.
 
@@ -111,14 +113,14 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
     ] = 3
 
     on: Annotated[
-        tuple[ImportString[type[BaseException]], ...]
-        | Callable[[BaseException], bool],
+        tuple[ImportString[type[Exception]], ...] | Callable[[Exception], bool],
         BeforeValidator(parse_csv_or_json),
         NoDecode,
         Doc(
             "Filter for exceptions that trigger a retry. Pass a "
             "class, a tuple of classes, or a predicate callable. "
-            "Required: there is no default."
+            "Required: there is no default. ``BaseException`` "
+            "subclasses outside ``Exception`` are never retried."
         ),
     ]
 
@@ -132,6 +134,21 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
             "Default: exponential with full jitter."
         ),
     ]
+
+    @field_validator("on", mode="before")
+    @classmethod
+    def _wrap_single(cls, value: Any) -> Any:  # noqa: ANN401
+        """Wrap a single class into a one-tuple.
+
+        Without this, ``RetryConfig(on=ValueError)`` would dispatch to
+        the ``Callable`` branch of the union (classes are callable),
+        and the matcher would try to instantiate the exception. Wrap
+        single-class input into a 1-tuple so the union resolves to
+        the tuple branch.
+        """
+        if isinstance(value, type):
+            return (value,)
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +236,11 @@ class RetryAttempt:
     def _handle_exit(self, exc: BaseException | None) -> bool:
         if exc is None:
             self._loop.stop()
+            return False
+        # Never retry cooperative-cancellation or shutdown signals,
+        # regardless of the user's filter. Letting these propagate is
+        # required for correct asyncio shutdown.
+        if not isinstance(exc, Exception):
             return False
         if not self._matcher(exc):
             return False
@@ -391,6 +413,29 @@ class Retry(Reconfigurable[RetryConfig]):
         return self._name
 
     @classmethod
+    def from_config(
+        cls,
+        name: Annotated[
+            str,
+            Doc("The name of the retry policy."),
+        ],
+        config: Annotated[
+            RetryConfig,
+            Doc(
+                """
+                The pre-built retry configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree. The environment path is
+                bypassed and the config is used as-is.
+                """
+            ),
+        ],
+    ) -> Self:
+        """Construct a `Retry` from a name and a pre-built `RetryConfig`."""
+        return cls(name, config=config)
+
+    @classmethod
     def exponential(
         cls,
         name: Annotated[str, Doc("The name of the retry policy.")],
@@ -534,13 +579,12 @@ def _decorator(
     backoff: RetryBackoffConfig | None,
 ) -> Callable[[F], F]:
     """Build a decorator from anonymous Retry kwargs."""
-    normalized = _normalize_filter(on)
-    matcher = _build_matcher(normalized)
-    config = RetryConfig.model_construct(
+    config = RetryConfig(
         attempts=attempts,
-        on=normalized,
+        on=on,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         backoff=backoff or ExponentialBackoffConfig(),
     )
+    matcher = _build_matcher(config.on)  # type: ignore[arg-type]
 
     def wrap(fn: F) -> F:
         if iscoroutinefunction(fn):
@@ -656,13 +700,12 @@ class _RetryingFactory:
         ] = None,
     ) -> AsyncIterator[RetryAttempt]:
         """Yield successive attempts for the block form."""
-        normalized = _normalize_filter(on)
-        matcher = _build_matcher(normalized)
-        config = RetryConfig.model_construct(
+        config = RetryConfig(
             attempts=attempts,
-            on=normalized,
+            on=on,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             backoff=backoff or ExponentialBackoffConfig(),
         )
+        matcher = _build_matcher(config.on)  # type: ignore[arg-type]
         return _async_iter(config, matcher)
 
     def exponential(
