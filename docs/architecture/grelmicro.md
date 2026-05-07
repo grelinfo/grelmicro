@@ -54,7 +54,7 @@ Tower (Rust), axum (Rust), Litestar (Python), and Resilience4j (Java) all conver
 | Conventional variable | `micro` | Second word of the package. Same shape as `celery = Celery(...)`. Never collides with `app = FastAPI(...)`. |
 | Registration verb | `micro.use(feature)` | Matches Tower, axum, Express. Short, active. |
 | Plugin protocol | `Feature` | Built-ins and third-parties are equal citizens. |
-| Scoped override | `micro.<feature>.override(...)` | Reads cleanly as a test or per-block substitution. |
+| Scoped override | `micro.override(*features)` | App-level context manager. Same magic-by-kind as `.use()`, restores prior registrations on exit. |
 
 ## `Feature` protocol
 
@@ -77,11 +77,53 @@ class Feature(Protocol):
     ) -> bool | None: ...
 ```
 
-`micro.use(feature)` reads `feature.kind`, attaches the feature as `micro.<kind>`, and walks features in registration order on `async with micro:`. Reusing the same `kind` with a different instance raises. Reusing with the same instance is a no-op.
+`micro.use(feature)` reads `feature.kind` and `feature.name`, attaches the feature as `micro.<kind>`, and walks features in registration order on `async with micro:`. Teardown runs in reverse (LIFO), matching nested `async with` blocks. Reusing the same `(kind, name)` with a different instance raises. Reusing with the same instance is a no-op. Reusing the same `kind` with a different `name` is fine (multi-backend per feature).
+
+`micro.use(feature)` returns the feature itself (typed `def use[F: Feature](self, feature: F) -> F`), so callers can keep a reference for `.reconfigure(...)` calls:
+
+```python
+tasks = micro.use(Tasks())
+```
+
+## Constructor sugar
+
+`Grelmicro(features=Iterable[Feature])` is shorthand for repeated `.use(...)` calls. Same registration semantics:
+
+```python
+micro = Grelmicro(features=[
+    Sync(RedisSync("redis://primary")),
+    Sync(RedisSync("redis://analytics"), name="analytics"),
+    Cache(RedisCache(...)),
+    Tasks(),
+    Health(),
+])
+```
 
 ## Backend names live on the feature
 
-`Sync(backend, name="analytics")` is the registration site. The backend itself stays a plain value describing connectivity. Same shape as Resilience4j's `CircuitBreakerRegistry.circuitBreaker(name, config)` and Spring's `@Qualifier("name")`.
+The name is a constructor arg on the `Feature` itself, defaulting to `"default"`:
+
+```python
+class Sync(Feature):
+    kind = "sync"
+    def __init__(self, backend: SyncBackend, *, name: str = "default") -> None: ...
+```
+
+The backend stays a plain value describing connectivity. The composite registration key is `(kind, name)`. Same shape as `dependency-injector`'s named providers and Spring's `@Qualifier("name")`.
+
+## Test override
+
+`micro.override(*features)` is an async context manager that swaps registrations for a block and restores them on exit. Same magic-by-kind as `.use()`:
+
+```python
+async with micro.override(
+    Sync(MockSync()),
+    Sync(MockSync(), name="analytics"),
+):
+    await test_thing()
+```
+
+Per-task scope via the same `ContextVar` used for ambient lookup.
 
 ## ContextVar for ambient lookup
 
