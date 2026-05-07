@@ -1,4 +1,4 @@
-"""Tests for the `Tasks` pattern (Grelmicro app integration)."""
+"""Tests for the `Tasks` module (Grelmicro app integration)."""
 
 from __future__ import annotations
 

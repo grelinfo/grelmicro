@@ -172,7 +172,13 @@ class Grelmicro:
         The override is scoped to the surrounding `async with micro:` block.
         The new modules are entered when the override block opens and exited
         in reverse order when it closes.
+
+        Raises:
+            OutOfContextError: If called outside an open `async with micro:`
+                block. The override needs an active app to scope to.
         """
+        if self._exit_stack is None:
+            raise OutOfContextError(self, "override")
         snapshot_by_key = self._by_key.copy()
         snapshot_modules = self._modules.copy()
         snapshot_by_kind = self._by_kind.copy()
@@ -231,12 +237,15 @@ class Grelmicro:
         """Close every module in reverse registration order (LIFO)."""
         if self._exit_stack is None:
             raise OutOfContextError(self, "__aexit__")
-        if self._token is not None:
-            _current_micro.reset(self._token)
-            self._token = None
-        result = await self._exit_stack.__aexit__(exc_type, exc, tb)
-        self._exit_stack = None
-        return result
+        try:
+            # Keep `Grelmicro.current()` resolvable during teardown so modules
+            # that consult it from `__aexit__` still see the active app.
+            return await self._exit_stack.__aexit__(exc_type, exc, tb)
+        finally:
+            if self._token is not None:
+                _current_micro.reset(self._token)
+                self._token = None
+            self._exit_stack = None
 
 
 def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:

@@ -249,6 +249,43 @@ async def test_aexit_without_aenter_raises() -> None:
         await micro.__aexit__(None, None, None)
 
 
+async def test_module_aexit_can_resolve_current_micro() -> None:
+    """Modules consulting `Grelmicro.current()` from `__aexit__` see the active app."""
+    seen: list[Grelmicro] = []
+
+    class _CurrentLookupModule:
+        kind: ClassVar[str] = "rec"
+
+        def __init__(self) -> None:
+            self.name = "default"
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> bool | None:
+            seen.append(Grelmicro.current())
+            return None
+
+    micro = Grelmicro(modules=[_CurrentLookupModule()])
+    async with micro:
+        pass
+    assert seen == [micro]
+
+
+async def test_override_outside_active_context_raises() -> None:
+    """`override(...)` outside an active `async with micro:` raises `OutOfContextError`."""
+    micro = Grelmicro()
+    mock = _RecordingModule(name="default")
+    with pytest.raises(OutOfContextError):
+        async with micro.override(mock):
+            pass
+
+
 async def test_unknown_kind_attribute_raises_attribute_error() -> None:
     """`micro.<unknown_kind>` raises a regular `AttributeError`."""
     micro = Grelmicro()
