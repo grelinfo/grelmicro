@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro.cache.cached import cached
 from grelmicro.cache.ttl import TTLCache
 
 if TYPE_CHECKING:
@@ -29,14 +30,21 @@ class Cache:
         from grelmicro.cache.redis import RedisCacheBackend
 
         micro = Grelmicro(modules=[Cache(RedisCacheBackend("redis://localhost"))])
+        user_cache = micro.cache.ttl(ttl=300, serializer=JsonSerializer())
+
+        @micro.cache.cached(user_cache)
+        async def get_user(user_id: int) -> dict:
+            ...
 
         async with micro:
-            user_cache = micro.cache.ttl(ttl=300, serializer=JsonSerializer())
-            await user_cache.set("alice", {"id": 1})
+            user = await get_user(1)
         ```
 
     Read more in the [Cache](../cache.md) docs.
     """
+
+    cached = staticmethod(cached)
+    """Re-export of `grelmicro.cache.cached.cached` for app-style ergonomics."""
 
     kind: ClassVar[str] = "cache"
 
@@ -66,14 +74,17 @@ class Cache:
         """The underlying `CacheBackend`."""
         return self._backend
 
-    def ttl(
+    def ttl[T](
         self,
         *,
         ttl: float = 60,
         maxsize: int = 0,
-        serializer: CacheSerializer[Any] | None = None,
-    ) -> TTLCache[Any]:
+        serializer: CacheSerializer[T] | None = None,
+    ) -> TTLCache[T]:
         """Construct a `TTLCache` bound to this module's backend.
+
+        The return type tracks the serializer's type parameter, so passing
+        `JsonSerializer[User]()` yields a `TTLCache[User]`.
 
         Args:
             ttl: Default TTL in seconds for cached entries.
