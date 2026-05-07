@@ -1,4 +1,4 @@
-"""Pattern protocol for the Grelmicro app object."""
+"""Module protocol for the Grelmicro app object."""
 
 from __future__ import annotations
 
@@ -10,20 +10,20 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class Pattern(AbstractAsyncContextManager["Pattern", bool | None], Protocol):
-    """A grelmicro microservice pattern attached to a `Grelmicro` app.
+class Module(AbstractAsyncContextManager["Module", bool | None], Protocol):
+    """A grelmicro module attached to a `Grelmicro` app.
 
-    Each grelmicro module ships a `Pattern` for one canonical microservice
-    pattern (distributed lock, cache, rate limiter, circuit breaker, task
-    scheduler, health check, ...). The user composes these into a `Grelmicro`
-    application; the app opens every pattern in registration order and closes
-    them in reverse order on exit.
+    Each grelmicro module ships one canonical microservice pattern (distributed
+    lock, cache, rate limiter, circuit breaker, task scheduler, health check,
+    ...). The user composes modules into a `Grelmicro` application; the app
+    opens every module in registration order and closes them in reverse order
+    on exit.
 
     Attributes:
-        kind: Stable identifier for the pattern category (`"sync"`, `"cache"`,
-            `"task"`, `"health"`, ...). The app exposes the pattern on
+        kind: Stable identifier for the module category (`"sync"`, `"cache"`,
+            `"task"`, `"health"`, ...). The app exposes the module on
             `micro.<kind>` after registration.
-        name: Registration name. Multiple patterns of the same `kind` may
+        name: Registration name. Multiple modules of the same `kind` may
             coexist under different names. The composite key for resolution
             is `(kind, name)`.
 

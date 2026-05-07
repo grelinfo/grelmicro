@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from grelmicro import Grelmicro, Pattern
+from grelmicro import Grelmicro, Module
 from grelmicro.task import Tasks
 
 # Counter shared with module-level scheduled tasks (the `interval` decorator
@@ -19,9 +19,9 @@ async def _tick() -> None:
     _runs += 1
 
 
-def test_tasks_satisfies_pattern_protocol() -> None:
-    """`Tasks` is a runtime-checkable `Pattern`."""
-    assert isinstance(Tasks(), Pattern)
+def test_tasks_satisfies_module_protocol() -> None:
+    """`Tasks` is a runtime-checkable `Module`."""
+    assert isinstance(Tasks(), Module)
 
 
 def test_tasks_default_kind_and_name() -> None:
@@ -39,7 +39,7 @@ def test_tasks_constructor_does_not_start_manager() -> None:
 
 def test_tasks_named_registration() -> None:
     """A named `Tasks` pattern can coexist with the default one."""
-    micro = Grelmicro(patterns=[Tasks(), Tasks(name="analytics")])
+    micro = Grelmicro(modules=[Tasks(), Tasks(name="analytics")])
     assert micro.get("task", "default").name == "default"
     assert micro.get("task", "analytics").name == "analytics"
 
@@ -47,7 +47,7 @@ def test_tasks_named_registration() -> None:
 async def test_tasks_opens_and_closes_manager_with_app() -> None:
     """`async with micro:` opens and closes the underlying TaskManager."""
     tasks = Tasks()
-    micro = Grelmicro(patterns=[tasks])
+    micro = Grelmicro(modules=[tasks])
     async with micro:
         assert tasks.manager._task_group is not None
     # On exit, the TaskManager exit stack tore down the TaskGroup.
@@ -59,7 +59,7 @@ async def test_tasks_interval_decorator_runs_task() -> None:
     _runs = 0
     tasks = Tasks()
     tasks.interval(seconds=0.01)(_tick)
-    micro = Grelmicro(patterns=[tasks])
+    micro = Grelmicro(modules=[tasks])
     async with micro:
         await asyncio.sleep(0.05)
     assert _runs >= _MIN_RUNS
@@ -68,7 +68,7 @@ async def test_tasks_interval_decorator_runs_task() -> None:
 async def test_tasks_accessible_via_micro_kind_attribute() -> None:
     """The `Tasks` pattern is exposed as `micro.task`."""
     tasks = Tasks()
-    micro = Grelmicro(patterns=[tasks])
+    micro = Grelmicro(modules=[tasks])
     assert micro.task is tasks
 
 
@@ -76,7 +76,7 @@ async def test_tasks_interval_decorator_via_micro_attribute() -> None:
     """`@micro.task.interval(...)` is the conventional decorator path."""
     global _runs  # noqa: PLW0603
     _runs = 0
-    micro = Grelmicro(patterns=[Tasks()])
+    micro = Grelmicro(modules=[Tasks()])
     micro.task.interval(seconds=0.01)(_tick)
     async with micro:
         await asyncio.sleep(0.05)

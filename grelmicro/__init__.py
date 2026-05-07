@@ -9,12 +9,12 @@ from contextlib import (
 
 from grelmicro._app import (
     Grelmicro,
+    ModuleAlreadyRegisteredError,
+    ModuleNotRegisteredError,
     NoActiveAppError,
-    PatternAlreadyRegisteredError,
-    PatternNotRegisteredError,
     current_micro,
 )
-from grelmicro._pattern import Pattern
+from grelmicro._module import Module
 
 
 @asynccontextmanager
@@ -63,10 +63,10 @@ async def lifespan(
 
 __all__ = [
     "Grelmicro",
+    "Module",
+    "ModuleAlreadyRegisteredError",
+    "ModuleNotRegisteredError",
     "NoActiveAppError",
-    "Pattern",
-    "PatternAlreadyRegisteredError",
-    "PatternNotRegisteredError",
     "current_micro",
     "lifespan",
 ]

@@ -1,4 +1,4 @@
-"""Tests for the Grelmicro app container and Pattern protocol."""
+"""Tests for the Grelmicro app container and Module protocol."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ if TYPE_CHECKING:
 
 from grelmicro import (
     Grelmicro,
+    Module,
+    ModuleAlreadyRegisteredError,
+    ModuleNotRegisteredError,
     NoActiveAppError,
-    Pattern,
-    PatternAlreadyRegisteredError,
-    PatternNotRegisteredError,
     current_micro,
 )
 from grelmicro.errors import OutOfContextError
@@ -24,8 +24,8 @@ _BOOM = "boom"
 _RAISED = "raised"
 
 
-class _RecordingPattern:
-    """A Pattern implementation that records its enter/exit lifecycle."""
+class _RecordingModule:
+    """A Module implementation that records its enter/exit lifecycle."""
 
     kind: ClassVar[str] = "rec"
 
@@ -53,13 +53,13 @@ class _RecordingPattern:
         return None
 
 
-class _OtherPattern(_RecordingPattern):
-    """Different `kind` so it can coexist with `_RecordingPattern` on `micro`."""
+class _OtherModule(_RecordingModule):
+    """Different `kind` so it can coexist with `_RecordingModule` on `micro`."""
 
     kind: ClassVar[str] = "oth"
 
 
-class _RaisingPattern(_RecordingPattern):
+class _RaisingModule(_RecordingModule):
     """Raises on `__aenter__` so we can test partial-startup cleanup."""
 
     async def __aenter__(self) -> Self:
@@ -67,29 +67,29 @@ class _RaisingPattern(_RecordingPattern):
         raise RuntimeError(_BOOM)
 
 
-# --- Feature protocol ---
+# --- Module protocol ---
 
 
-def test_feature_protocol_is_runtime_checkable() -> None:
-    """A class with kind/name/__aenter__/__aexit__ satisfies the Pattern protocol."""
-    assert isinstance(_RecordingPattern(), Pattern)
+def test_module_protocol_is_runtime_checkable() -> None:
+    """A class with kind/name/__aenter__/__aexit__ satisfies the Module protocol."""
+    assert isinstance(_RecordingModule(), Module)
 
 
 # --- .use() registration ---
 
 
-def test_use_attaches_feature_on_kind_attr() -> None:
-    """`.use()` exposes the feature as `micro.<kind>`."""
+def test_use_attaches_module_on_kind_attr() -> None:
+    """`.use()` exposes the module as `micro.<kind>`."""
     micro = Grelmicro()
-    pattern = _RecordingPattern()
+    pattern = _RecordingModule()
     micro.use(pattern)
     assert micro.rec is pattern
 
 
-def test_use_returns_the_feature() -> None:
+def test_use_returns_the_module() -> None:
     """`.use()` returns the feature so callers can keep a typed reference."""
     micro = Grelmicro()
-    pattern = _RecordingPattern()
+    pattern = _RecordingModule()
     returned = micro.use(pattern)
     assert returned is pattern
 
@@ -97,7 +97,7 @@ def test_use_returns_the_feature() -> None:
 def test_use_same_instance_is_noop() -> None:
     """Re-registering the exact same instance under the same name is a no-op."""
     micro = Grelmicro()
-    pattern = _RecordingPattern()
+    pattern = _RecordingModule()
     micro.use(pattern)
     micro.use(pattern)
 
@@ -105,38 +105,38 @@ def test_use_same_instance_is_noop() -> None:
 def test_use_different_instance_same_key_raises() -> None:
     """Two different instances under the same `(kind, name)` raises."""
     micro = Grelmicro()
-    micro.use(_RecordingPattern())
-    with pytest.raises(PatternAlreadyRegisteredError):
-        micro.use(_RecordingPattern())
+    micro.use(_RecordingModule())
+    with pytest.raises(ModuleAlreadyRegisteredError):
+        micro.use(_RecordingModule())
 
 
 def test_use_same_kind_different_name_coexists() -> None:
-    """Multiple features of the same kind under different names coexist."""
+    """Multiple modules of the same kind under different names coexist."""
     micro = Grelmicro()
-    primary = _RecordingPattern(name="primary")
-    analytics = _RecordingPattern(name="analytics")
+    primary = _RecordingModule(name="primary")
+    analytics = _RecordingModule(name="analytics")
     micro.use(primary)
     micro.use(analytics)
     assert micro.get("rec", "primary") is primary
     assert micro.get("rec", "analytics") is analytics
 
 
-# --- features= constructor ---
+# --- modules= constructor ---
 
 
-def test_features_kwarg_registers_in_order() -> None:
-    """`Grelmicro(patterns=[...])` is equivalent to repeated `.use(...)` calls."""
-    a = _RecordingPattern(name="a")
-    b = _OtherPattern(name="b")
-    micro = Grelmicro(patterns=[a, b])
+def test_modules_kwarg_registers_in_order() -> None:
+    """`Grelmicro(modules=[...])` is equivalent to repeated `.use(...)` calls."""
+    a = _RecordingModule(name="a")
+    b = _OtherModule(name="b")
+    micro = Grelmicro(modules=[a, b])
     assert micro.get("rec", "a") is a
     assert micro.get("oth", "b") is b
 
 
-def test_features_kwarg_accepts_none() -> None:
-    """`patterns=None` (the default) constructs an empty container."""
+def test_modules_kwarg_accepts_none() -> None:
+    """`modules=None` (the default) constructs an empty container."""
     micro = Grelmicro()
-    with pytest.raises(PatternNotRegisteredError):
+    with pytest.raises(ModuleNotRegisteredError):
         micro.get("rec")
 
 
@@ -144,12 +144,12 @@ def test_features_kwarg_accepts_none() -> None:
 
 
 async def test_lifespan_enters_and_exits_in_lifo_order() -> None:
-    """Features enter in registration order, exit in reverse."""
+    """Modules enter in registration order, exit in reverse."""
     log: list[str] = []
-    a = _RecordingPattern(name="a", log=log)
-    b = _RecordingPattern(name="b", log=log)
-    c = _RecordingPattern(name="c", log=log)
-    micro = Grelmicro(patterns=[a, b, c])
+    a = _RecordingModule(name="a", log=log)
+    b = _RecordingModule(name="b", log=log)
+    c = _RecordingModule(name="c", log=log)
+    micro = Grelmicro(modules=[a, b, c])
     async with micro:
         assert log == ["enter:a", "enter:b", "enter:c"]
     assert log == [
@@ -165,11 +165,11 @@ async def test_lifespan_enters_and_exits_in_lifo_order() -> None:
 async def test_lifespan_partial_startup_failure_unwinds_already_entered() -> (
     None
 ):
-    """A failure in feature N rolls back features 0..N-1 in LIFO order."""
+    """A failure in module N rolls back modules 0..N-1 in LIFO order."""
     log: list[str] = []
-    good = _RecordingPattern(name="good", log=log)
-    bad = _RaisingPattern(name="bad", log=log)
-    micro = Grelmicro(patterns=[good, bad])
+    good = _RecordingModule(name="good", log=log)
+    bad = _RaisingModule(name="bad", log=log)
+    micro = Grelmicro(modules=[good, bad])
     with pytest.raises(RuntimeError, match=_BOOM):
         async with micro:
             pass
@@ -178,7 +178,7 @@ async def test_lifespan_partial_startup_failure_unwinds_already_entered() -> (
 
 async def test_lifespan_can_be_reentered_after_clean_exit() -> None:
     """A `Grelmicro` instance can be opened again after closing cleanly."""
-    micro = Grelmicro(patterns=[_RecordingPattern()])
+    micro = Grelmicro(modules=[_RecordingModule()])
     async with micro:
         pass
     async with micro:
@@ -220,13 +220,13 @@ async def test_current_micro_is_per_task() -> None:
 # --- override() ---
 
 
-async def test_override_swaps_feature_for_block() -> None:
-    """`micro.override(...)` replaces a feature for the duration of the block."""
+async def test_override_swaps_module_for_block() -> None:
+    """`micro.override(...)` replaces a module for the duration of the block."""
     log: list[str] = []
-    real = _RecordingPattern(name="default", log=log)
-    mock = _RecordingPattern(name="default", log=[])
+    real = _RecordingModule(name="default", log=log)
+    mock = _RecordingModule(name="default", log=[])
     mock.log = log  # share log
-    micro = Grelmicro(patterns=[real])
+    micro = Grelmicro(modules=[real])
     async with micro:
         async with micro.override(mock):
             assert micro.rec is mock
@@ -253,15 +253,15 @@ async def test_aexit_without_aenter_raises() -> None:
 async def test_unknown_kind_attribute_raises_attribute_error() -> None:
     """`micro.<unknown_kind>` raises a regular `AttributeError`."""
     micro = Grelmicro()
-    with pytest.raises(AttributeError, match="no pattern of kind 'nope'"):
+    with pytest.raises(AttributeError, match="no module of kind 'nope'"):
         _ = micro.nope
 
 
 async def test_override_restores_on_exception() -> None:
     """`override(...)` restores prior registrations even when the block raises."""
-    real = _RecordingPattern(name="default")
-    mock = _RecordingPattern(name="default")
-    micro = Grelmicro(patterns=[real])
+    real = _RecordingModule(name="default")
+    mock = _RecordingModule(name="default")
+    micro = Grelmicro(modules=[real])
     async with micro:
         with pytest.raises(RuntimeError, match=_RAISED):
             async with micro.override(mock):

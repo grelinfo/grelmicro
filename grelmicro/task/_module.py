@@ -1,4 +1,4 @@
-"""Tasks pattern for the Grelmicro app object."""
+"""Tasks module for the Grelmicro app object."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class Tasks:
-    """Tasks pattern: wraps a `TaskManager` for the `Grelmicro` app.
+    """Tasks module: wraps a `TaskManager` for the `Grelmicro` app.
 
     Registered as `micro.task` after `Grelmicro.use(Tasks())`. Exposes
     `interval(...)` and `add_task(...)` directly so users do not need to reach
@@ -26,7 +26,7 @@ class Tasks:
         from grelmicro import Grelmicro
         from grelmicro.task import Tasks
 
-        micro = Grelmicro(patterns=[Tasks()])
+        micro = Grelmicro(modules=[Tasks()])
 
         @micro.task.interval(seconds=5)
         async def cleanup() -> None: ...
@@ -47,7 +47,7 @@ class Tasks:
             str,
             Doc(
                 """
-                Registration name. Multiple `Tasks` patterns may coexist on
+                Registration name. Multiple `Tasks` modules may coexist on
                 one `Grelmicro` under different names.
                 """,
             ),
@@ -58,10 +58,10 @@ class Tasks:
         ] = None,
         auto_start: Annotated[
             bool,
-            Doc("Start every task automatically when the pattern opens."),
+            Doc("Start every task automatically when the module opens."),
         ] = True,
     ) -> None:
-        """Initialize the pattern and the underlying `TaskManager`."""
+        """Initialize the module and the underlying `TaskManager`."""
         self.name = name
         self._manager = TaskManager(tasks=tasks, auto_start=auto_start)
 

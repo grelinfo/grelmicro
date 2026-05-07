@@ -1,6 +1,6 @@
 """Task."""
 
-from grelmicro.task._pattern import Tasks
+from grelmicro.task._module import Tasks
 from grelmicro.task.errors import TaskError
 from grelmicro.task.manager import TaskManager
 from grelmicro.task.router import TaskRouter

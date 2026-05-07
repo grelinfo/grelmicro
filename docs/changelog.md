@@ -4,8 +4,8 @@
 
 ### Features
 
-* ✨ Add `Grelmicro` app object and `Pattern` protocol. The user composes patterns into one container and opens them with `async with micro:`. Issue [#208](https://github.com/grelinfo/grelmicro/issues/208), epic [#201](https://github.com/grelinfo/grelmicro/issues/201).
-* ✨ Add `Tasks` pattern. Wraps `TaskManager` and exposes `interval(...)` and `add_task(...)`. Use it via `Grelmicro(patterns=[Tasks()])` and reach it on `micro.task`. Issue [#184](https://github.com/grelinfo/grelmicro/issues/184).
+* ✨ Add `Grelmicro` app object and `Module` protocol. The user composes patterns into one container and opens them with `async with micro:`. Issue [#208](https://github.com/grelinfo/grelmicro/issues/208), epic [#201](https://github.com/grelinfo/grelmicro/issues/201).
+* ✨ Add `Tasks` module. Wraps `TaskManager` and exposes `interval(...)` and `add_task(...)`. Use it via `Grelmicro(modules=[Tasks()])` and reach it on `micro.task`. Issue [#184](https://github.com/grelinfo/grelmicro/issues/184).
 * ✨ Add `current_micro()` for ambient lookup. Inside `async with micro:` it returns the active app for the current asyncio task.
 
 ## 0.21.0 - 2026-05-06
