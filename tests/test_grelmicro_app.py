@@ -16,7 +16,6 @@ from grelmicro import (
     ModuleAlreadyRegisteredError,
     ModuleNotRegisteredError,
     NoActiveAppError,
-    current_micro,
 )
 from grelmicro.errors import OutOfContextError
 
@@ -189,16 +188,16 @@ async def test_lifespan_can_be_reentered_after_clean_exit() -> None:
 
 
 async def test_current_micro_returns_active_app_inside_block() -> None:
-    """`current_micro()` returns the active `Grelmicro` inside `async with`."""
+    """`Grelmicro.current()` returns the active `Grelmicro` inside `async with`."""
     micro = Grelmicro()
     async with micro:
-        assert current_micro() is micro
+        assert Grelmicro.current() is micro
 
 
 async def test_current_micro_raises_outside_block() -> None:
-    """`current_micro()` raises `NoActiveAppError` outside any active app."""
+    """`Grelmicro.current()` raises `NoActiveAppError` outside any active app."""
     with pytest.raises(NoActiveAppError):
-        current_micro()
+        Grelmicro.current()
 
 
 async def test_current_micro_is_per_task() -> None:
@@ -210,7 +209,7 @@ async def test_current_micro_is_per_task() -> None:
     async def run(label: str, micro: Grelmicro) -> None:
         async with micro:
             await asyncio.sleep(0)  # let the other task interleave
-            seen[label] = current_micro()
+            seen[label] = Grelmicro.current()
 
     await asyncio.gather(run("a", micro_a), run("b", micro_b))
     assert seen["a"] is micro_a

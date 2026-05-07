@@ -12,7 +12,6 @@ from grelmicro._app import (
     ModuleAlreadyRegisteredError,
     ModuleNotRegisteredError,
     NoActiveAppError,
-    current_micro,
 )
 from grelmicro._module import Module
 
@@ -67,6 +66,5 @@ __all__ = [
     "ModuleAlreadyRegisteredError",
     "ModuleNotRegisteredError",
     "NoActiveAppError",
-    "current_micro",
     "lifespan",
 ]

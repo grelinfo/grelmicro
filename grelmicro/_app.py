@@ -18,18 +18,6 @@ if TYPE_CHECKING:
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
 
 
-def current_micro() -> Grelmicro:
-    """Return the active `Grelmicro` app for the current asyncio task.
-
-    Raises:
-        NoActiveAppError: If no `Grelmicro` is open in the current task scope.
-    """
-    try:
-        return _current_micro.get()
-    except LookupError as exc:
-        raise NoActiveAppError from exc
-
-
 class Grelmicro:
     """The grelmicro application container.
 
@@ -53,7 +41,7 @@ class Grelmicro:
     ```
 
     Inside the `async with micro:` block, primitives that omit an explicit
-    `micro=` argument resolve through `current_micro()` (per asyncio task).
+    `micro=` argument resolve through `Grelmicro.current()` (per asyncio task).
 
     Read more in the [Grelmicro app](architecture/grelmicro.md) docs.
     """
@@ -80,6 +68,30 @@ class Grelmicro:
         if modules is not None:
             for module in modules:
                 self.use(module)
+
+    @classmethod
+    def current(cls) -> Grelmicro:
+        """Return the active `Grelmicro` app for the current asyncio task.
+
+        Use inside an `async with micro:` block to look up the active app:
+
+        ```python
+        from grelmicro import Grelmicro
+
+        micro = Grelmicro.current()
+        ```
+
+        The lookup is per asyncio task, so concurrent tasks each see their
+        own active `Grelmicro`.
+
+        Raises:
+            NoActiveAppError: If called outside any `async with micro:`
+                block in the current task scope.
+        """
+        try:
+            return _current_micro.get()
+        except LookupError as exc:
+            raise NoActiveAppError from exc
 
     def use[M: Module](self, module: M) -> M:
         """Register `module` and return it.
@@ -243,4 +255,4 @@ class ModuleNotRegisteredError(GrelmicroError, LookupError):
 
 
 class NoActiveAppError(GrelmicroError, LookupError):
-    """Raised by `current_micro()` when called outside any `async with micro:` block."""
+    """Raised by `Grelmicro.current()` when called outside any `async with micro:` block."""
