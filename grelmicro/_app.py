@@ -127,14 +127,20 @@ class Grelmicro:
             raise ModuleAlreadyRegisteredError(msg)
         self._by_key[key] = module
         self._modules.append(module)
-        # Last-write-wins for `micro.<kind>` resolved through `__getattr__`,
-        # mirroring the registry's default-name fallback when only one entry
-        # exists per kind.
-        self._by_kind[module.kind] = module
+        # `micro.<kind>` prefers the entry named `"default"`. Only update the
+        # kind-default index when this registration is the default one.
+        # `__getattr__` falls back to the sole entry per kind when no default
+        # is registered.
+        if module.name == "default":
+            self._by_kind[module.kind] = module
         return module
 
-    def get(self, kind: str, name: str = "default") -> Module:
+    def get(self, kind: str, name: str = "default") -> Any:  # noqa: ANN401
         """Resolve a registered module by `(kind, name)`.
+
+        Returns `Any` for the same reason `micro.<kind>` does: the dynamic
+        registration can't be statically typed without a global registry.
+        Callers know the concrete type they registered.
 
         Raises:
             ModuleNotRegisteredError: If no module matches.
@@ -188,7 +194,8 @@ class Grelmicro:
                 self._by_key[key] = module
                 if module not in self._modules:
                     self._modules.append(module)
-                self._by_kind[module.kind] = module
+                if module.name == "default":
+                    self._by_kind[module.kind] = module
                 await stack.enter_async_context(module)
             try:
                 yield
@@ -198,19 +205,37 @@ class Grelmicro:
                 self._by_kind = snapshot_by_kind
 
     def __getattr__(self, name: str) -> Any:  # noqa: ANN401
-        """Resolve `micro.<kind>` to the most recently registered module of that kind.
+        """Resolve `micro.<kind>` to the registered module of that kind.
+
+        Resolution order, matching the legacy `BackendRegistry.get()` semantics:
+
+        1. The module registered as `(kind, "default")` if present.
+        2. The sole entry of that kind if exactly one is registered.
+        3. Otherwise raises `AttributeError`.
 
         Returns `Any` so callers can invoke module-specific methods
-        (`micro.task.interval(...)`, `micro.cache.get(...)`) without per-call
+        (`micro.task.interval(...)`, `micro.cache.ttl(...)`) without per-call
         casts. The actual concrete type depends on the registered module.
+
+        Use `micro.get(kind, name)` for explicit name-based resolution.
         """
-        try:
-            return self.__dict__["_by_kind"][name]
-        except KeyError:
+        by_kind = self.__dict__.get("_by_kind", {})
+        if name in by_kind:
+            return by_kind[name]
+        by_key = self.__dict__.get("_by_key", {})
+        matches = [v for (k, _), v in by_key.items() if k == name]
+        if len(matches) == 1:
+            return matches[0]
+        cls = type(self).__name__
+        if matches:
+            names = sorted(n for (k, n), _ in by_key.items() if k == name)
             msg = (
-                f"{type(self).__name__!r} object has no module of kind {name!r}"
+                f"{cls!r} has multiple {name!r} modules ({names}), "
+                f"none named 'default'. Use micro.get({name!r}, <name>)."
             )
-            raise AttributeError(msg) from None
+            raise AttributeError(msg)
+        msg = f"{cls!r} object has no module of kind {name!r}"
+        raise AttributeError(msg)
 
     async def __aenter__(self) -> Self:
         """Open every registered module in registration order."""
