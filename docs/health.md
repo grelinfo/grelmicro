@@ -30,6 +30,27 @@ Create a `HealthRegistry` and register checks with the `@registry.check(name)` d
 
 The registry auto-registers as the global singleton. The router resolves it automatically.
 
+### Grelmicro app integration
+
+Register the `HealthRegistry` with a `Grelmicro` app to lifecycle it alongside the rest of your modules. Same FastAPI-style explicit registration as `TaskManager`:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.health import HealthRegistry
+
+health = HealthRegistry()
+micro = Grelmicro(includes=[health])
+
+@health.check("redis")
+async def redis_alive() -> None:
+    ...
+
+async with micro:
+    report = await health.run()
+```
+
+Use `Grelmicro.include(item)` (or `includes=`) for entry-point components like `HealthRegistry` and `TaskManager`. The caller keeps the reference and uses it directly.
+
 For imperative registration (without a decorator), use `registry.add(name, func)`:
 
 ```python

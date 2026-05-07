@@ -249,6 +249,104 @@ async def test_aexit_without_aenter_raises() -> None:
         await micro.__aexit__(None, None, None)
 
 
+class _RecordingContext:
+    """Bare async context manager (no kind/name) for `include()` tests."""
+
+    def __init__(self, *, log: list[str], label: str) -> None:
+        self.log = log
+        self.label = label
+        self.entered = 0
+        self.exited = 0
+
+    async def __aenter__(self) -> Self:
+        self.entered += 1
+        self.log.append(f"enter:{self.label}")
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None:
+        self.exited += 1
+        self.log.append(f"exit:{self.label}")
+        return None
+
+
+def test_include_returns_the_item() -> None:
+    """`include()` returns the registered item so callers keep the typed reference."""
+    micro = Grelmicro()
+    item = _RecordingContext(log=[], label="x")
+    returned = micro.include(item)
+    assert returned is item
+
+
+async def test_include_lifecycles_item_with_app() -> None:
+    """`async with micro:` enters and exits items registered via include."""
+    log: list[str] = []
+    item = _RecordingContext(log=log, label="task_manager")
+    micro = Grelmicro(includes=[item])
+    async with micro:
+        assert item.entered == 1
+        assert item.exited == 0
+    assert item.exited == 1
+
+
+async def test_include_kwarg_and_method_are_equivalent() -> None:
+    """`Grelmicro(includes=[x])` and `micro.include(x)` register the same way."""
+    log: list[str] = []
+    a = _RecordingContext(log=log, label="a")
+    b = _RecordingContext(log=log, label="b")
+    micro = Grelmicro(includes=[a])
+    micro.include(b)
+    async with micro:
+        pass
+    # both entered, both exited
+    assert log == ["enter:a", "enter:b", "exit:b", "exit:a"]
+
+
+async def test_modules_open_before_includes() -> None:
+    """Modules enter first (so includes can resolve via Grelmicro.current()), includes after."""
+    log: list[str] = []
+    mod = _RecordingModule(name="default", log=log)
+    inc = _RecordingContext(log=log, label="entry_point")
+    micro = Grelmicro(modules=[mod], includes=[inc])
+    async with micro:
+        pass
+    assert log == [
+        "enter:default",
+        "enter:entry_point",
+        "exit:entry_point",
+        "exit:default",
+    ]
+
+
+async def test_include_partial_startup_failure_unwinds() -> None:
+    """A failure in one include rolls back already-entered modules and includes."""
+    log: list[str] = []
+    good = _RecordingContext(log=log, label="good")
+
+    class _BadInclude:
+        async def __aenter__(self) -> Self:
+            log.append("enter:bad")
+            raise RuntimeError(_BOOM)
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> bool | None:
+            return None
+
+    micro = Grelmicro(includes=[good, _BadInclude()])
+    with pytest.raises(RuntimeError, match=_BOOM):
+        async with micro:
+            pass
+    assert log == ["enter:good", "enter:bad", "exit:good"]
+
+
 async def test_module_aexit_can_resolve_current_micro() -> None:
     """Modules consulting `Grelmicro.current()` from `__aexit__` see the active app."""
     seen: list[Grelmicro] = []
