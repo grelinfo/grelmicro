@@ -70,6 +70,20 @@
   content: url("../img/logo/wordmark-transparent-dark.svg");
 }
 
+/* Hide the auto-generated h1 on the landing page only.
+   The wordmark image is the title; the heading stays in the a11y tree. */
+.md-content:has(img.grel-wordmark) .md-typeset > h1:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Tabs bar: red underline on the active tab. */
 .md-tabs {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);

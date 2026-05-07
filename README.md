@@ -1,18 +1,3 @@
-<!-- Visually hide the auto-generated h1 on the docs landing page. The wordmark is the title; the heading stays in the a11y tree for screen readers. GitHub strips <style> from rendered READMEs, so this is a no-op there. -->
-<style>
-  .md-content .md-typeset > h1:first-child {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-</style>
-
 <p align="center">
   <a href="https://grelinfo.github.io/grelmicro">
     <img alt="grelmicro" class="grel-wordmark" src="docs/img/logo/wordmark.svg" width="360">
@@ -49,7 +34,7 @@ ______________________________________________________________________
 
 ## Why grelmicro
 
-Stop reinventing the wheel. grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, and battle-tested in production.
+Stop reinventing the wheel. grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, 100% test coverage. Release-candidate quality while the public API converges on `1.0`.
 
 It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve every **distributed system**, whether you call it **microservices**, a **modular monolith**, or a **self-contained system**. A distributed lock is a distributed lock whether your system is one process or fifty. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
 

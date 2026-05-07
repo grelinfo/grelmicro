@@ -82,6 +82,14 @@ single source of truth for what "passes CI": ruff, ty, pytest
 - Keep each commit focused. When chaining related commits, pause
   for review between them.
 
+## Issue conventions
+
+- Title is a short imperative sentence (same style as a commit subject).
+- Optional gitmoji prefix when the issue maps to a single commit. Pick from the table above.
+- Type lives on a label, not in the title: `bug`, `enhancement`, `documentation`, `question`.
+- The release lives on the milestone, not in the title. No `0.22.0:` prefix.
+- No em dashes. No semicolons in prose. Same rule as docs.
+
 ## Code style
 
 ### Type annotations

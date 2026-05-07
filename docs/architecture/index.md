@@ -11,3 +11,4 @@ This section documents the internal design decisions and guarantees of grelmicro
 - **[Kubernetes Backend](kubernetes.md)**: Lease resources, optimistic concurrency, and name sanitization.
 - **[SQLite Backend](sqlite.md)**: WAL mode.
 - **[Tracing](tracing.md)**: Context stack, concurrency safety, and decoupled layering.
+- **[The `Grelmicro` class](grelmicro.md)**: The single entry point, `Feature` protocol, and per-task ambient lookup.
