@@ -39,7 +39,7 @@ from grelmicro import Grelmicro
 from grelmicro.health import HealthRegistry
 
 health = HealthRegistry()
-micro = Grelmicro(includes=[health])
+micro = Grelmicro(uses=[health])
 
 @health.check("redis")
 async def redis_alive() -> None:
@@ -49,7 +49,7 @@ async with micro:
     report = await health.run()
 ```
 
-Use `Grelmicro.include(item)` (or `includes=`) for entry-point components like `HealthRegistry` and `TaskManager`. The caller keeps the reference and uses it directly.
+Use `Grelmicro.use(item)` (or `uses=`) for entry-point components like `HealthRegistry` and `TaskManager`. The caller keeps the reference and uses it directly.
 
 For imperative registration (without a decorator), use `registry.add(name, func)`:
 

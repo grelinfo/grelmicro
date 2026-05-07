@@ -22,7 +22,7 @@ from grelmicro import Grelmicro
 from grelmicro.task import TaskManager
 
 task_manager = TaskManager()
-micro = Grelmicro(includes=[task_manager])
+micro = Grelmicro(uses=[task_manager])
 
 @task_manager.interval(seconds=5)
 async def cleanup() -> None:
@@ -32,7 +32,7 @@ async with micro:
     ...
 ```
 
-`Grelmicro.include(item)` (or the `includes=` constructor kwarg) accepts any async context manager and lifecycles it with the app. The caller keeps the reference and uses the manager directly. Same shape as FastAPI's `app.include_router(router)`.
+`Grelmicro.use(item)` (or the `uses=` constructor kwarg) accepts any async context manager and lifecycles it with the app. The caller keeps the reference and uses the manager directly.
 
 Start it standalone using the application lifespan:
 

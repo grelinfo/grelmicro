@@ -24,7 +24,7 @@ def test_cache_default_kind_and_name() -> None:
 def test_cache_named_registration() -> None:
     """A named `Cache` module coexists with the default one."""
     micro = Grelmicro(
-        modules=[
+        uses=[
             Cache(MemoryCacheBackend()),
             Cache(MemoryCacheBackend(), name="responses"),
         ]
@@ -65,7 +65,7 @@ async def test_cache_ttl_factory_passes_serializer() -> None:
 
 async def test_cache_cached_decorator_works_via_micro_attribute() -> None:
     """`@micro.cache.cached(ttl_cache)` decorates and caches results."""
-    micro = Grelmicro(modules=[Cache(MemoryCacheBackend())])
+    micro = Grelmicro(uses=[Cache(MemoryCacheBackend())])
     calls = 0
     async with micro:
         ttl_cache = micro.cache.ttl(ttl=60, serializer=JsonSerializer())
@@ -87,7 +87,7 @@ async def test_cache_opens_and_closes_backend_with_app() -> None:
     """`async with micro:` opens and closes the underlying backend."""
     backend = MemoryCacheBackend()
     cache = Cache(backend)
-    micro = Grelmicro(modules=[cache])
+    micro = Grelmicro(uses=[cache])
     async with micro:
         ttl_cache = cache.ttl(ttl=60)
         await ttl_cache.set("k", b"v")
@@ -96,7 +96,7 @@ async def test_cache_opens_and_closes_backend_with_app() -> None:
 
 async def test_micro_cache_via_attribute() -> None:
     """`micro.cache.ttl(...)` is the conventional access path."""
-    micro = Grelmicro(modules=[Cache(MemoryCacheBackend())])
+    micro = Grelmicro(uses=[Cache(MemoryCacheBackend())])
     async with micro:
         ttl_cache = micro.cache.ttl(ttl=60, serializer=JsonSerializer())
         await ttl_cache.set("alice", {"id": 1})
@@ -107,7 +107,7 @@ async def test_micro_cache_prefers_default_over_named() -> None:
     """`micro.cache` resolves to `(cache, default)` even when named modules exist."""
     primary = MemoryCacheBackend()
     micro = Grelmicro(
-        modules=[
+        uses=[
             Cache(primary),
             Cache(MemoryCacheBackend(), name="responses"),
         ]
@@ -118,7 +118,7 @@ async def test_micro_cache_prefers_default_over_named() -> None:
 async def test_micro_cache_raises_when_ambiguous() -> None:
     """`micro.cache` raises when multiple non-default modules exist."""
     micro = Grelmicro(
-        modules=[
+        uses=[
             Cache(MemoryCacheBackend(), name="a"),
             Cache(MemoryCacheBackend(), name="b"),
         ]
