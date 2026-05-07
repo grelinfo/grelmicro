@@ -206,7 +206,8 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 "docs/snippets/task/router.py" = ["I001", "E402"]
 "tests/*" = [
     "S101",
-    "SLF001"
+    "SLF001",
+    "RUF029",  # async test helpers may be coroutine-only without awaits
 ]
 
 [tool.ruff.lint.pycodestyle]

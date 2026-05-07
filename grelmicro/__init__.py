@@ -7,6 +7,14 @@ from contextlib import (
     asynccontextmanager,
 )
 
+from grelmicro._app import (
+    Grelmicro,
+    ModuleAlreadyRegisteredError,
+    ModuleNotRegisteredError,
+    NoActiveAppError,
+)
+from grelmicro._module import Module
+
 
 @asynccontextmanager
 async def lifespan(
@@ -52,4 +60,11 @@ async def lifespan(
         yield
 
 
-__all__ = ["lifespan"]
+__all__ = [
+    "Grelmicro",
+    "Module",
+    "ModuleAlreadyRegisteredError",
+    "ModuleNotRegisteredError",
+    "NoActiveAppError",
+    "lifespan",
+]
