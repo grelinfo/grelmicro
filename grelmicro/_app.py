@@ -133,8 +133,12 @@ class Grelmicro:
         self._by_kind[module.kind] = module
         return module
 
-    def get(self, kind: str, name: str = "default") -> Module:
+    def get(self, kind: str, name: str = "default") -> Any:  # noqa: ANN401
         """Resolve a registered module by `(kind, name)`.
+
+        Returns `Any` for the same reason `micro.<kind>` does: the dynamic
+        registration can't be statically typed without a global registry.
+        Callers know the concrete type they registered.
 
         Raises:
             ModuleNotRegisteredError: If no module matches.
