@@ -8,6 +8,7 @@
 * ✨ Add `Tasks` module. Wraps `TaskManager` and exposes `interval(...)` and `add_task(...)`. Use it via `Grelmicro(modules=[Tasks()])` and reach it on `micro.task`. Issue [#184](https://github.com/grelinfo/grelmicro/issues/184).
 * ✨ Add `Sync` module. Wraps a `SyncBackend` and exposes `lock(...)`, `task_lock(...)`, `leader_election(...)` factories. Use it via `Grelmicro(modules=[Sync(RedisSyncBackend(...))])` and reach it on `micro.sync`. Issue [#210](https://github.com/grelinfo/grelmicro/issues/210).
 * ✨ Add `Cache` module. Wraps a `CacheBackend` and exposes a `ttl(...)` factory that builds a `TTLCache` bound to the wrapped backend. Use it via `Grelmicro(modules=[Cache(RedisCacheBackend(...))])` and reach it on `micro.cache`. Issue [#212](https://github.com/grelinfo/grelmicro/issues/212).
+* ✨ Add `Health` module. Wraps a `HealthRegistry` and forwards the `check(...)` decorator and `run(...)` aggregator. Use it via `Grelmicro(modules=[Health()])` and reach it on `micro.health`. Issue [#213](https://github.com/grelinfo/grelmicro/issues/213).
 * ✨ Add `Grelmicro.current()` classmethod for ambient lookup. Inside `async with micro:` it returns the active app for the current asyncio task. Matches Tokio's `Handle::current()` shape.
 
 ## 0.21.0 - 2026-05-06

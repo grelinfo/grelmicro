@@ -12,6 +12,7 @@ from grelmicro.health._models import (
     HealthReport,
     HealthStatus,
 )
+from grelmicro.health._module import Health
 from grelmicro.health._registry import HealthRegistry, HealthRegistryConfig
 from grelmicro.health._types import HealthCheckFunc, HealthDetails
 from grelmicro.health.errors import HealthError
@@ -64,6 +65,7 @@ def use(
 
 __all__ = [
     "CheckResult",
+    "Health",
     "HealthCheckFunc",
     "HealthDetails",
     "HealthError",
