@@ -98,8 +98,9 @@ async def test_lifespan_starts_and_stops_registered_manager() -> None:
     """`grelmicro.lifespan()` enters the registered manager."""
     manager = TaskManager()
     task_mod.use_manager(manager)
+    assert not manager.started()
     async with grelmicro.lifespan():
-        assert manager._task_group is not None
+        assert manager.started()
 
 
 async def test_lifespan_excludes_task_module() -> None:
@@ -107,4 +108,4 @@ async def test_lifespan_excludes_task_module() -> None:
     manager = TaskManager()
     task_mod.use_manager(manager)
     async with grelmicro.lifespan(exclude={"task"}):
-        assert manager._task_group is None
+        assert not manager.started()
