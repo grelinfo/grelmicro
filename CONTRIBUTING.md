@@ -334,6 +334,35 @@ After `1.0.0`, standard semver applies: breaking changes only on
 `MAJOR`, and removals go through at least two `MINOR` releases
 with a `DeprecationWarning` first.
 
+## Issues and releases
+
+grelmicro ships continuously: a PR merges, a release follows when
+it makes sense. There is no project board and no per-release
+milestone.
+
+The full workflow uses **GitHub issue state plus two labels**:
+
+| State | Meaning |
+|---|---|
+| Open, no label | Backlog. Anyone can propose work here. |
+| `next` label | Picked for the next release. Short list. |
+| `v1.0` label | Targeted for the 1.0 line, not the next release. |
+| Assigned to someone | In progress. |
+| Closed | Done. |
+
+Useful filters:
+
+```text
+is:open is:issue label:next                 # next up
+is:open is:issue assignee:@me               # in progress
+is:open is:issue no:label                   # groomable backlog
+is:open is:issue label:v1.0                 # 1.0 scope
+```
+
+A release happens when one or more `next`-labeled issues are
+closed and the changelog has enough to ship. There is no
+fixed cadence.
+
 ## Before opening a PR
 
 - All pre-commit gates pass locally
