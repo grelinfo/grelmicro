@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import (
+    AbstractAsyncContextManager,
+    AsyncExitStack,
+    asynccontextmanager,
+)
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Annotated, Any, Self
 
@@ -54,20 +58,37 @@ class Grelmicro:
             Doc(
                 """
                 Modules registered at construction time. Equivalent to a
-                sequence of `.use(module)` calls in the same order.
+                sequence of `.use(module)` calls in the same order. Use for
+                tools that need backend lookup via the app context (e.g.
+                `Sync`, `Cache`).
+                """,
+            ),
+        ] = None,
+        includes: Annotated[
+            Iterable[AbstractAsyncContextManager[object]] | None,
+            Doc(
+                """
+                Items lifecycled with the app, registered without a `(kind,
+                name)` key. Equivalent to a sequence of `.include(item)`
+                calls. Use for entry points the caller holds a reference to
+                directly (e.g. `TaskManager`, `HealthRegistry`).
                 """,
             ),
         ] = None,
     ) -> None:
-        """Initialize the app and register any modules passed at construction."""
+        """Initialize the app and register passed modules and includes."""
         self._modules: list[Module] = []
         self._by_key: dict[tuple[str, str], Module] = {}
         self._by_kind: dict[str, Module] = {}
+        self._includes: list[AbstractAsyncContextManager[object]] = []
         self._exit_stack: AsyncExitStack | None = None
         self._token: Any = None
         if modules is not None:
             for module in modules:
                 self.use(module)
+        if includes is not None:
+            for item in includes:
+                self.include(item)
 
     @classmethod
     def current(cls) -> Grelmicro:
@@ -134,6 +155,39 @@ class Grelmicro:
         if module.name == "default":
             self._by_kind[module.kind] = module
         return module
+
+    def include[I: AbstractAsyncContextManager[object]](self, item: I) -> I:
+        """Register an async context manager to be lifecycled with the app.
+
+        Use for entry points where the caller holds a reference to the item
+        directly (e.g. `TaskManager`, `HealthRegistry`). Items registered with
+        `include` do not have a `(kind, name)` lookup key and are not exposed
+        on `micro.<kind>` — the caller uses the held reference.
+
+        Mirrors the FastAPI `app.include_router(router)` pattern: explicit
+        dependency injection, no wrapper class, no signature mirroring, no
+        circular import risk.
+
+        ```python
+        from grelmicro import Grelmicro
+        from grelmicro.task import TaskManager
+
+        task_manager = TaskManager()
+        micro = Grelmicro()
+        micro.include(task_manager)
+
+        @task_manager.interval(seconds=5)
+        async def cleanup(): ...
+
+        async with micro:
+            ...
+        ```
+
+        Returns the item unchanged so it can be used inline:
+        `tasks = micro.include(TaskManager())`.
+        """
+        self._includes.append(item)
+        return item
 
     def get(self, kind: str, name: str = "default") -> Any:  # noqa: ANN401
         """Resolve a registered module by `(kind, name)`.
@@ -238,19 +292,28 @@ class Grelmicro:
         raise AttributeError(msg)
 
     async def __aenter__(self) -> Self:
-        """Open every registered module in registration order."""
+        """Open modules first, then includes, in registration order.
+
+        The active-app `ContextVar` is set before entries so modules and
+        includes can call `Grelmicro.current()` from their `__aenter__`.
+        On partial-startup failure, the token is reset before unwinding.
+        """
         if self._exit_stack is not None:
             raise OutOfContextError(self, "__aenter__")
         self._exit_stack = AsyncExitStack()
         await self._exit_stack.__aenter__()
+        self._token = _current_micro.set(self)
         try:
             for module in self._modules:
                 await self._exit_stack.enter_async_context(module)
+            for item in self._includes:
+                await self._exit_stack.enter_async_context(item)
         except BaseException:
+            _current_micro.reset(self._token)
+            self._token = None
             await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
             self._exit_stack = None
             raise
-        self._token = _current_micro.set(self)
         return self
 
     async def __aexit__(
