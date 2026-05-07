@@ -292,21 +292,28 @@ class Grelmicro:
         raise AttributeError(msg)
 
     async def __aenter__(self) -> Self:
-        """Open modules first, then includes, in registration order."""
+        """Open modules first, then includes, in registration order.
+
+        The active-app `ContextVar` is set before entries so modules and
+        includes can call `Grelmicro.current()` from their `__aenter__`.
+        On partial-startup failure, the token is reset before unwinding.
+        """
         if self._exit_stack is not None:
             raise OutOfContextError(self, "__aenter__")
         self._exit_stack = AsyncExitStack()
         await self._exit_stack.__aenter__()
+        self._token = _current_micro.set(self)
         try:
             for module in self._modules:
                 await self._exit_stack.enter_async_context(module)
             for item in self._includes:
                 await self._exit_stack.enter_async_context(item)
         except BaseException:
+            _current_micro.reset(self._token)
+            self._token = None
             await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
             self._exit_stack = None
             raise
-        self._token = _current_micro.set(self)
         return self
 
     async def __aexit__(

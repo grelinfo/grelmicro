@@ -347,6 +347,58 @@ async def test_include_partial_startup_failure_unwinds() -> None:
     assert log == ["enter:good", "enter:bad", "exit:good"]
 
 
+async def test_module_aenter_can_resolve_current_micro() -> None:
+    """Modules consulting `Grelmicro.current()` from `__aenter__` see the active app."""
+    seen: list[Grelmicro] = []
+
+    class _CurrentLookupOnEnter:
+        kind: ClassVar[str] = "rec"
+
+        def __init__(self) -> None:
+            self.name = "default"
+
+        async def __aenter__(self) -> Self:
+            seen.append(Grelmicro.current())
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> bool | None:
+            return None
+
+    micro = Grelmicro(modules=[_CurrentLookupOnEnter()])
+    async with micro:
+        pass
+    assert seen == [micro]
+
+
+async def test_include_aenter_can_resolve_current_micro() -> None:
+    """Includes consulting `Grelmicro.current()` from `__aenter__` see the active app."""
+    seen: list[Grelmicro] = []
+
+    class _CurrentLookupInclude:
+        async def __aenter__(self) -> Self:
+            seen.append(Grelmicro.current())
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> bool | None:
+            return None
+
+    item = _CurrentLookupInclude()
+    micro = Grelmicro(includes=[item])
+    async with micro:
+        pass
+    assert seen == [micro]
+
+
 async def test_module_aexit_can_resolve_current_micro() -> None:
     """Modules consulting `Grelmicro.current()` from `__aexit__` see the active app."""
     seen: list[Grelmicro] = []
