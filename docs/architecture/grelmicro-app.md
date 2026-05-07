@@ -4,6 +4,13 @@
 
 Proposed. Targets the `0.22.0` to `0.24.0` window. Last breaking change before `1.0`.
 
+!!! warning "Proposed API, not yet implemented"
+    Every `Grelmicro`, `Sync`, `Cache`, `Tasks`, `Health`, and `Feature`
+    reference in this document describes a future shape. None of these symbols
+    exist in the current codebase. The shipped API today is the per-module
+    `register / use_* / use` helpers. Treat snippets here as design intent,
+    not runnable code.
+
 ## Context
 
 Today every grelmicro feature owns a module-level `BackendRegistry` (`sync_backend_registry`, `cache_backend_registry`, ...). All registries auto-subscribe into a single global dict, `_ALL_REGISTRIES`. `grelmicro.lifespan()` walks that dict on entry. Primitives like `Lock("k")` resolve their backend by name through the same registry.
@@ -62,6 +69,7 @@ async with micro:
 ### `Feature` protocol
 
 ```python
+from types import TracebackType
 from typing import Protocol, Self
 
 
@@ -71,7 +79,12 @@ class Feature(Protocol):
     kind: str  # "sync", "cache", "tasks", "health", ...
 
     async def __aenter__(self) -> Self: ...
-    async def __aexit__(self, *exc: object) -> bool | None: ...
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None: ...
 ```
 
 `micro.use(feature)` reads `feature.kind`, attaches the feature as `micro.<kind>`, and walks features in registration order on `async with micro:`. Reusing the same `kind` with a different instance raises. Reusing with the same instance is a no-op.

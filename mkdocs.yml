@@ -92,6 +92,7 @@ nav:
     - architecture/kubernetes.md
     - architecture/sqlite.md
     - architecture/tracing.md
+    - architecture/grelmicro-app.md
 - changelog.md
 - Third-party notices: third_party_notices.md
 
