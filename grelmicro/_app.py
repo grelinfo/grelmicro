@@ -8,7 +8,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self, overload
 
 from typing_extensions import Doc
 
@@ -20,7 +20,16 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache._module import Cache
+    from grelmicro.cache._protocol import CacheBackend
     from grelmicro.sync._module import Sync
+    from grelmicro.sync.abc import SyncBackend
+else:
+    # Runtime fallback so `typing.get_type_hints(Grelmicro)` resolves the
+    # `sync` / `cache` property annotations without forcing first-party
+    # submodules to load at `import grelmicro`. Real types are visible to
+    # static type checkers via the `TYPE_CHECKING` branch above.
+    Cache = Any
+    Sync = Any
 
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
 
@@ -110,7 +119,15 @@ class Grelmicro:
         except LookupError as exc:
             raise NoActiveAppError from exc
 
-    def use[T: AbstractAsyncContextManager[object]](self, item: T) -> T:
+    @overload
+    def use(self, item: SyncBackend) -> Sync: ...
+    @overload
+    def use(self, item: CacheBackend) -> Cache: ...
+    @overload
+    def use[M: Module](self, item: M) -> M: ...
+    @overload
+    def use[T: AbstractAsyncContextManager[object]](self, item: T) -> T: ...
+    def use(self, item):
         """Register an item to be lifecycled with the app.
 
         Three shapes are accepted:

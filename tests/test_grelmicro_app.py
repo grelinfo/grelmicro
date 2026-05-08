@@ -336,6 +336,21 @@ async def test_use_partial_startup_failure_unwinds() -> None:
     assert log == ["enter:good", "enter:bad", "exit:good"]
 
 
+def test_runtime_type_hints_resolve_without_loading_submodules() -> None:
+    """`typing.get_type_hints(Grelmicro)` does not raise even with TYPE_CHECKING imports.
+
+    The runtime fallback `Cache = Any` / `Sync = Any` keeps `sync` / `cache`
+    property annotations resolvable for docs tooling and frameworks that
+    introspect annotations.
+    """
+    from typing import get_type_hints  # noqa: PLC0415
+
+    hints = get_type_hints(Grelmicro)
+    # Property names show up via class-level resolution under
+    # `from __future__ import annotations`; the call must not raise.
+    assert isinstance(hints, dict)
+
+
 async def test_module_aenter_can_resolve_current_micro() -> None:
     """Modules consulting `Grelmicro.current()` from `__aenter__` see the active app."""
     seen: list[Grelmicro] = []
