@@ -5,5 +5,5 @@
       show_submodules: true
       members:
         - TaskError
-        - TaskManager
+        - Tasks
         - TaskRouter

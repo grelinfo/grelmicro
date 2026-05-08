@@ -32,7 +32,7 @@ The registry auto-registers as the global singleton. The router resolves it auto
 
 ### Grelmicro app integration
 
-Register the `HealthRegistry` with a `Grelmicro` app to lifecycle it alongside the rest of your modules. Same FastAPI-style explicit registration as `TaskManager`:
+Register the `HealthRegistry` with a `Grelmicro` app to lifecycle it alongside the rest of your modules. Same FastAPI-style explicit registration as `Tasks`:
 
 ```python
 from grelmicro import Grelmicro
@@ -49,7 +49,7 @@ async with micro:
     report = await health.run()
 ```
 
-Use `Grelmicro.use(item)` (or `uses=`) for entry-point components like `HealthRegistry` and `TaskManager`. The caller keeps the reference and uses it directly.
+Use `Grelmicro.use(item)` (or `uses=`) for entry-point components like `HealthRegistry` and `Tasks`. The caller keeps the reference and uses it directly.
 
 For imperative registration (without a decorator), use `registry.add(name, func)`:
 

@@ -1,7 +1,7 @@
 from grelmicro.sync import Lock
-from grelmicro.task import TaskManager
+from grelmicro.task import Tasks
 
-task = TaskManager()
+task = Tasks()
 
 
 @task.interval(seconds=5)

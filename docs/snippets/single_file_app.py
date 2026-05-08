@@ -9,10 +9,10 @@ from fastapi import FastAPI
 
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.memory import MemorySyncBackend
-from grelmicro.task import TaskManager
+from grelmicro.task import Tasks
 
 backend = MemorySyncBackend()
-task = TaskManager()
+task = Tasks()
 
 
 @asynccontextmanager

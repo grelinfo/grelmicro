@@ -15,16 +15,16 @@ The key features are:
 
 ## Task Manager
 
-The `TaskManager` class is the main entry point to manage tasks. The recommended way to lifecycle it is to register it with a `Grelmicro` app:
+The `Tasks` class is the main entry point to manage tasks. The recommended way to lifecycle it is to register it with a `Grelmicro` app:
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.task import TaskManager
+from grelmicro.task import Tasks
 
-task_manager = TaskManager()
-micro = Grelmicro(uses=[task_manager])
+tasks = Tasks()
+micro = Grelmicro(uses=[tasks])
 
-@task_manager.interval(seconds=5)
+@tasks.interval(seconds=5)
 async def cleanup() -> None:
     ...
 
@@ -56,7 +56,7 @@ Use the `interval` decorator to run a task at a fixed interval:
 !!! note
     The interval specifies the waiting time between task executions. Ensure that the task execution duration is considered to meet deadlines effectively.
 
-=== "TaskManager"
+=== "Tasks"
 
     ```python
     --8<-- "task/interval_manager.py"
@@ -133,7 +133,7 @@ For bigger applications, use the `TaskRouter` class to organize tasks across mod
 --8<-- "task/router.py:1-10"
 ```
 
-Then include the `TaskRouter` into the `TaskManager` or other routers:
+Then include the `TaskRouter` into the `Tasks` or other routers:
 
 ```python
 --8<-- "task/router.py:12"

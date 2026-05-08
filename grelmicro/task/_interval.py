@@ -24,7 +24,7 @@ logger = getLogger("grelmicro.task")
 class IntervalTask(Task):
     """Interval Task.
 
-    Use the `TaskManager.interval()` or `TaskRouter.interval()` decorator instead
+    Use the `Tasks.interval()` or `TaskRouter.interval()` decorator instead
     of creating IntervalTask objects directly.
 
     Supports three modes:

@@ -283,7 +283,7 @@ def test_use_plain_context_manager_returns_none() -> None:
 async def test_use_lifecycles_plain_context_manager_with_app() -> None:
     """`async with micro:` enters and exits plain async context managers."""
     log: list[str] = []
-    item = _RecordingContext(log=log, label="task_manager")
+    item = _RecordingContext(log=log, label="tasks")
     micro = Grelmicro(uses=[item])
     async with micro:
         assert item.entered == 1

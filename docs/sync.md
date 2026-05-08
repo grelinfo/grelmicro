@@ -10,7 +10,7 @@ The available primitives are:
 - **[Leader Election](#leader-election)**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **[Lock](#lock)**: A distributed lock that can be used to synchronize access to shared resources.
 
-The synchronization primitives can be used in combination with the `TaskManager` and `TaskRouter` to control task execution in a distributed system (see more in [Task Scheduler](task.md)).
+The synchronization primitives can be used in combination with the `Tasks` and `TaskRouter` to control task execution in a distributed system (see more in [Task Scheduler](task.md)).
 
 !!! warning "Thread Safety"
     All synchronization primitives (`Lock`, `TaskLock`, `LeaderElection`) are designed for use within a single async event loop and are **not thread-safe**. Sync access from worker threads is supported via `from_thread` adapters, which dispatch operations to the event loop. Do not share instances across multiple event loops or threads without the adapter.

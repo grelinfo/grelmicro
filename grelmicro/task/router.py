@@ -18,7 +18,7 @@ class TaskRouter:
     """Task Router.
 
     `TaskRouter` class, used to group task schedules, for example to structure an app in
-    multiple files. It would then be included in the `TaskManager`, or in another
+    multiple files. It would then be included in the `Tasks`, or in another
     `TaskRouter`.
     """
 
