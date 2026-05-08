@@ -21,6 +21,7 @@ def __getattr__(name: str) -> object:
             DeprecationWarning,
             stacklevel=2,
         )
+        globals()["TaskManager"] = Tasks
         return Tasks
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)

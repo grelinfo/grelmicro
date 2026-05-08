@@ -13,7 +13,7 @@ The key features are:
 - **Dependency injection**: use [FastDepends](https://lancetnik.github.io/FastDepends/) to inject dependencies into tasks.
 - **Error handling**: errors are caught and logged, so a failing task does not stop the scheduler.
 
-## Task Manager
+## Tasks
 
 The `Tasks` class is the main entry point to manage tasks. The recommended way to lifecycle it is to register it with a `Grelmicro` app:
 

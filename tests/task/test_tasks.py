@@ -1,5 +1,6 @@
 """Test Tasks."""
 
+import warnings
 from asyncio import Event
 
 import pytest
@@ -165,13 +166,19 @@ async def test_tasks_out_of_context_errors() -> None:
 
 
 def test_task_manager_alias_emits_deprecation_warning() -> None:
-    """Accessing TaskManager from grelmicro.task emits DeprecationWarning."""
+    """Accessing TaskManager from grelmicro.task emits DeprecationWarning once."""
     import grelmicro.task as task_module  # noqa: PLC0415
+
+    task_module.__dict__.pop("TaskManager", None)
 
     with pytest.warns(DeprecationWarning, match="TaskManager is deprecated"):
         alias = task_module.TaskManager
 
     assert alias is Tasks
+    # Cached after first access: no further warnings.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        assert task_module.TaskManager is Tasks
 
 
 def test_unknown_attribute_raises_attribute_error() -> None:
