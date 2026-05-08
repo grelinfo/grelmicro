@@ -8,7 +8,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Annotated, Any, Self, overload
+from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from typing_extensions import Doc
 
@@ -20,9 +20,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache._module import Cache
-    from grelmicro.cache._protocol import CacheBackend
     from grelmicro.sync._module import Sync
-    from grelmicro.sync.abc import SyncBackend
 else:
     # Runtime fallback so `typing.get_type_hints(Grelmicro)` resolves the
     # `sync` / `cache` property annotations without forcing first-party
@@ -119,15 +117,7 @@ class Grelmicro:
         except LookupError as exc:
             raise NoActiveAppError from exc
 
-    @overload
-    def use(self, item: SyncBackend) -> Sync: ...
-    @overload
-    def use(self, item: CacheBackend) -> Cache: ...
-    @overload
-    def use[M: Module](self, item: M) -> M: ...
-    @overload
-    def use[T: AbstractAsyncContextManager[object]](self, item: T) -> T: ...
-    def use(self, item):
+    def use(self, item: AbstractAsyncContextManager[object]) -> None:
         """Register an item to be lifecycled with the app.
 
         Three shapes are accepted:
@@ -148,42 +138,51 @@ class Grelmicro:
         # Explicit Module when a non-default name is needed
         micro.use(Sync(RedisSyncBackend(), name="analytics"))
 
-        # Plain async context manager: lifecycled only
-        task_manager = micro.use(TaskManager())
+        # Plain async context manager: lifecycled only, caller holds reference
+        task_manager = TaskManager()
+        micro.use(task_manager)
         ```
 
-        Returns the item passed in (unwrapped if it was already a Module or
-        plain CM, the wrapper Module if it was an auto-wrapped backend).
+        Returns `None`. Mirrors FastAPI's `app.include_router(router)`
+        pattern: pure side-effect registration. To access registered
+        modules, use the typed `micro.sync` / `micro.cache` properties or
+        `micro.get(kind, name)`. For plain async context managers, the
+        caller already holds the reference.
 
         Raises:
             ModuleAlreadyRegisteredError: A different module is already
                 registered under the same `(kind, name)` key. Plain async
                 context managers do not raise; they are appended.
         """
-        if not isinstance(item, Module):
-            wrapped = _maybe_wrap_first_party_backend(item)
-            if wrapped is not None:
-                item = wrapped  # ty: ignore[invalid-assignment]
-        if isinstance(item, Module):
-            key = (item.kind, item.name)
-            existing = self._by_key.get(key)
-            if existing is item:
-                return item
-            if existing is not None:
-                msg = (
-                    f"module {key!r} is already registered. "
-                    f"Construct a new Grelmicro or pick a different name."
-                )
-                raise ModuleAlreadyRegisteredError(msg)
-            self._by_key[key] = item
-            # `micro.<kind>` prefers the entry named `"default"`. Only update
-            # the kind-default index when this registration is the default
-            # one. `__getattr__` falls back to the sole entry per kind when
-            # no default is registered.
-            if item.name == "default":
-                self._by_kind[item.kind] = item
-        self._items.append(item)
-        return item
+        # Resolve the item to a Module if possible: pass-through for Module
+        # instances, auto-wrap for first-party backends, None for plain CMs.
+        module: Module | None = (
+            item
+            if isinstance(item, Module)
+            else _maybe_wrap_first_party_backend(item)
+        )
+        if module is None:
+            # Plain async context manager: lifecycle only, no kind/name lookup.
+            self._items.append(item)
+            return
+        key = (module.kind, module.name)
+        existing = self._by_key.get(key)
+        if existing is module:
+            return
+        if existing is not None:
+            msg = (
+                f"module {key!r} is already registered. "
+                f"Construct a new Grelmicro or pick a different name."
+            )
+            raise ModuleAlreadyRegisteredError(msg)
+        self._by_key[key] = module
+        # `micro.<kind>` prefers the entry named `"default"`. Only update the
+        # kind-default index when this registration is the default one.
+        # `__getattr__` falls back to the sole entry per kind when no default
+        # is registered.
+        if module.name == "default":
+            self._by_kind[module.kind] = module
+        self._items.append(module)
 
     def get(self, kind: str, name: str = "default") -> Any:  # noqa: ANN401
         """Resolve a registered module by `(kind, name)`.

@@ -85,12 +85,11 @@ def test_use_attaches_module_on_kind_attr() -> None:
     assert micro.rec is pattern
 
 
-def test_use_returns_the_module() -> None:
-    """`.use()` returns the feature so callers can keep a typed reference."""
+def test_use_returns_none() -> None:
+    """`.use()` returns None (side-effect registration, mirrors FastAPI's include_router)."""
     micro = Grelmicro()
     pattern = _RecordingModule()
-    returned = micro.use(pattern)
-    assert returned is pattern
+    assert micro.use(pattern) is None
 
 
 def test_use_same_instance_is_noop() -> None:
@@ -274,12 +273,11 @@ class _RecordingContext:
         return None
 
 
-def test_use_returns_the_plain_context_manager() -> None:
-    """`.use()` returns plain async context managers so callers keep the typed reference."""
+def test_use_plain_context_manager_returns_none() -> None:
+    """`.use()` on a plain async context manager returns None; caller keeps the reference."""
     micro = Grelmicro()
     item = _RecordingContext(log=[], label="x")
-    returned = micro.use(item)
-    assert returned is item
+    assert micro.use(item) is None
 
 
 async def test_use_lifecycles_plain_context_manager_with_app() -> None:
