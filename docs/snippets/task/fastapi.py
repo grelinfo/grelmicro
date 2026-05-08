@@ -2,9 +2,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from grelmicro.task import TaskManager
+from grelmicro.task import Tasks
 
-task = TaskManager()
+task = Tasks()
 
 
 @asynccontextmanager

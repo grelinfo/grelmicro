@@ -9,6 +9,10 @@
 * ✨ Add `Cache` module. Wraps a `CacheBackend` and exposes a `ttl(...)` factory that builds a `TTLCache` bound to the wrapped backend. Use it via `Grelmicro(uses=[Cache(RedisCacheBackend(...))])` and reach it on `micro.cache`. Issue [#212](https://github.com/grelinfo/grelmicro/issues/212).
 * ✨ Add `Grelmicro.current()` classmethod for ambient lookup. Inside `async with micro:` it returns the active app for the current asyncio task. Matches Tokio's `Handle::current()` shape.
 
+### Breaking
+
+* 💥 Rename `TaskManager` to `Tasks`. Class still extends `TaskRouter`, mirroring FastAPI's `APIRouter` ← `FastAPI` shape. Update imports to `from grelmicro.task import Tasks`. Issue [#218](https://github.com/grelinfo/grelmicro/issues/218).
+
 ## 0.21.0 - 2026-05-06
 
 ### Breaking

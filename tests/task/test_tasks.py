@@ -1,34 +1,34 @@
-"""Test Task Manager."""
+"""Test Tasks."""
 
 from asyncio import Event
 
 import pytest
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.task import TaskManager
+from grelmicro.task import Tasks
 from grelmicro.task.errors import TaskAddOperationError
 from tests.task.samples import EventTask
 
 pytestmark = [pytest.mark.timeout(10)]
 
 
-def test_task_manager_init() -> None:
-    """Test Task Manager Initialization."""
+def test_tasks_init() -> None:
+    """Test Tasks Initialization."""
     # Act
     task = EventTask()
-    app = TaskManager()
-    app_with_tasks = TaskManager(tasks=[task])
+    app = Tasks()
+    app_with_tasks = Tasks(tasks=[task])
     # Assert
     assert app.tasks == []
     assert app_with_tasks.tasks == [task]
 
 
-async def test_task_manager_context() -> None:
-    """Test Task Manager Context."""
+async def test_tasks_context() -> None:
+    """Test Tasks Context."""
     # Arrange
     event = Event()
     task = EventTask(event=event)
-    app = TaskManager(tasks=[task])
+    app = Tasks(tasks=[task])
 
     # Act
     event_before = event.is_set()
@@ -41,12 +41,12 @@ async def test_task_manager_context() -> None:
 
 
 @pytest.mark.parametrize("auto_start", [True, False])
-async def test_task_manager_auto_start_disabled(*, auto_start: bool) -> None:
-    """Test Task Manager Auto Start Disabled."""
+async def test_tasks_auto_start_disabled(*, auto_start: bool) -> None:
+    """Test Tasks Auto Start Disabled."""
     # Arrange
     event = Event()
     task = EventTask(event=event)
-    app = TaskManager(auto_start=auto_start, tasks=[task])
+    app = Tasks(auto_start=auto_start, tasks=[task])
 
     # Act
     event_before = event.is_set()
@@ -58,10 +58,10 @@ async def test_task_manager_auto_start_disabled(*, auto_start: bool) -> None:
     assert event_in_context is auto_start
 
 
-async def test_task_manager_already_started_error() -> None:
-    """Test Task Manager Already Started Warning."""
+async def test_tasks_already_started_error() -> None:
+    """Test Tasks Already Started Warning."""
     # Arrange
-    app = TaskManager()
+    app = Tasks()
 
     # Act / Assert
     async with app:
@@ -69,7 +69,7 @@ async def test_task_manager_already_started_error() -> None:
             await app.start()
 
 
-async def test_task_manager_start_surfaces_early_task_failure() -> None:
+async def test_tasks_start_surfaces_early_task_failure() -> None:
     """A task that raises before setting ``ready`` surfaces the error from start()."""
     import asyncio  # noqa: PLC0415
 
@@ -85,7 +85,7 @@ async def test_task_manager_start_surfaces_early_task_failure() -> None:
             msg = "early failure"
             raise RuntimeError(msg)
 
-    app = TaskManager(auto_start=False, tasks=[FailingTask()])
+    app = Tasks(auto_start=False, tasks=[FailingTask()])
 
     with pytest.raises(BaseExceptionGroup) as exc_info:
         async with app:
@@ -97,7 +97,7 @@ async def test_task_manager_start_surfaces_early_task_failure() -> None:
     )
 
 
-async def test_task_manager_start_surfaces_early_clean_exit() -> None:
+async def test_tasks_start_surfaces_early_clean_exit() -> None:
     """A task that returns without setting ``ready`` raises instead of deadlocking."""
     import asyncio  # noqa: PLC0415
 
@@ -111,7 +111,7 @@ async def test_task_manager_start_surfaces_early_clean_exit() -> None:
         ) -> None:
             del ready
 
-    app = TaskManager(auto_start=False, tasks=[SilentTask()])
+    app = Tasks(auto_start=False, tasks=[SilentTask()])
 
     with pytest.raises(BaseExceptionGroup) as exc_info:
         async with app:
@@ -123,7 +123,7 @@ async def test_task_manager_start_surfaces_early_clean_exit() -> None:
     )
 
 
-async def test_task_manager_cancels_running_tasks_on_exit() -> None:
+async def test_tasks_cancels_running_tasks_on_exit() -> None:
     """Long-running tasks are cancelled on context exit."""
     import asyncio  # noqa: PLC0415
 
@@ -145,16 +145,16 @@ async def test_task_manager_cancels_running_tasks_on_exit() -> None:
                 cancelled.set()
                 raise
 
-    async with TaskManager(tasks=[LongRunningTask()]):
+    async with Tasks(tasks=[LongRunningTask()]):
         pass
 
     assert cancelled.is_set()
 
 
-async def test_task_manager_out_of_context_errors() -> None:
-    """Test Task Manager Out of Context Errors."""
+async def test_tasks_out_of_context_errors() -> None:
+    """Test Tasks Out of Context Errors."""
     # Arrange
-    app = TaskManager()
+    app = Tasks()
 
     # Act / Assert
     with pytest.raises(OutOfContextError):

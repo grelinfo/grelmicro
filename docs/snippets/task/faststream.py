@@ -3,9 +3,9 @@ from contextlib import asynccontextmanager
 from faststream import ContextRepo, FastStream
 from faststream.redis import RedisBroker
 
-from grelmicro.task import TaskManager
+from grelmicro.task import Tasks
 
-task = TaskManager()
+task = Tasks()
 
 
 @asynccontextmanager

@@ -9,7 +9,7 @@ async def my_task():
     print("Hello, World!")
 
 
-from grelmicro.task.manager import TaskManager
+from grelmicro.task import Tasks
 
-task = TaskManager()
+task = Tasks()
 task.include_router(router)

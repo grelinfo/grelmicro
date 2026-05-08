@@ -45,16 +45,16 @@ class Grelmicro:
     ```python
     from grelmicro import Grelmicro
     from grelmicro.sync import Sync
-    from grelmicro.task import TaskManager
+    from grelmicro.task import Tasks
 
-    task_manager = TaskManager()
+    tasks = Tasks()
 
     micro = Grelmicro(uses=[
         Sync(RedisSyncBackend()),
-        task_manager,
+        tasks,
     ])
 
-    @task_manager.interval(seconds=5)
+    @tasks.interval(seconds=5)
     async def cleanup(): ...
 
     async with micro:
@@ -139,8 +139,8 @@ class Grelmicro:
         micro.use(Sync(RedisSyncBackend(), name="analytics"))
 
         # Plain async context manager: lifecycled only, caller holds reference
-        task_manager = TaskManager()
-        micro.use(task_manager)
+        tasks = Tasks()
+        micro.use(tasks)
         ```
 
         Returns `None`. Mirrors FastAPI's `app.include_router(router)`

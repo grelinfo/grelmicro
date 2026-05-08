@@ -105,12 +105,12 @@ from grelmicro.resilience import (
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncBackend
-from grelmicro.task import TaskManager
+from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
 
 # === grelmicro ===
-task = TaskManager()
+task = Tasks()
 sync.register(RedisSyncBackend("redis://localhost:6379/0"))
 cache.register(RedisCacheBackend("redis://localhost:6379/0", prefix="myapp:"))
 resilience.register(RedisRateLimiterBackend("redis://localhost:6379/0"))

@@ -1,4 +1,4 @@
-"""Task Manager."""
+"""Tasks."""
 
 import asyncio
 from contextlib import AsyncExitStack
@@ -16,10 +16,10 @@ from grelmicro.task.router import TaskRouter
 logger = getLogger("grelmicro.task")
 
 
-class TaskManager(TaskRouter):
-    """Task Manager.
+class Tasks(TaskRouter):
+    """Tasks.
 
-    `TaskManager` class, the main entrypoint to manage scheduled tasks.
+    `Tasks` class, the main entrypoint to manage scheduled tasks.
     """
 
     def __init__(
@@ -42,7 +42,7 @@ class TaskManager(TaskRouter):
             ),
         ] = None,
     ) -> None:
-        """Initialize the task manager."""
+        """Initialize Tasks."""
         TaskRouter.__init__(self, tasks=tasks)
 
         self._auto_start = auto_start
