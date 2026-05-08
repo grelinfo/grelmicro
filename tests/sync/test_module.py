@@ -84,6 +84,22 @@ async def test_sync_lock_via_micro_attribute() -> None:
         pass
 
 
+async def test_use_auto_wraps_raw_sync_backend() -> None:
+    """`micro.use(MemorySyncBackend())` auto-wraps the backend in `Sync`."""
+    backend = MemorySyncBackend()
+    micro = Grelmicro(uses=[backend])
+    assert isinstance(micro.sync, Sync)
+    assert micro.sync.backend is backend
+
+
+async def test_use_auto_wrap_lifecycles_backend() -> None:
+    """Auto-wrapped backend opens and closes with the app."""
+    backend = MemorySyncBackend()
+    micro = Grelmicro(uses=[backend])
+    async with micro, micro.sync.lock("k"):
+        pass
+
+
 async def test_micro_sync_prefers_default_when_named_also_registered() -> None:
     """`micro.sync` resolves to the `(sync, default)` module even after named registrations."""
     primary = MemorySyncBackend()

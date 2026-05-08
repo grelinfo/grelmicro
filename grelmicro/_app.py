@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable
     from types import TracebackType
 
+    from grelmicro.cache._module import Cache
+    from grelmicro.sync._module import Sync
+
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
 
 
@@ -110,32 +113,40 @@ class Grelmicro:
     def use[T: AbstractAsyncContextManager[object]](self, item: T) -> T:
         """Register an item to be lifecycled with the app.
 
-        Items satisfying the `Module` protocol (with a `kind` attribute and
-        a `name` attribute) are also registered with `(kind, name)` lookup
-        and exposed on `micro.<kind>`. Plain async context managers are just
-        opened and closed with the app, the caller keeps the reference.
+        Three shapes are accepted:
+
+        1. A `Module` instance: registered with `(kind, name)` lookup and
+           exposed on `micro.<kind>`.
+        2. A first-party backend (e.g. `RedisSyncBackend`): auto-wrapped
+           into its canonical `Module` (`Sync` for sync backends, `Cache`
+           for cache backends) before registration.
+        3. Any other async context manager: just lifecycled with the app,
+           the caller keeps the reference.
 
         ```python
-        # Module: registered with magic kind/name lookup
-        micro.use(Sync(RedisSyncBackend()))
-        async with micro:
-            async with micro.sync.lock("k"):
-                ...
+        # Auto-wrapped first-party backend
+        micro.use(RedisSyncBackend())          # registered as (sync, default)
+        micro.use(RedisCacheBackend())         # registered as (cache, default)
 
-        # Plain async context manager: lifecycled only, caller holds reference
+        # Explicit Module when a non-default name is needed
+        micro.use(Sync(RedisSyncBackend(), name="analytics"))
+
+        # Plain async context manager: lifecycled only
         task_manager = micro.use(TaskManager())
-        @task_manager.interval(seconds=5)
-        async def cleanup(): ...
         ```
 
-        Returns the item unchanged so it can be used inline:
-        `tasks = micro.use(TaskManager())`.
+        Returns the item passed in (unwrapped if it was already a Module or
+        plain CM, the wrapper Module if it was an auto-wrapped backend).
 
         Raises:
             ModuleAlreadyRegisteredError: A different module is already
                 registered under the same `(kind, name)` key. Plain async
                 context managers do not raise; they are appended.
         """
+        if not isinstance(item, Module):
+            wrapped = _maybe_wrap_first_party_backend(item)
+            if wrapped is not None:
+                item = wrapped  # ty: ignore[invalid-assignment]
         if isinstance(item, Module):
             key = (item.kind, item.name)
             existing = self._by_key.get(key)
@@ -231,21 +242,18 @@ class Grelmicro:
                 self._items = snapshot_items
                 self._by_kind = snapshot_by_kind
 
-    def __getattr__(self, name: str) -> Any:  # noqa: ANN401
-        """Resolve `micro.<kind>` to the registered module of that kind.
+    @property
+    def sync(self) -> Sync:
+        """The registered `Sync` module (default-named, or sole entry of kind `sync`)."""
+        return self._resolve_kind("sync")
 
-        Resolution order, matching the legacy `BackendRegistry.get()` semantics:
+    @property
+    def cache(self) -> Cache:
+        """The registered `Cache` module (default-named, or sole entry of kind `cache`)."""
+        return self._resolve_kind("cache")
 
-        1. The module registered as `(kind, "default")` if present.
-        2. The sole entry of that kind if exactly one is registered.
-        3. Otherwise raises `AttributeError`.
-
-        Returns `Any` so callers can invoke module-specific methods
-        (`micro.sync.lock(...)`, `micro.cache.ttl(...)`) without per-call
-        casts. The actual concrete type depends on the registered module.
-
-        Use `micro.get(kind, name)` for explicit name-based resolution.
-        """
+    def _resolve_kind(self, name: str) -> Any:  # noqa: ANN401
+        """Shared resolution logic for typed properties and `__getattr__`."""
         by_kind = self.__dict__.get("_by_kind", {})
         if name in by_kind:
             return by_kind[name]
@@ -263,6 +271,26 @@ class Grelmicro:
             raise AttributeError(msg)
         msg = f"{cls!r} object has no module of kind {name!r}"
         raise AttributeError(msg)
+
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401
+        """Resolve `micro.<kind>` to the registered module of that kind.
+
+        Falls through to `_resolve_kind` (used by typed properties for
+        first-party modules and by ad-hoc lookup for third-party modules).
+
+        Resolution order, matching the legacy `BackendRegistry.get()` semantics:
+
+        1. The module registered as `(kind, "default")` if present.
+        2. The sole entry of that kind if exactly one is registered.
+        3. Otherwise raises `AttributeError`.
+
+        Returns `Any` so callers can invoke module-specific methods on
+        third-party modules without per-call casts. First-party modules
+        (`sync`, `cache`) are typed via dedicated properties.
+
+        Use `micro.get(kind, name)` for explicit name-based resolution.
+        """
+        return self._resolve_kind(name)
 
     async def __aenter__(self) -> Self:
         """Open every registered item in registration order.
@@ -312,6 +340,25 @@ def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
     import sys  # noqa: PLC0415
 
     return sys.exc_info()
+
+
+def _maybe_wrap_first_party_backend(item: object) -> Module | None:
+    """Wrap a first-party backend in its canonical Module, or return None.
+
+    Imports are lazy so unused modules stay out of `import grelmicro`.
+    The user importing `RedisCacheBackend` already loads `grelmicro.cache`,
+    so the lazy import here is a cache hit.
+    """
+    from grelmicro.cache._module import Cache  # noqa: PLC0415
+    from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
+    from grelmicro.sync._module import Sync  # noqa: PLC0415
+    from grelmicro.sync.abc import SyncBackend  # noqa: PLC0415
+
+    if isinstance(item, CacheBackend):
+        return Cache(item)
+    if isinstance(item, SyncBackend):
+        return Sync(item)
+    return None
 
 
 class ModuleAlreadyRegisteredError(GrelmicroError, RuntimeError):

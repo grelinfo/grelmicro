@@ -6,6 +6,7 @@ from typing import Protocol, Self, runtime_checkable
 from pydantic import PositiveFloat
 
 
+@runtime_checkable
 class SyncBackend(Protocol):
     """Synchronization Backend Protocol.
 

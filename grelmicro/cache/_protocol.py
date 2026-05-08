@@ -1,9 +1,10 @@
 """Cache Backend Protocol."""
 
 from types import TracebackType
-from typing import Protocol, Self
+from typing import Protocol, Self, runtime_checkable
 
 
+@runtime_checkable
 class CacheBackend(Protocol):
     """Protocol for cache storage backends.
 

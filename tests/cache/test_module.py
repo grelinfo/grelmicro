@@ -103,6 +103,24 @@ async def test_micro_cache_via_attribute() -> None:
         assert await ttl_cache.get("alice") == {"id": 1}
 
 
+async def test_use_auto_wraps_raw_cache_backend() -> None:
+    """`micro.use(MemoryCacheBackend())` auto-wraps the backend in `Cache`."""
+    backend = MemoryCacheBackend()
+    micro = Grelmicro(uses=[backend])
+    assert isinstance(micro.cache, Cache)
+    assert micro.cache.backend is backend
+
+
+async def test_use_auto_wrap_cache_lifecycles_backend() -> None:
+    """Auto-wrapped cache backend opens and closes with the app."""
+    backend = MemoryCacheBackend()
+    micro = Grelmicro(uses=[backend])
+    async with micro:
+        ttl_cache = micro.cache.ttl(ttl=60)
+        await ttl_cache.set("k", b"v")
+        assert await ttl_cache.get("k") == b"v"
+
+
 async def test_micro_cache_prefers_default_over_named() -> None:
     """`micro.cache` resolves to `(cache, default)` even when named modules exist."""
     primary = MemoryCacheBackend()
