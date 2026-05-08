@@ -27,11 +27,12 @@ def register(
     """Register ``registry`` under ``name`` (defaults to ``"default"``).
 
     Deprecated since 0.23.0, removed in 1.0.0. Use
-    `Grelmicro(uses=[HealthChecks(...)])` instead.
+    `Grelmicro(uses=[HealthRegistry(...)])` (or `micro.use(HealthRegistry(...))`)
+    instead.
     """
     warn_legacy(
         "grelmicro.health.register",
-        "`Grelmicro(uses=[HealthChecks(...)])`",
+        "`Grelmicro(uses=[HealthRegistry(...)])`",
     )
     health_registry.register(registry, name)
 
@@ -66,11 +67,11 @@ def use_registry(
     """Register ``registry`` under the ``"default"`` name.
 
     Deprecated since 0.23.0, removed in 1.0.0. Use
-    `Grelmicro(uses=[HealthChecks(...)])` instead.
+    `Grelmicro(uses=[HealthRegistry(...)])` instead.
     """
     warn_legacy(
         "grelmicro.health.use_registry",
-        "`Grelmicro(uses=[HealthChecks(...)])`",
+        "`Grelmicro(uses=[HealthRegistry(...)])`",
     )
     health_registry.register(registry, DEFAULT_NAME)
 

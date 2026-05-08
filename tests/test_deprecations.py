@@ -54,10 +54,9 @@ def test_sync_unregister_warns() -> None:
 
 def test_sync_use_warns() -> None:
     """`grelmicro.sync.use` warns."""
-    with (
-        pytest.warns(DeprecationWarning, match="grelmicro.sync.use"),
-        sync_mod.use(MemorySyncBackend()),
-    ):
+    with pytest.warns(DeprecationWarning, match="grelmicro.sync.use"):
+        cm = sync_mod.use(MemorySyncBackend())
+    with cm:
         pass
 
 
@@ -82,10 +81,9 @@ def test_cache_unregister_warns() -> None:
 
 def test_cache_use_warns() -> None:
     """`grelmicro.cache.use` warns."""
-    with (
-        pytest.warns(DeprecationWarning, match="grelmicro.cache.use"),
-        cache_mod.use(MemoryCacheBackend()),
-    ):
+    with pytest.warns(DeprecationWarning, match="grelmicro.cache.use"):
+        cm = cache_mod.use(MemoryCacheBackend())
+    with cm:
         pass
 
 
@@ -112,10 +110,9 @@ def test_health_unregister_warns() -> None:
 
 def test_health_use_warns() -> None:
     """`grelmicro.health.use` warns."""
-    with (
-        pytest.warns(DeprecationWarning, match="grelmicro.health.use"),
-        health_mod.use(HealthRegistry()),
-    ):
+    with pytest.warns(DeprecationWarning, match="grelmicro.health.use"):
+        cm = health_mod.use(HealthRegistry())
+    with cm:
         pass
 
 
@@ -148,10 +145,9 @@ def test_resilience_unregister_warns() -> None:
 
 def test_resilience_use_warns() -> None:
     """`grelmicro.resilience.use` warns."""
-    with (
-        pytest.warns(DeprecationWarning, match="grelmicro.resilience.use"),
-        resilience_mod.use(MemoryRateLimiterBackend()),
-    ):
+    with pytest.warns(DeprecationWarning, match="grelmicro.resilience.use"):
+        cm = resilience_mod.use(MemoryRateLimiterBackend())
+    with cm:
         pass
 
 
