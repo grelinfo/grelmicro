@@ -11,7 +11,7 @@
 
 ### Breaking
 
-* 💥 Rename `TaskManager` to `Tasks`. The class still extends `TaskRouter`, mirroring FastAPI's `APIRouter` ← `FastAPI` shape. `from grelmicro.task import TaskManager` keeps working but emits `DeprecationWarning` and will be removed in 1.0.0. Issue [#218](https://github.com/grelinfo/grelmicro/issues/218).
+* 💥 Rename `TaskManager` to `Tasks`. Class still extends `TaskRouter`, mirroring FastAPI's `APIRouter` ← `FastAPI` shape. Update imports to `from grelmicro.task import Tasks`. Issue [#218](https://github.com/grelinfo/grelmicro/issues/218).
 
 ## 0.21.0 - 2026-05-06
 
