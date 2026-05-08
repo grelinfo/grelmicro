@@ -6,6 +6,7 @@ from typing import Annotated
 from typing_extensions import Doc
 
 from grelmicro._backends import DEFAULT_NAME
+from grelmicro._deprecation import warn_legacy
 from grelmicro.health._backends import get_health_registry, health_registry
 from grelmicro.health._models import (
     CheckResult,
@@ -23,7 +24,16 @@ def register(
         str, Doc("Name to register the registry under.")
     ] = DEFAULT_NAME,
 ) -> None:
-    """Register ``registry`` under ``name`` (defaults to ``"default"``)."""
+    """Register ``registry`` under ``name`` (defaults to ``"default"``).
+
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `Grelmicro(uses=[HealthRegistry(...)])` (or `micro.use(HealthRegistry(...))`)
+    instead.
+    """
+    warn_legacy(
+        "grelmicro.health.register",
+        "`Grelmicro(uses=[HealthRegistry(...)])`",
+    )
     health_registry.register(registry, name)
 
 
@@ -36,7 +46,15 @@ def unregister(
         Doc("Optional instance for an identity-checked removal."),
     ] = None,
 ) -> None:
-    """Remove the registered instance under ``name``."""
+    """Remove the registered instance under ``name``.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Construct a fresh `Grelmicro`
+    app instead of mutating a shared registry.
+    """
+    warn_legacy(
+        "grelmicro.health.unregister",
+        "a fresh `Grelmicro(uses=[...])`",
+    )
     health_registry.unregister(name, registry)
 
 
@@ -46,7 +64,15 @@ def use_registry(
         Doc("The health registry to install as the global default."),
     ],
 ) -> None:
-    """Register ``registry`` under the ``"default"`` name."""
+    """Register ``registry`` under the ``"default"`` name.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `Grelmicro(uses=[HealthRegistry(...)])` instead.
+    """
+    warn_legacy(
+        "grelmicro.health.use_registry",
+        "`Grelmicro(uses=[HealthRegistry(...)])`",
+    )
     health_registry.register(registry, DEFAULT_NAME)
 
 
@@ -58,7 +84,15 @@ def use(
     /,
     **named: HealthRegistry,
 ) -> AbstractContextManager[None]:
-    """Install task-scoped registry overrides."""
+    """Install task-scoped registry overrides.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `async with micro.override(...)` on the active app instead.
+    """
+    warn_legacy(
+        "grelmicro.health.use",
+        "`async with micro.override(...)`",
+    )
     return health_registry.use(registry, **named)
 
 

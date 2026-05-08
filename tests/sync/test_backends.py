@@ -425,7 +425,8 @@ async def test_owned_another(backend: SyncBackend) -> None:
 def test_get_sync_backend(backend_factory: Callable[[], SyncBackend]) -> None:
     """`use_backend` registers the constructed backend as the default."""
     expected_backend = backend_factory()
-    use_backend(expected_backend)
+    with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
+        use_backend(expected_backend)
 
     backend = get_sync_backend()
 

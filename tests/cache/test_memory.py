@@ -244,7 +244,8 @@ class TestMemoryCacheBackendRegistration:
         cache_backend_registry.reset()
         backend = MemoryCacheBackend()
 
-        use_backend(backend)
+        with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
+            use_backend(backend)
 
         assert get_cache_backend() is backend
 

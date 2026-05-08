@@ -6,6 +6,7 @@ from typing import Annotated
 from typing_extensions import Doc
 
 from grelmicro._backends import DEFAULT_NAME
+from grelmicro._deprecation import warn_legacy
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache._module import Cache
 from grelmicro.cache._protocol import CacheBackend
@@ -26,7 +27,15 @@ def register(
         str, Doc("Name to register the backend under.")
     ] = DEFAULT_NAME,
 ) -> None:
-    """Register ``backend`` under ``name`` (defaults to ``"default"``)."""
+    """Register ``backend`` under ``name`` (defaults to ``"default"``).
+
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `Grelmicro(uses=[Cache(backend, name=name)])` instead.
+    """
+    warn_legacy(
+        "grelmicro.cache.register",
+        "`Grelmicro(uses=[Cache(backend, name=name)])`",
+    )
     cache_backend_registry.register(backend, name)
 
 
@@ -39,7 +48,15 @@ def unregister(
         Doc("Optional backend instance for an identity-checked removal."),
     ] = None,
 ) -> None:
-    """Remove the registered backend under ``name``."""
+    """Remove the registered backend under ``name``.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Construct a fresh `Grelmicro`
+    app instead of mutating a shared registry.
+    """
+    warn_legacy(
+        "grelmicro.cache.unregister",
+        "a fresh `Grelmicro(uses=[...])`",
+    )
     cache_backend_registry.unregister(name, backend)
 
 
@@ -49,7 +66,15 @@ def use_backend(
         Doc("The cache backend to register as the default."),
     ],
 ) -> None:
-    """Register ``backend`` under the ``"default"`` name."""
+    """Register ``backend`` under the ``"default"`` name.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `Grelmicro(uses=[Cache(backend)])`.
+    """
+    warn_legacy(
+        "grelmicro.cache.use_backend",
+        "`Grelmicro(uses=[Cache(backend)])`",
+    )
     cache_backend_registry.register(backend, DEFAULT_NAME)
 
 
@@ -61,7 +86,15 @@ def use(
     /,
     **named: CacheBackend,
 ) -> AbstractContextManager[None]:
-    """Install task-scoped backend overrides."""
+    """Install task-scoped backend overrides.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `async with micro.override(Cache(backend)):` instead.
+    """
+    warn_legacy(
+        "grelmicro.cache.use",
+        "`async with micro.override(Cache(backend)):`",
+    )
     return cache_backend_registry.use(backend, **named)
 
 

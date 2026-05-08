@@ -537,7 +537,8 @@ def test_constructor_does_not_register() -> None:
 def test_use_registry_installs_singleton() -> None:
     """`health.use_registry` installs the registry as the global default."""
     registry = HealthRegistry()
-    use_registry(registry)
+    with pytest.warns(DeprecationWarning, match="grelmicro.health"):
+        use_registry(registry)
 
     assert get_health_registry() is registry
 

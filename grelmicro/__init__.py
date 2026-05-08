@@ -13,15 +13,18 @@ from grelmicro._app import (
     ModuleNotRegisteredError,
     NoActiveAppError,
 )
+from grelmicro._deprecation import warn_legacy
 from grelmicro._module import Module
 
 
-@asynccontextmanager
-async def lifespan(
+def lifespan(
     *ad_hoc: AbstractAsyncContextManager[object],
     exclude: Iterable[str] = (),
-) -> AsyncIterator[None]:
+) -> AbstractAsyncContextManager[None]:
     """Open every registered backend, close them all on exit.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Build a `Grelmicro` app and
+    open it with `async with micro:` instead.
 
     Walks every grelmicro backend registry that has been imported
     in the current process and enters each registered backend that
@@ -40,6 +43,18 @@ async def lifespan(
     registry. ``{"resilience.ratelimiter.analytics"}`` skips just
     the named entry inside that registry.
     """
+    warn_legacy(
+        "grelmicro.lifespan",
+        "`async with Grelmicro(uses=[...]):`",
+    )
+    return _lifespan(*ad_hoc, exclude=exclude)
+
+
+@asynccontextmanager
+async def _lifespan(
+    *ad_hoc: AbstractAsyncContextManager[object],
+    exclude: Iterable[str] = (),
+) -> AsyncIterator[None]:
     from grelmicro._backends import _ALL_REGISTRIES  # noqa: PLC0415
 
     excluded = frozenset(exclude)
