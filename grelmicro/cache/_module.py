@@ -29,7 +29,7 @@ class Cache:
         from grelmicro.cache import Cache, JsonSerializer
         from grelmicro.cache.redis import RedisCacheBackend
 
-        micro = Grelmicro(modules=[Cache(RedisCacheBackend("redis://localhost"))])
+        micro = Grelmicro(uses=[Cache(RedisCacheBackend("redis://localhost"))])
         user_cache = micro.cache.ttl(ttl=300, serializer=JsonSerializer())
 
         @micro.cache.cached(user_cache)

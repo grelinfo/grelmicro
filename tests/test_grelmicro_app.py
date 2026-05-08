@@ -85,12 +85,11 @@ def test_use_attaches_module_on_kind_attr() -> None:
     assert micro.rec is pattern
 
 
-def test_use_returns_the_module() -> None:
-    """`.use()` returns the feature so callers can keep a typed reference."""
+def test_use_returns_none() -> None:
+    """`.use()` returns None (side-effect registration, mirrors FastAPI's include_router)."""
     micro = Grelmicro()
     pattern = _RecordingModule()
-    returned = micro.use(pattern)
-    assert returned is pattern
+    assert micro.use(pattern) is None
 
 
 def test_use_same_instance_is_noop() -> None:
@@ -120,20 +119,20 @@ def test_use_same_kind_different_name_coexists() -> None:
     assert micro.get("rec", "analytics") is analytics
 
 
-# --- modules= constructor ---
+# --- uses= constructor ---
 
 
-def test_modules_kwarg_registers_in_order() -> None:
-    """`Grelmicro(modules=[...])` is equivalent to repeated `.use(...)` calls."""
+def test_uses_kwarg_registers_modules_in_order() -> None:
+    """`Grelmicro(uses=[...])` is equivalent to repeated `.use(...)` calls."""
     a = _RecordingModule(name="a")
     b = _OtherModule(name="b")
-    micro = Grelmicro(modules=[a, b])
+    micro = Grelmicro(uses=[a, b])
     assert micro.get("rec", "a") is a
     assert micro.get("oth", "b") is b
 
 
-def test_modules_kwarg_accepts_none() -> None:
-    """`modules=None` (the default) constructs an empty container."""
+def test_uses_kwarg_accepts_none() -> None:
+    """`uses=None` (the default) constructs an empty container."""
     micro = Grelmicro()
     with pytest.raises(ModuleNotRegisteredError):
         micro.get("rec")
@@ -148,7 +147,7 @@ async def test_lifespan_enters_and_exits_in_lifo_order() -> None:
     a = _RecordingModule(name="a", log=log)
     b = _RecordingModule(name="b", log=log)
     c = _RecordingModule(name="c", log=log)
-    micro = Grelmicro(modules=[a, b, c])
+    micro = Grelmicro(uses=[a, b, c])
     async with micro:
         assert log == ["enter:a", "enter:b", "enter:c"]
     assert log == [
@@ -168,7 +167,7 @@ async def test_lifespan_partial_startup_failure_unwinds_already_entered() -> (
     log: list[str] = []
     good = _RecordingModule(name="good", log=log)
     bad = _RaisingModule(name="bad", log=log)
-    micro = Grelmicro(modules=[good, bad])
+    micro = Grelmicro(uses=[good, bad])
     with pytest.raises(RuntimeError, match=_BOOM):
         async with micro:
             pass
@@ -177,7 +176,7 @@ async def test_lifespan_partial_startup_failure_unwinds_already_entered() -> (
 
 async def test_lifespan_can_be_reentered_after_clean_exit() -> None:
     """A `Grelmicro` instance can be opened again after closing cleanly."""
-    micro = Grelmicro(modules=[_RecordingModule()])
+    micro = Grelmicro(uses=[_RecordingModule()])
     async with micro:
         pass
     async with micro:
@@ -225,7 +224,7 @@ async def test_override_swaps_module_for_block() -> None:
     real = _RecordingModule(name="default", log=log)
     mock = _RecordingModule(name="default", log=[])
     mock.log = log  # share log
-    micro = Grelmicro(modules=[real])
+    micro = Grelmicro(uses=[real])
     async with micro:
         async with micro.override(mock):
             assert micro.rec is mock
@@ -250,7 +249,7 @@ async def test_aexit_without_aenter_raises() -> None:
 
 
 class _RecordingContext:
-    """Bare async context manager (no kind/name) for `include()` tests."""
+    """Bare async context manager (no kind/name) for plain-CM `use()` tests."""
 
     def __init__(self, *, log: list[str], label: str) -> None:
         self.log = log
@@ -274,44 +273,32 @@ class _RecordingContext:
         return None
 
 
-def test_include_returns_the_item() -> None:
-    """`include()` returns the registered item so callers keep the typed reference."""
+def test_use_plain_context_manager_returns_none() -> None:
+    """`.use()` on a plain async context manager returns None; caller keeps the reference."""
     micro = Grelmicro()
     item = _RecordingContext(log=[], label="x")
-    returned = micro.include(item)
-    assert returned is item
+    assert micro.use(item) is None
 
 
-async def test_include_lifecycles_item_with_app() -> None:
-    """`async with micro:` enters and exits items registered via include."""
+async def test_use_lifecycles_plain_context_manager_with_app() -> None:
+    """`async with micro:` enters and exits plain async context managers."""
     log: list[str] = []
     item = _RecordingContext(log=log, label="task_manager")
-    micro = Grelmicro(includes=[item])
+    micro = Grelmicro(uses=[item])
     async with micro:
         assert item.entered == 1
         assert item.exited == 0
     assert item.exited == 1
 
 
-async def test_include_kwarg_and_method_are_equivalent() -> None:
-    """`Grelmicro(includes=[x])` and `micro.include(x)` register the same way."""
-    log: list[str] = []
-    a = _RecordingContext(log=log, label="a")
-    b = _RecordingContext(log=log, label="b")
-    micro = Grelmicro(includes=[a])
-    micro.include(b)
-    async with micro:
-        pass
-    # both entered, both exited
-    assert log == ["enter:a", "enter:b", "exit:b", "exit:a"]
-
-
-async def test_modules_open_before_includes() -> None:
-    """Modules enter first (so includes can resolve via Grelmicro.current()), includes after."""
+async def test_uses_kwarg_accepts_modules_and_plain_managers_in_one_list() -> (
+    None
+):
+    """`uses=[Module(), plain_manager]` mixes both kinds in registration order."""
     log: list[str] = []
     mod = _RecordingModule(name="default", log=log)
     inc = _RecordingContext(log=log, label="entry_point")
-    micro = Grelmicro(modules=[mod], includes=[inc])
+    micro = Grelmicro(uses=[mod, inc])
     async with micro:
         pass
     assert log == [
@@ -322,12 +309,12 @@ async def test_modules_open_before_includes() -> None:
     ]
 
 
-async def test_include_partial_startup_failure_unwinds() -> None:
-    """A failure in one include rolls back already-entered modules and includes."""
+async def test_use_partial_startup_failure_unwinds() -> None:
+    """A failure in one item rolls back already-entered items in LIFO order."""
     log: list[str] = []
     good = _RecordingContext(log=log, label="good")
 
-    class _BadInclude:
+    class _BadContext:
         async def __aenter__(self) -> Self:
             log.append("enter:bad")
             raise RuntimeError(_BOOM)
@@ -340,11 +327,26 @@ async def test_include_partial_startup_failure_unwinds() -> None:
         ) -> bool | None:
             return None
 
-    micro = Grelmicro(includes=[good, _BadInclude()])
+    micro = Grelmicro(uses=[good, _BadContext()])
     with pytest.raises(RuntimeError, match=_BOOM):
         async with micro:
             pass
     assert log == ["enter:good", "enter:bad", "exit:good"]
+
+
+def test_runtime_type_hints_resolve_without_loading_submodules() -> None:
+    """`typing.get_type_hints(Grelmicro)` does not raise even with TYPE_CHECKING imports.
+
+    The runtime fallback `Cache = Any` / `Sync = Any` keeps `sync` / `cache`
+    property annotations resolvable for docs tooling and frameworks that
+    introspect annotations.
+    """
+    from typing import get_type_hints  # noqa: PLC0415
+
+    hints = get_type_hints(Grelmicro)
+    # Property names show up via class-level resolution under
+    # `from __future__ import annotations`; the call must not raise.
+    assert isinstance(hints, dict)
 
 
 async def test_module_aenter_can_resolve_current_micro() -> None:
@@ -369,14 +371,14 @@ async def test_module_aenter_can_resolve_current_micro() -> None:
         ) -> bool | None:
             return None
 
-    micro = Grelmicro(modules=[_CurrentLookupOnEnter()])
+    micro = Grelmicro(uses=[_CurrentLookupOnEnter()])
     async with micro:
         pass
     assert seen == [micro]
 
 
-async def test_include_aenter_can_resolve_current_micro() -> None:
-    """Includes consulting `Grelmicro.current()` from `__aenter__` see the active app."""
+async def test_plain_manager_aenter_can_resolve_current_micro() -> None:
+    """Plain async context managers see the active app from `__aenter__`."""
     seen: list[Grelmicro] = []
 
     class _CurrentLookupInclude:
@@ -393,7 +395,7 @@ async def test_include_aenter_can_resolve_current_micro() -> None:
             return None
 
     item = _CurrentLookupInclude()
-    micro = Grelmicro(includes=[item])
+    micro = Grelmicro(uses=[item])
     async with micro:
         pass
     assert seen == [micro]
@@ -421,7 +423,7 @@ async def test_module_aexit_can_resolve_current_micro() -> None:
             seen.append(Grelmicro.current())
             return None
 
-    micro = Grelmicro(modules=[_CurrentLookupModule()])
+    micro = Grelmicro(uses=[_CurrentLookupModule()])
     async with micro:
         pass
     assert seen == [micro]
@@ -447,7 +449,7 @@ async def test_override_restores_on_exception() -> None:
     """`override(...)` restores prior registrations even when the block raises."""
     real = _RecordingModule(name="default")
     mock = _RecordingModule(name="default")
-    micro = Grelmicro(modules=[real])
+    micro = Grelmicro(uses=[real])
     async with micro:
         with pytest.raises(RuntimeError, match=_RAISED):
             async with micro.override(mock):
