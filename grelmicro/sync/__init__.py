@@ -6,6 +6,7 @@ from typing import Annotated
 from typing_extensions import Doc
 
 from grelmicro._backends import DEFAULT_NAME
+from grelmicro._deprecation import warn_legacy
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync._module import Sync
 from grelmicro.sync.abc import SyncBackend, SyncPrimitive
@@ -21,7 +22,15 @@ def register(
         str, Doc("Name to register the backend under.")
     ] = DEFAULT_NAME,
 ) -> None:
-    """Register ``backend`` under ``name`` (defaults to ``"default"``)."""
+    """Register ``backend`` under ``name`` (defaults to ``"default"``).
+
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `Grelmicro(uses=[Sync(backend, name=name)])` instead.
+    """
+    warn_legacy(
+        "grelmicro.sync.register",
+        "`Grelmicro(uses=[Sync(backend, name=name)])`",
+    )
     sync_backend_registry.register(backend, name)
 
 
@@ -34,7 +43,15 @@ def unregister(
         Doc("Optional backend instance for an identity-checked removal."),
     ] = None,
 ) -> None:
-    """Remove the registered backend under ``name``."""
+    """Remove the registered backend under ``name``.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Construct a fresh `Grelmicro`
+    app instead of mutating a shared registry.
+    """
+    warn_legacy(
+        "grelmicro.sync.unregister",
+        "a fresh `Grelmicro(uses=[...])`",
+    )
     sync_backend_registry.unregister(name, backend)
 
 
@@ -44,7 +61,16 @@ def use_backend(
         Doc("The synchronization backend to register as the default."),
     ],
 ) -> None:
-    """Register ``backend`` under the ``"default"`` name."""
+    """Register ``backend`` under the ``"default"`` name.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `Grelmicro(uses=[Sync(backend)])` (or pass the backend directly,
+    `Grelmicro(uses=[backend])` for first-party backends).
+    """
+    warn_legacy(
+        "grelmicro.sync.use_backend",
+        "`Grelmicro(uses=[Sync(backend)])`",
+    )
     sync_backend_registry.register(backend, DEFAULT_NAME)
 
 
@@ -58,11 +84,13 @@ def use(
 ) -> AbstractContextManager[None]:
     """Install task-scoped backend overrides.
 
-    Use as a context manager:
-
-        with sync.use(MemorySyncBackend()):
-            ...
+    Deprecated since 0.23.0, removed in 1.0.0. Use
+    `async with micro.override(Sync(backend)):` instead.
     """
+    warn_legacy(
+        "grelmicro.sync.use",
+        "`async with micro.override(Sync(backend)):`",
+    )
     return sync_backend_registry.use(backend, **named)
 
 

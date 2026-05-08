@@ -6,6 +6,7 @@ from typing import Annotated
 from typing_extensions import Doc
 
 from grelmicro._backends import DEFAULT_NAME
+from grelmicro._deprecation import warn_legacy
 from grelmicro.resilience._backends import (
     circuit_breaker_backend_registry,
     rate_limiter_backend_registry,
@@ -44,7 +45,15 @@ def register(
         str, Doc("Name to register the backend under.")
     ] = DEFAULT_NAME,
 ) -> None:
-    """Register ``backend`` under ``name`` (defaults to ``"default"``)."""
+    """Register ``backend`` under ``name`` (defaults to ``"default"``).
+
+    Deprecated since 0.23.0, removed in 1.0.0. Pass the rate limiter backend
+    to a `Grelmicro` app instead.
+    """
+    warn_legacy(
+        "grelmicro.resilience.register",
+        "`Grelmicro(uses=[...])`",
+    )
     rate_limiter_backend_registry.register(backend, name)
 
 
@@ -57,7 +66,14 @@ def unregister(
         Doc("Optional backend instance for an identity-checked removal."),
     ] = None,
 ) -> None:
-    """Remove the registered backend under ``name``."""
+    """Remove the registered backend under ``name``.
+
+    Deprecated since 0.23.0, removed in 1.0.0.
+    """
+    warn_legacy(
+        "grelmicro.resilience.unregister",
+        "a fresh `Grelmicro(uses=[...])`",
+    )
     rate_limiter_backend_registry.unregister(name, backend)
 
 
@@ -67,7 +83,15 @@ def use_backend(
         Doc("The rate limiter backend to register as the default."),
     ],
 ) -> None:
-    """Register ``backend`` under the ``"default"`` name."""
+    """Register ``backend`` under the ``"default"`` name.
+
+    Deprecated since 0.23.0, removed in 1.0.0. Pass the backend to a
+    `Grelmicro` app instead.
+    """
+    warn_legacy(
+        "grelmicro.resilience.use_backend",
+        "`Grelmicro(uses=[...])`",
+    )
     rate_limiter_backend_registry.register(backend, DEFAULT_NAME)
 
 
@@ -79,7 +103,14 @@ def use(
     /,
     **named: RateLimiterBackend,
 ) -> AbstractContextManager[None]:
-    """Install task-scoped backend overrides."""
+    """Install task-scoped backend overrides.
+
+    Deprecated since 0.23.0, removed in 1.0.0.
+    """
+    warn_legacy(
+        "grelmicro.resilience.use",
+        "`async with micro.override(...)`",
+    )
     return rate_limiter_backend_registry.use(backend, **named)
 
 
@@ -91,7 +122,14 @@ def register_circuit_breaker(
         str, Doc("Name to register the backend under.")
     ] = DEFAULT_NAME,
 ) -> None:
-    """Register a circuit breaker ``backend`` under ``name``."""
+    """Register a circuit breaker ``backend`` under ``name``.
+
+    Deprecated since 0.23.0, removed in 1.0.0.
+    """
+    warn_legacy(
+        "grelmicro.resilience.register_circuit_breaker",
+        "`Grelmicro(uses=[...])`",
+    )
     circuit_breaker_backend_registry.register(backend, name)
 
 
@@ -104,7 +142,14 @@ def unregister_circuit_breaker(
         Doc("Optional backend instance for an identity-checked removal."),
     ] = None,
 ) -> None:
-    """Remove the registered circuit breaker backend under ``name``."""
+    """Remove the registered circuit breaker backend under ``name``.
+
+    Deprecated since 0.23.0, removed in 1.0.0.
+    """
+    warn_legacy(
+        "grelmicro.resilience.unregister_circuit_breaker",
+        "a fresh `Grelmicro(uses=[...])`",
+    )
     circuit_breaker_backend_registry.unregister(name, backend)
 
 
@@ -114,10 +159,15 @@ def use_circuit_breaker_backend(
         Doc("The circuit breaker backend to register as the default."),
     ],
 ) -> None:
-    """Register a circuit breaker ``backend`` under the ``"default"`` name."""
-    circuit_breaker_backend_registry.register(
-        backend, DEFAULT_NAME
-    )  # pragma: no cover
+    """Register a circuit breaker ``backend`` under the ``"default"`` name.
+
+    Deprecated since 0.23.0, removed in 1.0.0.
+    """
+    warn_legacy(
+        "grelmicro.resilience.use_circuit_breaker_backend",
+        "`Grelmicro(uses=[...])`",
+    )
+    circuit_breaker_backend_registry.register(backend, DEFAULT_NAME)
 
 
 __all__ = [

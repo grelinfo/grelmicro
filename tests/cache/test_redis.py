@@ -148,7 +148,8 @@ class TestCacheBackendRegistry:
         cache_backend_registry.reset()
         backend = RedisCacheBackend(URL)
 
-        use_backend(backend)
+        with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
+            use_backend(backend)
 
         assert get_cache_backend() is backend
 

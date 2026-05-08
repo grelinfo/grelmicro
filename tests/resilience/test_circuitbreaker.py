@@ -42,15 +42,14 @@ ALL_STATES = [
 @pytest.fixture(autouse=True)
 def _register_cb_backend() -> Iterator[MemoryCircuitBreakerBackend]:
     """Register an in-memory circuit breaker backend for every test."""
-    from grelmicro.resilience import (  # noqa: PLC0415
-        register_circuit_breaker,
-        unregister_circuit_breaker,
+    from grelmicro.resilience._backends import (  # noqa: PLC0415
+        circuit_breaker_backend_registry,
     )
 
     backend = MemoryCircuitBreakerBackend()
-    register_circuit_breaker(backend)
+    circuit_breaker_backend_registry.register(backend)
     yield backend
-    unregister_circuit_breaker()
+    circuit_breaker_backend_registry.unregister()
 
 
 @pytest.fixture(autouse=True)
@@ -170,14 +169,13 @@ async def test_circuit_from_thread_init() -> None:
 async def test_circuit_from_thread_unopened_backend_raises() -> None:
     """Worker-thread entry on a closed backend raises a clear error."""
     # Arrange: register a fresh backend that we never open.
-    from grelmicro.resilience import (  # noqa: PLC0415
-        register_circuit_breaker,
-        unregister_circuit_breaker,
+    from grelmicro.resilience._backends import (  # noqa: PLC0415
+        circuit_breaker_backend_registry,
     )
 
-    unregister_circuit_breaker()
+    circuit_breaker_backend_registry.unregister()
     closed_backend = MemoryCircuitBreakerBackend()
-    register_circuit_breaker(closed_backend)
+    circuit_breaker_backend_registry.register(closed_backend)
     cb = CircuitBreaker("test")
 
     def enter() -> None:

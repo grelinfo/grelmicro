@@ -219,7 +219,9 @@ async def test_lifespan_opens_registered_backends() -> None:
     cache_backend_registry.register(cache_b, "default")
     rate_limiter_backend_registry.register(rl_b, "default")
 
-    async with grelmicro.lifespan():
+    with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
+        cm = grelmicro.lifespan()
+    async with cm:
         # backends remain registered while open
         assert sync_backend_registry.get() is sync_b
         assert cache_backend_registry.get() is cache_b
@@ -230,7 +232,9 @@ async def test_lifespan_excludes_module() -> None:
     """Lifespan excludes module."""
     sync_backend_registry.register(MemorySyncBackend(), "default")
     cache_backend_registry.register(MemoryCacheBackend(), "default")
-    async with grelmicro.lifespan(exclude={"cache"}):
+    with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
+        cm = grelmicro.lifespan(exclude={"cache"})
+    async with cm:
         # cache backend was not entered (we cannot easily detect this
         # for memory backends; the contract is that entries in
         # ``exclude`` are skipped — verified at unit level in registry)
@@ -243,7 +247,9 @@ async def test_lifespan_excludes_named_entry() -> None:
     analytics = MemorySyncBackend()
     sync_backend_registry.register(primary, "primary")
     sync_backend_registry.register(analytics, "analytics")
-    async with grelmicro.lifespan(exclude={"sync.analytics"}):
+    with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
+        cm = grelmicro.lifespan(exclude={"sync.analytics"})
+    async with cm:
         assert sync_backend_registry.get("primary") is primary
 
 
@@ -267,7 +273,9 @@ async def test_lifespan_excludes_resilience_module_key() -> None:
     rate_limiter_backend_registry.register(rl, "default")
     circuit_breaker_backend_registry.register(cb, "default")
     sync_backend_registry.register(MemorySyncBackend(), "default")
-    async with grelmicro.lifespan(exclude={"resilience"}):
+    with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
+        cm = grelmicro.lifespan(exclude={"resilience"})
+    async with cm:
         assert sync_backend_registry.is_loaded
         # Neither resilience backend was entered.
         assert rl.entered == 0
@@ -280,7 +288,9 @@ async def test_lifespan_excludes_specific_resilience_registry() -> None:
     cb = MemoryCircuitBreakerBackend()
     rate_limiter_backend_registry.register(rl, "default")
     circuit_breaker_backend_registry.register(cb, "default")
-    async with grelmicro.lifespan(exclude={"resilience.ratelimiter"}):
+    with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
+        cm = grelmicro.lifespan(exclude={"resilience.ratelimiter"})
+    async with cm:
         # Rate limiter was skipped, CB was opened.
         assert rl.entered == 0
         assert cb._loop is not None
@@ -305,7 +315,9 @@ def test_lock_named_backend_honors_use_override() -> None:
 
     lock = Lock("audit", backend="analytics")
     assert lock.backend is real_analytics
-    with sync_mod.use(analytics=fake_analytics):
+    with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
+        cm = sync_mod.use(analytics=fake_analytics)
+    with cm:
         assert lock.backend is fake_analytics
     assert lock.backend is real_analytics
 
@@ -313,7 +325,9 @@ def test_lock_named_backend_honors_use_override() -> None:
 async def test_lifespan_with_ad_hoc_backend() -> None:
     """Lifespan with ad hoc backend."""
     ad_hoc = MemorySyncBackend()
-    async with grelmicro.lifespan(ad_hoc):
+    with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
+        cm = grelmicro.lifespan(ad_hoc)
+    async with cm:
         # ad-hoc enters the async ctx but is not registered
         assert not sync_backend_registry.is_loaded
 
@@ -392,30 +406,35 @@ async def test_rate_limiter_redis_async_with_round_trip(
 def test_sync_use_backend_registers_default() -> None:
     """Sync use backend registers default."""
     backend = MemorySyncBackend()
-    sync_mod.use_backend(backend)
+    with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
+        sync_mod.use_backend(backend)
     assert sync_backend_registry.get() is backend
 
 
 def test_cache_use_backend_registers_default() -> None:
     """Cache use backend registers default."""
     backend = MemoryCacheBackend()
-    cache_mod.use_backend(backend)
+    with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
+        cache_mod.use_backend(backend)
     assert cache_backend_registry.get() is backend
 
 
 def test_resilience_use_backend_registers_default() -> None:
     """Resilience use backend registers default."""
     backend = MemoryRateLimiterBackend()
-    resilience_mod.use_backend(backend)
+    with pytest.warns(DeprecationWarning, match="grelmicro.resilience"):
+        resilience_mod.use_backend(backend)
     assert rate_limiter_backend_registry.get() is backend
 
 
 def test_sync_register_and_unregister_module_helpers() -> None:
     """Sync register and unregister module helpers."""
     backend = MemorySyncBackend()
-    sync_mod.register(backend, "primary")
+    with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
+        sync_mod.register(backend, "primary")
     assert sync_backend_registry.get("primary") is backend
-    sync_mod.unregister("primary", backend)
+    with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
+        sync_mod.unregister("primary", backend)
     assert not sync_backend_registry.is_loaded
 
 
@@ -423,31 +442,41 @@ def test_sync_use_module_helper() -> None:
     """Sync use module helper."""
     sync_backend_registry.register(MemorySyncBackend(), "default")
     override = MemorySyncBackend()
-    with sync_mod.use(override):
+    with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
+        cm = sync_mod.use(override)
+    with cm:
         assert sync_backend_registry.get() is override
 
 
 def test_cache_register_unregister_use_module_helpers() -> None:
     """Cache register, unregister, and use module helpers."""
     backend = MemoryCacheBackend()
-    cache_mod.register(backend, "primary")
+    with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
+        cache_mod.register(backend, "primary")
     assert cache_backend_registry.get("primary") is backend
     override = MemoryCacheBackend()
-    with cache_mod.use(override):
+    with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
+        cm = cache_mod.use(override)
+    with cm:
         assert cache_backend_registry.get() is override
-    cache_mod.unregister("primary", backend)
+    with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
+        cache_mod.unregister("primary", backend)
     assert not cache_backend_registry.is_loaded
 
 
 def test_resilience_register_unregister_use_module_helpers() -> None:
     """Resilience register, unregister, and use module helpers."""
     backend = MemoryRateLimiterBackend()
-    resilience_mod.register(backend, "primary")
+    with pytest.warns(DeprecationWarning, match="grelmicro.resilience"):
+        resilience_mod.register(backend, "primary")
     assert rate_limiter_backend_registry.get("primary") is backend
     override = MemoryRateLimiterBackend()
-    with resilience_mod.use(override):
+    with pytest.warns(DeprecationWarning, match="grelmicro.resilience"):
+        cm = resilience_mod.use(override)
+    with cm:
         assert rate_limiter_backend_registry.get() is override
-    resilience_mod.unregister("primary", backend)
+    with pytest.warns(DeprecationWarning, match="grelmicro.resilience"):
+        resilience_mod.unregister("primary", backend)
     assert not rate_limiter_backend_registry.is_loaded
 
 
@@ -455,12 +484,17 @@ def test_health_register_unregister_use_module_helpers() -> None:
     """Health register, unregister, use, and use_registry helpers."""
     health_registry.reset()
     registry = HealthRegistry()
-    health_mod.register(registry, "primary")
+    with pytest.warns(DeprecationWarning, match="grelmicro.health"):
+        health_mod.register(registry, "primary")
     assert health_registry.get("primary") is registry
     override = HealthRegistry()
-    with health_mod.use(override):
+    with pytest.warns(DeprecationWarning, match="grelmicro.health"):
+        cm = health_mod.use(override)
+    with cm:
         assert health_registry.get() is override
-    health_mod.use_registry(registry)
+    with pytest.warns(DeprecationWarning, match="grelmicro.health"):
+        health_mod.use_registry(registry)
     assert health_registry.get() is registry
-    health_mod.unregister("primary", registry)
+    with pytest.warns(DeprecationWarning, match="grelmicro.health"):
+        health_mod.unregister("primary", registry)
     health_registry.reset()

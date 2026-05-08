@@ -13,6 +13,10 @@
 
 * 💥 Rename `TaskManager` to `Tasks`. Class still extends `TaskRouter`, mirroring FastAPI's `APIRouter` ← `FastAPI` shape. Update imports to `from grelmicro.task import Tasks`. Issue [#218](https://github.com/grelinfo/grelmicro/issues/218).
 
+### Deprecated
+
+* 🗑️ Deprecate the module-level legacy helpers in favor of the `Grelmicro` app object. `grelmicro.lifespan()`, `grelmicro.sync.{register,unregister,use,use_backend}`, `grelmicro.cache.{register,unregister,use,use_backend}`, `grelmicro.health.{register,unregister,use,use_registry}`, and `grelmicro.resilience.{register,unregister,use,use_backend,register_circuit_breaker,unregister_circuit_breaker,use_circuit_breaker_backend}` now emit `DeprecationWarning`. They will be removed in 1.0.0. Build a `Grelmicro(uses=[...])` and open it with `async with micro:` instead. Issue [#206](https://github.com/grelinfo/grelmicro/issues/206), removal tracked in [#207](https://github.com/grelinfo/grelmicro/issues/207).
+
 ## 0.21.0 - 2026-05-06
 
 ### Breaking
