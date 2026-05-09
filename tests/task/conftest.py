@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator, Callable
 import pytest
 
 from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync.tasklock import TaskLock
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
@@ -78,7 +78,7 @@ def task_factory(request: pytest.FixtureRequest) -> TaskFactory:
 @pytest.fixture
 async def backend() -> AsyncGenerator[SyncBackend]:
     """Return Memory Synchronization Backend."""
-    async with MemorySyncBackend() as backend:
+    async with MemorySyncAdapter() as backend:
         yield backend
 
 

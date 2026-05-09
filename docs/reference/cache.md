@@ -18,9 +18,9 @@
 ::: grelmicro.cache.memory
     options:
       members:
-        - MemoryCacheBackend
+        - MemoryCacheAdapter
 
 ::: grelmicro.cache.redis
     options:
       members:
-        - RedisCacheBackend
+        - RedisCacheAdapter

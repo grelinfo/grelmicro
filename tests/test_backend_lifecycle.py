@@ -17,8 +17,8 @@ from grelmicro._backends import (
     BackendNotLoadedError,
 )
 from grelmicro.cache._backends import cache_backend_registry
-from grelmicro.cache.memory import MemoryCacheBackend
-from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.health._backends import health_checks
 from grelmicro.health._checks import HealthChecks
 from grelmicro.resilience._backends import (
@@ -32,11 +32,11 @@ from grelmicro.resilience.memory import (
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync import Lock
 from grelmicro.sync._backends import sync_backend_registry
-from grelmicro.sync.kubernetes import KubernetesSyncBackend
-from grelmicro.sync.memory import MemorySyncBackend
-from grelmicro.sync.postgres import PostgresSyncBackend
-from grelmicro.sync.redis import RedisSyncBackend
-from grelmicro.sync.sqlite import SQLiteSyncBackend
+from grelmicro.sync.kubernetes import KubernetesSyncAdapter
+from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.sync.postgres import PostgresSyncAdapter
+from grelmicro.sync.redis import RedisSyncAdapter
+from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
 
 @pytest.fixture(autouse=True)
@@ -74,13 +74,13 @@ def mock_redis(mocker: MockerFixture) -> MagicMock:
 
 def test_sync_constructor_does_not_register() -> None:
     """Sync constructor does not register."""
-    MemorySyncBackend()
+    MemorySyncAdapter()
     assert not sync_backend_registry.is_loaded
 
 
 def test_cache_constructor_does_not_register() -> None:
     """Cache constructor does not register."""
-    MemoryCacheBackend()
+    MemoryCacheAdapter()
     assert not cache_backend_registry.is_loaded
 
 
@@ -95,13 +95,13 @@ def test_rate_limiter_constructor_does_not_register() -> None:
 
 async def test_sync_memory_async_with_does_not_register() -> None:
     """Sync memory async with does not register."""
-    async with MemorySyncBackend():
+    async with MemorySyncAdapter():
         assert not sync_backend_registry.is_loaded
 
 
 async def test_cache_memory_async_with_does_not_register() -> None:
     """Cache memory async with does not register."""
-    async with MemoryCacheBackend():
+    async with MemoryCacheAdapter():
         assert not cache_backend_registry.is_loaded
 
 
@@ -110,15 +110,15 @@ async def test_cache_memory_async_with_does_not_register() -> None:
 
 def test_register_and_get() -> None:
     """Register and get."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     sync_backend_registry.register(backend, "default")
     assert sync_backend_registry.get() is backend
 
 
 def test_register_named_and_get_by_name() -> None:
     """Register named and get by name."""
-    primary = MemorySyncBackend()
-    analytics = MemorySyncBackend()
+    primary = MemorySyncAdapter()
+    analytics = MemorySyncAdapter()
     sync_backend_registry.register(primary, "primary")
     sync_backend_registry.register(analytics, "analytics")
     assert sync_backend_registry.get("primary") is primary
@@ -127,22 +127,22 @@ def test_register_named_and_get_by_name() -> None:
 
 def test_get_default_falls_back_to_sole_entry() -> None:
     """Get default falls back to sole entry."""
-    only = MemorySyncBackend()
+    only = MemorySyncAdapter()
     sync_backend_registry.register(only, "primary")
     assert sync_backend_registry.get() is only
 
 
 def test_get_default_raises_when_multiple_no_default() -> None:
     """Get default raises when multiple no default."""
-    sync_backend_registry.register(MemorySyncBackend(), "primary")
-    sync_backend_registry.register(MemorySyncBackend(), "analytics")
+    sync_backend_registry.register(MemorySyncAdapter(), "primary")
+    sync_backend_registry.register(MemorySyncAdapter(), "analytics")
     with pytest.raises(BackendNotLoadedError, match="multiple"):
         sync_backend_registry.get()
 
 
 def test_register_same_instance_is_noop() -> None:
     """Register same instance is noop."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     sync_backend_registry.register(backend, "default")
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -152,15 +152,15 @@ def test_register_same_instance_is_noop() -> None:
 
 def test_register_different_instance_raises() -> None:
     """Register different instance raises BackendAlreadyRegisteredError."""
-    sync_backend_registry.register(MemorySyncBackend(), "default")
+    sync_backend_registry.register(MemorySyncAdapter(), "default")
     with pytest.raises(BackendAlreadyRegisteredError):
-        sync_backend_registry.register(MemorySyncBackend(), "default")
+        sync_backend_registry.register(MemorySyncAdapter(), "default")
 
 
 def test_unregister_with_identity_check() -> None:
     """Unregister with identity check."""
-    a = MemorySyncBackend()
-    b = MemorySyncBackend()
+    a = MemorySyncAdapter()
+    b = MemorySyncAdapter()
     sync_backend_registry.register(a, "default")
     sync_backend_registry.unregister("default", b)  # wrong instance: no-op
     assert sync_backend_registry.get() is a
@@ -179,8 +179,8 @@ def test_unregister_unknown_name_is_noop() -> None:
 
 def test_use_overrides_default() -> None:
     """Use overrides default."""
-    registered = MemorySyncBackend()
-    override = MemorySyncBackend()
+    registered = MemorySyncAdapter()
+    override = MemorySyncAdapter()
     sync_backend_registry.register(registered, "default")
     with sync_backend_registry.use(override):
         assert sync_backend_registry.get() is override
@@ -189,18 +189,18 @@ def test_use_overrides_default() -> None:
 
 def test_use_overrides_named() -> None:
     """Use overrides named."""
-    sync_backend_registry.register(MemorySyncBackend(), "primary")
-    sync_backend_registry.register(MemorySyncBackend(), "analytics")
-    fake_analytics = MemorySyncBackend()
+    sync_backend_registry.register(MemorySyncAdapter(), "primary")
+    sync_backend_registry.register(MemorySyncAdapter(), "analytics")
+    fake_analytics = MemorySyncAdapter()
     with sync_backend_registry.use(analytics=fake_analytics):
         assert sync_backend_registry.get("analytics") is fake_analytics
 
 
 def test_use_stacks_lifo() -> None:
     """Use stacks lifo."""
-    inner = MemorySyncBackend()
-    outer = MemorySyncBackend()
-    sync_backend_registry.register(MemorySyncBackend(), "default")
+    inner = MemorySyncAdapter()
+    outer = MemorySyncAdapter()
+    sync_backend_registry.register(MemorySyncAdapter(), "default")
     with sync_backend_registry.use(outer):
         with sync_backend_registry.use(inner):
             assert sync_backend_registry.get() is inner
@@ -212,8 +212,8 @@ def test_use_stacks_lifo() -> None:
 
 async def test_lifespan_opens_registered_backends() -> None:
     """Lifespan opens registered backends."""
-    sync_b = MemorySyncBackend()
-    cache_b = MemoryCacheBackend()
+    sync_b = MemorySyncAdapter()
+    cache_b = MemoryCacheAdapter()
     rl_b = MemoryRateLimiterBackend()
     sync_backend_registry.register(sync_b, "default")
     cache_backend_registry.register(cache_b, "default")
@@ -230,8 +230,8 @@ async def test_lifespan_opens_registered_backends() -> None:
 
 async def test_lifespan_excludes_module() -> None:
     """Lifespan excludes module."""
-    sync_backend_registry.register(MemorySyncBackend(), "default")
-    cache_backend_registry.register(MemoryCacheBackend(), "default")
+    sync_backend_registry.register(MemorySyncAdapter(), "default")
+    cache_backend_registry.register(MemoryCacheAdapter(), "default")
     with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
         cm = grelmicro.lifespan(exclude={"cache"})
     async with cm:
@@ -243,8 +243,8 @@ async def test_lifespan_excludes_module() -> None:
 
 async def test_lifespan_excludes_named_entry() -> None:
     """Lifespan excludes named entry."""
-    primary = MemorySyncBackend()
-    analytics = MemorySyncBackend()
+    primary = MemorySyncAdapter()
+    analytics = MemorySyncAdapter()
     sync_backend_registry.register(primary, "primary")
     sync_backend_registry.register(analytics, "analytics")
     with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
@@ -272,7 +272,7 @@ async def test_lifespan_excludes_resilience_module_key() -> None:
     cb = MemoryCircuitBreakerBackend()
     rate_limiter_backend_registry.register(rl, "default")
     circuit_breaker_backend_registry.register(cb, "default")
-    sync_backend_registry.register(MemorySyncBackend(), "default")
+    sync_backend_registry.register(MemorySyncAdapter(), "default")
     with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
         cm = grelmicro.lifespan(exclude={"resilience"})
     async with cm:
@@ -298,8 +298,8 @@ async def test_lifespan_excludes_specific_resilience_registry() -> None:
 
 def test_lock_resolves_named_backend_from_registry() -> None:
     """``Lock(backend="analytics")`` resolves the named entry on each call."""
-    primary = MemorySyncBackend()
-    analytics = MemorySyncBackend()
+    primary = MemorySyncAdapter()
+    analytics = MemorySyncAdapter()
     sync_backend_registry.register(primary, "primary")
     sync_backend_registry.register(analytics, "analytics")
 
@@ -309,8 +309,8 @@ def test_lock_resolves_named_backend_from_registry() -> None:
 
 def test_lock_named_backend_honors_use_override() -> None:
     """``sync.use(...)`` overrides a named backend selection per task."""
-    real_analytics = MemorySyncBackend()
-    fake_analytics = MemorySyncBackend()
+    real_analytics = MemorySyncAdapter()
+    fake_analytics = MemorySyncAdapter()
     sync_backend_registry.register(real_analytics, "analytics")
 
     lock = Lock("audit", backend="analytics")
@@ -324,7 +324,7 @@ def test_lock_named_backend_honors_use_override() -> None:
 
 async def test_lifespan_with_ad_hoc_backend() -> None:
     """Lifespan with ad hoc backend."""
-    ad_hoc = MemorySyncBackend()
+    ad_hoc = MemorySyncAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
         cm = grelmicro.lifespan(ad_hoc)
     async with cm:
@@ -339,7 +339,7 @@ async def test_sync_redis_async_with_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
     """Sync redis async with round trip."""
-    async with RedisSyncBackend("redis://localhost"):
+    async with RedisSyncAdapter("redis://localhost"):
         pass
 
 
@@ -354,13 +354,13 @@ async def test_sync_postgres_async_with_round_trip(
         "grelmicro.sync.postgres.create_pool",
         AsyncMock(return_value=mock_pool),
     )
-    async with PostgresSyncBackend("postgresql://localhost/db"):
+    async with PostgresSyncAdapter("postgresql://localhost/db"):
         pass
 
 
 async def test_sync_sqlite_async_with_round_trip(tmp_path) -> None:  # noqa: ANN001
     """Sync sqlite async with round trip."""
-    async with SQLiteSyncBackend(tmp_path / "lock.db"):
+    async with SQLiteSyncAdapter(tmp_path / "lock.db"):
         pass
 
 
@@ -380,7 +380,7 @@ async def test_sync_kubernetes_async_with_round_trip(
         "grelmicro.sync.kubernetes.AsyncClient",
         return_value=mock_client,
     )
-    async with KubernetesSyncBackend(namespace="default"):
+    async with KubernetesSyncAdapter(namespace="default"):
         pass
 
 
@@ -388,7 +388,7 @@ async def test_cache_redis_async_with_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
     """Cache redis async with round trip."""
-    async with RedisCacheBackend("redis://localhost"):
+    async with RedisCacheAdapter("redis://localhost"):
         pass
 
 
@@ -405,7 +405,7 @@ async def test_rate_limiter_redis_async_with_round_trip(
 
 def test_sync_use_backend_registers_default() -> None:
     """Sync use backend registers default."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
         sync_mod.use_backend(backend)
     assert sync_backend_registry.get() is backend
@@ -413,7 +413,7 @@ def test_sync_use_backend_registers_default() -> None:
 
 def test_cache_use_backend_registers_default() -> None:
     """Cache use backend registers default."""
-    backend = MemoryCacheBackend()
+    backend = MemoryCacheAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
         cache_mod.use_backend(backend)
     assert cache_backend_registry.get() is backend
@@ -429,7 +429,7 @@ def test_resilience_use_backend_registers_default() -> None:
 
 def test_sync_register_and_unregister_module_helpers() -> None:
     """Sync register and unregister module helpers."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
         sync_mod.register(backend, "primary")
     assert sync_backend_registry.get("primary") is backend
@@ -440,8 +440,8 @@ def test_sync_register_and_unregister_module_helpers() -> None:
 
 def test_sync_use_module_helper() -> None:
     """Sync use module helper."""
-    sync_backend_registry.register(MemorySyncBackend(), "default")
-    override = MemorySyncBackend()
+    sync_backend_registry.register(MemorySyncAdapter(), "default")
+    override = MemorySyncAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
         cm = sync_mod.use(override)
     with cm:
@@ -450,11 +450,11 @@ def test_sync_use_module_helper() -> None:
 
 def test_cache_register_unregister_use_module_helpers() -> None:
     """Cache register, unregister, and use module helpers."""
-    backend = MemoryCacheBackend()
+    backend = MemoryCacheAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
         cache_mod.register(backend, "primary")
     assert cache_backend_registry.get("primary") is backend
-    override = MemoryCacheBackend()
+    override = MemoryCacheAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
         cm = cache_mod.use(override)
     with cm:

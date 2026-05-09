@@ -8,8 +8,8 @@ from testcontainers.redis import RedisContainer
 
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
-from grelmicro.cache.memory import MemoryCacheBackend
-from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
 
@@ -50,13 +50,13 @@ async def backend(
     """Cache backend instance."""
     if backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
-        async with RedisCacheBackend(
+        async with RedisCacheAdapter(
             f"redis://localhost:{port}/0",
             prefix="test:",
         ) as redis_backend:
             yield redis_backend
     elif backend_name == "memory":
-        async with MemoryCacheBackend() as memory_backend:
+        async with MemoryCacheAdapter() as memory_backend:
             yield memory_backend
 
 
@@ -136,8 +136,8 @@ async def test_redis_prefix_isolation() -> None:
         port = container.get_exposed_port(6379)
         url = f"redis://localhost:{port}/0"
         async with (
-            RedisCacheBackend(url, prefix="alpha:") as alpha,
-            RedisCacheBackend(url, prefix="beta:") as beta,
+            RedisCacheAdapter(url, prefix="alpha:") as alpha,
+            RedisCacheAdapter(url, prefix="beta:") as beta,
         ):
             await alpha.set(key="k", value=b"alpha", ttl=60)
             await beta.set(key="k", value=b"beta", ttl=60)
@@ -157,7 +157,7 @@ async def test_cached_end_to_end_with_redis() -> None:
     with RedisContainer() as container:
         port = container.get_exposed_port(6379)
         url = f"redis://localhost:{port}/0"
-        async with RedisCacheBackend(url, prefix="e2e:") as redis_backend:
+        async with RedisCacheAdapter(url, prefix="e2e:") as redis_backend:
             cache = TTLCache(
                 ttl=60,
                 backend=redis_backend,
@@ -180,8 +180,8 @@ async def test_cached_end_to_end_with_redis() -> None:
 
 
 async def test_cached_end_to_end_with_memory() -> None:
-    """Test @cached with TTLCache backed by MemoryCacheBackend."""
-    async with MemoryCacheBackend() as memory_backend:
+    """Test @cached with TTLCache backed by MemoryCacheAdapter."""
+    async with MemoryCacheAdapter() as memory_backend:
         cache = TTLCache(
             ttl=60,
             backend=memory_backend,

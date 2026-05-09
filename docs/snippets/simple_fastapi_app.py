@@ -6,14 +6,14 @@ from fastapi import FastAPI
 from grelmicro.log import configure
 from grelmicro.resilience import CircuitBreaker
 from grelmicro.sync import LeaderElection, Lock
-from grelmicro.sync.redis import RedisSyncBackend
+from grelmicro.sync.redis import RedisSyncAdapter
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
 
 # === grelmicro ===
 task = Tasks()
-sync_backend = RedisSyncBackend("redis://localhost:6379/0")
+sync_backend = RedisSyncAdapter("redis://localhost:6379/0")
 leader_election = LeaderElection("leader-election")
 task.add_task(leader_election)
 

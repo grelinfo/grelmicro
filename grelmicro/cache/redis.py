@@ -13,7 +13,7 @@ from grelmicro.cache.errors import CacheSettingsValidationError
 _CLEAR_BATCH_SIZE = 1000
 
 
-class RedisCacheBackend:
+class RedisCacheAdapter:
     """Redis cache storage backend.
 
     Pure key-value storage with per-entry TTL handled natively

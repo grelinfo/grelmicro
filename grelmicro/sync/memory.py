@@ -8,7 +8,7 @@ from typing import Self
 from grelmicro.sync.abc import SyncBackend
 
 
-class MemorySyncBackend(SyncBackend):
+class MemorySyncAdapter(SyncBackend):
     """Memory Synchronization Backend.
 
     This is not a backend with a real distributed lock. It is a local lock that can be used for

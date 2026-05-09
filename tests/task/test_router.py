@@ -6,7 +6,7 @@ from functools import partial
 import pytest
 
 from grelmicro.sync.lock import Lock
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.task import TaskRouter
 from grelmicro.task._interval import IntervalTask
 from grelmicro.task.errors import FunctionTypeError, TaskAddOperationError
@@ -65,7 +65,7 @@ def test_router_interval() -> None:
     task_count = 4
     custom_task = EventTask()
     router = TaskRouter(tasks=[custom_task])
-    sync = Lock(backend=MemorySyncBackend(), name="testlock")
+    sync = Lock(backend=MemorySyncAdapter(), name="testlock")
 
     # Act
     router.interval(name="test1", seconds=10, sync=sync)(test1)
@@ -134,7 +134,7 @@ def test_router_interval_name_generation_error() -> None:
 def test_router_interval_with_lock() -> None:
     """Test Task Router add interval task with distributed lock."""
     # Arrange
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     router = TaskRouter()
 
     # Act
@@ -149,7 +149,7 @@ def test_router_interval_with_lock() -> None:
 def test_router_interval_with_lock_and_custom_least() -> None:
     """Test Task Router add interval task with custom min_lock_seconds."""
     # Arrange
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     router = TaskRouter()
 
     # Act

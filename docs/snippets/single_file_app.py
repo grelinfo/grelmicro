@@ -8,10 +8,10 @@ from fast_depends import Depends
 from fastapi import FastAPI
 
 from grelmicro.sync import LeaderElection, Lock
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.task import Tasks
 
-backend = MemorySyncBackend()
+backend = MemorySyncAdapter()
 task = Tasks()
 
 

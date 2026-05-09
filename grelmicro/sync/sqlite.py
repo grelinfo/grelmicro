@@ -37,7 +37,7 @@ def _get_sqlite_path() -> str:
     raise SyncSettingsValidationError(msg)
 
 
-class SQLiteSyncBackend(SyncBackend):
+class SQLiteSyncAdapter(SyncBackend):
     """SQLite Synchronization Backend."""
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """

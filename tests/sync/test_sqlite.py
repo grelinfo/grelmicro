@@ -5,7 +5,7 @@ import pytest
 from grelmicro.errors import OutOfContextError
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.errors import SyncSettingsValidationError
-from grelmicro.sync.sqlite import SQLiteSyncBackend
+from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -26,13 +26,13 @@ def test_sync_backend_table_name_invalid(table_name: str) -> None:
     with pytest.raises(
         ValueError, match=r"Table name '.*' is not a valid SQL identifier"
     ):
-        SQLiteSyncBackend(path=":memory:", table_name=table_name)
+        SQLiteSyncAdapter(path=":memory:", table_name=table_name)
 
 
 async def test_sync_backend_out_of_context_errors() -> None:
     """Test Synchronization Backend Out Of Context Errors."""
     # Arrange
-    backend = SQLiteSyncBackend(path=":memory:")
+    backend = SQLiteSyncAdapter(path=":memory:")
     name = "lock"
     key = "token"
 
@@ -55,7 +55,7 @@ def test_sqlite_env_var_settings(
     monkeypatch.setenv("SQLITE_PATH", "locks.db")
 
     # Act
-    backend = SQLiteSyncBackend()
+    backend = SQLiteSyncAdapter()
 
     # Assert
     assert backend._path == "locks.db"
@@ -68,14 +68,14 @@ def test_sqlite_env_var_settings_validation_error() -> None:
         SyncSettingsValidationError,
         match=(r"Could not validate environment variables settings:\n"),
     ):
-        SQLiteSyncBackend()
+        SQLiteSyncAdapter()
 
 
 def test_sync_backend_constructor_does_not_register() -> None:
     """Constructing the backend performs no registry writes."""
     sync_backend_registry.reset()
 
-    SQLiteSyncBackend(path=":memory:")
+    SQLiteSyncAdapter(path=":memory:")
 
     assert not sync_backend_registry.is_loaded
 
@@ -83,7 +83,7 @@ def test_sync_backend_constructor_does_not_register() -> None:
 def test_sync_backend_custom_table_name() -> None:
     """Test Synchronization Backend Custom Table Name."""
     # Act
-    backend = SQLiteSyncBackend(path=":memory:", table_name="my_locks")
+    backend = SQLiteSyncAdapter(path=":memory:", table_name="my_locks")
 
     # Assert
     assert backend._table_name == "my_locks"

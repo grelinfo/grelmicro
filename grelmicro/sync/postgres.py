@@ -66,7 +66,7 @@ def _get_postgres_url() -> str:
     raise SyncSettingsValidationError(msg)
 
 
-class PostgresSyncBackend(SyncBackend):
+class PostgresSyncAdapter(SyncBackend):
     """PostgreSQL Synchronization Backend."""
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """

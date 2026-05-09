@@ -12,7 +12,7 @@ from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import SyncSettingsValidationError
 
 
-class RedisSyncBackend(SyncBackend):
+class RedisSyncAdapter(SyncBackend):
     """Redis Synchronization Backend."""
 
     _LUA_ACQUIRE_OR_EXTEND = """

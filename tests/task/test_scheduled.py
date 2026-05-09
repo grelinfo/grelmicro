@@ -9,7 +9,7 @@ from pytest_mock import MockFixture
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.lock import Lock
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
@@ -34,7 +34,7 @@ SLEEP = 0.01
 def test_interval_task_with_lock_init() -> None:
     """Test IntervalTask with lock initialization."""
     # Arrange
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     # Act
     task = IntervalTask(
         seconds=1, function=test1, max_lock_seconds=5, backend=backend
@@ -46,7 +46,7 @@ def test_interval_task_with_lock_init() -> None:
 def test_interval_task_with_lock_init_with_name() -> None:
     """Test IntervalTask with lock initialization with name."""
     # Arrange
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     # Act
     task = IntervalTask(
         seconds=1,
@@ -62,7 +62,7 @@ def test_interval_task_with_lock_init_with_name() -> None:
 def test_interval_task_with_lock_init_invalid_seconds() -> None:
     """Test IntervalTask with lock initialization with invalid seconds."""
     # Arrange
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     # Act / Assert
     with pytest.raises(ValueError, match="seconds must be greater than 0"):
         IntervalTask(
@@ -73,7 +73,7 @@ def test_interval_task_with_lock_init_invalid_seconds() -> None:
 def test_interval_task_with_lock_default_max_lock_seconds() -> None:
     """Test IntervalTask with leader uses default max_lock_seconds."""
     # Arrange
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     leader = LeaderElection("test-leader", backend=backend)
     # Act - leader implies lock, max_lock_seconds defaults to interval * 5
     task = IntervalTask(
@@ -86,7 +86,7 @@ def test_interval_task_with_lock_default_max_lock_seconds() -> None:
 def test_interval_task_with_lock_custom_max_lock_seconds() -> None:
     """Test IntervalTask with custom max_lock_seconds."""
     # Arrange
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     # Act
     task = IntervalTask(
         seconds=10, function=test1, max_lock_seconds=100, backend=backend
@@ -98,7 +98,7 @@ def test_interval_task_with_lock_custom_max_lock_seconds() -> None:
 def test_interval_task_with_max_lock_seconds_validation() -> None:
     """Test IntervalTask max_lock_seconds validation."""
     # Arrange
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     # Act / Assert
     with pytest.raises(
         ValueError,
@@ -120,7 +120,7 @@ def test_interval_task_min_lock_seconds_without_lock() -> None:
 
 def test_interval_task_min_lock_seconds_validation() -> None:
     """Test min_lock_seconds must be <= max_lock_seconds."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     with pytest.raises(
         ValueError,
         match="min_lock_seconds must be less than or equal to max_lock_seconds",
@@ -155,7 +155,7 @@ async def test_interval_task_with_lock_and_resource_lock(
 
 def test_interval_task_custom_min_lock_seconds() -> None:
     """Test IntervalTask with custom min_lock_seconds."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     # Act - should not raise
     task = IntervalTask(
         seconds=10,

@@ -19,7 +19,7 @@ from grelmicro.sync.errors import (
     LockReleaseError,
 )
 from grelmicro.sync.lock import Lock, LockConfig
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
 
 pytestmark = [pytest.mark.timeout(10)]
@@ -35,7 +35,7 @@ WORKER_2 = "worker_2"
 @pytest.fixture
 async def backend() -> AsyncGenerator[SyncBackend]:
     """Return Memory Synchronization Backend."""
-    async with MemorySyncBackend() as backend:
+    async with MemorySyncAdapter() as backend:
         yield backend
 
 

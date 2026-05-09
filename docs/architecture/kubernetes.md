@@ -44,7 +44,7 @@ The sanitization strategy replaces invalid characters with hyphens, collapses co
 When multiple applications share the same Kubernetes namespace, use the `prefix` parameter to avoid lease name collisions (similar to Redis's `prefix` parameter). For example:
 
 ```python
-backend = KubernetesSyncBackend(namespace="default", prefix="myapp-")
+backend = KubernetesSyncAdapter(namespace="default", prefix="myapp-")
 ```
 
 This prepends `myapp-` to every lease name before sanitization, ensuring different applications cannot interfere with each other's locks.

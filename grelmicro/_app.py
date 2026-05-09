@@ -50,7 +50,7 @@ class Grelmicro:
     tasks = Tasks()
 
     micro = Grelmicro(uses=[
-        Sync(RedisSyncBackend()),
+        Sync(RedisSyncAdapter()),
         tasks,
     ])
 
@@ -124,7 +124,7 @@ class Grelmicro:
 
         1. A `Module` instance: registered with `(kind, name)` lookup and
            exposed on `micro.<kind>`.
-        2. A first-party backend (e.g. `RedisSyncBackend`): auto-wrapped
+        2. A first-party backend (e.g. `RedisSyncAdapter`): auto-wrapped
            into its canonical `Module` (`Sync` for sync backends, `Cache`
            for cache backends) before registration.
         3. Any other async context manager: just lifecycled with the app,
@@ -132,11 +132,11 @@ class Grelmicro:
 
         ```python
         # Auto-wrapped first-party backend
-        micro.use(RedisSyncBackend())          # registered as (sync, default)
-        micro.use(RedisCacheBackend())         # registered as (cache, default)
+        micro.use(RedisSyncAdapter())          # registered as (sync, default)
+        micro.use(RedisCacheAdapter())         # registered as (cache, default)
 
         # Explicit Module when a non-default name is needed
-        micro.use(Sync(RedisSyncBackend(), name="analytics"))
+        micro.use(Sync(RedisSyncAdapter(), name="analytics"))
 
         # Plain async context manager: lifecycled only, caller holds reference
         tasks = Tasks()
@@ -362,7 +362,7 @@ def _maybe_wrap_first_party_backend(item: object) -> Module | None:
     """Wrap a first-party backend in its canonical Module, or return None.
 
     Imports are lazy so unused modules stay out of `import grelmicro`.
-    The user importing `RedisCacheBackend` already loads `grelmicro.cache`,
+    The user importing `RedisCacheAdapter` already loads `grelmicro.cache`,
     so the lazy import here is a cache hit.
     """
     from grelmicro.cache._module import Cache  # noqa: PLC0415

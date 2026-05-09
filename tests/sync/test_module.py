@@ -6,17 +6,17 @@ import pytest
 
 from grelmicro import Grelmicro, Module
 from grelmicro.sync import LeaderElection, Lock, Sync, TaskLock
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 
 
 def test_sync_satisfies_module_protocol() -> None:
     """`Sync` is a runtime-checkable `Module`."""
-    assert isinstance(Sync(MemorySyncBackend()), Module)
+    assert isinstance(Sync(MemorySyncAdapter()), Module)
 
 
 def test_sync_default_kind_and_name() -> None:
     """Default kind is `sync` and default name is `default`."""
-    sync = Sync(MemorySyncBackend())
+    sync = Sync(MemorySyncAdapter())
     assert sync.kind == "sync"
     assert sync.name == "default"
 
@@ -25,8 +25,8 @@ def test_sync_named_registration() -> None:
     """A named `Sync` module coexists with the default one."""
     micro = Grelmicro(
         uses=[
-            Sync(MemorySyncBackend()),
-            Sync(MemorySyncBackend(), name="analytics"),
+            Sync(MemorySyncAdapter()),
+            Sync(MemorySyncAdapter(), name="analytics"),
         ]
     )
     assert micro.get("sync", "default").name == "default"
@@ -35,7 +35,7 @@ def test_sync_named_registration() -> None:
 
 def test_sync_lock_factory_binds_backend() -> None:
     """`sync.lock(name)` creates a `Lock` bound to the wrapped backend."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     sync = Sync(backend)
     lock = sync.lock("cart")
     assert isinstance(lock, Lock)
@@ -44,7 +44,7 @@ def test_sync_lock_factory_binds_backend() -> None:
 
 def test_sync_task_lock_factory_binds_backend() -> None:
     """`sync.task_lock(name)` creates a `TaskLock` bound to the wrapped backend."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     sync = Sync(backend)
     task_lock = sync.task_lock("cleanup")
     assert isinstance(task_lock, TaskLock)
@@ -53,7 +53,7 @@ def test_sync_task_lock_factory_binds_backend() -> None:
 
 def test_sync_leader_election_factory_binds_backend() -> None:
     """`sync.leader_election(name)` creates a `LeaderElection` bound to the backend."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     sync = Sync(backend)
     election = sync.leader_election("primary")
     assert isinstance(election, LeaderElection)
@@ -62,14 +62,14 @@ def test_sync_leader_election_factory_binds_backend() -> None:
 
 def test_sync_backend_property() -> None:
     """`sync.backend` returns the wrapped backend."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     sync = Sync(backend)
     assert sync.backend is backend
 
 
 async def test_sync_opens_and_closes_backend_with_app() -> None:
     """`async with micro:` opens and closes the underlying backend."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     sync = Sync(backend)
     micro = Grelmicro(uses=[sync])
     async with micro, sync.lock("k"):
@@ -79,14 +79,14 @@ async def test_sync_opens_and_closes_backend_with_app() -> None:
 
 async def test_sync_lock_via_micro_attribute() -> None:
     """`micro.sync.lock(...)` is the conventional access path."""
-    micro = Grelmicro(uses=[Sync(MemorySyncBackend())])
+    micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
     async with micro, micro.sync.lock("cart"):
         pass
 
 
 async def test_use_auto_wraps_raw_sync_backend() -> None:
-    """`micro.use(MemorySyncBackend())` auto-wraps the backend in `Sync`."""
-    backend = MemorySyncBackend()
+    """`micro.use(MemorySyncAdapter())` auto-wraps the backend in `Sync`."""
+    backend = MemorySyncAdapter()
     micro = Grelmicro(uses=[backend])
     assert isinstance(micro.sync, Sync)
     assert micro.sync.backend is backend
@@ -94,7 +94,7 @@ async def test_use_auto_wraps_raw_sync_backend() -> None:
 
 async def test_use_auto_wrap_lifecycles_backend() -> None:
     """Auto-wrapped backend opens and closes with the app."""
-    backend = MemorySyncBackend()
+    backend = MemorySyncAdapter()
     micro = Grelmicro(uses=[backend])
     async with micro, micro.sync.lock("k"):
         pass
@@ -102,8 +102,8 @@ async def test_use_auto_wrap_lifecycles_backend() -> None:
 
 async def test_micro_sync_prefers_default_when_named_also_registered() -> None:
     """`micro.sync` resolves to the `(sync, default)` module even after named registrations."""
-    primary = MemorySyncBackend()
-    analytics = MemorySyncBackend()
+    primary = MemorySyncAdapter()
+    analytics = MemorySyncAdapter()
     micro = Grelmicro(
         uses=[
             Sync(primary),
@@ -115,7 +115,7 @@ async def test_micro_sync_prefers_default_when_named_also_registered() -> None:
 
 async def test_micro_sync_returns_sole_entry_when_no_default() -> None:
     """`micro.sync` returns the only registered Sync when no default exists."""
-    only = MemorySyncBackend()
+    only = MemorySyncAdapter()
     micro = Grelmicro(uses=[Sync(only, name="primary")])
     assert micro.sync.backend is only
 
@@ -124,8 +124,8 @@ async def test_micro_sync_raises_when_ambiguous() -> None:
     """`micro.sync` raises when multiple non-default modules exist with no default."""
     micro = Grelmicro(
         uses=[
-            Sync(MemorySyncBackend(), name="primary"),
-            Sync(MemorySyncBackend(), name="analytics"),
+            Sync(MemorySyncAdapter(), name="primary"),
+            Sync(MemorySyncAdapter(), name="analytics"),
         ]
     )
     with pytest.raises(AttributeError, match="multiple 'sync' modules"):
@@ -134,8 +134,8 @@ async def test_micro_sync_raises_when_ambiguous() -> None:
 
 async def test_sync_multi_backend_named_lookup() -> None:
     """Named `Sync` modules are reachable via `micro.get('sync', name)`."""
-    primary = MemorySyncBackend()
-    analytics = MemorySyncBackend()
+    primary = MemorySyncAdapter()
+    analytics = MemorySyncAdapter()
     micro = Grelmicro(
         uses=[
             Sync(primary),

@@ -8,7 +8,7 @@ from grelmicro import health as health_mod
 from grelmicro import resilience as resilience_mod
 from grelmicro import sync as sync_mod
 from grelmicro.cache._backends import cache_backend_registry
-from grelmicro.cache.memory import MemoryCacheBackend
+from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.health._backends import health_checks
 from grelmicro.health._checks import HealthChecks
 from grelmicro.resilience._backends import (
@@ -20,7 +20,7 @@ from grelmicro.resilience.memory import (
     MemoryRateLimiterBackend,
 )
 from grelmicro.sync._backends import sync_backend_registry
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 
 
 @pytest.fixture(autouse=True)
@@ -36,18 +36,18 @@ def _clean_registries() -> None:
 def test_sync_use_backend_warns() -> None:
     """`grelmicro.sync.use_backend` warns and points at `Grelmicro`."""
     with pytest.warns(DeprecationWarning, match="grelmicro.sync.use_backend"):
-        sync_mod.use_backend(MemorySyncBackend())
+        sync_mod.use_backend(MemorySyncAdapter())
 
 
 def test_sync_register_warns() -> None:
     """`grelmicro.sync.register` warns."""
     with pytest.warns(DeprecationWarning, match="grelmicro.sync.register"):
-        sync_mod.register(MemorySyncBackend(), "primary")
+        sync_mod.register(MemorySyncAdapter(), "primary")
 
 
 def test_sync_unregister_warns() -> None:
     """`grelmicro.sync.unregister` warns."""
-    sync_backend_registry.register(MemorySyncBackend(), "primary")
+    sync_backend_registry.register(MemorySyncAdapter(), "primary")
     with pytest.warns(DeprecationWarning, match="grelmicro.sync.unregister"):
         sync_mod.unregister("primary")
 
@@ -55,7 +55,7 @@ def test_sync_unregister_warns() -> None:
 def test_sync_use_warns() -> None:
     """`grelmicro.sync.use` warns."""
     with pytest.warns(DeprecationWarning, match="grelmicro.sync.use"):
-        cm = sync_mod.use(MemorySyncBackend())
+        cm = sync_mod.use(MemorySyncAdapter())
     with cm:
         pass
 
@@ -63,18 +63,18 @@ def test_sync_use_warns() -> None:
 def test_cache_use_backend_warns() -> None:
     """`grelmicro.cache.use_backend` warns."""
     with pytest.warns(DeprecationWarning, match="grelmicro.cache.use_backend"):
-        cache_mod.use_backend(MemoryCacheBackend())
+        cache_mod.use_backend(MemoryCacheAdapter())
 
 
 def test_cache_register_warns() -> None:
     """`grelmicro.cache.register` warns."""
     with pytest.warns(DeprecationWarning, match="grelmicro.cache.register"):
-        cache_mod.register(MemoryCacheBackend(), "primary")
+        cache_mod.register(MemoryCacheAdapter(), "primary")
 
 
 def test_cache_unregister_warns() -> None:
     """`grelmicro.cache.unregister` warns."""
-    cache_backend_registry.register(MemoryCacheBackend(), "primary")
+    cache_backend_registry.register(MemoryCacheAdapter(), "primary")
     with pytest.warns(DeprecationWarning, match="grelmicro.cache.unregister"):
         cache_mod.unregister("primary")
 
@@ -82,7 +82,7 @@ def test_cache_unregister_warns() -> None:
 def test_cache_use_warns() -> None:
     """`grelmicro.cache.use` warns."""
     with pytest.warns(DeprecationWarning, match="grelmicro.cache.use"):
-        cm = cache_mod.use(MemoryCacheBackend())
+        cm = cache_mod.use(MemoryCacheAdapter())
     with cm:
         pass
 

@@ -32,8 +32,8 @@ There are three ways to wire a backend:
 import grelmicro
 from grelmicro import sync, cache
 
-sync.register(RedisSyncBackend())             # implicit "default"
-cache.register(RedisCacheBackend())
+sync.register(RedisSyncAdapter())             # implicit "default"
+cache.register(RedisCacheAdapter())
 
 async with grelmicro.lifespan():
     # every registered backend is open here
@@ -48,7 +48,7 @@ async with grelmicro.lifespan():
 ```python
 from grelmicro import sync
 
-sync.use_backend(RedisSyncBackend())
+sync.use_backend(RedisSyncAdapter())
 ```
 
 Available as `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelmicro.resilience.use_backend`, and `grelmicro.health.use_registry`.
@@ -56,7 +56,7 @@ Available as `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelm
 **3. Pure construction with explicit pass-through.** Skip the registry entirely:
 
 ```python
-async with RedisSyncBackend() as backend:
+async with RedisSyncAdapter() as backend:
     lock = Lock(name="my-lock", backend=backend)
     async with lock:
         ...
@@ -69,8 +69,8 @@ async with RedisSyncBackend() as backend:
 Register multiple backends under different names and pick one at the call site:
 
 ```python
-sync.register(RedisSyncBackend())                                # → "default"
-sync.register(PostgresSyncBackend("postgres://..."), "analytics")
+sync.register(RedisSyncAdapter())                                # → "default"
+sync.register(PostgresSyncAdapter("postgres://..."), "analytics")
 
 Lock("cart")                         # → "default" (Redis)
 Lock("audit", backend="analytics")   # → "analytics" (Postgres)
@@ -92,15 +92,15 @@ Resolution order, in priority:
 ```python
 from grelmicro import sync
 
-with sync.use(MemorySyncBackend()):           # overrides "default" only
-    Lock("cart")                              # → MemorySyncBackend
+with sync.use(MemorySyncAdapter()):           # overrides "default" only
+    Lock("cart")                              # → MemorySyncAdapter
 
 with sync.use(default=mem, analytics=fake):   # overrides multiple names
     ...
 
 # Tests
 async def test_checkout():
-    with sync.use(MemorySyncBackend()):
+    with sync.use(MemorySyncAdapter()):
         await checkout()
 ```
 
@@ -119,7 +119,7 @@ Each `BackendRegistry` subscribes itself into a process-wide map *when its modul
 Backends are defined by protocols (structural typing), not base classes. Any object implementing the required methods works as a backend. This enables:
 
 - Swapping backends without changing application code
-- Writing test backends (e.g. `MemorySyncBackend`) with no external dependencies
+- Writing test backends (e.g. `MemorySyncAdapter`) with no external dependencies
 - Adding new backends without modifying existing code
 
 ## Connection Pool Isolation

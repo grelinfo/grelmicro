@@ -1,3 +1,3 @@
-from grelmicro.sync.sqlite import SQLiteSyncBackend
+from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
-backend = SQLiteSyncBackend("locks.db")
+backend = SQLiteSyncAdapter("locks.db")

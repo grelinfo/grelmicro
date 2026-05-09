@@ -70,7 +70,7 @@ def _sanitize_lease_name(name: str) -> str:
     return sanitized
 
 
-class KubernetesSyncBackend(SyncBackend):
+class KubernetesSyncAdapter(SyncBackend):
     """Kubernetes Synchronization Backend."""
 
     def __init__(

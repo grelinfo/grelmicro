@@ -63,7 +63,7 @@ It is built for any Python application that coordinates work across processes, w
 
 | Module | Summary |
 |---|---|
-| [**Cache**](docs/cache.md) | `@cached` decorator with per-key stampede protection. In-memory `TTLCache` or `RedisCacheBackend`. |
+| [**Cache**](docs/cache.md) | `@cached` decorator with per-key stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
 | [**Synchronization**](docs/sync.md) | Distributed `Lock`, `TaskLock`, `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Task Scheduler**](docs/task.md) | Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement. |
 | [**Resilience**](docs/resilience/index.md) | [Circuit Breaker](docs/resilience/circuit-breaker.md) and [Rate Limiter](docs/resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `GCRAConfig`). |
@@ -95,7 +95,7 @@ from fastapi import FastAPI, HTTPException, Request
 import grelmicro
 from grelmicro import cache, resilience, sync
 from grelmicro.cache import JsonSerializer, TTLCache, cached
-from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.logging import configure_logging
 from grelmicro.resilience import (
     CircuitBreaker,
@@ -104,15 +104,15 @@ from grelmicro.resilience import (
 )
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 from grelmicro.sync import LeaderElection, Lock
-from grelmicro.sync.redis import RedisSyncBackend
+from grelmicro.sync.redis import RedisSyncAdapter
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
 
 # === grelmicro ===
 task = Tasks()
-sync.register(RedisSyncBackend("redis://localhost:6379/0"))
-cache.register(RedisCacheBackend("redis://localhost:6379/0", prefix="myapp:"))
+sync.register(RedisSyncAdapter("redis://localhost:6379/0"))
+cache.register(RedisCacheAdapter("redis://localhost:6379/0", prefix="myapp:"))
 resilience.register(RedisRateLimiterBackend("redis://localhost:6379/0"))
 
 leader_election = LeaderElection("leader-election")

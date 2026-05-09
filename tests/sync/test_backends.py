@@ -15,11 +15,11 @@ from grelmicro.sync import use_backend
 from grelmicro.sync._backends import get_sync_backend, sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.errors import BackendNotLoadedError
-from grelmicro.sync.kubernetes import KubernetesSyncBackend
-from grelmicro.sync.memory import MemorySyncBackend
-from grelmicro.sync.postgres import PostgresSyncBackend
-from grelmicro.sync.redis import RedisSyncBackend
-from grelmicro.sync.sqlite import SQLiteSyncBackend
+from grelmicro.sync.kubernetes import KubernetesSyncAdapter
+from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.sync.postgres import PostgresSyncAdapter
+from grelmicro.sync.redis import RedisSyncAdapter
+from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
 pytestmark = [pytest.mark.timeout(30)]
 
@@ -157,22 +157,22 @@ async def backend(
     """Test Container for each Backend."""
     if backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
-        async with RedisSyncBackend(f"redis://localhost:{port}/0") as backend:
+        async with RedisSyncAdapter(f"redis://localhost:{port}/0") as backend:
             yield backend
     elif backend_name == "postgres" and container:
         port = container.get_exposed_port(5432)
-        async with PostgresSyncBackend(
+        async with PostgresSyncAdapter(
             f"postgresql://test:test@localhost:{port}/test"
         ) as backend:
             yield backend
     elif backend_name == "memory":
-        async with MemorySyncBackend() as backend:
+        async with MemorySyncAdapter() as backend:
             yield backend
     elif backend_name == "sqlite":
-        async with SQLiteSyncBackend(":memory:") as backend:
+        async with SQLiteSyncAdapter(":memory:") as backend:
             yield backend
     elif backend_name == "kubernetes" and container:
-        async with KubernetesSyncBackend(namespace="default") as backend:
+        async with KubernetesSyncAdapter(namespace="default") as backend:
             yield backend
 
 
@@ -412,13 +412,13 @@ async def test_owned_another(backend: SyncBackend) -> None:
 @pytest.mark.parametrize(
     "backend_factory",
     [
-        MemorySyncBackend,
-        lambda: RedisSyncBackend("redis://localhost:6379/0"),
-        lambda: PostgresSyncBackend(
+        MemorySyncAdapter,
+        lambda: RedisSyncAdapter("redis://localhost:6379/0"),
+        lambda: PostgresSyncAdapter(
             "postgresql://user:password@localhost:5432/db"
         ),
-        lambda: SQLiteSyncBackend(":memory:"),
-        lambda: KubernetesSyncBackend(namespace="default"),
+        lambda: SQLiteSyncAdapter(":memory:"),
+        lambda: KubernetesSyncAdapter(namespace="default"),
     ],
 )
 @pytest.mark.usefixtures("clean_registry")
@@ -444,13 +444,13 @@ def test_get_sync_backend_not_loaded() -> None:
 @pytest.mark.parametrize(
     "backend_factory",
     [
-        MemorySyncBackend,
-        lambda: RedisSyncBackend("redis://localhost:6379/0"),
-        lambda: PostgresSyncBackend(
+        MemorySyncAdapter,
+        lambda: RedisSyncAdapter("redis://localhost:6379/0"),
+        lambda: PostgresSyncAdapter(
             "postgresql://user:password@localhost:5432/db"
         ),
-        lambda: SQLiteSyncBackend(":memory:"),
-        lambda: KubernetesSyncBackend(namespace="default"),
+        lambda: SQLiteSyncAdapter(":memory:"),
+        lambda: KubernetesSyncAdapter(namespace="default"),
     ],
 )
 @pytest.mark.usefixtures("clean_registry")

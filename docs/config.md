@@ -100,7 +100,7 @@ Centralise everything under one `BaseSettings` and hand grelmicro the slices it 
 from pydantic_settings import BaseSettings
 from grelmicro.sync import Lock
 from grelmicro.sync.lock import LockConfig
-from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.cache.redis import RedisCacheAdapter
 
 class AppSettings(BaseSettings):
     cart_lock: LockConfig = LockConfig()
@@ -108,7 +108,7 @@ class AppSettings(BaseSettings):
 
 settings = AppSettings()
 cart_lock = Lock.from_config("cart", settings.cart_lock)
-cache_backend = RedisCacheBackend(settings.redis_url)
+cache_backend = RedisCacheAdapter(settings.redis_url)
 ```
 
 ## Going deeper

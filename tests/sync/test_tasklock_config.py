@@ -5,7 +5,7 @@ from pytest_mock import MockerFixture
 
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
 
 MIN_KWARG = 5.0
@@ -19,7 +19,7 @@ DEFAULT_MAX = 60.0
 @pytest.fixture
 def backend() -> SyncBackend:
     """Return a memory backend usable without a running event loop."""
-    return MemorySyncBackend()
+    return MemorySyncAdapter()
 
 
 def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
@@ -33,7 +33,7 @@ def test_backend_property_resolves_on_every_call(
     mocker: MockerFixture,
 ) -> None:
     """`task_lock.backend` consults the registry on each read so `sync.use(...)` overrides apply."""
-    backend_instance = MemorySyncBackend()
+    backend_instance = MemorySyncAdapter()
     spy = mocker.patch(
         "grelmicro.sync.tasklock.get_sync_backend",
         return_value=backend_instance,

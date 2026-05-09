@@ -1,3 +1,3 @@
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 
-backend = MemorySyncBackend()
+backend = MemorySyncAdapter()

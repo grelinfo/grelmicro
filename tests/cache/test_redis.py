@@ -1,4 +1,4 @@
-"""Tests for RedisCacheBackend."""
+"""Tests for RedisCacheAdapter."""
 
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
@@ -9,15 +9,15 @@ from grelmicro._backends import BackendNotLoadedError
 from grelmicro.cache import use_backend
 from grelmicro.cache._backends import cache_backend_registry, get_cache_backend
 from grelmicro.cache.errors import CacheSettingsValidationError
-from grelmicro.cache.redis import RedisCacheBackend
+from grelmicro.cache.redis import RedisCacheAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
 URL = "redis://:test_password@test_host:1234/0"
 
 
-class TestRedisCacheBackendEnvVarSettings:
-    """Tests for RedisCacheBackend settings resolved from environment variables."""
+class TestRedisCacheAdapterEnvVarSettings:
+    """Tests for RedisCacheAdapter settings resolved from environment variables."""
 
     @pytest.mark.parametrize(
         ("environs", "expected_url"),
@@ -53,14 +53,14 @@ class TestRedisCacheBackendEnvVarSettings:
             monkeypatch.setenv(key, value)
 
         # Act
-        backend = RedisCacheBackend()
+        backend = RedisCacheAdapter()
 
         # Assert
         assert backend._url == expected_url
 
 
-class TestRedisCacheBackendEnvVarValidationError:
-    """Tests for RedisCacheBackend settings validation errors."""
+class TestRedisCacheAdapterEnvVarValidationError:
+    """Tests for RedisCacheAdapter settings validation errors."""
 
     @pytest.mark.parametrize(
         "environs",
@@ -85,11 +85,11 @@ class TestRedisCacheBackendEnvVarValidationError:
             CacheSettingsValidationError,
             match=r"Could not validate environment variables settings:\n",
         ):
-            RedisCacheBackend()
+            RedisCacheAdapter()
 
 
-class TestRedisCacheBackendConstructor:
-    """Tests for RedisCacheBackend constructor with explicit arguments."""
+class TestRedisCacheAdapterConstructor:
+    """Tests for RedisCacheAdapter constructor with explicit arguments."""
 
     def test_explicit_url_bypasses_env_vars(
         self, monkeypatch: pytest.MonkeyPatch
@@ -100,7 +100,7 @@ class TestRedisCacheBackendConstructor:
         monkeypatch.delenv("REDIS_HOST", raising=False)
 
         # Act
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
 
         # Assert
         assert backend._url == URL
@@ -112,20 +112,20 @@ class TestRedisCacheBackendConstructor:
         monkeypatch.delenv("REDIS_URL", raising=False)
         monkeypatch.delenv("REDIS_HOST", raising=False)
 
-        backend = RedisCacheBackend(url=URL)
+        backend = RedisCacheAdapter(url=URL)
 
         assert backend._url == URL
 
     def test_prefix_stored(self) -> None:
         """Test that the prefix argument is stored on the backend."""
-        backend = RedisCacheBackend(URL, prefix="myns:")
+        backend = RedisCacheAdapter(URL, prefix="myns:")
 
         assert backend._prefix == "myns:"
 
     def test_no_ttl_in_constructor(self) -> None:
-        """Test that RedisCacheBackend has no ttl constructor parameter."""
+        """Test that RedisCacheAdapter has no ttl constructor parameter."""
         # TTL is now per-call; constructing without ttl must not raise.
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
 
         # The backend protocol exposes no ttl attribute.
         assert not hasattr(backend, "ttl")
@@ -136,17 +136,17 @@ class TestCacheBackendRegistry:
     """Tests for cache backend registry integration."""
 
     def test_constructor_does_not_register(self) -> None:
-        """Constructing RedisCacheBackend performs no registry writes."""
+        """Constructing RedisCacheAdapter performs no registry writes."""
         cache_backend_registry.reset()
 
-        RedisCacheBackend(URL)
+        RedisCacheAdapter(URL)
 
         assert not cache_backend_registry.is_loaded
 
     def test_use_backend_registers(self) -> None:
         """`cache.use_backend` registers the backend as default."""
         cache_backend_registry.reset()
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
 
         with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
             use_backend(backend)
@@ -163,12 +163,12 @@ class TestCacheBackendRegistry:
             get_cache_backend()
 
 
-class TestRedisCacheBackendAsyncMethods:
-    """Tests for RedisCacheBackend async methods using a mocked Redis client."""
+class TestRedisCacheAdapterAsyncMethods:
+    """Tests for RedisCacheAdapter async methods using a mocked Redis client."""
 
     async def test_get_hit(self) -> None:
         """Test that get returns the stored bytes when the key exists."""
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
         backend._redis = MagicMock()
         backend._redis.get = AsyncMock(return_value=b"value")
 
@@ -179,7 +179,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_get_miss_returns_none(self) -> None:
         """Test that get returns None when the key does not exist."""
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
         backend._redis = MagicMock()
         backend._redis.get = AsyncMock(return_value=None)
 
@@ -189,7 +189,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_get_with_prefix(self) -> None:
         """Test that get prepends the configured prefix to the Redis key."""
-        backend = RedisCacheBackend(URL, prefix="ns:")
+        backend = RedisCacheAdapter(URL, prefix="ns:")
         backend._redis = MagicMock()
         backend._redis.get = AsyncMock(return_value=b"v")
 
@@ -199,7 +199,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_set_passes_key_value_ttl(self) -> None:
         """Test that set calls redis.set with the prefixed key, value, and TTL."""
-        backend = RedisCacheBackend(URL, prefix="p:")
+        backend = RedisCacheAdapter(URL, prefix="p:")
         backend._redis = MagicMock()
         backend._redis.set = AsyncMock()
 
@@ -209,7 +209,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_set_without_prefix(self) -> None:
         """Test that set uses the bare key when no prefix is configured."""
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
         backend._redis = MagicMock()
         backend._redis.set = AsyncMock()
 
@@ -219,7 +219,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_set_float_ttl(self) -> None:
         """Test that set passes fractional TTL values through to Redis."""
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
         backend._redis = MagicMock()
         backend._redis.set = AsyncMock()
 
@@ -229,7 +229,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_delete(self) -> None:
         """Test that delete calls redis.delete with the prefixed key."""
-        backend = RedisCacheBackend(URL, prefix="p:")
+        backend = RedisCacheAdapter(URL, prefix="p:")
         backend._redis = MagicMock()
         backend._redis.delete = AsyncMock()
 
@@ -239,7 +239,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_delete_missing_key_is_no_op(self) -> None:
         """Test that delete on a missing key does not raise."""
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
         backend._redis = MagicMock()
         backend._redis.delete = AsyncMock(return_value=0)
 
@@ -250,7 +250,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_clear(self) -> None:
         """Test that clear scans and deletes all keys matching the prefix."""
-        backend = RedisCacheBackend(URL, prefix="p:")
+        backend = RedisCacheAdapter(URL, prefix="p:")
         mock_redis = MagicMock()
         mock_redis.delete = AsyncMock()
 
@@ -267,7 +267,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_clear_large_batch(self) -> None:
         """Test that clear deletes in batches when the key count exceeds batch size."""
-        backend = RedisCacheBackend(URL, prefix="p:")
+        backend = RedisCacheAdapter(URL, prefix="p:")
         mock_redis = MagicMock()
         mock_redis.delete = AsyncMock()
 
@@ -288,7 +288,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_clear_empty_store(self) -> None:
         """Test that clear on an empty store issues no delete calls."""
-        backend = RedisCacheBackend(URL, prefix="p:")
+        backend = RedisCacheAdapter(URL, prefix="p:")
         mock_redis = MagicMock()
         mock_redis.delete = AsyncMock()
 
@@ -305,7 +305,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_context_manager_closes_redis(self) -> None:
         """Test that the async context manager calls aclose on exit."""
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
         backend._redis = MagicMock()
         backend._redis.aclose = AsyncMock()
 
@@ -316,7 +316,7 @@ class TestRedisCacheBackendAsyncMethods:
 
     async def test_context_manager_returns_self(self) -> None:
         """Test that __aenter__ returns the backend instance itself."""
-        backend = RedisCacheBackend(URL)
+        backend = RedisCacheAdapter(URL)
         backend._redis = MagicMock()
         backend._redis.aclose = AsyncMock()
 

@@ -3,7 +3,7 @@
 import pytest
 
 from grelmicro.sync.errors import SyncSettingsValidationError
-from grelmicro.sync.redis import RedisSyncBackend
+from grelmicro.sync.redis import RedisSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -31,7 +31,7 @@ def test_redis_env_var_settings(
         monkeypatch.setenv(key, value)
 
     # Act
-    backend = RedisSyncBackend()
+    backend = RedisSyncAdapter()
 
     # Assert
     assert backend._url == URL
@@ -66,4 +66,4 @@ def test_redis_env_var_settings_validation_error(
         SyncSettingsValidationError,
         match=(r"Could not validate environment variables settings:\n"),
     ):
-        RedisSyncBackend()
+        RedisSyncAdapter()
