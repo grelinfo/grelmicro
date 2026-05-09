@@ -96,7 +96,7 @@ from grelmicro import Grelmicro
 from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.health import HealthChecks
-from grelmicro.logging import configure_logging
+from grelmicro.log import configure as configure_logging
 from grelmicro.resilience import (
     CircuitBreaker,
     RateLimitExceededError,
@@ -203,7 +203,7 @@ The key shape:
 - **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Adapter and active manager. `async with micro:` opens them all in order, closes in reverse.
 - **Adapters auto-register.** `RedisSyncAdapter(...)` becomes the default sync backend, `RedisCacheAdapter(...)` becomes the default cache backend. Use `Sync(adapter, name="...")` and `Cache(adapter, name="...")` for non-default names.
 - **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`. The same `Lock` works in production with Redis and in tests with `MemorySyncAdapter`, no rewiring.
-- **No magic.** Every backend is explicit. `import grelmicro` imports nothing else. Tree-shaking works.
+- **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Adapters live under `grelmicro.{kind}.{vendor}` and load only when you import them.
 
 For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelinfo.github.io/grelmicro/).
 
