@@ -217,9 +217,9 @@ async def handle_order(order_id: int):
 
 | Construction path | Per call | Notes |
 |---|---:|---|
-| `Lock(name)` (programmatic, env disabled) | ~10 µs | Pydantic validation only |
-| `Lock(name)` (env enabled, `GREL_CONFIG_FROM_ENV=true` or `read_env=True`) | ~70 µs | Adds env read and `env_segment(name)` |
-| `Lock.from_config(name, cfg)` | ~10 µs | Skips env, reuses `cfg` |
+| `Lock(name)` (programmatic, env disabled) | ~10 µs | Pydantic validation plus `env_segment(name)` for the default prefix |
+| `Lock(name)` (env enabled, `GREL_CONFIG_FROM_ENV=true` or `read_env=True`) | ~70 µs | Adds the env read on top |
+| `Lock.from_config(name, cfg)` | ~10 µs | Skips env and the default-prefix build, reuses `cfg` |
 | `async with lock` resolution | ~80 ns | `ContextVar.get` plus dict lookup |
 | `backend.acquire(...)` (Redis Lua eval) | ~1 ms | Network round-trip |
 
