@@ -8,10 +8,10 @@ Tone: factual. Where the alternative is the better fit, this page says so.
 
 | If you only need this | Use this | Pick grelmicro when you also need |
 |---|---|---|
-| Async cache decorator over Redis | [`aiocache`](https://github.com/aio-libs/aiocache) or [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | Per-key stampede protection, type-safe `TTLCache[T]`, Pydantic config, Postgres backend, reconfigurable at runtime |
+| Async cache decorator over Redis | [`aiocache`](https://github.com/aio-libs/aiocache) or [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | Opt-in per-key stampede protection (`lock=True`), type-safe `TTLCache[T]`, Postgres backend (planned, see [#167](https://github.com/grelinfo/grelmicro/issues/167)) |
 | FastAPI rate limiter | [`slowapi`](https://github.com/laurentS/slowapi) or [`fastapi-limiter`](https://github.com/long2ice/fastapi-limiter) | GCRA algorithm, structured `RateLimitResult` for retry-after headers, swap Memory and Redis with the same API |
-| Async circuit breaker | [`pybreaker`](https://github.com/danielfm/pybreaker) or [`aiobreaker`](https://github.com/arlyon/aiobreaker) | Reconfigurable thresholds, frozen Pydantic config, structured logging context, distributed state via a backend protocol |
-| Retry with `@retry(stop=, wait=)` | [`tenacity`](https://github.com/jd/tenacity) | `Retry` integrates with the rest of grelmicro and shares the same config + reconfigure shape |
+| Async circuit breaker | [`pybreaker`](https://github.com/danielfm/pybreaker) or [`aiobreaker`](https://github.com/arlyon/aiobreaker) | Reconfigurable thresholds, frozen Pydantic config, structured logging context, distributed backend (planned, see [#163](https://github.com/grelinfo/grelmicro/issues/163)) |
+| Retry with `@retry(stop=, wait=)` | [`tenacity`](https://github.com/jd/tenacity) | A `Retry` that shares the same config + reconfigure shape as the rest of grelmicro (ships with [#165](https://github.com/grelinfo/grelmicro/issues/165)) |
 | Redis distributed lock | [`aioredlock`](https://github.com/joanvila/aioredlock) | Same Lock primitive across Redis, PostgreSQL, SQLite, Kubernetes, in-memory. Adapter-agnostic protocol |
 | `/healthz` endpoint | hand-rolled FastAPI handler | Concurrent check execution, per-check TTL cache, `/livez` + `/readyz` + `/healthz` triple, critical vs non-critical, FastAPI router included |
 
@@ -26,9 +26,8 @@ The pattern across every row: pick the focused library when you only need that o
 | Backends | Memory, Redis, Memcached | Memory, Redis, Memcached, DynamoDB | Memory, Redis (Postgres at 1.0, see [#167](https://github.com/grelinfo/grelmicro/issues/167)) |
 | Decorator | `@cached` | `@cache` | `@cached` |
 | Type-safe `Cache[T]` | no | no | yes (`TTLCache[T]` plus `PydanticSerializer(T)`) |
-| Per-key stampede protection | local lock via `lock_value` | none | local default, distributed opt-in (see [#235](https://github.com/grelinfo/grelmicro/issues/235)) |
+| Per-key stampede protection | local lock via `lock_value` | none | opt-in via `lock=True` (off by default); distributed lock planned (see [#235](https://github.com/grelinfo/grelmicro/issues/235)) |
 | Serializers | several built-in | json, binary | `JsonSerializer`, `PydanticSerializer`, `PickleSerializer` |
-| Pydantic-validated config | no | no | yes, with `from_config` and reconfigure |
 | FastAPI integration | manual | first-class | works with any async framework, no FastAPI coupling |
 
 Pick `aiocache` if you only need the cache primitive and want Memcached. Pick `fastapi-cache` if you want a FastAPI-native API surface. Pick grelmicro when you also need a distributed Lock or CircuitBreaker on the same Redis client and want one config story across all of them.
@@ -42,7 +41,7 @@ Cap requests per window with token bucket or GCRA, per key.
 | Algorithm | fixed/sliding window | fixed window | token bucket | token bucket, GCRA |
 | Backends | Memory, Redis, Memcached, MongoDB | Redis only | in-process only | Memory, Redis (Postgres + SQLite at 1.0, see [#164](https://github.com/grelinfo/grelmicro/issues/164), [#173](https://github.com/grelinfo/grelmicro/issues/173)) |
 | Async-first | partial (Flask-Limiter port) | yes | yes | yes |
-| Result shape for retry-after | string parsing | string parsing | none | `RateLimitResult(allowed, retry_after, remaining, reset_at)` |
+| Result shape for retry-after | string parsing | string parsing | none | `RateLimitResult(allowed, limit, remaining, retry_after, reset_after)` |
 | Reconfigurable at runtime | no | no | no | yes (`reconfigure(new_config)`) |
 | FastAPI integration | first-class | first-class | manual | works in any async framework |
 
@@ -86,10 +85,10 @@ Mutex across processes, replicas, or hosts.
 
 | Axis | [`aioredlock`](https://github.com/joanvila/aioredlock) | [`redis-py` lock](https://redis.readthedocs.io/en/latest/commands.html#redis.commands.core.CoreCommands.lock) | hand-rolled Postgres advisory lock | grelmicro `Lock` |
 |---|---|---|---|---|
-| Algorithm | Redlock | SET NX with Lua release | `pg_advisory_xact_lock` | SET NX + Lua release; advisory locks in Postgres adapter; ConfigMap CAS in K8s |
+| Algorithm | Redlock | SET NX with Lua release | `pg_advisory_xact_lock` | SET NX + Lua release in Redis, advisory locks in Postgres, `coordination.k8s.io/v1` Lease with resourceVersion CAS in Kubernetes |
 | Backends | Redis only | Redis only | Postgres only | Redis, Postgres, SQLite, Kubernetes, Memory |
 | Async-first | yes | partial | depends on driver | yes |
-| Token-based release | yes | yes | n/a (transaction-scoped) | yes (UUID per acquire, lease-renew via re-acquire) |
+| Token-based release | yes | yes | n/a (transaction-scoped) | yes (token derived from worker id + task or thread id, deterministic so re-acquire extends the lease) |
 | Reentrant detection | manual | no | n/a | yes (raises `LockReentrantError`) |
 | Idempotent acquire (lease extension) | partial | manual | n/a | yes (the same token re-acquire extends the lease) |
 | `from_thread` adapter for blocking code | no | no | n/a | yes |
