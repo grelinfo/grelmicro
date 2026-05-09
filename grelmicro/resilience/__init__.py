@@ -16,11 +16,20 @@ from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
+    RetryStrategy,
 )
 from grelmicro.resilience.algorithms import (
     GCRAConfig,
     RateLimiterConfig,
     TokenBucketConfig,
+)
+from grelmicro.resilience.backoffs import (
+    ConstantBackoffConfig,
+    ExponentialBackoffConfig,
+    FibonacciBackoffConfig,
+    LinearBackoffConfig,
+    RandomBackoffConfig,
+    RetryBackoffConfig,
 )
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
@@ -37,6 +46,13 @@ from grelmicro.resilience.errors import (
 )
 from grelmicro.resilience.memory import MemoryTokenBucket
 from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience.retry import (
+    Retry,
+    RetryAttempt,
+    RetryConfig,
+    retry,
+    retrying,
+)
 
 
 def register(
@@ -177,9 +193,14 @@ __all__ = [
     "CircuitBreakerError",
     "CircuitBreakerMetrics",
     "CircuitBreakerState",
+    "ConstantBackoffConfig",
     "ErrorDetails",
+    "ExponentialBackoffConfig",
+    "FibonacciBackoffConfig",
     "GCRAConfig",
+    "LinearBackoffConfig",
     "MemoryTokenBucket",
+    "RandomBackoffConfig",
     "RateLimitExceededError",
     "RateLimitResult",
     "RateLimiter",
@@ -188,9 +209,16 @@ __all__ = [
     "RateLimiterStrategy",
     "ResilienceError",
     "ResilienceSettingsValidationError",
+    "Retry",
+    "RetryAttempt",
+    "RetryBackoffConfig",
+    "RetryConfig",
+    "RetryStrategy",
     "TokenBucketConfig",
     "register",
     "register_circuit_breaker",
+    "retry",
+    "retrying",
     "unregister",
     "unregister_circuit_breaker",
     "use",
