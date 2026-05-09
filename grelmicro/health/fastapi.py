@@ -6,8 +6,8 @@ from pydantic import BaseModel
 from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_bytes
+from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import HealthStatus
-from grelmicro.health._registry import HealthRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -45,12 +45,12 @@ class HealthzResponse(BaseModel):
 
 def health_router(
     registry: Annotated[
-        HealthRegistry | None,
+        HealthChecks | None,
         Doc(
-            "Health registry whose checks the router runs. When "
-            "omitted, the router resolves the global registry "
-            "(the registry installed via ``health.use_registry`` "
-            "or entered as an async context manager)."
+            "Health checks instance whose checks the router runs. When "
+            "omitted, the router resolves the instance registered as "
+            "the default (via ``Grelmicro(uses=[HealthChecks(...)])`` "
+            "or the legacy ``health.use_registry`` helper)."
         ),
     ] = None,
     *,
@@ -120,7 +120,7 @@ def health_router(
         raise DependencyNotFoundError(module="fastapi")  # noqa: B904
 
     from grelmicro.health._backends import (  # noqa: PLC0415
-        get_health_registry,
+        get_health_checks,
     )
 
     show_details_dep = _resolve_show_details_dep(show_details)
@@ -155,7 +155,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Readiness probe. Runs critical checkers only."""
-        report = await (registry or get_health_registry()).run(
+        report = await (registry or get_health_checks()).run(
             critical_only=True,
             exclude=_parse_exclude(exclude),
         )
@@ -188,7 +188,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Aggregate JSON report of all checker results."""
-        report = await (registry or get_health_registry()).run(
+        report = await (registry or get_health_checks()).run(
             critical_only=False,
             exclude=_parse_exclude(exclude),
         )

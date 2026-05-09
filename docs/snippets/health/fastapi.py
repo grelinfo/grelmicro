@@ -3,10 +3,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from grelmicro.health import HealthDetails, HealthRegistry
+from grelmicro.health import HealthChecks, HealthDetails
 from grelmicro.health.fastapi import health_router
 
-health = HealthRegistry()
+health = HealthChecks()
 
 
 @health.check("database")

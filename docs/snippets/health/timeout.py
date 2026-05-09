@@ -1,7 +1,7 @@
-from grelmicro.health import HealthDetails, HealthRegistry
+from grelmicro.health import HealthChecks, HealthDetails
 
 # Registry default: 2s per check (default is 5s)
-health = HealthRegistry(timeout=2.0)
+health = HealthChecks(timeout=2.0)
 
 
 # Per-check override: tight timeout for a flaky optional dep

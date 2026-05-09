@@ -19,8 +19,8 @@ from grelmicro._backends import (
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache.memory import MemoryCacheBackend
 from grelmicro.cache.redis import RedisCacheBackend
-from grelmicro.health._backends import health_registry
-from grelmicro.health._registry import HealthRegistry
+from grelmicro.health._backends import health_checks
+from grelmicro.health._checks import HealthChecks
 from grelmicro.resilience._backends import (
     circuit_breaker_backend_registry,
     rate_limiter_backend_registry,
@@ -482,19 +482,19 @@ def test_resilience_register_unregister_use_module_helpers() -> None:
 
 def test_health_register_unregister_use_module_helpers() -> None:
     """Health register, unregister, use, and use_registry helpers."""
-    health_registry.reset()
-    registry = HealthRegistry()
+    health_checks.reset()
+    registry = HealthChecks()
     with pytest.warns(DeprecationWarning, match="grelmicro.health"):
         health_mod.register(registry, "primary")
-    assert health_registry.get("primary") is registry
-    override = HealthRegistry()
+    assert health_checks.get("primary") is registry
+    override = HealthChecks()
     with pytest.warns(DeprecationWarning, match="grelmicro.health"):
         cm = health_mod.use(override)
     with cm:
-        assert health_registry.get() is override
+        assert health_checks.get() is override
     with pytest.warns(DeprecationWarning, match="grelmicro.health"):
         health_mod.use_registry(registry)
-    assert health_registry.get() is registry
+    assert health_checks.get() is registry
     with pytest.warns(DeprecationWarning, match="grelmicro.health"):
         health_mod.unregister("primary", registry)
-    health_registry.reset()
+    health_checks.reset()

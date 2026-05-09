@@ -1,8 +1,8 @@
 # Health Checks
 
-The `health` module provides a health check registry with concurrent execution and FastAPI integration for liveness, readiness, and aggregate health endpoints.
+The `health` module provides a health checks manager with concurrent execution and FastAPI integration for liveness, readiness, and aggregate health endpoints.
 
-- **[HealthRegistry](#registry)**: Register check functions with a FastAPI-style decorator, run them concurrently with per-check timeouts and caching.
+- **[HealthChecks](#health-checks)**: Register check functions with a FastAPI-style decorator, run them concurrently with per-check timeouts and caching.
 - **[health_router](#fastapi-integration)**: FastAPI router with `/livez`, `/readyz`, and `/healthz` endpoints.
 
 ## Health Check
@@ -20,25 +20,25 @@ A health check is a function returning `None` (healthy) or a `HealthDetails` dic
 
 `HealthDetails` is a type alias for `dict[str, JSONEncodable]`. Both sync and async check functions are supported. Sync functions run in a worker thread via `asyncio.to_thread` so they never block the event loop.
 
-## Registry
+## Health Checks
 
-Create a `HealthRegistry` and register checks with the `@registry.check(name)` decorator:
+Create a `HealthChecks` and register checks with the `@health.check(name)` decorator:
 
 ```python
 --8<-- "health/basic.py"
 ```
 
-The registry auto-registers as the global singleton. The router resolves it automatically.
+Register the instance with a `Grelmicro` app (see below) so the router can resolve it, or pass it explicitly via `health_router(registry=health)`.
 
 ### Grelmicro app integration
 
-Register the `HealthRegistry` with a `Grelmicro` app to lifecycle it alongside the rest of your modules. Same FastAPI-style explicit registration as `Tasks`:
+Register the `HealthChecks` with a `Grelmicro` app to lifecycle it alongside the rest of your modules. Same FastAPI-style explicit registration as `Tasks`:
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.health import HealthRegistry
+from grelmicro.health import HealthChecks
 
-health = HealthRegistry()
+health = HealthChecks()
 micro = Grelmicro(uses=[health])
 
 @health.check("redis")
@@ -49,9 +49,9 @@ async with micro:
     report = await health.run()
 ```
 
-Use `Grelmicro.use(item)` (or `uses=`) for entry-point components like `HealthRegistry` and `Tasks`. The caller keeps the reference and uses it directly.
+Use `Grelmicro.use(item)` (or `uses=`) for entry-point components like `HealthChecks` and `Tasks`. The caller keeps the reference and uses it directly.
 
-For imperative registration (without a decorator), use `registry.add(name, func)`:
+For imperative registration (without a decorator), use `health.add(name, func)`:
 
 ```python
 --8<-- "health/add.py"
@@ -81,7 +81,7 @@ Checks that exceed their timeout are reported as failed:
 --8<-- "health/timeout.py"
 ```
 
-The registry has a global default `timeout` (5.0 seconds). Per-check overrides are set on registration:
+`HealthChecks` has a global default `timeout` (5.0 seconds). Per-check overrides are set on registration:
 
 ```python
 --8<-- "health/per_check_timeout.py"
@@ -89,11 +89,11 @@ The registry has a global default `timeout` (5.0 seconds). Per-check overrides a
 
 A slow non-critical check hits the timeout and is reported with `status: "error"` in the response body, but the aggregate stays `ok` and `/readyz` stays `200`.
 
-Timeout detection uses `asyncio.timeout`. The wrapper distinguishes the registry-imposed timeout from a `TimeoutError` raised inside the check itself (for example a socket timeout).
+Timeout detection uses `asyncio.timeout`. The wrapper distinguishes the configured timeout from a `TimeoutError` raised inside the check itself (for example a socket timeout).
 
 ### Caching
 
-The registry caches each check's result for `cache_ttl` seconds (default `1.0`) and coalesces concurrent calls via single-flight per check. A given check runs at most once per TTL regardless of how many endpoints or concurrent requests are in flight. This prevents probe traffic from amplifying onto your database.
+`HealthChecks` caches each check's result for `cache_ttl` seconds (default `1.0`) and coalesces concurrent calls via single-flight per check. A given check runs at most once per TTL regardless of how many endpoints or concurrent requests are in flight. This prevents probe traffic from amplifying onto your database.
 
 ```python
 --8<-- "health/caching.py"
@@ -260,4 +260,4 @@ This mirrors FastAPI's own `@app.get("/path")` routing style and keeps grelmicro
 
 ### Concurrent Execution
 
-All selected checks run in parallel via an `asyncio.TaskGroup`. A slow check does not block other checks. Each check runs with its own timeout (falling back to the registry default).
+All selected checks run in parallel via an `asyncio.TaskGroup`. A slow check does not block other checks. Each check runs with its own timeout (falling back to the default).

@@ -53,7 +53,7 @@ The instance name (`"cart"`) becomes the namespace inside the prefix. Names with
 | `LeaderElection("svc")` | `GREL_LEADER_ELECTION_SVC_` |
 | `RateLimitFilter()` | `GREL_RATE_LIMIT_FILTER_` |
 | `DuplicateFilter()` | `GREL_DUPLICATE_FILTER_` |
-| `HealthRegistry()` | `GREL_HEALTH_` |
+| `HealthChecks()` | `GREL_HEALTH_` |
 | `log.configure()` | `GREL_LOG_` |
 
 ## Declarative

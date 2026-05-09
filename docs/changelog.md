@@ -12,6 +12,7 @@
 ### Breaking
 
 * 💥 Rename `TaskManager` to `Tasks`. Class still extends `TaskRouter`, mirroring FastAPI's `APIRouter` ← `FastAPI` shape. Update imports to `from grelmicro.task import Tasks`. Issue [#218](https://github.com/grelinfo/grelmicro/issues/218).
+* 💥 Rename `HealthRegistry` to `HealthChecks` (and `HealthRegistryConfig` to `HealthChecksConfig`). Update imports to `from grelmicro.health import HealthChecks`. Issue [#201](https://github.com/grelinfo/grelmicro/issues/201).
 
 ### Deprecated
 

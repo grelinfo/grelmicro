@@ -13,7 +13,7 @@ Components fall in two categories.
 | `__init__(name, **kwargs)` | Positional name + optional fields | Programmatic and environmental construction |
 | `from_config(name, config)` | Positional name + frozen config | Declarative construction from a settings tree |
 
-**Single-instance components** (`HealthRegistry`, `RateLimitFilter`, `DuplicateFilter`, `log.configure`) drop the positional name because the application typically holds one:
+**Single-instance components** (`HealthChecks`, `RateLimitFilter`, `DuplicateFilter`, `log.configure`) drop the positional name because the application typically holds one:
 
 | Surface | Form | Intent |
 |---|---|---|
@@ -104,7 +104,7 @@ We keep `self._config` as the single source of truth. If a future profile shows 
 | `RateLimiterConfig` (discriminated union) | `grelmicro.resilience.algorithms` |
 | `RateLimitFilterConfig` | `grelmicro.log` |
 | `DuplicateFilterConfig` | `grelmicro.log` |
-| `HealthRegistryConfig` | `grelmicro.health` |
+| `HealthChecksConfig` | `grelmicro.health` |
 | `LoggingConfig` | `grelmicro.log` |
 
 Each is a `BaseModel, frozen=True, extra="forbid"`. Field docs live in `Annotated[T, Doc("...")]` blocks and surface in IDEs and the API reference.
