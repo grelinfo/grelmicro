@@ -182,3 +182,53 @@ GREL_LOCK_CART_RETRY_INTERVAL=0.2
     grelmicro does not ship a `BaseSettings` wrapper. Apps own the env namespace, the YAML path, and the aggregation strategy. Compose `LockConfig` into `pydantic-settings`, load it from YAML, secrets files, Vault, or any other source, then call `Lock.from_config("cart", cfg)`.
 
     See the [Configuration architecture](architecture/config.md) doc for the full resolution rules and the rationale behind the construction split.
+
+### Dynamic-key Locks
+
+Most Locks are declared once at module load (`lock = Lock("cart")`) and reused across requests. When the lock key is computed per request, build a fresh `Lock` each time:
+
+```python
+lock = Lock(f"order:{order_id}")
+async with lock:
+    ...
+```
+
+This is the right pattern when locking by business identity (`order_id`, `user_id`, `tenant_id`).
+
+#### Recommended: pre-build the config
+
+Per-request `Lock(name)` re-runs `LockConfig` validation and the env path on every call. Pre-build a single `LockConfig` once, then call `Lock.from_config(name, cfg)` per request to skip both:
+
+```python
+from grelmicro.sync import Lock
+from grelmicro.sync.lock import LockConfig
+
+ORDER_LOCK_CONFIG = LockConfig(lease_duration=30)
+
+async def handle_order(order_id: int):
+    lock = Lock.from_config(f"order:{order_id}", ORDER_LOCK_CONFIG)
+    async with lock:
+        await process_order(order_id)
+```
+
+`Lock.from_config(...)` accepts the same `backend=` argument as the constructor, so the dynamic-key Lock resolves the registered backend the same way a module-level Lock does.
+
+#### Cost trade-off
+
+| Construction path | Per call | Notes |
+|---|---:|---|
+| `Lock(name)` (programmatic, env disabled) | ~10 µs | Pydantic validation only |
+| `Lock(name)` (env enabled, `GREL_CONFIG_FROM_ENV=true` or `read_env=True`) | ~70 µs | Adds env read and `env_segment(name)` |
+| `Lock.from_config(name, cfg)` | ~10 µs | Skips env, reuses `cfg` |
+| `async with lock` resolution | ~80 ns | `ContextVar.get` plus dict lookup |
+| `backend.acquire(...)` (Redis Lua eval) | ~1 ms | Network round-trip |
+
+The acquire round-trip dominates wall-clock. The construction cost matters only for high-throughput dynamic-key flows. `Lock.from_config(...)` keeps the construction cost flat regardless of the global `GREL_CONFIG_FROM_ENV` setting.
+
+#### When the simpler form is enough
+
+A handful of dynamic-key Locks per request, on a handler that already pays a database round-trip, can keep using `Lock(name)` directly. Reach for `Lock.from_config(name, cfg)` when:
+
+- the handler runs many Locks per request
+- the path is on a measured hot loop
+- the deployment has `GREL_CONFIG_FROM_ENV=true` and you want to skip the env path on per-request construction
