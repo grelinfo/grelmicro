@@ -59,6 +59,8 @@ It is built for any Python application that coordinates work across processes, w
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
 - **Railguarded**: 100% pytest coverage, ty-checked, ruff-linted, Pydantic-validated. Pre-1.0 API may shift on minor bumps. `1.x` commits to standard semver.
 
+Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](docs/comparison.md) for a per-domain breakdown.
+
 ## Modules
 
 | Module | Summary |

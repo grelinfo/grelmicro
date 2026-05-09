@@ -59,6 +59,7 @@ validation:
 nav:
 - grelmicro: index.md
 - installation.md
+- comparison.md
 - User Guide:
     - config.md
     - cache.md
