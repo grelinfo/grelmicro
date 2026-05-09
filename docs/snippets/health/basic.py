@@ -1,6 +1,7 @@
 from grelmicro.health import HealthChecks, HealthDetails
 
-# Create the health (auto-registers as the global singleton)
+# Create the HealthChecks instance and register it with the Grelmicro
+# app via `Grelmicro(uses=[health])` so the router can resolve it.
 health = HealthChecks()
 
 

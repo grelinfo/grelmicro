@@ -28,7 +28,7 @@ Create a `HealthChecks` and register checks with the `@health.check(name)` decor
 --8<-- "health/basic.py"
 ```
 
-The instance auto-registers as the global singleton. The router resolves it automatically.
+Register the instance with a `Grelmicro` app (see below) so the router can resolve it, or pass it explicitly via `health_router(registry=health)`.
 
 ### Grelmicro app integration
 

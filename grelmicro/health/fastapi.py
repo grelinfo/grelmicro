@@ -48,9 +48,9 @@ def health_router(
         HealthChecks | None,
         Doc(
             "Health checks instance whose checks the router runs. When "
-            "omitted, the router resolves the global instance "
-            "(the instance installed via ``health.use_registry`` "
-            "or entered as an async context manager)."
+            "omitted, the router resolves the instance registered as "
+            "the default (via ``Grelmicro(uses=[HealthChecks(...)])`` "
+            "or the legacy ``health.use_registry`` helper)."
         ),
     ] = None,
     *,
