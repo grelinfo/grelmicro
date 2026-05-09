@@ -1,4 +1,4 @@
-"""Health Check Registry."""
+"""Health Checks."""
 
 from contextlib import AbstractContextManager
 from typing import Annotated
@@ -7,34 +7,34 @@ from typing_extensions import Doc
 
 from grelmicro._backends import DEFAULT_NAME
 from grelmicro._deprecation import warn_legacy
-from grelmicro.health._backends import get_health_registry, health_registry
+from grelmicro.health._backends import get_health_checks, health_checks
+from grelmicro.health._checks import HealthChecks, HealthChecksConfig
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
     HealthStatus,
 )
-from grelmicro.health._registry import HealthRegistry, HealthRegistryConfig
 from grelmicro.health._types import HealthCheckFunc, HealthDetails
 from grelmicro.health.errors import HealthError
 
 
 def register(
-    registry: Annotated[HealthRegistry, Doc("The health registry instance.")],
+    registry: Annotated[HealthChecks, Doc("The health checks instance.")],
     name: Annotated[
-        str, Doc("Name to register the registry under.")
+        str, Doc("Name to register the instance under.")
     ] = DEFAULT_NAME,
 ) -> None:
     """Register ``registry`` under ``name`` (defaults to ``"default"``).
 
     Deprecated since 0.23.0, removed in 1.0.0. Use
-    `Grelmicro(uses=[HealthRegistry(...)])` (or `micro.use(HealthRegistry(...))`)
+    `Grelmicro(uses=[HealthChecks(...)])` (or `micro.use(HealthChecks(...))`)
     instead.
     """
     warn_legacy(
         "grelmicro.health.register",
-        "`Grelmicro(uses=[HealthRegistry(...)])`",
+        "`Grelmicro(uses=[HealthChecks(...)])`",
     )
-    health_registry.register(registry, name)
+    health_checks.register(registry, name)
 
 
 def unregister(
@@ -42,49 +42,49 @@ def unregister(
         str, Doc("Name of the registered instance to remove.")
     ] = DEFAULT_NAME,
     registry: Annotated[
-        HealthRegistry | None,
+        HealthChecks | None,
         Doc("Optional instance for an identity-checked removal."),
     ] = None,
 ) -> None:
     """Remove the registered instance under ``name``.
 
     Deprecated since 0.23.0, removed in 1.0.0. Construct a fresh `Grelmicro`
-    app instead of mutating a shared registry.
+    app instead of mutating a shared instance.
     """
     warn_legacy(
         "grelmicro.health.unregister",
         "a fresh `Grelmicro(uses=[...])`",
     )
-    health_registry.unregister(name, registry)
+    health_checks.unregister(name, registry)
 
 
 def use_registry(
     registry: Annotated[
-        HealthRegistry,
-        Doc("The health registry to install as the global default."),
+        HealthChecks,
+        Doc("The health checks to install as the global default."),
     ],
 ) -> None:
     """Register ``registry`` under the ``"default"`` name.
 
     Deprecated since 0.23.0, removed in 1.0.0. Use
-    `Grelmicro(uses=[HealthRegistry(...)])` instead.
+    `Grelmicro(uses=[HealthChecks(...)])` instead.
     """
     warn_legacy(
         "grelmicro.health.use_registry",
-        "`Grelmicro(uses=[HealthRegistry(...)])`",
+        "`Grelmicro(uses=[HealthChecks(...)])`",
     )
-    health_registry.register(registry, DEFAULT_NAME)
+    health_checks.register(registry, DEFAULT_NAME)
 
 
 def use(
     registry: Annotated[
-        HealthRegistry | None,
+        HealthChecks | None,
         Doc('Override the ``"default"`` slot for the duration of the block.'),
     ] = None,
     /,
-    **named: HealthRegistry,
+    **named: HealthChecks,
 ) -> AbstractContextManager[None]:
-    """Install task-scoped registry overrides.
+    """Install task-scoped overrides.
 
     Deprecated since 0.23.0, removed in 1.0.0. Use
     `async with micro.override(...)` on the active app instead.
@@ -93,19 +93,19 @@ def use(
         "grelmicro.health.use",
         "`async with micro.override(...)`",
     )
-    return health_registry.use(registry, **named)
+    return health_checks.use(registry, **named)
 
 
 __all__ = [
     "CheckResult",
     "HealthCheckFunc",
+    "HealthChecks",
+    "HealthChecksConfig",
     "HealthDetails",
     "HealthError",
-    "HealthRegistry",
-    "HealthRegistryConfig",
     "HealthReport",
     "HealthStatus",
-    "get_health_registry",
+    "get_health_checks",
     "register",
     "unregister",
     "use",

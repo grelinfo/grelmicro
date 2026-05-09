@@ -1,7 +1,7 @@
-from grelmicro.health import HealthDetails, HealthRegistry
+from grelmicro.health import HealthChecks, HealthDetails
 
 # Create the health (auto-registers as the global singleton)
-health = HealthRegistry()
+health = HealthChecks()
 
 
 # Register checks with the @health.check(name) decorator

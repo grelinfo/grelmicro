@@ -16,7 +16,7 @@ All backends use **async** methods because they perform network or disk I/O (Red
 | `grelmicro.cache` | `cache` | `CacheBackend` | Redis, Memory |
 | `grelmicro.resilience` (rate limiter) | `resilience.ratelimiter` | `RateLimiterBackend` | Redis, Memory |
 | `grelmicro.resilience` (circuit breaker) | `resilience.circuitbreaker` | `CircuitBreakerBackend` | Memory |
-| `grelmicro.health` | `health` | `HealthRegistry` | (any number of named registries) |
+| `grelmicro.health` | `health` | `HealthChecks` | (any number of named instances) |
 
 A registry holds zero or more named entries. Backends are looked up by name at call time, and each entry is independent. The `"default"` slot is the implicit name when no `backend=` is passed.
 

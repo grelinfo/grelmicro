@@ -9,8 +9,8 @@ from grelmicro import resilience as resilience_mod
 from grelmicro import sync as sync_mod
 from grelmicro.cache._backends import cache_backend_registry
 from grelmicro.cache.memory import MemoryCacheBackend
-from grelmicro.health._backends import health_registry
-from grelmicro.health._registry import HealthRegistry
+from grelmicro.health._backends import health_checks
+from grelmicro.health._checks import HealthChecks
 from grelmicro.resilience._backends import (
     circuit_breaker_backend_registry,
     rate_limiter_backend_registry,
@@ -30,7 +30,7 @@ def _clean_registries() -> None:
     cache_backend_registry.reset()
     rate_limiter_backend_registry.reset()
     circuit_breaker_backend_registry.reset()
-    health_registry.reset()
+    health_checks.reset()
 
 
 def test_sync_use_backend_warns() -> None:
@@ -92,18 +92,18 @@ def test_health_use_registry_warns() -> None:
     with pytest.warns(
         DeprecationWarning, match="grelmicro.health.use_registry"
     ):
-        health_mod.use_registry(HealthRegistry())
+        health_mod.use_registry(HealthChecks())
 
 
 def test_health_register_warns() -> None:
     """`grelmicro.health.register` warns."""
     with pytest.warns(DeprecationWarning, match="grelmicro.health.register"):
-        health_mod.register(HealthRegistry(), "primary")
+        health_mod.register(HealthChecks(), "primary")
 
 
 def test_health_unregister_warns() -> None:
     """`grelmicro.health.unregister` warns."""
-    health_registry.register(HealthRegistry(), "primary")
+    health_checks.register(HealthChecks(), "primary")
     with pytest.warns(DeprecationWarning, match="grelmicro.health.unregister"):
         health_mod.unregister("primary")
 
@@ -111,7 +111,7 @@ def test_health_unregister_warns() -> None:
 def test_health_use_warns() -> None:
     """`grelmicro.health.use` warns."""
     with pytest.warns(DeprecationWarning, match="grelmicro.health.use"):
-        cm = health_mod.use(HealthRegistry())
+        cm = health_mod.use(HealthChecks())
     with cm:
         pass
 

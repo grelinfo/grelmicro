@@ -8,11 +8,11 @@
         - HealthCheckFunc
         - HealthDetails
         - HealthError
-        - HealthRegistry
-        - HealthRegistryConfig
+        - HealthChecks
+        - HealthChecksConfig
         - HealthReport
         - HealthStatus
-        - get_health_registry
+        - get_health_checks
 
 ::: grelmicro.health.fastapi
     options:

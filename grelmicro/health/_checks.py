@@ -1,4 +1,4 @@
-"""Health Check Registry."""
+"""Health Checks."""
 
 import asyncio
 import re
@@ -37,8 +37,8 @@ _NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9:_-]*$")
 _NAME_MAX_LEN = 64
 
 
-class HealthRegistryConfig(BaseModel, frozen=True, extra="forbid"):
-    """Health Registry Config."""
+class HealthChecksConfig(BaseModel, frozen=True, extra="forbid"):
+    """Health Checks Config."""
 
     timeout: Annotated[
         PositiveFloat,
@@ -88,13 +88,13 @@ def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
     return _async_wrapper
 
 
-class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
-    """Registry that manages health checks and runs them concurrently.
+class HealthChecks(Reconfigurable[HealthChecksConfig]):
+    """Manages health checks and runs them concurrently.
 
     Checks are plain async functions. Register them with the
     :meth:`check` decorator or the :meth:`add` method. All registered
     checks are executed in parallel via an ``asyncio.TaskGroup``. Each
-    check has its own timeout (falling back to the registry default)
+    check has its own timeout (falling back to the default)
     and its own cached result. Concurrent requests for the same check
     share a single execution via an ``asyncio.Event``.
 
@@ -122,7 +122,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
                 ``GREL_CONFIG_FROM_ENV``), resolves from the
                 environment variable ``GREL_HEALTH_TIMEOUT`` if
                 present, otherwise falls back to the
-                ``HealthRegistryConfig`` default.
+                ``HealthChecksConfig`` default.
                 """
             ),
         ] = None,
@@ -136,7 +136,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
                 ``GREL_CONFIG_FROM_ENV``), resolves from the
                 environment variable ``GREL_HEALTH_CACHE_TTL`` if
                 present, otherwise falls back to the
-                ``HealthRegistryConfig`` default.
+                ``HealthChecksConfig`` default.
                 """
             ),
         ] = None,
@@ -163,9 +163,9 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
             ),
         ] = None,
     ) -> None:
-        """Initialize the health registry."""
+        """Initialize the health checks."""
         config = resolve_config(
-            HealthRegistryConfig,
+            HealthChecksConfig,
             explicit=None,
             kwargs={"timeout": timeout, "cache_ttl": cache_ttl},
             env_prefix=env_prefix or "GREL_HEALTH_",
@@ -177,10 +177,10 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
     def from_config(
         cls,
         config: Annotated[
-            HealthRegistryConfig,
+            HealthChecksConfig,
             Doc(
                 """
-                The pre-built health registry configuration.
+                The pre-built health checks configuration.
 
                 Use this path when the configuration is assembled at
                 startup from a settings tree (for example YAML, Vault,
@@ -191,19 +191,19 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
             ),
         ],
     ) -> Self:
-        """Construct a `HealthRegistry` from a pre-built `HealthRegistryConfig`."""
+        """Construct a `HealthChecks` from a pre-built `HealthChecksConfig`."""
         instance = cls.__new__(cls)
         instance._setup(config)  # noqa: SLF001
         return instance
 
-    def _setup(self, config: HealthRegistryConfig) -> None:
+    def _setup(self, config: HealthChecksConfig) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._entries: dict[str, _Entry] = {}
 
     async def __aenter__(self) -> Self:
-        """Open the health registry."""
+        """Open the health checks."""
         return self
 
     async def __aexit__(
@@ -212,7 +212,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the health registry."""
+        """Close the health checks."""
 
     def add(
         self,
@@ -240,7 +240,7 @@ class HealthRegistry(Reconfigurable[HealthRegistryConfig]):
             PositiveFloat | None,
             Doc(
                 "Per-check timeout override. Falls back to the "
-                "registry default when omitted."
+                "default when omitted."
             ),
         ] = None,
     ) -> None:
@@ -420,7 +420,7 @@ async def _run_check(entry: _Entry) -> CheckResult:
                 result: HealthDetails | None = await entry.func()
         except TimeoutError:
             if not cm.expired():
-                # User code raised TimeoutError, not the registry timeout.
+                # User code raised TimeoutError, not the configured timeout.
                 raise
             logger.warning(
                 "Health check '%s' timed out after %gs",

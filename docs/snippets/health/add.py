@@ -1,6 +1,6 @@
-from grelmicro.health import HealthDetails, HealthRegistry
+from grelmicro.health import HealthChecks, HealthDetails
 
-health = HealthRegistry()
+health = HealthChecks()
 
 
 async def check_kafka() -> HealthDetails | None:
