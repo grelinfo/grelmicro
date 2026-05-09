@@ -1,4 +1,4 @@
-"""Memory Cache Backend."""
+"""Memory Cache Adapter."""
 
 import asyncio
 from time import monotonic

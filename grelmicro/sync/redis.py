@@ -1,4 +1,4 @@
-"""Redis Synchronization Backend."""
+"""Redis Synchronization Adapter."""
 
 import asyncio
 from types import TracebackType
@@ -13,7 +13,7 @@ from grelmicro.sync.errors import SyncSettingsValidationError
 
 
 class RedisSyncAdapter(SyncBackend):
-    """Redis Synchronization Backend."""
+    """Redis Synchronization Adapter."""
 
     _LUA_ACQUIRE_OR_EXTEND = """
         local token = redis.call('get', KEYS[1])

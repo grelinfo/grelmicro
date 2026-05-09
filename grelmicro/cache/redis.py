@@ -1,4 +1,4 @@
-"""Redis Cache Backend."""
+"""Redis Cache Adapter."""
 
 import asyncio
 from types import TracebackType
