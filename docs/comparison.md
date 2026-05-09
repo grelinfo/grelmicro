@@ -26,7 +26,7 @@ The pattern across every row: pick the focused library when you only need that o
 | Backends | Memory, Redis, Memcached | Memory, Redis, Memcached, DynamoDB | Memory, Redis (Postgres at 1.0, see [#167](https://github.com/grelinfo/grelmicro/issues/167)) |
 | Decorator | `@cached` | `@cache` | `@cached` |
 | Type-safe `Cache[T]` | no | no | yes (`TTLCache[T]` plus `PydanticSerializer(T)`) |
-| Per-key stampede protection | local lock via `lock_value` | none | opt-in via `lock=True` (off by default); distributed lock planned (see [#235](https://github.com/grelinfo/grelmicro/issues/235)) |
+| Per-key stampede protection | local lock via `lock_value` | none | opt-in via `lock=True` (off by default). Distributed lock planned (see [#235](https://github.com/grelinfo/grelmicro/issues/235)) |
 | Serializers | several built-in | json, binary | `JsonSerializer`, `PydanticSerializer`, `PickleSerializer` |
 | FastAPI integration | manual | first-class | works with any async framework, no FastAPI coupling |
 
@@ -54,12 +54,12 @@ Half-open / open / closed states, with thresholds and ignore lists.
 | Axis | [`pybreaker`](https://github.com/danielfm/pybreaker) | [`aiobreaker`](https://github.com/arlyon/aiobreaker) | grelmicro `CircuitBreaker` |
 |---|---|---|---|
 | Async-first | sync-first, has async wrapper | yes | yes |
-| Storage | in-memory, Redis (via plugin) | in-memory | in-memory (Memory backend); distributed protocol at 1.0 (see [#163](https://github.com/grelinfo/grelmicro/issues/163)) |
+| Storage | in-memory, Redis (via plugin) | in-memory | in-memory (Memory backend), distributed protocol at 1.0 (see [#163](https://github.com/grelinfo/grelmicro/issues/163)) |
 | Decorator + async CM | decorator + sync CM | decorator + async CM | decorator + async CM |
 | Frozen Pydantic config | no | no | yes (`CircuitBreakerConfig`) |
 | Live reconfigure | no | no | yes (`reconfigure(new_config)`) |
 | Structured logging context | no | no | yes (the breaker logs name, state, last_error) |
-| Listener hooks | yes (`add_listener`) | basic | structured logs are first-class; explicit listener API post-1.0 |
+| Listener hooks | yes (`add_listener`) | basic | structured logs are first-class, explicit listener API post-1.0 |
 
 Pick `pybreaker` if you have a sync-first codebase. Pick `aiobreaker` if you want a small async-only breaker with no other dependencies. Pick grelmicro when you also need a Retry or Lock that shares the same config story, or when you need to swap thresholds at runtime without restart.
 
