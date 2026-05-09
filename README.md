@@ -92,10 +92,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 
-import grelmicro
-from grelmicro import cache, resilience, sync
+from grelmicro import Grelmicro
 from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheAdapter
+from grelmicro.health import HealthChecks
 from grelmicro.logging import configure_logging
 from grelmicro.resilience import (
     CircuitBreaker,
@@ -109,23 +109,32 @@ from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
 
-# === grelmicro ===
-task = Tasks()
-sync.register(RedisSyncAdapter("redis://localhost:6379/0"))
-cache.register(RedisCacheAdapter("redis://localhost:6379/0", prefix="myapp:"))
-resilience.register(RedisRateLimiterBackend("redis://localhost:6379/0"))
+# === grelmicro app: one container, one lifespan ===
+tasks = Tasks()
+health = HealthChecks()
+leader = LeaderElection("leader-election")
+tasks.add_task(leader)
 
-leader_election = LeaderElection("leader-election")
-task.add_task(leader_election)
+micro = Grelmicro(uses=[
+    RedisSyncAdapter("redis://localhost:6379/0"),
+    RedisCacheAdapter("redis://localhost:6379/0", prefix="myapp:"),
+    RedisRateLimiterBackend("redis://localhost:6379/0"),
+    tasks,
+    health,
+])
 
+# === Patterns declared once at module load, resolved at use time ===
 ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer())
+lock = Lock("shared-resource")
+cb = CircuitBreaker("my-service")
+api_limiter = RateLimiter.gcra("api", limit=100, window=60)
 
 
-# === FastAPI ===
+# === FastAPI lifespan ===
 @asynccontextmanager
 async def lifespan(app):
     configure_logging()
-    async with grelmicro.lifespan(task):
+    async with micro:
         yield
 
 
@@ -144,9 +153,6 @@ async def read_user(user_id: int):
 
 
 # --- Circuit Breaker: protect calls to an unreliable service ---
-cb = CircuitBreaker("my-service")
-
-
 @app.get("/")
 async def read_root():
     async with cb:
@@ -154,9 +160,6 @@ async def read_root():
 
 
 # --- Rate Limiter: protect endpoints from overload ---
-api_limiter = RateLimiter.gcra("api", limit=100, window=60)
-
-
 @app.get("/api")
 async def api_endpoint(request: Request):
     try:
@@ -171,9 +174,6 @@ async def api_endpoint(request: Request):
 
 
 # --- Distributed Lock: synchronize access to a shared resource ---
-lock = Lock("shared-resource")
-
-
 @app.get("/protected")
 async def protected():
     async with lock:
@@ -181,22 +181,31 @@ async def protected():
 
 
 # --- Interval Task: run locally on every worker ---
-@task.interval(seconds=5)
+@tasks.interval(seconds=5)
 def heartbeat():
     logger.info("heartbeat")
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@task.interval(seconds=60, max_lock_seconds=300)
+@tasks.interval(seconds=60, max_lock_seconds=300)
 def cleanup():
     logger.info("cleanup")
 
 
 # --- Leader-gated Task: only the leader executes ---
-@task.interval(seconds=10, leader=leader_election)
+@tasks.interval(seconds=10, leader=leader)
 def leader_only_task():
     logger.info("leader task")
 ```
+
+The key shape:
+
+- **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Adapter and active manager. `async with micro:` opens them all in order, closes in reverse.
+- **Adapters auto-register.** `RedisSyncAdapter(...)` becomes the default sync backend, `RedisCacheAdapter(...)` becomes the default cache backend. Use `Sync(adapter, name="...")` and `Cache(adapter, name="...")` for non-default names.
+- **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`. The same `Lock` works in production with Redis and in tests with `MemorySyncAdapter`, no rewiring.
+- **No magic.** Every backend is explicit. `import grelmicro` imports nothing else. Tree-shaking works.
+
+For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelinfo.github.io/grelmicro/).
 
 ## License
 
