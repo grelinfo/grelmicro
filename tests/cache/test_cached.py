@@ -8,7 +8,7 @@ from contextlib import suppress
 import pytest
 
 from grelmicro.cache.cached import cached
-from grelmicro.cache.memory import MemoryCacheBackend
+from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
 
@@ -31,7 +31,7 @@ def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
     ``async with backend:`` setup. Production code goes through
     ``grelmicro.lifespan()`` which does this for free.
     """
-    backend = MemoryCacheBackend()
+    backend = MemoryCacheAdapter()
     with suppress(RuntimeError):
         backend._loop = asyncio.get_running_loop()
     return TTLCache(

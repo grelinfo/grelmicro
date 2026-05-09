@@ -1,4 +1,4 @@
-"""Memory Cache Backend."""
+"""Memory Cache Adapter."""
 
 import asyncio
 from time import monotonic
@@ -6,7 +6,7 @@ from types import TracebackType
 from typing import Self
 
 
-class MemoryCacheBackend:
+class MemoryCacheAdapter:
     """In-memory cache backend.
 
     Stores entries in a Python dict with lazy TTL expiry.

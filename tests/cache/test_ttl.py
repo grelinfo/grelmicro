@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from grelmicro.cache._backends import cache_backend_registry
-from grelmicro.cache.memory import MemoryCacheBackend
+from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import CacheInfo, TTLCache
 
@@ -20,9 +20,9 @@ EXPECTED_UNLIMITED_COUNT = 1000
 
 
 @pytest.fixture
-def backend() -> MemoryCacheBackend:
+def backend() -> MemoryCacheAdapter:
     """Provide an isolated in-memory cache backend (not registered globally)."""
-    return MemoryCacheBackend()
+    return MemoryCacheAdapter()
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +33,7 @@ def backend() -> MemoryCacheBackend:
 class TestInit:
     """Test TTLCache initialization and constructor validation."""
 
-    def test_valid_params(self, backend: MemoryCacheBackend) -> None:
+    def test_valid_params(self, backend: MemoryCacheAdapter) -> None:
         """Test creating a cache with valid parameters."""
         # Act
         cache = TTLCache(maxsize=100, ttl=60, backend=backend)
@@ -44,7 +44,7 @@ class TestInit:
         expected_maxsize = 100
         assert info.maxsize == expected_maxsize
 
-    def test_unlimited_maxsize(self, backend: MemoryCacheBackend) -> None:
+    def test_unlimited_maxsize(self, backend: MemoryCacheAdapter) -> None:
         """Test creating a cache with unlimited maxsize (maxsize=0)."""
         # Act
         cache = TTLCache(maxsize=0, ttl=60, backend=backend)
@@ -54,19 +54,19 @@ class TestInit:
         assert info.maxsize == 0
         assert info.currsize == 0
 
-    def test_negative_maxsize_raises(self, backend: MemoryCacheBackend) -> None:
+    def test_negative_maxsize_raises(self, backend: MemoryCacheAdapter) -> None:
         """Test that negative maxsize raises ValueError."""
         # Act / Assert
         with pytest.raises(ValueError, match="maxsize must be non-negative"):
             TTLCache(maxsize=-1, ttl=60, backend=backend)
 
-    def test_zero_ttl_raises(self, backend: MemoryCacheBackend) -> None:
+    def test_zero_ttl_raises(self, backend: MemoryCacheAdapter) -> None:
         """Test that zero ttl raises ValueError."""
         # Act / Assert
         with pytest.raises(ValueError, match="ttl must be positive"):
             TTLCache(maxsize=10, ttl=0, backend=backend)
 
-    def test_negative_ttl_raises(self, backend: MemoryCacheBackend) -> None:
+    def test_negative_ttl_raises(self, backend: MemoryCacheAdapter) -> None:
         """Test that negative ttl raises ValueError."""
         # Act / Assert
         with pytest.raises(ValueError, match="ttl must be positive"):
@@ -82,7 +82,7 @@ class TestInit:
         assert info.hits == 0
 
     async def test_default_backend_from_registry(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that TTLCache uses the registered backend when none is provided."""
         # Arrange: register the backend
@@ -108,7 +108,7 @@ class TestInit:
 class TestGetSet:
     """Test TTLCache get and set operations."""
 
-    async def test_set_and_get_bytes(self, backend: MemoryCacheBackend) -> None:
+    async def test_set_and_get_bytes(self, backend: MemoryCacheAdapter) -> None:
         """Test setting and getting raw bytes without a serializer."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=60, backend=backend)
@@ -121,7 +121,7 @@ class TestGetSet:
         assert result == b"hello"
 
     async def test_set_and_get_with_serializer(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test get/set round-trip using json serializer/deserializer."""
         # Arrange
@@ -140,7 +140,7 @@ class TestGetSet:
         assert result == {"x": 1}
 
     async def test_get_missing_key_returns_none(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test getting a missing key returns None by default."""
         # Arrange
@@ -153,7 +153,7 @@ class TestGetSet:
         assert result is None
 
     async def test_get_missing_key_with_default(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test getting a missing key returns the supplied default."""
         # Arrange
@@ -166,7 +166,7 @@ class TestGetSet:
         assert result == "fallback"
 
     async def test_set_overwrites_existing(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that setting an existing key overwrites the value."""
         # Arrange
@@ -182,7 +182,7 @@ class TestGetSet:
         assert cache.cache_info().currsize == 1
 
     async def test_set_non_bytes_without_serializer_raises(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that setting a non-bytes value without a serializer raises TypeError."""
         # Arrange
@@ -195,7 +195,7 @@ class TestGetSet:
             await cache.set("key", "not-bytes")
 
     async def test_set_invalid_per_entry_ttl_zero_raises(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that per-entry ttl=0 raises ValueError."""
         # Arrange
@@ -206,7 +206,7 @@ class TestGetSet:
             await cache.set("key", b"v", ttl=0)
 
     async def test_set_invalid_per_entry_ttl_negative_raises(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that negative per-entry ttl raises ValueError."""
         # Arrange
@@ -226,7 +226,7 @@ class TestExpiry:
     """Test TTLCache TTL expiry behavior."""
 
     async def test_entry_expires_at_ttl_boundary(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that an entry is gone once the TTL has elapsed."""
         # Arrange
@@ -245,7 +245,7 @@ class TestExpiry:
             assert await cache.get("key") is None
 
     async def test_per_entry_ttl_override(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that a per-entry TTL overrides the cache-level default."""
         # Arrange
@@ -264,7 +264,7 @@ class TestExpiry:
             assert await cache.get("key") is None
 
     async def test_expired_entry_counts_as_miss(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that a get on an expired entry increments misses, not hits."""
         # Arrange
@@ -297,7 +297,7 @@ class TestEviction:
     """Test TTLCache LRU eviction and maxsize enforcement."""
 
     async def test_lru_eviction_when_full(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that the least recently used entry is evicted when cache is full."""
         # Arrange
@@ -314,7 +314,7 @@ class TestEviction:
         assert await cache.get("c") == b"3"
 
     async def test_get_promotes_to_mru(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that get() promotes an entry to most-recently-used position."""
         # Arrange: a=LRU, b, c=MRU
@@ -334,7 +334,7 @@ class TestEviction:
         assert await cache.get("d") is not None
 
     async def test_overwrite_promotes_to_mru(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that overwriting an existing key promotes it to MRU."""
         # Arrange: a=LRU, b, c=MRU
@@ -354,7 +354,7 @@ class TestEviction:
         assert await cache.get("d") is not None
 
     async def test_unlimited_maxsize_no_eviction(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that maxsize=0 allows unlimited entries without eviction."""
         # Arrange
@@ -371,7 +371,7 @@ class TestEviction:
         assert info.currsize == 0
 
     async def test_evictions_tracked_in_cache_info(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that eviction count increments correctly in cache_info."""
         # Arrange
@@ -395,7 +395,7 @@ class TestDeleteClear:
     """Test TTLCache delete and clear operations."""
 
     async def test_delete_existing_key(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that deleting an existing key removes it from the cache."""
         # Arrange
@@ -410,7 +410,7 @@ class TestDeleteClear:
         assert cache.cache_info().currsize == 0
 
     async def test_delete_missing_key_is_noop(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that deleting a non-existent key does not raise."""
         # Arrange
@@ -420,7 +420,7 @@ class TestDeleteClear:
         await cache.delete("missing")
 
     async def test_delete_removes_from_lru_tracker(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that delete removes the key from the LRU tracking list."""
         # Arrange
@@ -435,7 +435,7 @@ class TestDeleteClear:
         assert cache.cache_info().currsize == 1
 
     async def test_clear_removes_all_entries(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that clear() removes all entries and resets LRU tracking."""
         # Arrange
@@ -460,7 +460,7 @@ class TestDeleteClear:
 class TestCacheInfo:
     """Test TTLCache cache_info statistics and CacheInfo immutability."""
 
-    def test_initial_stats(self, backend: MemoryCacheBackend) -> None:
+    def test_initial_stats(self, backend: MemoryCacheAdapter) -> None:
         """Test that a freshly created cache has zero stats."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=60, backend=backend)
@@ -474,7 +474,7 @@ class TestCacheInfo:
         )
 
     async def test_hits_and_misses_tracked(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that hits and misses accumulate correctly."""
         # Arrange
@@ -492,7 +492,7 @@ class TestCacheInfo:
         assert info.misses == 1
         assert info.currsize == 1
 
-    def test_cache_info_is_immutable(self, backend: MemoryCacheBackend) -> None:
+    def test_cache_info_is_immutable(self, backend: MemoryCacheAdapter) -> None:
         """Test that CacheInfo instances are frozen dataclasses."""
         # Arrange
         cache = TTLCache(maxsize=10, ttl=60, backend=backend)
@@ -503,7 +503,7 @@ class TestCacheInfo:
             info.hits = 99  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
     async def test_currsize_reflects_lru_tracker(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that currsize in cache_info reflects the LRU key list length."""
         # Arrange
@@ -518,7 +518,7 @@ class TestCacheInfo:
         assert cache.cache_info().currsize == expected_size
 
     async def test_currsize_zero_for_unlimited(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that currsize is 0 for unlimited caches (no LRU tracking)."""
         # Arrange
@@ -539,7 +539,7 @@ class TestCacheInfo:
 class TestSerializer:
     """Test TTLCache serializer and deserializer integration."""
 
-    async def test_json_round_trip(self, backend: MemoryCacheBackend) -> None:
+    async def test_json_round_trip(self, backend: MemoryCacheAdapter) -> None:
         """Test a full JSON serializer/deserializer round-trip."""
         # Arrange
         cache = TTLCache(
@@ -556,7 +556,7 @@ class TestSerializer:
         # Assert
         assert result == {"id": 42, "name": "alice"}
 
-    async def test_pickle_serializer(self, backend: MemoryCacheBackend) -> None:
+    async def test_pickle_serializer(self, backend: MemoryCacheAdapter) -> None:
         """Test serializing with PickleSerializer."""
         # Arrange
         cache = TTLCache(
@@ -575,7 +575,7 @@ class TestSerializer:
         assert result == expected
 
     async def test_no_serializer_bytes_pass_through(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that raw bytes are stored and returned unchanged without a serializer."""
         # Arrange
@@ -590,7 +590,7 @@ class TestSerializer:
         assert result == payload
 
     async def test_type_error_for_non_bytes_without_serializer(
-        self, backend: MemoryCacheBackend
+        self, backend: MemoryCacheAdapter
     ) -> None:
         """Test that storing a list without a serializer raises TypeError."""
         # Arrange

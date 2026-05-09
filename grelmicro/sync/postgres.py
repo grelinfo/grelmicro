@@ -1,4 +1,4 @@
-"""PostgreSQL Synchronization Backend."""
+"""PostgreSQL Synchronization Adapter."""
 
 import asyncio
 import re
@@ -66,8 +66,8 @@ def _get_postgres_url() -> str:
     raise SyncSettingsValidationError(msg)
 
 
-class PostgresSyncBackend(SyncBackend):
-    """PostgreSQL Synchronization Backend."""
+class PostgresSyncAdapter(SyncBackend):
+    """PostgreSQL Synchronization Adapter."""
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (

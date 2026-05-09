@@ -1,6 +1,6 @@
 """Internal shared Redis URL resolution and client factory.
 
-Used by both the sync (RedisSyncBackend) and cache (RedisCacheBackend)
+Used by both the sync (RedisSyncAdapter) and cache (RedisCacheAdapter)
 domains to avoid duplicating environment-variable handling. Not part of
 the public API.
 """

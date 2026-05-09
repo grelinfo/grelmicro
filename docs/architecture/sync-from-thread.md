@@ -22,10 +22,10 @@ Each primitive reads the loop through its bound backend (`self.backend._loop`) w
 from contextlib import asynccontextmanager
 
 from grelmicro import lifespan
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync import Lock, use_backend
 
-use_backend(MemorySyncBackend())
+use_backend(MemorySyncAdapter())
 lock = Lock("cart")
 
 

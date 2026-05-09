@@ -11,7 +11,7 @@ from pytest_mock import MockerFixture
 from grelmicro.errors import WouldBlockError as WouldBlock
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 from tests.task._helpers import cancel_group, start_task
 
 LEADER_NAME = "test_leader_election"
@@ -27,7 +27,7 @@ pytestmark = [pytest.mark.timeout(TEST_TIMEOUT)]
 @pytest.fixture
 def backend() -> SyncBackend:
     """Return Memory Synchronization Backend."""
-    return MemorySyncBackend()
+    return MemorySyncAdapter()
 
 
 @pytest.fixture

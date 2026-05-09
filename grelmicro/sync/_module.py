@@ -27,9 +27,9 @@ class Sync:
         ```python
         from grelmicro import Grelmicro
         from grelmicro.sync import Sync
-        from grelmicro.sync.redis import RedisSyncBackend
+        from grelmicro.sync.redis import RedisSyncAdapter
 
-        micro = Grelmicro(uses=[Sync(RedisSyncBackend("redis://localhost"))])
+        micro = Grelmicro(uses=[Sync(RedisSyncAdapter("redis://localhost"))])
 
         async with micro:
             async with micro.sync.lock("cart"):

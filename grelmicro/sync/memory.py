@@ -1,4 +1,4 @@
-"""Memory Synchronization Backend."""
+"""Memory Synchronization Adapter."""
 
 import asyncio
 from time import monotonic
@@ -8,8 +8,8 @@ from typing import Self
 from grelmicro.sync.abc import SyncBackend
 
 
-class MemorySyncBackend(SyncBackend):
-    """Memory Synchronization Backend.
+class MemorySyncAdapter(SyncBackend):
+    """Memory Synchronization Adapter.
 
     This is not a backend with a real distributed lock. It is a local lock that can be used for
     testing purposes or for locking operations that are executed in the same asyncio event loop.

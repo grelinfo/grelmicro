@@ -1,4 +1,4 @@
-"""SQLite Synchronization Backend."""
+"""SQLite Synchronization Adapter."""
 
 import asyncio
 import re
@@ -37,8 +37,8 @@ def _get_sqlite_path() -> str:
     raise SyncSettingsValidationError(msg)
 
 
-class SQLiteSyncBackend(SyncBackend):
-    """SQLite Synchronization Backend."""
+class SQLiteSyncAdapter(SyncBackend):
+    """SQLite Synchronization Adapter."""
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (

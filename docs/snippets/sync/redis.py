@@ -1,3 +1,3 @@
-from grelmicro.sync.redis import RedisSyncBackend
+from grelmicro.sync.redis import RedisSyncAdapter
 
-backend = RedisSyncBackend("redis://localhost:6379/0")
+backend = RedisSyncAdapter("redis://localhost:6379/0")

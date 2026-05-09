@@ -1,4 +1,4 @@
-"""Kubernetes Synchronization Backend."""
+"""Kubernetes Synchronization Adapter."""
 
 import asyncio
 import re
@@ -70,8 +70,8 @@ def _sanitize_lease_name(name: str) -> str:
     return sanitized
 
 
-class KubernetesSyncBackend(SyncBackend):
-    """Kubernetes Synchronization Backend."""
+class KubernetesSyncAdapter(SyncBackend):
+    """Kubernetes Synchronization Adapter."""
 
     def __init__(
         self,

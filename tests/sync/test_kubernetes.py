@@ -15,7 +15,7 @@ from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.kubernetes import (
     _MAX_NAME_LENGTH,
-    KubernetesSyncBackend,
+    KubernetesSyncAdapter,
     _get_expire_at,
     _sanitize_lease_name,
 )
@@ -62,9 +62,9 @@ def _make_lease(
 
 def _make_mocked_backend(
     **client_overrides: AsyncMock,
-) -> KubernetesSyncBackend:
-    """Create a KubernetesSyncBackend with a mocked client."""
-    backend = KubernetesSyncBackend(namespace="default")
+) -> KubernetesSyncAdapter:
+    """Create a KubernetesSyncAdapter with a mocked client."""
+    backend = KubernetesSyncAdapter(namespace="default")
     mock_client = AsyncMock()
     for attr, mock in client_overrides.items():
         setattr(mock_client, attr, mock)
@@ -84,7 +84,7 @@ async def _async_iter(items: list) -> AsyncIterator:
 async def test_sync_backend_out_of_context_errors() -> None:
     """Test Synchronization Backend Out Of Context Errors."""
     # Arrange
-    backend = KubernetesSyncBackend(namespace="default")
+    backend = KubernetesSyncAdapter(namespace="default")
     name = "lock"
     key = "token"
 
@@ -110,7 +110,7 @@ def test_kubernetes_env_var_settings(
     monkeypatch.setenv("KUBE_NAMESPACE", "my-namespace")
 
     # Act
-    backend = KubernetesSyncBackend()
+    backend = KubernetesSyncAdapter()
 
     # Assert
     assert backend._namespace == "my-namespace"
@@ -123,7 +123,7 @@ def test_kubernetes_env_var_settings_validation_error() -> None:
         SyncSettingsValidationError,
         match=(r"Could not validate environment variables settings:\n"),
     ):
-        KubernetesSyncBackend()
+        KubernetesSyncAdapter()
 
 
 # --- Registration ---
@@ -133,7 +133,7 @@ def test_sync_backend_constructor_does_not_register() -> None:
     """Constructing the backend performs no registry writes."""
     sync_backend_registry.reset()
 
-    KubernetesSyncBackend(namespace="default")
+    KubernetesSyncAdapter(namespace="default")
 
     assert not sync_backend_registry.is_loaded
 
@@ -141,7 +141,7 @@ def test_sync_backend_constructor_does_not_register() -> None:
 def test_sync_backend_prefix() -> None:
     """Test Synchronization Backend Prefix."""
     # Act
-    backend = KubernetesSyncBackend(namespace="default", prefix="myapp-")
+    backend = KubernetesSyncAdapter(namespace="default", prefix="myapp-")
 
     # Assert
     assert backend._prefix == "myapp-"
@@ -227,7 +227,7 @@ def test_get_expire_at_computes_correctly() -> None:
 async def test_aenter_sets_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test __aenter__ creates an AsyncClient."""
     # Arrange
-    backend = KubernetesSyncBackend(namespace="default")
+    backend = KubernetesSyncAdapter(namespace="default")
     monkeypatch.setattr(
         "grelmicro.sync.kubernetes.AsyncClient",
         lambda **_kwargs: AsyncMock(),
@@ -416,7 +416,7 @@ async def test_owned_wrong_token() -> None:
     ids=["acquire", "release", "locked", "owned"],
 )
 async def test_raises_on_non_404_get_error(
-    method_caller: Callable[[KubernetesSyncBackend], Awaitable[bool]],
+    method_caller: Callable[[KubernetesSyncAdapter], Awaitable[bool]],
 ) -> None:
     """Test all methods re-raise non-404 API errors on GET."""
     # Arrange
@@ -531,7 +531,7 @@ async def test_aexit_cleanup_delete_errors(
 ) -> None:
     """Test __aexit__ error handling during cleanup delete."""
     # Arrange
-    backend = KubernetesSyncBackend(namespace="default")
+    backend = KubernetesSyncAdapter(namespace="default")
     expired_lease = _make_lease(expired=True)
     mock_client = AsyncMock()
     mock_client.list = MagicMock(return_value=_async_iter([expired_lease]))

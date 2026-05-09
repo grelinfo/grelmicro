@@ -16,16 +16,16 @@ You must load a cache backend before using `TTLCache`.
 
 === "Memory"
     ```python
-    from grelmicro.cache.memory import MemoryCacheBackend
+    from grelmicro.cache.memory import MemoryCacheAdapter
 
-    backend = MemoryCacheBackend()
+    backend = MemoryCacheAdapter()
     ```
 
 === "Redis"
     ```python
-    from grelmicro.cache.redis import RedisCacheBackend
+    from grelmicro.cache.redis import RedisCacheAdapter
 
-    backend = RedisCacheBackend("redis://localhost:6379/0", prefix="myapp:")
+    backend = RedisCacheAdapter("redis://localhost:6379/0", prefix="myapp:")
     ```
 
 Backends must be used as async context managers:
@@ -43,7 +43,7 @@ async with backend:
 ```python
 from grelmicro.cache import TTLCache
 
-# Uses the registered backend (MemoryCacheBackend or RedisCacheBackend)
+# Uses the registered backend (MemoryCacheAdapter or RedisCacheAdapter)
 cache = TTLCache(maxsize=100, ttl=300)
 
 # Or pass a backend explicitly

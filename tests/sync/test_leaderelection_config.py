@@ -6,7 +6,7 @@ from pytest_mock import MockerFixture
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro.sync.memory import MemorySyncAdapter
 
 LEASE_KWARG = 12.0
 RETRY_KWARG = 1.0
@@ -19,7 +19,7 @@ DEFAULT_RETRY = 2.0
 @pytest.fixture
 def backend() -> SyncBackend:
     """Return a memory backend usable without a running event loop."""
-    return MemorySyncBackend()
+    return MemorySyncAdapter()
 
 
 async def test_release_is_noop_when_backend_was_never_resolved() -> None:
@@ -39,7 +39,7 @@ def test_backend_property_resolves_on_every_call(
     mocker: MockerFixture,
 ) -> None:
     """`le.backend` consults the registry on each read so `sync.use(...)` overrides apply."""
-    backend_instance = MemorySyncBackend()
+    backend_instance = MemorySyncAdapter()
     spy = mocker.patch(
         "grelmicro.sync.leaderelection.get_sync_backend",
         return_value=backend_instance,

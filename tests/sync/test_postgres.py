@@ -5,7 +5,7 @@ import pytest
 from grelmicro.errors import OutOfContextError
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.errors import SyncSettingsValidationError
-from grelmicro.sync.postgres import PostgresSyncBackend
+from grelmicro.sync.postgres import PostgresSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -29,13 +29,13 @@ def test_sync_backend_table_name_invalid(table_name: str) -> None:
     with pytest.raises(
         ValueError, match=r"Table name '.*' is not a valid SQL identifier"
     ):
-        PostgresSyncBackend(url=URL, table_name=table_name)
+        PostgresSyncAdapter(url=URL, table_name=table_name)
 
 
 async def test_sync_backend_out_of_context_errors() -> None:
     """Test Synchronization Backend Out Of Context Errors."""
     # Arrange
-    backend = PostgresSyncBackend(url=URL)
+    backend = PostgresSyncAdapter(url=URL)
     name = "lock"
     key = "token"
 
@@ -72,7 +72,7 @@ def test_postgres_env_var_settings(
         monkeypatch.setenv(key, value)
 
     # Act
-    backend = PostgresSyncBackend()
+    backend = PostgresSyncAdapter()
 
     # Assert
     assert backend._url == URL
@@ -108,14 +108,14 @@ def test_postgres_env_var_settings_validation_error(
         SyncSettingsValidationError,
         match=(r"Could not validate environment variables settings:\n"),
     ):
-        PostgresSyncBackend()
+        PostgresSyncAdapter()
 
 
 def test_sync_backend_constructor_does_not_register() -> None:
     """Constructing the backend performs no registry writes."""
     sync_backend_registry.reset()
 
-    PostgresSyncBackend(url=URL)
+    PostgresSyncAdapter(url=URL)
 
     assert not sync_backend_registry.is_loaded
 
@@ -123,7 +123,7 @@ def test_sync_backend_constructor_does_not_register() -> None:
 def test_sync_backend_custom_table_name() -> None:
     """Test Synchronization Backend Custom Table Name."""
     # Act
-    backend = PostgresSyncBackend(url=URL, table_name="my_locks")
+    backend = PostgresSyncAdapter(url=URL, table_name="my_locks")
 
     # Assert
     assert backend._table_name == "my_locks"
@@ -140,7 +140,7 @@ def test_postgres_env_var_settings_default_port(
     monkeypatch.setenv("POSTGRES_DB", "test_db")
 
     # Act
-    backend = PostgresSyncBackend()
+    backend = PostgresSyncAdapter()
 
     # Assert
     assert backend._url == URL_DEFAULT_PORT

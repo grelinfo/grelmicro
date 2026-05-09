@@ -47,7 +47,7 @@ class TTLCache(Generic[T]):
     and statistics on top of the backend.
 
     When no backend is provided, the registered default is used
-    (see ``MemoryCacheBackend`` or ``RedisCacheBackend``).
+    (see ``MemoryCacheAdapter`` or ``RedisCacheAdapter``).
 
     The type parameter ``T`` represents the cached value type.
     Defaults to ``Any`` when unspecified (``TTLCache()``).

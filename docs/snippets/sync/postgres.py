@@ -1,3 +1,3 @@
-from grelmicro.sync.postgres import PostgresSyncBackend
+from grelmicro.sync.postgres import PostgresSyncAdapter
 
-backend = PostgresSyncBackend("postgresql://user:password@localhost:5432/db")
+backend = PostgresSyncAdapter("postgresql://user:password@localhost:5432/db")
