@@ -4,7 +4,7 @@ from grelmicro.resilience import Retry
 
 policy = Retry.exponential(
     "payments",
-    on=httpx.HTTPError,
+    when=httpx.HTTPError,
     attempts=5,
     base_delay=0.2,
     max_delay=10.0,

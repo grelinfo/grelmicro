@@ -9,6 +9,8 @@ from pydantic import ValidationError
 from grelmicro.resilience import (
     ConstantBackoff,
     ExponentialBackoff,
+    Match,
+    Outcome,
     Retry,
     RetryConfig,
     retry,
@@ -47,22 +49,22 @@ def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- RetryConfig validation -----------------------------------------------
 
 
-def test_config_requires_on() -> None:
-    """`RetryConfig` raises when `on` is missing."""
+def test_config_requires_when() -> None:
+    """`RetryConfig` raises when `when` is missing."""
     with pytest.raises(ValidationError):
         RetryConfig()  # type: ignore[call-arg]  # ty: ignore[missing-argument]
 
 
 def test_config_default_attempts_and_backoff() -> None:
     """Defaults: 3 attempts, exponential backoff."""
-    config = RetryConfig(on=(ValueError,))  # ty: ignore[missing-argument]
+    config = RetryConfig(when=(ValueError,))  # ty: ignore[missing-argument,invalid-argument-type]
     assert config.attempts == _DEFAULT_ATTEMPTS
     assert isinstance(config.backoff, ExponentialBackoff)
 
 
 def test_config_frozen() -> None:
     """`RetryConfig` is frozen."""
-    config = RetryConfig(on=(ValueError,))  # ty: ignore[missing-argument]
+    config = RetryConfig(when=(ValueError,))  # ty: ignore[missing-argument,invalid-argument-type]
     with pytest.raises(ValidationError):
         config.attempts = _FIVE  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
@@ -74,37 +76,44 @@ def test_retry_constructs_with_class_filter(
     fast_constant: ConstantBackoff,
 ) -> None:
     """Construct accepts a single class filter."""
-    policy = Retry("test", fast_constant, on=ValueError, attempts=_THREE)
+    policy = Retry("test", fast_constant, when=ValueError, attempts=_THREE)
     assert policy.name == "test"
     assert policy.config.attempts == _THREE
 
 
-def test_retry_normalizes_single_class_to_tuple(
+def test_retry_normalizes_single_class_to_match(
     fast_constant: ConstantBackoff,
 ) -> None:
-    """Single class is normalized to a tuple."""
-    policy = Retry("test", fast_constant, on=ValueError)
-    assert policy.config.on == (ValueError,)
+    """Single exception class is coerced to ``Match.exception(...)``."""
+    policy = Retry("test", fast_constant, when=ValueError)
+    matcher = policy.config.when
+    assert matcher(Outcome.from_exception(ValueError()))
+    assert not matcher(Outcome.from_exception(KeyError()))
 
 
 def test_retry_accepts_tuple_filter(
     fast_constant: ConstantBackoff,
 ) -> None:
-    """Tuple of classes is preserved."""
-    policy = Retry("test", fast_constant, on=(ValueError, KeyError))
-    assert policy.config.on == (ValueError, KeyError)
+    """Tuple of classes is coerced to a multi-class ``Match.exception(...)``."""
+    policy = Retry("test", fast_constant, when=(ValueError, KeyError))
+    matcher = policy.config.when
+    assert matcher(Outcome.from_exception(ValueError()))
+    assert matcher(Outcome.from_exception(KeyError()))
+    assert not matcher(Outcome.from_exception(TypeError()))
 
 
 def test_retry_accepts_callable_filter(
     fast_constant: ConstantBackoff,
 ) -> None:
-    """Callable predicate is accepted."""
+    """Callable predicate becomes a ``Match.exception(predicate)``."""
 
     def predicate(exc: BaseException) -> bool:
         return isinstance(exc, ValueError)
 
-    policy = Retry("test", fast_constant, on=predicate)
-    assert callable(policy.config.on)
+    policy = Retry("test", fast_constant, when=predicate)
+    matcher = policy.config.when
+    assert matcher(Outcome.from_exception(ValueError()))
+    assert not matcher(Outcome.from_exception(KeyError()))
 
 
 # --- Factory classmethods -------------------------------------------------
@@ -115,7 +124,7 @@ def test_exponential_factory() -> None:
     expected_base, expected_max, expected_attempts = 0.5, 20.0, 5
     policy = Retry.exponential(
         "api",
-        on=ValueError,
+        when=ValueError,
         attempts=expected_attempts,
         base_delay=expected_base,
         max_delay=expected_max,
@@ -132,7 +141,7 @@ def test_constant_factory() -> None:
     expected_delay, expected_attempts = 2.0, 10
     policy = Retry.constant(
         "polling",
-        on=ValueError,
+        when=ValueError,
         attempts=expected_attempts,
         delay=expected_delay,
     )
@@ -151,7 +160,7 @@ async def test_decorator_succeeds_on_first_call(
     """No retry happens when the function succeeds."""
     calls: list[int] = []
 
-    @retry(on=ValueError, backoff=fast_constant)
+    @retry(when=ValueError, backoff=fast_constant)
     async def fn() -> str:
         calls.append(1)
         return "ok"
@@ -167,7 +176,7 @@ async def test_decorator_retries_until_success(
     calls: list[int] = []
     succeed_after = _THREE
 
-    @retry(on=ValueError, attempts=_FIVE, backoff=fast_constant)
+    @retry(when=ValueError, attempts=_FIVE, backoff=fast_constant)
     async def fn() -> str:
         calls.append(1)
         if len(calls) < succeed_after:
@@ -184,7 +193,7 @@ async def test_decorator_raises_after_exhaustion(
 ) -> None:
     """Re-raises the underlying exception with a PEP 678 note."""
 
-    @retry(on=ValueError, attempts=_THREE, backoff=fast_constant)
+    @retry(when=ValueError, attempts=_THREE, backoff=fast_constant)
     async def fn() -> None:
         msg = "persistent"
         raise ValueError(msg)
@@ -201,7 +210,7 @@ async def test_decorator_does_not_retry_on_unmatched_exception(
     """Unmatched exceptions escape immediately."""
     calls: list[int] = []
 
-    @retry(on=ValueError, attempts=_FIVE, backoff=fast_constant)
+    @retry(when=ValueError, attempts=_FIVE, backoff=fast_constant)
     async def fn() -> None:
         calls.append(1)
         msg = "not retryable"
@@ -219,7 +228,7 @@ async def test_decorator_with_callable_filter(
     calls: list[int] = []
 
     @retry(
-        on=lambda e: isinstance(e, ValueError) and "retry" in str(e),
+        when=lambda e: isinstance(e, ValueError) and "retry" in str(e),
         attempts=_THREE,
         backoff=fast_constant,
     )
@@ -239,7 +248,7 @@ def test_decorator_on_sync_function(
     """Decorator auto-detects sync functions."""
     calls: list[int] = []
 
-    @retry(on=ValueError, attempts=_THREE, backoff=fast_constant)
+    @retry(when=ValueError, attempts=_THREE, backoff=fast_constant)
     def fn() -> str:
         calls.append(1)
         if len(calls) < _TWO:
@@ -258,7 +267,7 @@ async def test_retry_constant_sub_factory() -> None:
     """`@retry.constant` is the explicit constant-backoff form."""
     calls: list[int] = []
 
-    @retry.constant(on=ValueError, attempts=_THREE, delay=_FAST_DELAY)
+    @retry.constant(when=ValueError, attempts=_THREE, delay=_FAST_DELAY)
     async def fn() -> str:
         calls.append(1)
         if len(calls) < _TWO:
@@ -274,7 +283,7 @@ async def test_retry_exponential_sub_factory() -> None:
     calls: list[int] = []
 
     @retry.exponential(
-        on=ValueError, attempts=_THREE, base_delay=_FAST_DELAY, jitter="none"
+        when=ValueError, attempts=_THREE, base_delay=_FAST_DELAY, jitter="none"
     )
     async def fn() -> str:
         calls.append(1)
@@ -296,7 +305,7 @@ async def test_retrying_block_form(
     calls: list[int] = []
     succeed_after = _THREE
     async for attempt in retrying(
-        on=ValueError, attempts=_FIVE, backoff=fast_constant
+        when=ValueError, attempts=_FIVE, backoff=fast_constant
     ):
         async with attempt:
             calls.append(1)
@@ -312,7 +321,7 @@ async def test_retrying_exhaustion_reraises(
     """Block form re-raises the underlying error."""
     with pytest.raises(ValueError, match="persistent"):  # noqa: PT012
         async for attempt in retrying(
-            on=ValueError, attempts=_THREE, backoff=fast_constant
+            when=ValueError, attempts=_THREE, backoff=fast_constant
         ):
             async with attempt:
                 msg = "persistent"
@@ -323,7 +332,7 @@ async def test_retrying_constant_sub_factory() -> None:
     """`retrying.constant` is the explicit constant block form."""
     calls: list[int] = []
     async for attempt in retrying.constant(
-        on=ValueError, attempts=_THREE, delay=_FAST_DELAY
+        when=ValueError, attempts=_THREE, delay=_FAST_DELAY
     ):
         async with attempt:
             calls.append(1)
@@ -337,7 +346,7 @@ async def test_retrying_exponential_sub_factory() -> None:
     """`retrying.exponential` is the explicit exponential block form."""
     calls: list[int] = []
     async for attempt in retrying.exponential(
-        on=ValueError, attempts=_THREE, base_delay=_FAST_DELAY, jitter="none"
+        when=ValueError, attempts=_THREE, base_delay=_FAST_DELAY, jitter="none"
     ):
         async with attempt:
             calls.append(1)
@@ -353,7 +362,7 @@ async def test_retrying_exponential_sub_factory() -> None:
 async def test_class_form_iterator() -> None:
     """An instance can be used as an async iterator."""
     policy = Retry.constant(
-        "test", on=ValueError, attempts=_THREE, delay=_FAST_DELAY
+        "test", when=ValueError, attempts=_THREE, delay=_FAST_DELAY
     )
     calls: list[int] = []
     async for attempt in policy:
@@ -368,7 +377,7 @@ async def test_class_form_iterator() -> None:
 async def test_class_form_as_decorator() -> None:
     """An instance can be called as a decorator."""
     policy = Retry.constant(
-        "test", on=ValueError, attempts=_THREE, delay=_FAST_DELAY
+        "test", when=ValueError, attempts=_THREE, delay=_FAST_DELAY
     )
     calls: list[int] = []
 
@@ -386,7 +395,7 @@ async def test_class_form_as_decorator() -> None:
 def test_class_form_decorator_on_sync_function() -> None:
     """A `Retry` instance can decorate a sync function."""
     policy = Retry.constant(
-        "test", on=ValueError, attempts=_THREE, delay=_FAST_DELAY
+        "test", when=ValueError, attempts=_THREE, delay=_FAST_DELAY
     )
     calls: list[int] = []
 
@@ -405,7 +414,7 @@ def test_class_form_decorator_on_sync_function() -> None:
 def test_class_form_sync_iterator() -> None:
     """An instance is also a sync iterator."""
     policy = Retry.constant(
-        "test", on=ValueError, attempts=_THREE, delay=_FAST_DELAY
+        "test", when=ValueError, attempts=_THREE, delay=_FAST_DELAY
     )
     calls: list[int] = []
     for attempt in policy:
@@ -423,7 +432,7 @@ def test_class_form_sync_iterator() -> None:
 async def test_reconfigure_changes_attempts() -> None:
     """Reconfigure publishes the new config to future loops."""
     policy = Retry.constant(
-        "test", on=ValueError, attempts=_TWO, delay=_FAST_DELAY
+        "test", when=ValueError, attempts=_TWO, delay=_FAST_DELAY
     )
     new = policy.config.model_copy(update={"attempts": _FIVE})
     await policy.reconfigure(new)
@@ -447,7 +456,7 @@ async def test_reconfigure_changes_attempts() -> None:
 async def test_reconfigure_does_not_affect_in_flight_loop() -> None:
     """An in-flight iterator keeps its snapshot of the config."""
     policy = Retry.constant(
-        "test", on=ValueError, attempts=_TWO, delay=_FAST_DELAY
+        "test", when=ValueError, attempts=_TWO, delay=_FAST_DELAY
     )
     new = policy.config.model_copy(update={"attempts": _TEN})
     seen: list[int] = []
@@ -471,7 +480,7 @@ async def test_attempts_one_runs_once_no_retry(
     """`attempts=1` means a single call with no retry."""
     calls: list[int] = []
 
-    @retry(on=ValueError, attempts=1, backoff=fast_constant)
+    @retry(when=ValueError, attempts=1, backoff=fast_constant)
     async def fn() -> None:
         calls.append(1)
         msg = "boom"
@@ -485,22 +494,24 @@ async def test_attempts_one_runs_once_no_retry(
 # --- Env-driven configuration ---------------------------------------------
 
 
-async def test_env_populates_attempts_and_on(
+async def test_env_populates_attempts_and_when(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`GREL_RETRY_{NAME}_ATTEMPTS` and `_ON` populate unset fields."""
+    """`GREL_RETRY_{NAME}_ATTEMPTS` and `_WHEN` populate unset fields."""
     monkeypatch.setenv("GREL_RETRY_PAYMENTS_ATTEMPTS", "7")
-    monkeypatch.setenv("GREL_RETRY_PAYMENTS_ON", "builtins.ValueError")
+    monkeypatch.setenv("GREL_RETRY_PAYMENTS_WHEN", "builtins.ValueError")
     policy = Retry("payments")  # type: ignore[call-arg]
     expected_attempts = 7
     assert policy.config.attempts == expected_attempts
-    assert policy.config.on == (ValueError,)
+    matcher = policy.config.when
+    assert matcher(Outcome.from_exception(ValueError()))
+    assert not matcher(Outcome.from_exception(KeyError()))
 
 
 async def test_env_backoff_via_json(monkeypatch: pytest.MonkeyPatch) -> None:
     """`GREL_RETRY_{NAME}_BACKOFF` accepts a JSON object."""
     monkeypatch.setenv("GREL_RETRY_FOO_ATTEMPTS", "3")
-    monkeypatch.setenv("GREL_RETRY_FOO_ON", "builtins.ValueError")
+    monkeypatch.setenv("GREL_RETRY_FOO_WHEN", "builtins.ValueError")
     monkeypatch.setenv(
         "GREL_RETRY_FOO_BACKOFF", '{"type":"constant","delay":2.5}'
     )
@@ -513,7 +524,7 @@ async def test_env_backoff_via_json(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_kwargs_override_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Caller kwargs win over env."""
     monkeypatch.setenv("GREL_RETRY_BAR_ATTEMPTS", "9")
-    policy = Retry("bar", on=ValueError, attempts=_TWO)
+    policy = Retry("bar", when=ValueError, attempts=_TWO)
     assert policy.config.attempts == _TWO
 
 
@@ -522,7 +533,7 @@ async def test_from_config_bypasses_env(
 ) -> None:
     """`Retry.from_config()` ignores env even when set."""
     monkeypatch.setenv("GREL_RETRY_BAZ_ATTEMPTS", "9")
-    cfg = RetryConfig(attempts=_TWO, on=(ValueError,))  # ty: ignore[missing-argument]
+    cfg = RetryConfig(attempts=_TWO, when=(ValueError,))  # ty: ignore[missing-argument,invalid-argument-type]
     policy = Retry.from_config("baz", cfg)
     assert policy.config.attempts == _TWO
 
@@ -537,7 +548,7 @@ async def test_cancellederror_propagates_even_with_broad_filter(
     calls: list[int] = []
 
     @retry(
-        on=lambda exc: True,  # noqa: ARG005  # would match anything
+        when=lambda exc: True,  # noqa: ARG005  # would match anything
         attempts=_FIVE,
         backoff=fast_constant,
     )
@@ -548,3 +559,209 @@ async def test_cancellederror_propagates_even_with_broad_filter(
     with pytest.raises(_asyncio.CancelledError):
         await fn()
     assert len(calls) == 1
+
+
+# --- Result-based retry ---------------------------------------------------
+
+
+async def test_async_decorator_retries_on_matching_result(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """Result-matching outcome triggers a retry."""
+    calls: list[int] = []
+
+    @retry(when=Match.result(None), attempts=_THREE, backoff=fast_constant)
+    async def fn() -> str | None:
+        calls.append(1)
+        if len(calls) < _THREE:
+            return None
+        return "ok"
+
+    result = await fn()
+    assert result == "ok"
+    assert len(calls) == _THREE
+
+
+async def test_async_decorator_returns_last_result_on_exhaustion(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """Result-based exhaustion returns the final result, no exception."""
+
+    @retry(when=Match.result(None), attempts=_TWO, backoff=fast_constant)
+    async def fn() -> None:
+        return None
+
+    result = await fn()
+    assert result is None
+
+
+def test_sync_decorator_retries_on_matching_result(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """Result-matching outcome triggers a retry (sync)."""
+    calls: list[int] = []
+
+    @retry(when=Match.result(None), attempts=_THREE, backoff=fast_constant)
+    def fn() -> str | None:
+        calls.append(1)
+        if len(calls) < _THREE:
+            return None
+        return "ok"
+
+    result = fn()
+    assert result == "ok"
+    assert len(calls) == _THREE
+
+
+async def test_combined_exception_and_result_match(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """A combined Match retries on either trigger."""
+    calls: list[int] = []
+
+    @retry(
+        when=Match.exception(ValueError) | Match.result(None),
+        attempts=_FIVE,
+        backoff=fast_constant,
+    )
+    async def fn() -> str | None:
+        calls.append(1)
+        if len(calls) == 1:
+            msg = "first"
+            raise ValueError(msg)
+        if len(calls) == _TWO:
+            return None
+        return "ok"
+
+    result = await fn()
+    assert result == "ok"
+    assert len(calls) == _THREE
+
+
+def test_sync_decorator_returns_last_result_on_exhaustion(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """Sync decorator returns last result when result exhaustion hits."""
+
+    @retry(when=Match.result(None), attempts=_TWO, backoff=fast_constant)
+    def fn() -> None:
+        return None
+
+    assert fn() is None
+
+
+def test_sync_decorator_does_not_retry_on_unmatched_exception(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """Sync wrapper raises immediately when the matcher rejects."""
+
+    @retry(
+        when=Match.exception(ValueError), attempts=_THREE, backoff=fast_constant
+    )
+    def fn() -> None:
+        msg = "wrong"
+        raise KeyError(msg)
+
+    with pytest.raises(KeyError, match="wrong"):
+        fn()
+
+
+def test_sync_decorator_exhaustion_adds_pep678_note(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """Sync wrapper attaches a PEP 678 note when attempts run out."""
+
+    @retry(
+        when=Match.exception(ValueError), attempts=_TWO, backoff=fast_constant
+    )
+    def fn() -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    with pytest.raises(ValueError, match="boom") as info:
+        fn()
+    notes = getattr(info.value, "__notes__", [])
+    assert any("2/2 attempts exhausted" in n for n in notes)
+
+
+def test_when_accepts_match_directly(fast_constant: ConstantBackoff) -> None:
+    """A ``Match`` instance passes through the validator unchanged."""
+    matcher = Match.exception(ValueError) | Match.result(None)
+    policy = Retry("api", fast_constant, when=matcher)
+    assert policy.config.when is matcher
+
+
+def test_when_rejects_invalid_value(fast_constant: ConstantBackoff) -> None:
+    """Non-Match, non-class, non-tuple, non-callable raises."""
+    with pytest.raises((ValidationError, TypeError)):
+        Retry("api", fast_constant, when=42)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+async def test_env_when_rejects_non_dotted_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bare-name env entry raises a clear error."""
+    monkeypatch.setenv("GREL_RETRY_BAD_WHEN", "ValueError")
+    with pytest.raises((ValidationError, ValueError)):
+        Retry("bad")  # type: ignore[call-arg]
+
+
+async def test_env_when_rejects_non_exception_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FQN that resolves to a non-Exception class raises."""
+    monkeypatch.setenv("GREL_RETRY_BAD2_WHEN", "builtins.int")
+    with pytest.raises((ValidationError, TypeError)):
+        Retry("bad2")  # type: ignore[call-arg]
+
+
+# --- Block form coverage extras -------------------------------------------
+
+
+async def test_block_form_propagates_cancellederror(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """``async for attempt in policy: async with attempt:`` re-raises CancelledError."""
+    policy = Retry("test", fast_constant, when=lambda _e: True, attempts=_THREE)
+    seen: list[int] = []
+    with pytest.raises(_asyncio.CancelledError):  # noqa: PT012
+        async for attempt in policy:
+            async with attempt:
+                seen.append(attempt.number)
+                raise _asyncio.CancelledError
+    assert len(seen) == 1
+
+
+async def test_block_form_does_not_retry_on_unmatched_exception(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """Block form propagates exceptions the matcher rejects."""
+    policy = Retry("test", fast_constant, when=ValueError, attempts=_FIVE)
+    seen: list[int] = []
+    with pytest.raises(KeyError, match="boom"):  # noqa: PT012
+        async for attempt in policy:
+            async with attempt:
+                seen.append(attempt.number)
+                msg = "boom"
+                raise KeyError(msg)
+    assert len(seen) == 1
+
+
+async def test_env_when_rejects_unknown_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FQN that points to a missing module raises with a clear message."""
+    monkeypatch.setenv("GREL_RETRY_BAD3_WHEN", "no_such_module.NoClass")
+    with pytest.raises(
+        (ValidationError, ValueError), match="cannot import module"
+    ):
+        Retry("bad3")  # type: ignore[call-arg]
+
+
+async def test_env_when_rejects_unknown_attribute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FQN that points to a missing attribute raises with a clear message."""
+    monkeypatch.setenv("GREL_RETRY_BAD4_WHEN", "builtins.NoSuchClass")
+    with pytest.raises((ValidationError, ValueError), match="has no attribute"):
+        Retry("bad4")  # type: ignore[call-arg]

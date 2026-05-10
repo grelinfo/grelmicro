@@ -11,6 +11,8 @@ from grelmicro.resilience._backends import (
     circuit_breaker_backend_registry,
     rate_limiter_backend_registry,
 )
+from grelmicro.resilience._match import Match, Matcher
+from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
     RateLimiterBackend,
@@ -199,7 +201,10 @@ __all__ = [
     "FibonacciBackoff",
     "GCRAConfig",
     "LinearBackoff",
+    "Match",
+    "Matcher",
     "MemoryTokenBucket",
+    "Outcome",
     "RandomBackoff",
     "RateLimitExceededError",
     "RateLimitResult",
