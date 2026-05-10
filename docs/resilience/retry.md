@@ -161,7 +161,7 @@ The full backoff config is a discriminated Pydantic union, so the env value is p
 --8<-- "resilience/retry_environmental.py"
 ```
 
-The callable form of `on` cannot come from env. Use the FQN list for env-driven configs.
+The callable form of `when` cannot come from env. Use the FQN list for env-driven configs.
 
 ## Composition with Circuit Breaker
 

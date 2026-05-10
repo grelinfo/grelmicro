@@ -75,7 +75,7 @@ Decorator and async context manager with stop / wait / retry conditions.
 | Async support | yes | yes | yes |
 | Sync support | yes | yes | yes (decorator works on both) |
 | Frozen config + reconfigure | no | no | yes |
-| Composes with the rest of the library | no | no | yes (`Match` is shared across `Retry`, `Fallback`, `CircuitBreaker`) |
+| Composes with the rest of the library | no | no | yes (`Match` ships with `Retry`, planned to be shared across other resilience primitives) |
 
 `tenacity` is the right pick for the most advanced stop and wait vocabulary. Pick grelmicro `Retry` when you want a smaller surface, result-based retry out of the box (`Match.result(None)`), and a filter DSL (`Match`) shared across every resilience primitive.
 

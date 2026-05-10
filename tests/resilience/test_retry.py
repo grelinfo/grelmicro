@@ -745,3 +745,23 @@ async def test_block_form_does_not_retry_on_unmatched_exception(
                 msg = "boom"
                 raise KeyError(msg)
     assert len(seen) == 1
+
+
+async def test_env_when_rejects_unknown_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FQN that points to a missing module raises with a clear message."""
+    monkeypatch.setenv("GREL_RETRY_BAD3_WHEN", "no_such_module.NoClass")
+    with pytest.raises(
+        (ValidationError, ValueError), match="cannot import module"
+    ):
+        Retry("bad3")  # type: ignore[call-arg]
+
+
+async def test_env_when_rejects_unknown_attribute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FQN that points to a missing attribute raises with a clear message."""
+    monkeypatch.setenv("GREL_RETRY_BAD4_WHEN", "builtins.NoSuchClass")
+    with pytest.raises((ValidationError, ValueError), match="has no attribute"):
+        Retry("bad4")  # type: ignore[call-arg]

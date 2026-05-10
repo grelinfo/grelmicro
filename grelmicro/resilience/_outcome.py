@@ -19,7 +19,7 @@ class Outcome[T]:
     instance, signalled by ``raised``. The ``T`` type parameter is
     the function's return type.
 
-    Read more in the [Resilience Filters](../resilience/match.md) docs.
+    Read more in the [Retry filtering](../resilience/retry.md#filtering-outcomes-with-match) docs.
     """
 
     exception: Exception | None

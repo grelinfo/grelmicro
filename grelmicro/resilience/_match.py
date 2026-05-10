@@ -286,6 +286,13 @@ class Match:
         )
 
     # --- Negated forms (symmetric `not_*` prefix) ----------------------
+    #
+    # Each ``not_*`` matcher is **scoped to the same outcome shape** as
+    # its positive twin. ``Match.not_exception(X)`` engages on a raised
+    # outcome whose exception is NOT X, and never on a returned
+    # outcome. ``Match.not_result(v)`` engages on a returned outcome
+    # whose value is NOT v, and never on a raised outcome. This keeps
+    # the negated forms safe to use as the sole ``when=`` filter.
 
     @classmethod
     def not_exception(
@@ -293,16 +300,19 @@ class Match:
         *exception_types_or_predicate: type[Exception]
         | Callable[[Exception], bool],
     ) -> Match:
-        """Engage when the call did NOT raise a matching exception.
+        """Engage when the call raised an exception that does NOT match.
 
-        Symmetric inverse of ``Match.exception``: same arguments,
-        opposite verdict. A returned outcome (no exception raised)
-        also engages.
+        Scoped to raised outcomes: returns ``False`` for any returned
+        outcome. Same arguments as ``Match.exception``.
         """
-        return cls._invert_of(
-            cls.exception(*exception_types_or_predicate),
-            "not_exception",
-            exception_types_or_predicate,
+        positive = cls.exception(*exception_types_or_predicate)
+
+        def _check(outcome: Outcome[Any]) -> bool:
+            return outcome.raised and not positive(outcome)
+
+        return cls(
+            _check,
+            positive._repr.replace("exception(", "not_exception(", 1),  # noqa: SLF001
         )
 
     @classmethod
@@ -310,15 +320,18 @@ class Match:
         cls,
         value_or_predicate: Any | Callable[[Any], bool],  # noqa: ANN401
     ) -> Match:
-        """Engage when the call did NOT return a matching value.
+        """Engage when the call returned a value that does NOT match.
 
-        Symmetric inverse of ``Match.result``: same argument,
-        opposite verdict. A raised outcome (no value returned) also
-        engages.
+        Scoped to returned outcomes: returns ``False`` for any raised
+        outcome. Same argument as ``Match.result``.
         """
         positive = cls.result(value_or_predicate)
+
+        def _check(outcome: Outcome[Any]) -> bool:
+            return not outcome.raised and not positive(outcome)
+
         return cls(
-            lambda outcome: not positive(outcome),
+            _check,
             positive._repr.replace("result(", "not_result(", 1),  # noqa: SLF001
         )
 
@@ -331,11 +344,16 @@ class Match:
     ) -> Match:
         """Engage when the exception's message does NOT match.
 
-        Symmetric inverse of ``Match.exception_message``.
+        Scoped to raised outcomes: returns ``False`` for any returned
+        outcome.
         """
         positive = cls.exception_message(contains=contains, regex=regex)
+
+        def _check(outcome: Outcome[Any]) -> bool:
+            return outcome.raised and not positive(outcome)
+
         return cls(
-            lambda outcome: not positive(outcome),
+            _check,
             positive._repr.replace(  # noqa: SLF001
                 "exception_message(", "not_exception_message(", 1
             ),
@@ -349,35 +367,17 @@ class Match:
     ) -> Match:
         """Engage when the exception's ``__cause__`` does NOT match.
 
-        Symmetric inverse of ``Match.exception_cause``.
+        Scoped to raised outcomes: returns ``False`` for any returned
+        outcome.
         """
         positive = cls.exception_cause(*exception_types_or_predicate)
+
+        def _check(outcome: Outcome[Any]) -> bool:
+            return outcome.raised and not positive(outcome)
+
         return cls(
-            lambda outcome: not positive(outcome),
+            _check,
             positive._repr.replace(  # noqa: SLF001
                 "exception_cause(", "not_exception_cause(", 1
             ),
-        )
-
-    @classmethod
-    def _invert_of(
-        cls,
-        positive: Match,
-        prefix: str,
-        args: tuple[Any, ...],
-    ) -> Match:
-        """Build an inverted Match with a clean repr."""
-        if (
-            len(args) == 1
-            and callable(args[0])
-            and not isinstance(args[0], type)
-        ):
-            label = getattr(args[0], "__name__", repr(args[0]))
-        else:
-            label = ", ".join(
-                t.__name__ if isinstance(t, type) else repr(t) for t in args
-            )
-        return cls(
-            lambda outcome: not positive(outcome),
-            f"{prefix}({label})",
         )

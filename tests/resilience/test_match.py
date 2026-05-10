@@ -205,27 +205,30 @@ def test_and_combinator() -> None:
 # --- Negated forms (`not_*`) ----------------------------------------------
 
 
-def test_not_exception_inverts() -> None:
-    """``not_exception`` is the inverse of ``exception``."""
+def test_not_exception_scoped_to_raised() -> None:
+    """``not_exception`` engages only on raised outcomes whose type does not match."""
     f = Match.not_exception(ValueError)
     assert not f(Outcome.from_exception(ValueError()))
     assert f(Outcome.from_exception(KeyError()))
-    assert f(Outcome.from_result(1))
+    # Returned outcomes never engage: the matcher is scoped to raised.
+    assert not f(Outcome.from_result(1))
 
 
-def test_not_result_inverts() -> None:
-    """``not_result`` is the inverse of ``result``."""
+def test_not_result_scoped_to_returned() -> None:
+    """``not_result`` engages only on returned outcomes whose value does not match."""
     f = Match.not_result(None)
     assert not f(Outcome.from_result(None))
     assert f(Outcome.from_result(0))
-    assert f(Outcome.from_exception(ValueError()))
+    # Raised outcomes never engage: the matcher is scoped to returned.
+    assert not f(Outcome.from_exception(ValueError()))
 
 
-def test_not_exception_with_predicate_inverts() -> None:
-    """``not_exception`` accepts a callable predicate too."""
+def test_not_exception_with_predicate_scoped_to_raised() -> None:
+    """``not_exception`` with a predicate is also scoped to raised."""
     f = Match.not_exception(lambda exc: "x" in str(exc))
     assert not f(Outcome.from_exception(ValueError("x")))
     assert f(Outcome.from_exception(ValueError("y")))
+    assert not f(Outcome.from_result(42))
 
 
 def test_exception_predicate_skips_when_returned() -> None:
@@ -252,20 +255,23 @@ def test_exception_cause_rejects_non_exception_class() -> None:
         Match.exception_cause(int)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
-def test_not_exception_message_inverts() -> None:
-    """``not_exception_message`` is the inverse of ``exception_message``."""
+def test_not_exception_message_scoped_to_raised() -> None:
+    """``not_exception_message`` engages only on raised outcomes whose message does not match."""
     f = Match.not_exception_message(contains="timeout")
     assert not f(Outcome.from_exception(RuntimeError("connection timeout")))
     assert f(Outcome.from_exception(RuntimeError("ok")))
+    assert not f(Outcome.from_result("anything"))
 
 
-def test_not_exception_cause_inverts() -> None:
-    """``not_exception_cause`` is the inverse of ``exception_cause``."""
+def test_not_exception_cause_scoped_to_raised() -> None:
+    """``not_exception_cause`` engages only on raised outcomes whose cause does not match."""
     inner = ValueError("cause")
     outer = RuntimeError("outer")
     outer.__cause__ = inner
     f = Match.not_exception_cause(ValueError)
     assert not f(Outcome.from_exception(outer))
+    assert f(Outcome.from_exception(RuntimeError("no cause")))
+    assert not f(Outcome.from_result(42))
 
 
 # --- Repr ------------------------------------------------------------------
