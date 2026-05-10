@@ -1,18 +1,3 @@
-<!-- Visually hide the auto-generated h1 on the docs landing page. The wordmark is the title; the heading stays in the a11y tree for screen readers. GitHub strips <style> from rendered READMEs, so this is a no-op there. -->
-<style>
-  .md-content .md-typeset > h1:first-child {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-</style>
-
 <p align="center">
   <a href="https://grelinfo.github.io/grelmicro">
     <img alt="grelmicro" class="grel-wordmark" src="img/logo/wordmark.svg" width="360">

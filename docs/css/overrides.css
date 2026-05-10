@@ -96,3 +96,19 @@
   white-space: nowrap;
   word-break: keep-all;
 }
+
+/* Visually hide the auto-generated h1 that lands before the wordmark on
+   pages that open with `<p align="center"><img class="grel-wordmark" ...>`.
+   The wordmark image stands in for the title; the h1 stays in the a11y
+   tree for screen readers. */
+.md-content .md-typeset > h1:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
