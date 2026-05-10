@@ -3,11 +3,7 @@
 A standard library `logging.Filter` that drops records when the
 token bucket for a given key is empty. It allows up to
 `capacity` records in a burst, then refills at `refill_rate`
-records per second.
-
-Many logging libraries offer a similar burst-style rate limiter
-based on the token bucket algorithm. The reasons are the same:
-simple burst behavior and predictable refill.
+records per second. Simple burst behaviour and predictable refill.
 """
 
 from collections.abc import Callable

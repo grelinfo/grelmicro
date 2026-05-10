@@ -1,4 +1,4 @@
-"""Instrument decorator inspired by Rust's tracing #[instrument]."""
+"""Instrument decorator: wraps a function to emit an OTel span and attach structured log context."""
 
 from __future__ import annotations
 

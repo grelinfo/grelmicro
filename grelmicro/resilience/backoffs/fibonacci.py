@@ -13,8 +13,8 @@ class FibonacciBackoff(BaseModel, frozen=True, extra="forbid"):
     where ``fib(1) = 1``, ``fib(2) = 1``, ``fib(3) = 2``, ``fib(4) = 3``, ...
 
     Sits between linear and exponential. Slower than exponential but
-    eventually outpaces linear. Used historically in TCP and some
-    retry libraries (Tenacity, backon, backoff).
+    eventually outpaces linear. Used historically in TCP congestion
+    control and in retry strategies generally.
 
     For most retries, prefer
     [`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff].

@@ -220,8 +220,8 @@ notes.
   that delivers it.
 - **Name technologies we integrate with** (FastAPI, Redis,
   PostgreSQL, Kubernetes, OpenTelemetry). Do not drop vendor
-  names for flavour or comparison ("like zerolog", "in the
-  Stripe style"). Industry concept names (JSON, sliding window,
+  names for flavour or comparison ("like <other library>",
+  "in the <vendor> style"). Industry concept names (JSON, sliding window,
   token bucket) are fine.
 - **Compact shorthand is fine inside code blocks** (`~3x`, `1:1`,
   `1/sec`), but expand it in prose ("about 3 times faster",

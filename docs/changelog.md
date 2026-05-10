@@ -7,7 +7,7 @@
 * ✨ Add `Grelmicro` app object and `Module` protocol. The user composes everything attached to the app into one container and opens it with `async with micro:`. Single `Grelmicro.use(item)` registration verb (and `uses=` constructor kwarg) accepts `Module` instances (registered with `(kind, name)` lookup, exposed on `micro.<kind>`), first-party backends (auto-wrapped into their canonical Module: `RedisCacheAdapter` → `Cache`, `RedisSyncAdapter` → `Sync`), and any other async context manager (lifecycled only, caller keeps the reference). Typed accessors `micro.sync` and `micro.cache` provide IDE completion. Issue [#208](https://github.com/grelinfo/grelmicro/issues/208), epic [#201](https://github.com/grelinfo/grelmicro/issues/201), unified in [#219](https://github.com/grelinfo/grelmicro/issues/219).
 * ✨ Add `Sync` module. Wraps a `SyncBackend` and exposes `lock(...)`, `task_lock(...)`, `leader_election(...)` factories. Use it via `Grelmicro(uses=[Sync(RedisSyncAdapter(...))])` and reach it on `micro.sync`. Issue [#210](https://github.com/grelinfo/grelmicro/issues/210).
 * ✨ Add `Cache` module. Wraps a `CacheBackend` and exposes a `ttl(...)` factory that builds a `TTLCache` bound to the wrapped backend. Use it via `Grelmicro(uses=[Cache(RedisCacheAdapter(...))])` and reach it on `micro.cache`. Issue [#212](https://github.com/grelinfo/grelmicro/issues/212).
-* ✨ Add `Grelmicro.current()` classmethod for ambient lookup. Inside `async with micro:` it returns the active app for the current asyncio task. Matches Tokio's `Handle::current()` shape.
+* ✨ Add `Grelmicro.current()` classmethod for ambient lookup. Inside `async with micro:` it returns the active app for the current asyncio task.
 * ✨ Add `Retry` primitive with decorator, block, and class forms. Five backoff algorithms ship: `ExponentialBackoff` (default, with full jitter), `ConstantBackoff`, `LinearBackoff`, `FibonacciBackoff`, and `RandomBackoff`. `when=` is required and accepts a `Match` (or shorthand). Live reconfiguration via `Reconfigurable[RetryConfig]`. Three-paths configuration. Underlying exception is re-raised with a PEP 678 note on exhaustion. Issue [#165](https://github.com/grelinfo/grelmicro/issues/165).
 * ✨ Add `Match` and `Outcome` to `grelmicro.resilience`. `Match` is the resilience-wide outcome filter DSL: `Match.exception(...)`, `Match.result(...)`, `Match.exception_message(...)`, `Match.exception_cause(...)`, `Match.predicate(...)`, `Match.always()`, `Match.never()` plus their `not_*` twins, composed with the `|` and `&` operators. `Outcome[T]` is the dataclass passed to custom predicates (`exception`, `result`, `raised`). Issue [#242](https://github.com/grelinfo/grelmicro/issues/242).
 
@@ -17,7 +17,7 @@
 * 💥 Rename `HealthRegistry` to `HealthChecks` (and `HealthRegistryConfig` to `HealthChecksConfig`). Update imports to `from grelmicro.health import HealthChecks`. Issue [#201](https://github.com/grelinfo/grelmicro/issues/201).
 * 💥 Rename concrete backends to `*Adapter`. `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `SQLiteSyncBackend`, `KubernetesSyncBackend`, `MemoryCacheBackend`, and `RedisCacheBackend` become `*Adapter`. The `SyncBackend` and `CacheBackend` Protocols stay as-is. Issue [#201](https://github.com/grelinfo/grelmicro/issues/201).
 * 💥 Rename nested backoff classes to drop the redundant `Config` suffix. `ExponentialBackoffConfig`, `ConstantBackoffConfig`, `LinearBackoffConfig`, `FibonacciBackoffConfig`, and `RandomBackoffConfig` become `ExponentialBackoff`, `ConstantBackoff`, `LinearBackoff`, `FibonacciBackoff`, and `RandomBackoff`. The `RetryBackoffConfig` discriminated-union alias and the JSON discriminator (`type: "exponential"`) are unchanged. Issue [#239](https://github.com/grelinfo/grelmicro/issues/239).
-* 💥 `Retry` outcome filter is now `when=` accepting a `Match`. The old `on=` parameter is gone. The `Match` DSL (`Match.exception(...)`, `Match.result(...)`, `Match.exception_message(...)`, `Match.exception_cause(...)`, `Match.always()`, `Match.never()`, `Match.predicate(...)`) plus their `not_*` twins and the `|`/`&` operators cover the tenacity surface. Bare-class shorthand is still accepted (`when=httpx.HTTPError`). Result-based retry lands in the same change: `when=Match.result(None)` retries until the function stops returning `None`. Env var renamed `GREL_RETRY_{NAME}_ON` → `GREL_RETRY_{NAME}_WHEN`. Issue [#242](https://github.com/grelinfo/grelmicro/issues/242).
+* 💥 `Retry` outcome filter is now `when=` accepting a `Match`. The old `on=` parameter is gone. The `Match` DSL (`Match.exception(...)`, `Match.result(...)`, `Match.exception_message(...)`, `Match.exception_cause(...)`, `Match.always()`, `Match.never()`, `Match.predicate(...)`) plus their `not_*` twins and the `|`/`&` operators cover the common retry-filter surface. Bare-class shorthand is still accepted (`when=httpx.HTTPError`). Result-based retry lands in the same change: `when=Match.result(None)` retries until the function stops returning `None`. Env var renamed `GREL_RETRY_{NAME}_ON` → `GREL_RETRY_{NAME}_WHEN`. Issue [#242](https://github.com/grelinfo/grelmicro/issues/242).
 
 ### Deprecated
 
@@ -278,7 +278,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 
 ### Breaking Changes
 
-* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now opt-in via `GREL_LOG_CALLER_ENABLED` (default: `False`), following slog/zap/zerolog/Caddy conventions. Uvicorn formatter never includes `caller`.
+* 💥 **Logging**: split `caller` into separate `logger` (logger name) and `caller` (`function:line`) fields. `caller` is now opt-in via `GREL_LOG_CALLER_ENABLED` (default: `False`), following common structured-logging conventions. Uvicorn formatter never includes `caller`.
 * 💥 **Cache**: replace `TTLCache` `serializer`/`deserializer` callable pair with a single `serializer` accepting a `CacheSerializer` protocol object. Use `JsonSerializer()`, `PydanticSerializer(Model)`, or `PickleSerializer()` instead.
 
 ### Features
@@ -317,7 +317,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 
 * ✨ Add `AUTO` log format (new default): detects TTY and selects `TEXT` (terminal) or `JSON` (piped/CI).
 * ✨ Add `LOGFMT` log format: key-value pairs following the [logfmt](https://brandur.org/logfmt) convention, 30-40% smaller than JSON.
-* ✨ Add `PRETTY` log format: multi-line indented output with structured error rendering, inspired by Rust [tracing Pretty](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/struct.Pretty.html).
+* ✨ Add `PRETTY` log format: multi-line indented output with structured error rendering.
 * ✨ Enhanced `TEXT` format: now includes extra context fields as `key=value` pairs and supports ANSI colors.
 * ✨ Add `NO_COLOR` / `FORCE_COLOR` environment variable support following [no-color.org](https://no-color.org) standard.
 
@@ -335,7 +335,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 
 ### Breaking Changes
 
-* 💥 **Logging JSON format redesigned** to follow industry standards (slog, zap, zerolog):
+* 💥 **Logging JSON format redesigned** to follow industry standards:
     * `logger` renamed to `caller`
     * `thread` removed
     * `ctx` removed: extra fields are now flat at the top level
@@ -343,7 +343,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 
 ### Features
 
-* ✨ Add `tracing` module with `@instrument` decorator, `span()` context manager, and `add_context()` for unified logging and OTel instrumentation (inspired by Rust's `tracing` crate).
+* ✨ Add `tracing` module with `@instrument` decorator, `span()` context manager, and `add_context()` for unified logging and OTel instrumentation.
 
 ### Performance
 
@@ -464,7 +464,7 @@ Upgrade all running instances together so they use the same key format. Old keys
 
 ### Features
 
-* ✨ Add `TaskLock` for ShedLock-style distributed task locking.
+* ✨ Add `TaskLock` for distributed task locking with auto-renewal.
 * ✨ Add `GREL_LOG_TIMEZONE` support for configurable timezone in logging output.
 * ✨ Add OpenTelemetry trace context injection into log records.
 * ✨ Add `structlog` as alternative logging backend.

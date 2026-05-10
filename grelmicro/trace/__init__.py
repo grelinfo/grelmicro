@@ -1,7 +1,7 @@
 """Tracing.
 
-Unified instrumentation inspired by Rust's tracing crate.
-Creates OTel spans and enriches log records with structured context.
+Unified instrumentation. Creates OTel spans and enriches log records
+with structured context through a single decorator.
 """
 
 from grelmicro.trace._context import add_context, get_context
