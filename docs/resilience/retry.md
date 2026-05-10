@@ -42,9 +42,9 @@ polling = Retry.constant("wait_job", on=NotReady, attempts=20, delay=1.0)
 
 ### Exponential
 
-Each retry waits twice as long as the previous one, capped at `max_delay`. The wait before retry `N` is `min(base_delay * 2 ** (N - 1), max_delay)`.
+The raw wait before retry `N` is `min(base_delay * 2 ** (N - 1), max_delay)`. It doubles each attempt until it reaches the cap. With the defaults (`base_delay=0.1`, `max_delay=30.0`), the raw wait is `0.1s`, `0.2s`, `0.4s`, `0.8s`, `1.6s`, ..., capped at `30.0s`.
 
-With the defaults (`base_delay=0.1`, `max_delay=30.0`), the wait doubles: `0.1s`, `0.2s`, `0.4s`, `0.8s`, `1.6s`, ..., capped at `30.0s`.
+Jitter then transforms each raw wait into the actual sleep (see [Jitter](#jitter) below). The actual sleep may be smaller than the raw value.
 
 #### Jitter
 

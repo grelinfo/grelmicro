@@ -10,9 +10,11 @@ from typing_extensions import Doc
 class ExponentialBackoffConfig(BaseModel, frozen=True, extra="forbid"):
     """Exponential backoff with optional jitter.
 
-    Each retry waits twice as long as the previous one, capped at
-    ``max_delay``. The raw delay is then transformed by ``jitter``
-    so concurrent callers do not retry in lockstep.
+    The raw delay before retry ``N`` is
+    ``min(base_delay * 2 ** (N - 1), max_delay)``: it doubles each
+    attempt until it reaches the cap. ``jitter`` then transforms
+    that raw delay so concurrent callers do not retry in lockstep
+    (the actual sleep may be smaller than the raw value).
 
     Example:
     ```python
