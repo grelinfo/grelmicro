@@ -10,10 +10,11 @@ from typing_extensions import Doc
 class ExponentialBackoffConfig(BaseModel, frozen=True, extra="forbid"):
     """Exponential backoff with optional jitter.
 
-    The delay before retry ``N`` is
-    ``min(base_delay * 2 ** (N - 1), max_delay)``, then jittered
-    according to ``jitter``. This is the AWS-recommended recipe
-    for HTTP and network retries.
+    The raw delay before retry ``N`` is
+    ``min(base_delay * 2 ** (N - 1), max_delay)``: it doubles each
+    attempt until it reaches the cap. ``jitter`` then transforms
+    that raw delay so concurrent callers do not retry in lockstep
+    (the actual sleep may be smaller than the raw value).
 
     Example:
     ```python
@@ -47,12 +48,13 @@ class ExponentialBackoffConfig(BaseModel, frozen=True, extra="forbid"):
     jitter: Annotated[
         Literal["none", "full", "equal", "decorrelated"],
         Doc(
-            "Jitter mode. ``full`` is the AWS recipe and the safest "
-            "default for retry storms (samples from ``[0, raw]``). "
-            "``equal`` is AWS's smoother variant (``raw/2 + "
-            "random(0, raw/2)``), keeps growth predictable. "
-            "``decorrelated`` chains samples across attempts for "
-            "high-contention systems. ``none`` disables jitter."
+            "Jitter mode. ``full`` (default) samples from "
+            "``[0, raw]`` and is the safest choice against retry "
+            "storms. ``equal`` samples from ``[raw/2, raw]`` and "
+            "keeps timing more predictable. ``decorrelated`` "
+            "chains samples across attempts and is best for many "
+            "clients hitting the same recovering dependency. "
+            "``none`` disables jitter."
         ),
     ] = "full"
 

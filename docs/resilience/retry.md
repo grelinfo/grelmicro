@@ -42,13 +42,22 @@ polling = Retry.constant("wait_job", on=NotReady, attempts=20, delay=1.0)
 
 ### Exponential
 
-Delay before retry `N` is `min(base_delay * 2 ** (N - 1), max_delay)`, then jittered. The defaults follow the AWS recipe: `base_delay=0.1`, `max_delay=30.0`, `jitter="full"`.
+The raw wait before retry `N` is `min(base_delay * 2 ** (N - 1), max_delay)`. It doubles each attempt until it reaches the cap. With the defaults (`base_delay=0.1`, `max_delay=30.0`), the raw wait is `0.1s`, `0.2s`, `0.4s`, `0.8s`, `1.6s`, ..., capped at `30.0s`.
 
-| Jitter | Behavior |
-|---|---|
-| `none` | Use the raw computed delay. |
-| `full` | Sample uniformly from `[0, raw]`. AWS recipe. |
-| `decorrelated` | Chain samples across attempts. Use under high contention. |
+Jitter then transforms each raw wait into the actual sleep (see [Jitter](#jitter) below). The actual sleep may be smaller than the raw value.
+
+#### Jitter
+
+**Jitter** is randomness added to the wait so concurrent clients do not retry at the same instant and overwhelm the recovering server.
+
+Pick a mode by how much spread you want. Default: `full`.
+
+| Jitter | Spread | When to use |
+|---|---|---|
+| `none` | none | Single client. Never with concurrency. |
+| `full` (default) | maximum | The safe default. |
+| `equal` | half | When you need predictable timing. |
+| `decorrelated` | adaptive | High contention on a shared dependency. |
 
 ### Constant
 
