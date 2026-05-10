@@ -11,29 +11,29 @@ from typing import Annotated
 
 from pydantic import Discriminator
 
-from grelmicro.resilience.backoffs.constant import ConstantBackoffConfig
+from grelmicro.resilience.backoffs.constant import ConstantBackoff
 from grelmicro.resilience.backoffs.exponential import (
-    ExponentialBackoffConfig,
+    ExponentialBackoff,
 )
-from grelmicro.resilience.backoffs.fibonacci import FibonacciBackoffConfig
-from grelmicro.resilience.backoffs.linear import LinearBackoffConfig
-from grelmicro.resilience.backoffs.random import RandomBackoffConfig
+from grelmicro.resilience.backoffs.fibonacci import FibonacciBackoff
+from grelmicro.resilience.backoffs.linear import LinearBackoff
+from grelmicro.resilience.backoffs.random import RandomBackoff
 
 RetryBackoffConfig = Annotated[
-    ExponentialBackoffConfig
-    | ConstantBackoffConfig
-    | LinearBackoffConfig
-    | FibonacciBackoffConfig
-    | RandomBackoffConfig,
+    ExponentialBackoff
+    | ConstantBackoff
+    | LinearBackoff
+    | FibonacciBackoff
+    | RandomBackoff,
     Discriminator("type"),
 ]
 """Discriminated union of supported retry backoff configurations."""
 
 __all__ = [
-    "ConstantBackoffConfig",
-    "ExponentialBackoffConfig",
-    "FibonacciBackoffConfig",
-    "LinearBackoffConfig",
-    "RandomBackoffConfig",
+    "ConstantBackoff",
+    "ExponentialBackoff",
+    "FibonacciBackoff",
+    "LinearBackoff",
+    "RandomBackoff",
     "RetryBackoffConfig",
 ]

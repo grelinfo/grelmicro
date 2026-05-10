@@ -37,8 +37,8 @@ from grelmicro._config import (
 )
 from grelmicro.resilience._retry_strategy import build_retry_strategy
 from grelmicro.resilience.backoffs import (
-    ConstantBackoffConfig,
-    ExponentialBackoffConfig,
+    ConstantBackoff,
+    ExponentialBackoff,
     RetryBackoffConfig,
 )
 
@@ -126,11 +126,14 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
 
     backoff: Annotated[
         RetryBackoffConfig,
-        Field(default_factory=ExponentialBackoffConfig),
+        Field(default_factory=ExponentialBackoff),
         Doc(
-            "Backoff algorithm config. Discriminated union of "
-            "[`ExponentialBackoffConfig`][grelmicro.resilience.ExponentialBackoffConfig] "
-            "and [`ConstantBackoffConfig`][grelmicro.resilience.ConstantBackoffConfig]. "
+            "Backoff algorithm config. Discriminated union over "
+            "[`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff], "
+            "[`ConstantBackoff`][grelmicro.resilience.ConstantBackoff], "
+            "[`LinearBackoff`][grelmicro.resilience.LinearBackoff], "
+            "[`FibonacciBackoff`][grelmicro.resilience.FibonacciBackoff], "
+            "and [`RandomBackoff`][grelmicro.resilience.RandomBackoff]. "
             "Default: exponential with full jitter."
         ),
     ]
@@ -353,9 +356,13 @@ class Retry(Reconfigurable[RetryConfig]):
         backoff: Annotated[
             RetryBackoffConfig | None,
             Doc(
-                "The backoff algorithm config. Pass a "
-                "[`ExponentialBackoffConfig`][grelmicro.resilience.ExponentialBackoffConfig] "
-                "or [`ConstantBackoffConfig`][grelmicro.resilience.ConstantBackoffConfig], "
+                "The backoff algorithm config. Pass any "
+                "[`RetryBackoffConfig`][grelmicro.resilience.RetryBackoffConfig] "
+                "variant ([`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff], "
+                "[`ConstantBackoff`][grelmicro.resilience.ConstantBackoff], "
+                "[`LinearBackoff`][grelmicro.resilience.LinearBackoff], "
+                "[`FibonacciBackoff`][grelmicro.resilience.FibonacciBackoff], "
+                "[`RandomBackoff`][grelmicro.resilience.RandomBackoff]), "
                 "or omit for the default exponential + full jitter."
             ),
         ] = None,
@@ -468,10 +475,10 @@ class Retry(Reconfigurable[RetryConfig]):
         """Construct a retry policy with exponential backoff.
 
         Convenience factory for the common case. Builds an
-        [`ExponentialBackoffConfig`][grelmicro.resilience.ExponentialBackoffConfig]
+        [`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff]
         and forwards to the constructor.
         """
-        backoff = ExponentialBackoffConfig(
+        backoff = ExponentialBackoff(
             base_delay=base_delay, max_delay=max_delay, jitter=jitter
         )
         return cls(
@@ -507,10 +514,10 @@ class Retry(Reconfigurable[RetryConfig]):
         """Construct a retry policy with constant delay.
 
         Convenience factory for polling-style retries. Builds a
-        [`ConstantBackoffConfig`][grelmicro.resilience.ConstantBackoffConfig]
+        [`ConstantBackoff`][grelmicro.resilience.ConstantBackoff]
         and forwards to the constructor.
         """
-        backoff = ConstantBackoffConfig(delay=delay)
+        backoff = ConstantBackoff(delay=delay)
         return cls(
             name,
             backoff,
@@ -582,7 +589,7 @@ def _decorator(
     config = RetryConfig(
         attempts=attempts,
         on=on,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-        backoff=backoff or ExponentialBackoffConfig(),
+        backoff=backoff or ExponentialBackoff(),
     )
     matcher = _build_matcher(config.on)  # type: ignore[arg-type]
 
@@ -650,7 +657,7 @@ class _RetryFactory:
         return _decorator(
             on=on,
             attempts=attempts,
-            backoff=ExponentialBackoffConfig(
+            backoff=ExponentialBackoff(
                 base_delay=base_delay, max_delay=max_delay, jitter=jitter
             ),
         )
@@ -666,7 +673,7 @@ class _RetryFactory:
         return _decorator(
             on=on,
             attempts=attempts,
-            backoff=ConstantBackoffConfig(delay=delay),
+            backoff=ConstantBackoff(delay=delay),
         )
 
 
@@ -703,7 +710,7 @@ class _RetryingFactory:
         config = RetryConfig(
             attempts=attempts,
             on=on,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-            backoff=backoff or ExponentialBackoffConfig(),
+            backoff=backoff or ExponentialBackoff(),
         )
         matcher = _build_matcher(config.on)  # type: ignore[arg-type]
         return _async_iter(config, matcher)
@@ -721,7 +728,7 @@ class _RetryingFactory:
         return self(
             on=on,
             attempts=attempts,
-            backoff=ExponentialBackoffConfig(
+            backoff=ExponentialBackoff(
                 base_delay=base_delay, max_delay=max_delay, jitter=jitter
             ),
         )
@@ -737,7 +744,7 @@ class _RetryingFactory:
         return self(
             on=on,
             attempts=attempts,
-            backoff=ConstantBackoffConfig(delay=delay),
+            backoff=ConstantBackoff(delay=delay),
         )
 
 

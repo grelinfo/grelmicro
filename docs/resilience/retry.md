@@ -26,12 +26,15 @@ For inline retries that span multiple statements, use the block form:
 
 ## Backoff algorithms
 
-`Retry` ships two algorithms: exponential (default) and constant. Pick by purpose.
+`Retry` ships five algorithms. The default is exponential with full jitter. Pick by purpose.
 
 | Algorithm | Use when |
 |---|---|
-| `ExponentialBackoffConfig` | Network and HTTP retries. Doubling delay with jitter avoids retry storms. |
-| `ConstantBackoffConfig` | Polling-style retries (waiting for a job). Fixed interval is predictable. |
+| `ExponentialBackoff` (default) | Network and HTTP retries. Doubling delay with jitter avoids retry storms. |
+| `ConstantBackoff` | Polling-style retries (waiting for a job). Fixed interval is predictable. |
+| `LinearBackoff` | Steady, predictable growth without the early-attempt cluster of exponential. |
+| `FibonacciBackoff` | Smoother growth than exponential, faster than linear. |
+| `RandomBackoff` | Uniform random delay in a fixed range. Maximum spread, no growth. |
 
 The factory classmethods build the right config for you:
 

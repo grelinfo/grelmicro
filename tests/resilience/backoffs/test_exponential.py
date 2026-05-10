@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from grelmicro.resilience.backoffs.exponential import (
-    ExponentialBackoffConfig,
+    ExponentialBackoff,
     _ExponentialStrategy,
 )
 
@@ -19,7 +19,7 @@ _CAPPED_MAX = 4.0
 
 def test_default_config() -> None:
     """Default config: type=exponential, base=0.1, max=30, jitter=full."""
-    config = ExponentialBackoffConfig()
+    config = ExponentialBackoff()
     assert config.type == "exponential"
     assert config.base_delay == _DEFAULT_BASE
     assert config.max_delay == _DEFAULT_MAX
@@ -28,7 +28,7 @@ def test_default_config() -> None:
 
 def test_no_jitter_doubles_per_attempt() -> None:
     """Without jitter, delay doubles each attempt."""
-    config = ExponentialBackoffConfig(
+    config = ExponentialBackoff(
         base_delay=_DEFAULT_BASE, max_delay=10.0, jitter="none"
     )
     strategy = _ExponentialStrategy(config)
@@ -38,7 +38,7 @@ def test_no_jitter_doubles_per_attempt() -> None:
 
 def test_no_jitter_capped_at_max_delay() -> None:
     """Delay caps at `max_delay`."""
-    config = ExponentialBackoffConfig(
+    config = ExponentialBackoff(
         base_delay=_CAPPED_BASE, max_delay=_CAPPED_MAX, jitter="none"
     )
     strategy = _ExponentialStrategy(config)
@@ -50,7 +50,7 @@ def test_no_jitter_capped_at_max_delay() -> None:
 
 def test_full_jitter_returns_value_within_bounds() -> None:
     """Full jitter samples from `[0, raw_delay]`."""
-    config = ExponentialBackoffConfig(
+    config = ExponentialBackoff(
         base_delay=_DEFAULT_BASE, max_delay=10.0, jitter="full"
     )
     strategy = _ExponentialStrategy(config)
@@ -63,7 +63,7 @@ def test_full_jitter_returns_value_within_bounds() -> None:
 
 def test_equal_jitter_within_bounds() -> None:
     """Equal jitter samples in `[raw/2, raw]`."""
-    config = ExponentialBackoffConfig(
+    config = ExponentialBackoff(
         base_delay=_DEFAULT_BASE, max_delay=10.0, jitter="equal"
     )
     strategy = _ExponentialStrategy(config)
@@ -80,7 +80,7 @@ def test_decorrelated_jitter_within_bounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Decorrelated jitter stays within `[base_delay, max_delay]`."""
-    config = ExponentialBackoffConfig(
+    config = ExponentialBackoff(
         base_delay=_DEFAULT_BASE, max_delay=_DECORR_MAX, jitter="decorrelated"
     )
     strategy = _ExponentialStrategy(config)
@@ -91,7 +91,7 @@ def test_decorrelated_jitter_within_bounds(
 
 
 def test_frozen_config() -> None:
-    """`ExponentialBackoffConfig` is frozen."""
-    config = ExponentialBackoffConfig()
+    """`ExponentialBackoff` is frozen."""
+    config = ExponentialBackoff()
     with pytest.raises(ValidationError):
         config.base_delay = 0.5  # type: ignore[misc]  # ty: ignore[invalid-assignment]

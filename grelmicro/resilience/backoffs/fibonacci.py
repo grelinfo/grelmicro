@@ -6,7 +6,7 @@ from pydantic import BaseModel, PositiveFloat
 from typing_extensions import Doc
 
 
-class FibonacciBackoffConfig(BaseModel, frozen=True, extra="forbid"):
+class FibonacciBackoff(BaseModel, frozen=True, extra="forbid"):
     """Fibonacci backoff: delays follow the Fibonacci sequence scaled by ``base_delay``.
 
     The delay before retry ``N`` is ``min(base_delay * fib(N), max_delay)``,
@@ -17,18 +17,18 @@ class FibonacciBackoffConfig(BaseModel, frozen=True, extra="forbid"):
     retry libraries (Tenacity, backon, backoff).
 
     For most retries, prefer
-    [`ExponentialBackoffConfig`][grelmicro.resilience.ExponentialBackoffConfig].
+    [`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff].
     Reach for Fibonacci when exponential's growth is too aggressive
     and linear's is too slow.
 
     Example:
     ```python
-    from grelmicro.resilience import FibonacciBackoffConfig, Retry
+    from grelmicro.resilience import FibonacciBackoff, Retry
 
     # 1s, 1s, 2s, 3s, 5s, 8s, ...
     policy = Retry(
         "deferred",
-        FibonacciBackoffConfig(base_delay=1.0, max_delay=60.0),
+        FibonacciBackoff(base_delay=1.0, max_delay=60.0),
         on=ServiceError,
         attempts=8,
     )
@@ -62,7 +62,7 @@ class _FibonacciStrategy:
 
     __slots__ = ("_attempt", "_base", "_max", "_prev", "_prev_prev")
 
-    def __init__(self, config: FibonacciBackoffConfig) -> None:
+    def __init__(self, config: FibonacciBackoff) -> None:
         self._base = config.base_delay
         self._max = config.max_delay
         self._prev_prev = 0

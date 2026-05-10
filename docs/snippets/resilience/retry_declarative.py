@@ -1,7 +1,7 @@
 import httpx
 
 from grelmicro.resilience import (
-    ExponentialBackoffConfig,
+    ExponentialBackoff,
     Retry,
     RetryConfig,
 )
@@ -9,8 +9,6 @@ from grelmicro.resilience import (
 config = RetryConfig(
     attempts=5,
     on=(httpx.HTTPError,),
-    backoff=ExponentialBackoffConfig(
-        base_delay=0.2, max_delay=10.0, jitter="full"
-    ),
+    backoff=ExponentialBackoff(base_delay=0.2, max_delay=10.0, jitter="full"),
 )
 policy = Retry("payments", config=config)

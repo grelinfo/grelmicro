@@ -7,8 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from grelmicro.resilience import (
-    ConstantBackoffConfig,
-    ExponentialBackoffConfig,
+    ConstantBackoff,
+    ExponentialBackoff,
     Retry,
     RetryConfig,
     retry,
@@ -25,9 +25,9 @@ _TEN = 10
 
 
 @pytest.fixture
-def fast_constant() -> ConstantBackoffConfig:
+def fast_constant() -> ConstantBackoff:
     """Build a constant backoff with negligible delay."""
-    return ConstantBackoffConfig(delay=_FAST_DELAY)
+    return ConstantBackoff(delay=_FAST_DELAY)
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +57,7 @@ def test_config_default_attempts_and_backoff() -> None:
     """Defaults: 3 attempts, exponential backoff."""
     config = RetryConfig(on=(ValueError,))  # ty: ignore[missing-argument]
     assert config.attempts == _DEFAULT_ATTEMPTS
-    assert isinstance(config.backoff, ExponentialBackoffConfig)
+    assert isinstance(config.backoff, ExponentialBackoff)
 
 
 def test_config_frozen() -> None:
@@ -71,7 +71,7 @@ def test_config_frozen() -> None:
 
 
 def test_retry_constructs_with_class_filter(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Construct accepts a single class filter."""
     policy = Retry("test", fast_constant, on=ValueError, attempts=_THREE)
@@ -80,7 +80,7 @@ def test_retry_constructs_with_class_filter(
 
 
 def test_retry_normalizes_single_class_to_tuple(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Single class is normalized to a tuple."""
     policy = Retry("test", fast_constant, on=ValueError)
@@ -88,7 +88,7 @@ def test_retry_normalizes_single_class_to_tuple(
 
 
 def test_retry_accepts_tuple_filter(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Tuple of classes is preserved."""
     policy = Retry("test", fast_constant, on=(ValueError, KeyError))
@@ -96,7 +96,7 @@ def test_retry_accepts_tuple_filter(
 
 
 def test_retry_accepts_callable_filter(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Callable predicate is accepted."""
 
@@ -121,7 +121,7 @@ def test_exponential_factory() -> None:
         max_delay=expected_max,
     )
     backoff = policy.config.backoff
-    assert isinstance(backoff, ExponentialBackoffConfig)
+    assert isinstance(backoff, ExponentialBackoff)
     assert backoff.base_delay == expected_base
     assert backoff.max_delay == expected_max
     assert policy.config.attempts == expected_attempts
@@ -137,7 +137,7 @@ def test_constant_factory() -> None:
         delay=expected_delay,
     )
     backoff = policy.config.backoff
-    assert isinstance(backoff, ConstantBackoffConfig)
+    assert isinstance(backoff, ConstantBackoff)
     assert backoff.delay == expected_delay
     assert policy.config.attempts == expected_attempts
 
@@ -146,7 +146,7 @@ def test_constant_factory() -> None:
 
 
 async def test_decorator_succeeds_on_first_call(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """No retry happens when the function succeeds."""
     calls: list[int] = []
@@ -161,7 +161,7 @@ async def test_decorator_succeeds_on_first_call(
 
 
 async def test_decorator_retries_until_success(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Retries continue until the function succeeds."""
     calls: list[int] = []
@@ -180,7 +180,7 @@ async def test_decorator_retries_until_success(
 
 
 async def test_decorator_raises_after_exhaustion(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Re-raises the underlying exception with a PEP 678 note."""
 
@@ -196,7 +196,7 @@ async def test_decorator_raises_after_exhaustion(
 
 
 async def test_decorator_does_not_retry_on_unmatched_exception(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Unmatched exceptions escape immediately."""
     calls: list[int] = []
@@ -213,7 +213,7 @@ async def test_decorator_does_not_retry_on_unmatched_exception(
 
 
 async def test_decorator_with_callable_filter(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Callable predicate filters retries."""
     calls: list[int] = []
@@ -234,7 +234,7 @@ async def test_decorator_with_callable_filter(
 
 
 def test_decorator_on_sync_function(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Decorator auto-detects sync functions."""
     calls: list[int] = []
@@ -290,7 +290,7 @@ async def test_retry_exponential_sub_factory() -> None:
 
 
 async def test_retrying_block_form(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """`async for attempt in retrying(...)` retries the block."""
     calls: list[int] = []
@@ -307,7 +307,7 @@ async def test_retrying_block_form(
 
 
 async def test_retrying_exhaustion_reraises(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """Block form re-raises the underlying error."""
     with pytest.raises(ValueError, match="persistent"):  # noqa: PT012
@@ -466,7 +466,7 @@ async def test_reconfigure_does_not_affect_in_flight_loop() -> None:
 
 
 async def test_attempts_one_runs_once_no_retry(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """`attempts=1` means a single call with no retry."""
     calls: list[int] = []
@@ -505,7 +505,7 @@ async def test_env_backoff_via_json(monkeypatch: pytest.MonkeyPatch) -> None:
         "GREL_RETRY_FOO_BACKOFF", '{"type":"constant","delay":2.5}'
     )
     policy = Retry("foo")  # type: ignore[call-arg]
-    assert isinstance(policy.config.backoff, ConstantBackoffConfig)
+    assert isinstance(policy.config.backoff, ConstantBackoff)
     expected_delay = 2.5
     assert policy.config.backoff.delay == expected_delay
 
@@ -531,7 +531,7 @@ async def test_from_config_bypasses_env(
 
 
 async def test_cancellederror_propagates_even_with_broad_filter(
-    fast_constant: ConstantBackoffConfig,
+    fast_constant: ConstantBackoff,
 ) -> None:
     """`asyncio.CancelledError` propagates regardless of the filter."""
     calls: list[int] = []

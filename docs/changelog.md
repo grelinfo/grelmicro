@@ -8,13 +8,14 @@
 * ✨ Add `Sync` module. Wraps a `SyncBackend` and exposes `lock(...)`, `task_lock(...)`, `leader_election(...)` factories. Use it via `Grelmicro(uses=[Sync(RedisSyncAdapter(...))])` and reach it on `micro.sync`. Issue [#210](https://github.com/grelinfo/grelmicro/issues/210).
 * ✨ Add `Cache` module. Wraps a `CacheBackend` and exposes a `ttl(...)` factory that builds a `TTLCache` bound to the wrapped backend. Use it via `Grelmicro(uses=[Cache(RedisCacheAdapter(...))])` and reach it on `micro.cache`. Issue [#212](https://github.com/grelinfo/grelmicro/issues/212).
 * ✨ Add `Grelmicro.current()` classmethod for ambient lookup. Inside `async with micro:` it returns the active app for the current asyncio task. Matches Tokio's `Handle::current()` shape.
-* ✨ Add `Retry` primitive with decorator, block, and class forms. Two backoff algorithms ship: `ExponentialBackoffConfig` (AWS recipe: exponential + full jitter) and `ConstantBackoffConfig`. `on=` is required (class, tuple, or callable predicate). Live reconfiguration via `Reconfigurable[RetryConfig]`. Three-paths configuration. Underlying exception is re-raised with a PEP 678 note on exhaustion. Issue [#165](https://github.com/grelinfo/grelmicro/issues/165).
+* ✨ Add `Retry` primitive with decorator, block, and class forms. Five backoff algorithms ship: `ExponentialBackoff` (default, with full jitter), `ConstantBackoff`, `LinearBackoff`, `FibonacciBackoff`, and `RandomBackoff`. `on=` is required (class, tuple, or callable predicate). Live reconfiguration via `Reconfigurable[RetryConfig]`. Three-paths configuration. Underlying exception is re-raised with a PEP 678 note on exhaustion. Issue [#165](https://github.com/grelinfo/grelmicro/issues/165).
 
 ### Breaking
 
 * 💥 Rename `TaskManager` to `Tasks`. Class still extends `TaskRouter`, mirroring FastAPI's `APIRouter` ← `FastAPI` shape. Update imports to `from grelmicro.task import Tasks`. Issue [#218](https://github.com/grelinfo/grelmicro/issues/218).
 * 💥 Rename `HealthRegistry` to `HealthChecks` (and `HealthRegistryConfig` to `HealthChecksConfig`). Update imports to `from grelmicro.health import HealthChecks`. Issue [#201](https://github.com/grelinfo/grelmicro/issues/201).
 * 💥 Rename concrete backends to `*Adapter`. `MemorySyncBackend`, `RedisSyncBackend`, `PostgresSyncBackend`, `SQLiteSyncBackend`, `KubernetesSyncBackend`, `MemoryCacheBackend`, and `RedisCacheBackend` become `*Adapter`. The `SyncBackend` and `CacheBackend` Protocols stay as-is. Issue [#201](https://github.com/grelinfo/grelmicro/issues/201).
+* 💥 Rename nested backoff classes to drop the redundant `Config` suffix. `ExponentialBackoffConfig`, `ConstantBackoffConfig`, `LinearBackoffConfig`, `FibonacciBackoffConfig`, and `RandomBackoffConfig` become `ExponentialBackoff`, `ConstantBackoff`, `LinearBackoff`, `FibonacciBackoff`, and `RandomBackoff`. The `RetryBackoffConfig` discriminated-union alias and the JSON discriminator (`type: "exponential"`) are unchanged. Issue [#239](https://github.com/grelinfo/grelmicro/issues/239).
 
 ### Deprecated
 
