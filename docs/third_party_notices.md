@@ -34,20 +34,6 @@ Adaptations for grelmicro:
 Copyright (c) 2023 Upstash, Inc.
 Licensed under the [MIT License](#mit-license).
 
-## APScheduler
-
-The function-reference validation logic in
-`grelmicro/task/_utils.py` (`validate_and_generate_reference`) is
-adapted from
-[APScheduler](https://github.com/agronholm/apscheduler): specifically
-its `_marshalling` module. The checks for `partial`, bound methods,
-missing `__module__` / `__qualname__`, lambdas, and nested functions
-(via `<lambda>` and `<locals>` qualname markers) before building a
-`module:qualname` reference follow APScheduler's approach.
-
-Copyright (c) Alex Grönholm
-Licensed under the [MIT License](#mit-license).
-
 ## Funnel Display (Brand Assets)
 
 The grelmicro logo (wordmark and favicon SVGs under
@@ -66,17 +52,6 @@ Display** typeface (part of the Funnel type family).
 
 Source: [Dicotype/Funnel on GitHub](https://github.com/Dicotype/Funnel)
 Licensed under the [SIL Open Font License 1.1](#sil-open-font-license-11).
-
-## Design Inspirations (No Code Copied)
-
-The following are acknowledged as design inspirations only. No source
-code is adapted from them, so no license notice is required, but they
-are listed here for transparency:
-
-- **Rust `tracing` crate**: the ergonomics of the
-  `@instrument` decorator in `grelmicro/tracing/_instrument.py`
-  are inspired by Rust's `#[instrument]` attribute. The
-  implementation is native Python over OpenTelemetry.
 
 ---
 

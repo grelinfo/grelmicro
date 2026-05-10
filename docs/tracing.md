@@ -1,6 +1,6 @@
 # Tracing
 
-The `tracing` module provides unified instrumentation inspired by Rust's [tracing](https://docs.rs/tracing/latest/tracing/) crate. A single `@instrument` decorator creates OTel spans and enriches log records with structured context automatically.
+The `tracing` module provides unified instrumentation. A single `@instrument` decorator creates OTel spans and enriches log records with structured context automatically.
 
 ## Quick Start
 

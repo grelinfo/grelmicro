@@ -26,7 +26,7 @@ _TEST_MAX = 3.0
 
 
 def test_strategy_returns_value_in_range() -> None:
-    """Each delay is uniform random in `[min, max]` (Tenacity-style sample test)."""
+    """Each delay is uniform random in `[min, max]` (sample-distribution test)."""
     strategy = _RandomStrategy(
         RandomBackoff(min_delay=_TEST_MIN, max_delay=_TEST_MAX)
     )

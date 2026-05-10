@@ -9,13 +9,15 @@ from grelmicro.task.errors import FunctionTypeError
 
 
 def validate_and_generate_reference(function: Callable[..., Any]) -> str:
-    """Generate a task name from the given function.
+    """Build a stable ``module:qualname`` reference for a task function.
 
-    This implementation is inspired by the APScheduler project under MIT License.
-    Original source: https://github.com/agronholm/apscheduler/blob/master/src/apscheduler/_marshalling.py
+    The reference must survive process restarts and round-trip through
+    serialization, so only top-level ``def`` and ``async def`` callables
+    are accepted. Anything whose identity depends on a closure, a bound
+    instance, or runtime construction is rejected.
 
     Raises:
-        FunctionTypeError: If function is not supported.
+        FunctionTypeError: If ``function`` cannot be referenced by name.
 
     """
     if isinstance(function, partial):
@@ -26,13 +28,11 @@ def validate_and_generate_reference(function: Callable[..., Any]) -> str:
         ref = "method"
         raise FunctionTypeError(ref)
 
-    if not hasattr(function, "__module__") or not hasattr(
-        function, "__qualname__"
-    ):
+    module = getattr(function, "__module__", None)
+    qualname = getattr(function, "__qualname__", None)
+    if not module or not qualname:
         ref = "callable without __module__ or __qualname__ attribute"
         raise FunctionTypeError(ref)
-
-    qualname = str(function.__qualname__)
 
     if "<lambda>" in qualname:
         ref = "lambda"
@@ -42,4 +42,4 @@ def validate_and_generate_reference(function: Callable[..., Any]) -> str:
         ref = "nested function"
         raise FunctionTypeError(ref)
 
-    return f"{function.__module__}:{qualname}"
+    return f"{module}:{qualname}"
