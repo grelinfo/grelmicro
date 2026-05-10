@@ -30,8 +30,8 @@ For inline retries that span multiple statements, use the block form:
 
 | Algorithm | Use when |
 |---|---|
-| `ExponentialBackoffConfig` | Network and HTTP retries. Doubling delay with jitter avoids retry storms. |
-| `ConstantBackoffConfig` | Polling-style retries (waiting for a job). Fixed interval is predictable. |
+| `ExponentialBackoff` | Network and HTTP retries. Doubling delay with jitter avoids retry storms. |
+| `ConstantBackoff` | Polling-style retries (waiting for a job). Fixed interval is predictable. |
 
 The factory classmethods build the right config for you:
 

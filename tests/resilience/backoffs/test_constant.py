@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from grelmicro.resilience.backoffs.constant import (
-    ConstantBackoffConfig,
+    ConstantBackoff,
     _ConstantStrategy,
 )
 
@@ -15,20 +15,20 @@ _NEW_DELAY = 2.0
 
 def test_default_config() -> None:
     """Default config: type=constant, delay=1.0."""
-    config = ConstantBackoffConfig()
+    config = ConstantBackoff()
     assert config.type == "constant"
     assert config.delay == _DEFAULT_DELAY
 
 
 def test_strategy_returns_constant_value() -> None:
     """The strategy returns the configured delay regardless of attempt."""
-    strategy = _ConstantStrategy(ConstantBackoffConfig(delay=_CUSTOM_DELAY))
+    strategy = _ConstantStrategy(ConstantBackoff(delay=_CUSTOM_DELAY))
     assert strategy.delay(1) == _CUSTOM_DELAY
     assert strategy.delay(2) == _CUSTOM_DELAY
 
 
 def test_frozen_config() -> None:
-    """`ConstantBackoffConfig` is frozen."""
-    config = ConstantBackoffConfig()
+    """`ConstantBackoff` is frozen."""
+    config = ConstantBackoff()
     with pytest.raises(ValidationError):
         config.delay = _NEW_DELAY  # type: ignore[misc]  # ty: ignore[invalid-assignment]

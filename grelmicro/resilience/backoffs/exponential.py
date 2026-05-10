@@ -7,7 +7,7 @@ from pydantic import BaseModel, PositiveFloat
 from typing_extensions import Doc
 
 
-class ExponentialBackoffConfig(BaseModel, frozen=True, extra="forbid"):
+class ExponentialBackoff(BaseModel, frozen=True, extra="forbid"):
     """Exponential backoff with optional jitter.
 
     The raw delay before retry ``N`` is
@@ -18,11 +18,11 @@ class ExponentialBackoffConfig(BaseModel, frozen=True, extra="forbid"):
 
     Example:
     ```python
-    from grelmicro.resilience import ExponentialBackoffConfig, Retry
+    from grelmicro.resilience import ExponentialBackoff, Retry
 
     policy = Retry(
         "payments",
-        ExponentialBackoffConfig(base_delay=0.2, max_delay=10.0),
+        ExponentialBackoff(base_delay=0.2, max_delay=10.0),
         on=httpx.HTTPError,
     )
     ```
@@ -68,7 +68,7 @@ class _ExponentialStrategy:
 
     __slots__ = ("_config", "_previous")
 
-    def __init__(self, config: ExponentialBackoffConfig) -> None:
+    def __init__(self, config: ExponentialBackoff) -> None:
         self._config = config
         self._previous: float = config.base_delay
 

@@ -4,11 +4,11 @@ from typing import assert_never
 
 from grelmicro.resilience._protocol import RetryStrategy
 from grelmicro.resilience.backoffs import (
-    ConstantBackoffConfig,
-    ExponentialBackoffConfig,
-    FibonacciBackoffConfig,
-    LinearBackoffConfig,
-    RandomBackoffConfig,
+    ConstantBackoff,
+    ExponentialBackoff,
+    FibonacciBackoff,
+    LinearBackoff,
+    RandomBackoff,
     RetryBackoffConfig,
 )
 from grelmicro.resilience.backoffs.constant import _ConstantStrategy
@@ -25,15 +25,15 @@ def build_retry_strategy(config: RetryBackoffConfig) -> RetryStrategy:
     decorrelated jitter and Fibonacci) so each loop gets its own.
     """
     match config:
-        case ExponentialBackoffConfig():
+        case ExponentialBackoff():
             return _ExponentialStrategy(config)
-        case ConstantBackoffConfig():
+        case ConstantBackoff():
             return _ConstantStrategy(config)
-        case LinearBackoffConfig():
+        case LinearBackoff():
             return _LinearStrategy(config)
-        case FibonacciBackoffConfig():
+        case FibonacciBackoff():
             return _FibonacciStrategy(config)
-        case RandomBackoffConfig():
+        case RandomBackoff():
             return _RandomStrategy(config)
         case _ as unknown:  # pragma: no cover
             assert_never(unknown)

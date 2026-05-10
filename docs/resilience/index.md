@@ -4,7 +4,7 @@ The `resilience` package provides primitives that help your services handle fail
 
 - [**Circuit Breaker**](circuit-breaker.md): detect repeated failures in a downstream call and stop sending requests long enough for it to recover. This prevents cascading failures.
 - [**Rate Limiter**](rate-limiter.md): cap how many requests a client can make per window. Pluggable algorithm (`TokenBucketConfig` or `GCRAConfig`), pluggable backend (`Memory` or `Redis`), with a result shape that maps directly to HTTP rate limit headers.
-- [**Retry**](retry.md): repeat a failing call with backoff and jitter. Pluggable algorithm (`ExponentialBackoffConfig` or `ConstantBackoffConfig`), required exception filter, decorator and block forms.
+- [**Retry**](retry.md): repeat a failing call with backoff and jitter. Pluggable algorithm (`ExponentialBackoff` or `ConstantBackoff`), required exception filter, decorator and block forms.
 
 ## When to use what
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, PositiveFloat
 from typing_extensions import Doc
 
 
-class LinearBackoffConfig(BaseModel, frozen=True, extra="forbid"):
+class LinearBackoff(BaseModel, frozen=True, extra="forbid"):
     """Linear backoff: delay grows by ``base_delay`` each attempt.
 
     The delay before retry ``N`` is ``min(base_delay * N, max_delay)``.
@@ -15,17 +15,17 @@ class LinearBackoffConfig(BaseModel, frozen=True, extra="forbid"):
     blow-up. Common for polling that escalates over time.
 
     For network and HTTP calls, prefer
-    [`ExponentialBackoffConfig`][grelmicro.resilience.ExponentialBackoffConfig]
+    [`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff]
     to avoid synchronized retry storms.
 
     Example:
     ```python
-    from grelmicro.resilience import LinearBackoffConfig, Retry
+    from grelmicro.resilience import LinearBackoff, Retry
 
     # 1s, 2s, 3s, 4s, ...
     policy = Retry(
         "ramp",
-        LinearBackoffConfig(base_delay=1.0, max_delay=10.0),
+        LinearBackoff(base_delay=1.0, max_delay=10.0),
         on=ServiceError,
         attempts=5,
     )
@@ -55,7 +55,7 @@ class _LinearStrategy:
 
     __slots__ = ("_base", "_max")
 
-    def __init__(self, config: LinearBackoffConfig) -> None:
+    def __init__(self, config: LinearBackoff) -> None:
         self._base = config.base_delay
         self._max = config.max_delay
 

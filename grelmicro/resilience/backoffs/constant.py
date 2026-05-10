@@ -6,21 +6,21 @@ from pydantic import BaseModel, PositiveFloat
 from typing_extensions import Doc
 
 
-class ConstantBackoffConfig(BaseModel, frozen=True, extra="forbid"):
+class ConstantBackoff(BaseModel, frozen=True, extra="forbid"):
     """Constant delay between retries.
 
     Use this for polling-style retries where you wait a fixed
     interval. For network and HTTP calls, prefer
-    [`ExponentialBackoffConfig`][grelmicro.resilience.ExponentialBackoffConfig]
+    [`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff]
     to avoid synchronized retry storms.
 
     Example:
     ```python
-    from grelmicro.resilience import ConstantBackoffConfig, Retry
+    from grelmicro.resilience import ConstantBackoff, Retry
 
     policy = Retry(
         "wait_job",
-        ConstantBackoffConfig(delay=1.0),
+        ConstantBackoff(delay=1.0),
         on=NotReady,
         attempts=20,
     )
@@ -45,7 +45,7 @@ class _ConstantStrategy:
 
     __slots__ = ("_delay",)
 
-    def __init__(self, config: ConstantBackoffConfig) -> None:
+    def __init__(self, config: ConstantBackoff) -> None:
         self._delay = config.delay
 
     def delay(self, attempt: int) -> float:

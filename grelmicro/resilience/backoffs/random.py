@@ -7,7 +7,7 @@ from pydantic import BaseModel, PositiveFloat, model_validator
 from typing_extensions import Doc
 
 
-class RandomBackoffConfig(BaseModel, frozen=True, extra="forbid"):
+class RandomBackoff(BaseModel, frozen=True, extra="forbid"):
     """Random backoff: each delay is uniform random in ``[min_delay, max_delay]``.
 
     Use this when you want bounded random spread without progressive
@@ -16,18 +16,18 @@ class RandomBackoffConfig(BaseModel, frozen=True, extra="forbid"):
     avoid hammering the origin together).
 
     For HTTP retries, prefer
-    [`ExponentialBackoffConfig`][grelmicro.resilience.ExponentialBackoffConfig]
+    [`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff]
     with jitter. Random alone does not back off, so a persistent
     failure retries at the same average rate forever.
 
     Example:
     ```python
-    from grelmicro.resilience import RandomBackoffConfig, Retry
+    from grelmicro.resilience import RandomBackoff, Retry
 
     # Each retry waits a random 0.5-2.0 seconds
     policy = Retry(
         "stampede",
-        RandomBackoffConfig(min_delay=0.5, max_delay=2.0),
+        RandomBackoff(min_delay=0.5, max_delay=2.0),
         on=CacheMissError,
         attempts=3,
     )
@@ -67,7 +67,7 @@ class _RandomStrategy:
 
     __slots__ = ("_max", "_min")
 
-    def __init__(self, config: RandomBackoffConfig) -> None:
+    def __init__(self, config: RandomBackoff) -> None:
         self._min = config.min_delay
         self._max = config.max_delay
 

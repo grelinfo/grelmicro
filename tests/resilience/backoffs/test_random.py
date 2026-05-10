@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from grelmicro.resilience.backoffs.random import (
-    RandomBackoffConfig,
+    RandomBackoff,
     _RandomStrategy,
 )
 
@@ -14,7 +14,7 @@ _DEFAULT_MAX = 2.0
 
 def test_default_config() -> None:
     """Default config: type=random, min=0.5, max=2.0."""
-    config = RandomBackoffConfig()
+    config = RandomBackoff()
     assert config.type == "random"
     assert config.min_delay == _DEFAULT_MIN
     assert config.max_delay == _DEFAULT_MAX
@@ -28,7 +28,7 @@ _TEST_MAX = 3.0
 def test_strategy_returns_value_in_range() -> None:
     """Each delay is uniform random in `[min, max]` (Tenacity-style sample test)."""
     strategy = _RandomStrategy(
-        RandomBackoffConfig(min_delay=_TEST_MIN, max_delay=_TEST_MAX)
+        RandomBackoff(min_delay=_TEST_MIN, max_delay=_TEST_MAX)
     )
     samples = {strategy.delay(1) for _ in range(_SAMPLES)}
     assert len(samples) > 1
@@ -39,11 +39,11 @@ def test_strategy_returns_value_in_range() -> None:
 def test_min_must_not_exceed_max() -> None:
     """`min_delay` must be `<= max_delay`."""
     with pytest.raises(ValidationError, match="min_delay"):
-        RandomBackoffConfig(min_delay=5.0, max_delay=1.0)
+        RandomBackoff(min_delay=5.0, max_delay=1.0)
 
 
 def test_frozen_config() -> None:
-    """`RandomBackoffConfig` is frozen."""
-    config = RandomBackoffConfig()
+    """`RandomBackoff` is frozen."""
+    config = RandomBackoff()
     with pytest.raises(ValidationError):
         config.min_delay = 1.0  # type: ignore[misc]  # ty: ignore[invalid-assignment]
