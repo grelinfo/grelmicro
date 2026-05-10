@@ -22,7 +22,62 @@ For inline retries that span multiple statements, use the block form:
 --8<-- "resilience/retry_block.py"
 ```
 
-`on=` is required. There is no default. Pass an exception class, a tuple of classes, or a predicate callable.
+`when=` is required. There is no default. Pass a [`Match`](#filtering-outcomes-with-match) instance, or one of the shorthand forms (an exception class, a tuple of classes, or a predicate callable). See the next section for the full filter DSL.
+
+## Filtering outcomes with `Match`
+
+`Match` is the DSL every resilience strategy uses to decide whether an outcome (an exception OR a return value) should engage the strategy. The `when=` parameter on `Retry` accepts any `Match` instance, plus the bare-class shorthand for the simple case.
+
+### Exception filtering
+
+```python
+from grelmicro.resilience import Match, Retry
+
+Retry("api", when=Match.exception(httpx.HTTPError))
+Retry("api", when=Match.exception(httpx.HTTPError, OSError))
+Retry("api", when=Match.exception(lambda e: e.status >= 500))
+Retry("api", when=Match.exception_message(contains="timeout"))
+Retry("api", when=Match.exception_message(regex=r"^5\d\d "))
+Retry("api", when=Match.exception_cause(KeyError))
+```
+
+### Result filtering
+
+```python
+Retry("polling", when=Match.result(None))
+Retry("polling", when=Match.result(False))
+Retry("polling", when=Match.result(lambda r: r.status_code >= 500))
+```
+
+`Match.result(callable)` always treats the argument as a predicate. To match a function literal exactly, wrap with `lambda r: r is my_fn`.
+
+### Composition
+
+```python
+# OR
+Retry("api", when=Match.exception(httpx.HTTPError) | Match.result(None))
+
+# AND
+Retry("api", when=Match.exception(httpx.HTTPError) & Match.exception(lambda e: e.status >= 500))
+
+# NOT (one symmetric `not_*` per primitive)
+Retry("api", when=Match.not_exception(ValueError))
+Retry("api", when=Match.not_result(None))
+Retry("api", when=Match.not_exception_message(contains="ok"))
+Retry("api", when=Match.not_exception_cause(KeyError))
+```
+
+Use `|` for OR and `&` for AND. Each primitive (`exception`, `result`, `exception_message`, `exception_cause`) has a `not_*` twin for the negated form.
+
+### Worked example
+
+```python
+--8<-- "resilience/retry_match.py"
+```
+
+### What never retries
+
+`asyncio.CancelledError`, `KeyboardInterrupt`, and `SystemExit` are `BaseException` subclasses outside `Exception`. They always propagate, regardless of the `Match` you pass. This is required for correct asyncio shutdown.
 
 ## Backoff algorithms
 
@@ -39,8 +94,8 @@ For inline retries that span multiple statements, use the block form:
 The factory classmethods build the right config for you:
 
 ```python
-policy = Retry.exponential("payments", on=httpx.HTTPError, attempts=5)
-polling = Retry.constant("wait_job", on=NotReady, attempts=20, delay=1.0)
+policy = Retry.exponential("payments", when=httpx.HTTPError, attempts=5)
+polling = Retry.constant("wait_job", when=NotReady, attempts=20, delay=1.0)
 ```
 
 ### Exponential
@@ -89,7 +144,7 @@ Prefix: `GREL_RETRY_{NAME_UPPER}_`
 | Env var | Field | Type | Default |
 |---|---|---|---|
 | `GREL_RETRY_{NAME_UPPER}_ATTEMPTS` | `attempts` | `int` (>= 1) | `3` |
-| `GREL_RETRY_{NAME_UPPER}_ON` | `on` | CSV or JSON list of FQN strings (e.g. `httpx.HTTPError`) | required |
+| `GREL_RETRY_{NAME_UPPER}_WHEN` | `when` | CSV or JSON list of FQN strings (e.g. `httpx.HTTPError`). Coerced to `Match.exception(...)`. Predicate forms cannot come from env. | required |
 | `GREL_RETRY_{NAME_UPPER}_BACKOFF` | `backoff` | JSON object with a `type` field (see below) | `{"type":"exponential"}` |
 
 The full backoff config is a discriminated Pydantic union, so the env value is parsed as one JSON object. Each algorithm accepts the same fields it takes in code:
@@ -110,13 +165,13 @@ The callable form of `on` cannot come from env. Use the FQN list for env-driven 
 
 ## Composition with Circuit Breaker
 
-Retry and Circuit Breaker compose by intent. When the breaker is `OPEN`, it raises `CircuitBreakerError`. Pick a narrow `on=` allowlist so the retry loop does not swallow that signal:
+Retry and Circuit Breaker compose by intent. When the breaker is `OPEN`, it raises `CircuitBreakerError`. Pick a narrow `when=` allowlist so the retry loop does not swallow that signal:
 
 ```python
 --8<-- "resilience/retry_composition.py"
 ```
 
-A broad allowlist (`on=Exception`) would retry through the open breaker. The narrow allowlist lets the breaker do its job.
+A broad allowlist (`when=Exception`) would retry through the open breaker. The narrow allowlist lets the breaker do its job.
 
 ## Behavior on exhaustion
 

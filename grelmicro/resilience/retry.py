@@ -1,14 +1,17 @@
 """Retry."""
 
+from __future__ import annotations
+
 import asyncio
 import functools
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass
+from importlib import import_module
 from inspect import iscoroutinefunction
 from logging import getLogger
-from types import TracebackType
 from typing import (
+    TYPE_CHECKING,
     Annotated,
     Any,
     Literal,
@@ -17,16 +20,16 @@ from typing import (
     overload,
 )
 
+if TYPE_CHECKING:
+    from types import TracebackType
+
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     Field,
-    ImportString,
     PositiveFloat,
     PositiveInt,
     field_validator,
 )
-from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
 from grelmicro._config import (
@@ -35,6 +38,8 @@ from grelmicro._config import (
     parse_csv_or_json,
     resolve_config,
 )
+from grelmicro.resilience._match import Match, Matcher
+from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience._retry_strategy import build_retry_strategy
 from grelmicro.resilience.backoffs import (
     ConstantBackoff,
@@ -54,44 +59,54 @@ logger = getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-ExceptionFilter = (
-    type[Exception] | tuple[type[Exception], ...] | Callable[[Exception], bool]
+WhenInput = (
+    Match
+    | type[Exception]
+    | tuple[type[Exception], ...]
+    | Callable[[Exception], bool]
 )
-"""User-facing filter accepted by ``on=``.
+"""User-facing shape accepted by ``when=``.
 
-A class, a tuple of classes, or a predicate callable. ``BaseException``
-subclasses outside ``Exception`` (``CancelledError``, ``KeyboardInterrupt``,
-``SystemExit``) are never retried, regardless of the filter, so cooperative
-cancellation and shutdown signals always propagate.
+A [`Match`][grelmicro.resilience.Match] instance, or one of the
+shorthand forms a Match would build for you: a single exception
+class, a tuple of classes, or a callable predicate on the
+exception. Bare shapes are coerced to ``Match.exception(...)``.
 """
 
 
-Matcher = Callable[[Exception], bool]
-"""Compiled exception matcher: takes an exception, returns True to retry."""
+def _coerce_to_match(value: Any) -> Match:  # noqa: ANN401
+    """Coerce a non-Match shorthand into a ``Match`` instance.
 
-
-def _normalize_filter(
-    on: ExceptionFilter,
-) -> tuple[type[Exception], ...] | Callable[[Exception], bool]:
-    """Normalize ``on`` to a tuple of classes or a predicate."""
-    if isinstance(on, type):
-        return (on,)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
-    return on
-
-
-def _build_matcher(
-    on: tuple[type[Exception], ...] | Callable[[Exception], bool],
-) -> Matcher:
-    """Compile ``on`` into a single-call matcher.
-
-    Built once per snapshot (at construction or reconfigure) so the
-    hot path is one callable invocation per fail, with no isinstance
-    branch on the union type.
+    The validator on ``RetryConfig.when`` short-circuits Match
+    instances before calling this helper, so the input here is one
+    of the shorthand forms (class, tuple, callable, FQN env list).
     """
-    if isinstance(on, tuple):
-        classes = on
-        return lambda exc: isinstance(exc, classes)
-    return on
+    if isinstance(value, type) and issubclass(value, Exception):
+        return Match.exception(value)
+    if isinstance(value, tuple) and all(
+        isinstance(t, type) and issubclass(t, Exception) for t in value
+    ):
+        return Match.exception(*value)
+    if callable(value):
+        return Match.exception(value)
+    msg = (
+        "when= must be a Match, an Exception class, a tuple of "
+        f"Exception classes, or a callable. Got {value!r}"
+    )
+    raise TypeError(msg)
+
+
+def _resolve_fqn(fqn: str) -> type[Exception]:
+    """Resolve a fully-qualified name to an Exception class."""
+    module_path, _, name = fqn.rpartition(".")
+    if not module_path:
+        msg = f"when= env entry must be a fully-qualified name, got {fqn!r}"
+        raise ValueError(msg)
+    cls = getattr(import_module(module_path), name)
+    if not (isinstance(cls, type) and issubclass(cls, Exception)):
+        msg = f"when= env entry {fqn!r} is not an Exception subclass"
+        raise TypeError(msg)
+    return cls
 
 
 class RetryConfig(BaseModel, frozen=True, extra="forbid"):
@@ -112,14 +127,14 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = 3
 
-    on: Annotated[
-        tuple[ImportString[type[Exception]], ...] | Callable[[Exception], bool],
-        BeforeValidator(parse_csv_or_json),
-        NoDecode,
+    when: Annotated[
+        Match,
         Doc(
-            "Filter for exceptions that trigger a retry. Pass a "
-            "class, a tuple of classes, or a predicate callable. "
-            "Required: there is no default. ``BaseException`` "
+            "Outcome filter that engages the retry. Pass a "
+            "[`Match`][grelmicro.resilience.Match] (e.g. "
+            "``Match.exception(httpx.HTTPError) | Match.result(None)``) "
+            "or a shorthand: an exception class, a tuple of classes, "
+            "or a predicate on the exception. ``BaseException`` "
             "subclasses outside ``Exception`` are never retried."
         ),
     ]
@@ -138,20 +153,36 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ]
 
-    @field_validator("on", mode="before")
-    @classmethod
-    def _wrap_single(cls, value: Any) -> Any:  # noqa: ANN401
-        """Wrap a single class into a one-tuple.
+    model_config = {"arbitrary_types_allowed": True}
 
-        Without this, ``RetryConfig(on=ValueError)`` would dispatch to
-        the ``Callable`` branch of the union (classes are callable),
-        and the matcher would try to instantiate the exception. Wrap
-        single-class input into a 1-tuple so the union resolves to
-        the tuple branch.
+    @field_validator("when", mode="before")
+    @classmethod
+    def _coerce_when(cls, value: Any) -> Any:  # noqa: ANN401
+        """Coerce shorthand shapes (and the env string) to a ``Match``.
+
+        Accepts a ``Match`` directly, an exception class, a tuple of
+        classes, a callable predicate on the exception, or a
+        CSV/JSON env string of FQNs (e.g. ``"httpx.HTTPError"``).
         """
-        if isinstance(value, type):
-            return (value,)
-        return value
+        if isinstance(value, Match):
+            return value
+        # Env path: a CSV or JSON string of FQNs.
+        if isinstance(value, str):
+            value = parse_csv_or_json(value)
+        # List/tuple of items (FQN strings or resolved classes).
+        if isinstance(value, list | tuple) and not (
+            isinstance(value, tuple)
+            and all(
+                isinstance(item, type) and issubclass(item, Exception)
+                for item in value
+            )
+        ):
+            resolved: tuple[type[Exception], ...] = tuple(
+                _resolve_fqn(item) if isinstance(item, str) else item
+                for item in value
+            )
+            return Match.exception(*resolved)
+        return _coerce_to_match(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +208,10 @@ class RetryAttempt:
     async (or sync) context manager. Suppresses retryable
     exceptions until attempts are exhausted, then re-raises the
     underlying error with a PEP 678 note.
+
+    The block form sees only exceptions, not return values. Use the
+    decorator form ([`@retry`][grelmicro.resilience.retry] or
+    ``policy(fn)``) for result-based retry.
     """
 
     __slots__ = (
@@ -195,7 +230,7 @@ class RetryAttempt:
         delay_before: float,
         attempts: int,
         matcher: Matcher,
-        loop: "_AttemptLoop",
+        loop: _AttemptLoop,
         started_at: float,
     ) -> None:
         """Initialize one retry attempt."""
@@ -245,7 +280,7 @@ class RetryAttempt:
         # required for correct asyncio shutdown.
         if not isinstance(exc, Exception):
             return False
-        if not self._matcher(exc):
+        if not self._matcher(Outcome.from_exception(exc)):
             return False
         if self.number >= self._attempts:
             elapsed = time.monotonic() - self._started_at
@@ -330,6 +365,84 @@ def _sync_iter(
         delay_before = strategy.delay(number)
 
 
+async def _run_async(
+    fn: Callable[..., Awaitable[Any]],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    config: RetryConfig,
+    matcher: Matcher,
+) -> Any:  # noqa: ANN401
+    """Decorator/class-form async wrapper. Handles exception and result retries."""
+    strategy = build_retry_strategy(config.backoff)
+    started_at = time.monotonic()
+    backoff_name = _backoff_name(config.backoff)
+    delay = 0.0
+    last_result: Any = None
+    for number in range(1, config.attempts + 1):
+        if delay > 0:
+            await asyncio.sleep(delay)
+        try:
+            result = await fn(*args, **kwargs)
+        except Exception as exc:
+            if not matcher(Outcome.from_exception(exc)):
+                raise
+            if number >= config.attempts:
+                exc.add_note(
+                    f"retry: {config.attempts}/{config.attempts} attempts "
+                    f"exhausted in {time.monotonic() - started_at:.2f}s "
+                    f"({backoff_name} backoff)"
+                )
+                raise
+            delay = strategy.delay(number)
+            continue
+        if not matcher(Outcome.from_result(result)):
+            return result
+        last_result = result
+        if number >= config.attempts:
+            return last_result
+        delay = strategy.delay(number)
+    return last_result  # pragma: no cover  # unreachable
+
+
+def _run_sync(
+    fn: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    config: RetryConfig,
+    matcher: Matcher,
+) -> Any:  # noqa: ANN401
+    """Decorator/class-form sync wrapper. Handles exception and result retries."""
+    strategy = build_retry_strategy(config.backoff)
+    started_at = time.monotonic()
+    backoff_name = _backoff_name(config.backoff)
+    delay = 0.0
+    last_result: Any = None
+    for number in range(1, config.attempts + 1):
+        if delay > 0:
+            time.sleep(delay)
+        try:
+            result = fn(*args, **kwargs)
+        except Exception as exc:
+            if not matcher(Outcome.from_exception(exc)):
+                raise
+            if number >= config.attempts:
+                exc.add_note(
+                    f"retry: {config.attempts}/{config.attempts} attempts "
+                    f"exhausted in {time.monotonic() - started_at:.2f}s "
+                    f"({backoff_name} backoff)"
+                )
+                raise
+            delay = strategy.delay(number)
+            continue
+        if not matcher(Outcome.from_result(result)):
+            return result
+        last_result = result
+        if number >= config.attempts:
+            return last_result
+        delay = strategy.delay(number)
+    return last_result  # pragma: no cover  # unreachable
+
+
 class Retry(Reconfigurable[RetryConfig]):
     """Retry policy.
 
@@ -358,21 +471,17 @@ class Retry(Reconfigurable[RetryConfig]):
             Doc(
                 "The backoff algorithm config. Pass any "
                 "[`RetryBackoffConfig`][grelmicro.resilience.RetryBackoffConfig] "
-                "variant ([`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff], "
-                "[`ConstantBackoff`][grelmicro.resilience.ConstantBackoff], "
-                "[`LinearBackoff`][grelmicro.resilience.LinearBackoff], "
-                "[`FibonacciBackoff`][grelmicro.resilience.FibonacciBackoff], "
-                "[`RandomBackoff`][grelmicro.resilience.RandomBackoff]), "
-                "or omit for the default exponential + full jitter."
+                "variant or omit for the default exponential + full jitter."
             ),
         ] = None,
         *,
-        on: Annotated[
-            ExceptionFilter | None,
+        when: Annotated[
+            WhenInput | None,
             Doc(
-                "Filter for exceptions that trigger a retry. Pass "
-                "a class, a tuple of classes, or a predicate "
-                "callable. Required unless ``config=`` is given."
+                "Outcome filter that engages the retry. Pass a "
+                "[`Match`][grelmicro.resilience.Match] or one of the "
+                "shorthand forms (exception class, tuple, callable). "
+                "Required unless ``config=`` is given."
             ),
         ] = None,
         attempts: Annotated[
@@ -398,7 +507,7 @@ class Retry(Reconfigurable[RetryConfig]):
         self._name = name
         kwargs: dict[str, object | None] = {
             "attempts": attempts,
-            "on": _normalize_filter(on) if on is not None else None,
+            "when": when,
             "backoff": backoff,
         }
         resolved = resolve_config(
@@ -409,9 +518,7 @@ class Retry(Reconfigurable[RetryConfig]):
             read_env=read_env,
         )
         self._config = resolved
-        self._state = _State(
-            config=resolved, matcher=_build_matcher(resolved.on)
-        )  # type: ignore[arg-type]
+        self._state = _State(config=resolved, matcher=resolved.when)
         self._reconfigure_lock = asyncio.Lock()
 
     @property
@@ -447,9 +554,9 @@ class Retry(Reconfigurable[RetryConfig]):
         cls,
         name: Annotated[str, Doc("The name of the retry policy.")],
         *,
-        on: Annotated[
-            ExceptionFilter,
-            Doc("Filter for exceptions that trigger a retry."),
+        when: Annotated[
+            WhenInput,
+            Doc("Outcome filter that engages the retry."),
         ],
         attempts: Annotated[
             PositiveInt,
@@ -484,7 +591,7 @@ class Retry(Reconfigurable[RetryConfig]):
         return cls(
             name,
             backoff,
-            on=on,
+            when=when,
             attempts=attempts,
             read_env=read_env,
         )
@@ -494,9 +601,9 @@ class Retry(Reconfigurable[RetryConfig]):
         cls,
         name: Annotated[str, Doc("The name of the retry policy.")],
         *,
-        on: Annotated[
-            ExceptionFilter,
-            Doc("Filter for exceptions that trigger a retry."),
+        when: Annotated[
+            WhenInput,
+            Doc("Outcome filter that engages the retry."),
         ],
         attempts: Annotated[
             PositiveInt,
@@ -521,7 +628,7 @@ class Retry(Reconfigurable[RetryConfig]):
         return cls(
             name,
             backoff,
-            on=on,
+            when=when,
             attempts=attempts,
             read_env=read_env,
         )
@@ -550,30 +657,23 @@ class Retry(Reconfigurable[RetryConfig]):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-                async for attempt in self:
-                    async with attempt:
-                        return await fn(*args, **kwargs)
-                msg = "retry: unreachable"  # pragma: no cover
-                raise RuntimeError(msg)  # pragma: no cover
+                state = self._state
+                return await _run_async(
+                    fn, args, kwargs, state.config, state.matcher
+                )
 
             return async_wrapper
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            for attempt in self:
-                with attempt:
-                    return fn(*args, **kwargs)
-            msg = "retry: unreachable"  # pragma: no cover
-            raise RuntimeError(msg)  # pragma: no cover
+            state = self._state
+            return _run_sync(fn, args, kwargs, state.config, state.matcher)
 
         return sync_wrapper
 
     async def _apply_reconfigure(self, new_config: RetryConfig) -> None:
         """Publish a fresh snapshot. In-flight loops keep their snapshot."""
-        self._state = _State(
-            config=new_config,
-            matcher=_build_matcher(new_config.on),  # type: ignore[arg-type]
-        )
+        self._state = _State(config=new_config, matcher=new_config.when)
 
 
 # --- Module-level decorator factory --------------------------------------
@@ -581,38 +681,30 @@ class Retry(Reconfigurable[RetryConfig]):
 
 def _decorator(
     *,
-    on: ExceptionFilter,
+    when: WhenInput,
     attempts: PositiveInt,
     backoff: RetryBackoffConfig | None,
 ) -> Callable[[F], F]:
     """Build a decorator from anonymous Retry kwargs."""
     config = RetryConfig(
         attempts=attempts,
-        on=on,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        when=when,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         backoff=backoff or ExponentialBackoff(),
     )
-    matcher = _build_matcher(config.on)  # type: ignore[arg-type]
+    matcher: Matcher = config.when
 
     def wrap(fn: F) -> F:
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-                async for attempt in _async_iter(config, matcher):
-                    async with attempt:
-                        return await fn(*args, **kwargs)
-                msg = "retry: unreachable"  # pragma: no cover
-                raise RuntimeError(msg)  # pragma: no cover
+                return await _run_async(fn, args, kwargs, config, matcher)
 
             return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            for attempt in _sync_iter(config, matcher):
-                with attempt:
-                    return fn(*args, **kwargs)
-            msg = "retry: unreachable"  # pragma: no cover
-            raise RuntimeError(msg)  # pragma: no cover
+            return _run_sync(fn, args, kwargs, config, matcher)
 
         return sync_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
@@ -622,7 +714,7 @@ def _decorator(
 class _RetryFactory:
     """Decorator factory for the common case.
 
-    Use ``@retry(on=..., attempts=...)`` for the default
+    Use ``@retry(when=..., attempts=...)`` for the default
     exponential backoff, or ``@retry.exponential(...)`` /
     ``@retry.constant(...)`` for the explicit forms.
     """
@@ -630,8 +722,8 @@ class _RetryFactory:
     def __call__(
         self,
         *,
-        on: Annotated[
-            ExceptionFilter, Doc("Filter for exceptions that trigger a retry.")
+        when: Annotated[
+            WhenInput, Doc("Outcome filter that engages the retry.")
         ],
         attempts: Annotated[
             PositiveInt, Doc("Total calls including the first.")
@@ -642,12 +734,12 @@ class _RetryFactory:
         ] = None,
     ) -> Callable[[F], F]:
         """Build an anonymous retry decorator."""
-        return _decorator(on=on, attempts=attempts, backoff=backoff)
+        return _decorator(when=when, attempts=attempts, backoff=backoff)
 
     def exponential(
         self,
         *,
-        on: ExceptionFilter,
+        when: WhenInput,
         attempts: PositiveInt = 3,
         base_delay: PositiveFloat = 0.1,
         max_delay: PositiveFloat = 30.0,
@@ -655,7 +747,7 @@ class _RetryFactory:
     ) -> Callable[[F], F]:
         """Build a retry decorator with explicit exponential backoff."""
         return _decorator(
-            on=on,
+            when=when,
             attempts=attempts,
             backoff=ExponentialBackoff(
                 base_delay=base_delay, max_delay=max_delay, jitter=jitter
@@ -665,13 +757,13 @@ class _RetryFactory:
     def constant(
         self,
         *,
-        on: ExceptionFilter,
+        when: WhenInput,
         attempts: PositiveInt = 3,
         delay: PositiveFloat = 1.0,
     ) -> Callable[[F], F]:
         """Build a retry decorator with constant backoff."""
         return _decorator(
-            on=on,
+            when=when,
             attempts=attempts,
             backoff=ConstantBackoff(delay=delay),
         )
@@ -686,8 +778,8 @@ retry = _RetryFactory()
 class _RetryingFactory:
     """Async iterator factory for the block form.
 
-    Use ``async for attempt in retrying(on=..., attempts=...):`` for
-    the default exponential backoff, or
+    Use ``async for attempt in retrying(when=..., attempts=...):``
+    for the default exponential backoff, or
     ``retrying.exponential(...)`` / ``retrying.constant(...)`` for
     the explicit forms.
     """
@@ -695,8 +787,8 @@ class _RetryingFactory:
     def __call__(
         self,
         *,
-        on: Annotated[
-            ExceptionFilter, Doc("Filter for exceptions that trigger a retry.")
+        when: Annotated[
+            WhenInput, Doc("Outcome filter that engages the retry.")
         ],
         attempts: Annotated[
             PositiveInt, Doc("Total calls including the first.")
@@ -709,16 +801,15 @@ class _RetryingFactory:
         """Yield successive attempts for the block form."""
         config = RetryConfig(
             attempts=attempts,
-            on=on,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            when=when,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             backoff=backoff or ExponentialBackoff(),
         )
-        matcher = _build_matcher(config.on)  # type: ignore[arg-type]
-        return _async_iter(config, matcher)
+        return _async_iter(config, config.when)
 
     def exponential(
         self,
         *,
-        on: ExceptionFilter,
+        when: WhenInput,
         attempts: PositiveInt = 3,
         base_delay: PositiveFloat = 0.1,
         max_delay: PositiveFloat = 30.0,
@@ -726,7 +817,7 @@ class _RetryingFactory:
     ) -> AsyncIterator[RetryAttempt]:
         """Yield attempts with explicit exponential backoff."""
         return self(
-            on=on,
+            when=when,
             attempts=attempts,
             backoff=ExponentialBackoff(
                 base_delay=base_delay, max_delay=max_delay, jitter=jitter
@@ -736,13 +827,13 @@ class _RetryingFactory:
     def constant(
         self,
         *,
-        on: ExceptionFilter,
+        when: WhenInput,
         attempts: PositiveInt = 3,
         delay: PositiveFloat = 1.0,
     ) -> AsyncIterator[RetryAttempt]:
         """Yield attempts with constant backoff."""
         return self(
-            on=on,
+            when=when,
             attempts=attempts,
             backoff=ConstantBackoff(delay=delay),
         )

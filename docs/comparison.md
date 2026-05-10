@@ -69,15 +69,15 @@ Decorator and async context manager with stop / wait / retry conditions.
 
 | Axis | [`tenacity`](https://github.com/jd/tenacity) | [`backoff`](https://github.com/litl/backoff) | grelmicro `Retry` (ships with [#165](https://github.com/grelinfo/grelmicro/issues/165)) |
 |---|---|---|---|
-| Stop conditions | rich (`stop_after_attempt`, `stop_after_delay`, `stop_when_event_set`, ...) | basic | basic, with the same shape as Polly's `RetryStrategyOptions` |
-| Wait strategies | rich (`wait_exponential`, `wait_random_exponential`, `wait_chain`, ...) | exponential, fibonacci, constant | exponential, fixed, jittered |
-| Retry condition | `retry_if_exception_type`, `retry_if_result`, full predicate | exception type or predicate | exception type, predicate |
+| Stop conditions | rich (`stop_after_attempt`, `stop_after_delay`, ...) | basic | `attempts=` (count). Time-based stop planned. |
+| Wait strategies | rich (`wait_exponential`, `wait_chain`, ...) | exponential, fibonacci, constant | exponential, constant, linear, fibonacci, random |
+| Retry condition | `retry_if_*` factories, `\|`/`&` operators | exception type or predicate | `Match.exception(...)`, `Match.result(...)`, `Match.exception_message(...)`, `Match.exception_cause(...)`, plus `not_*` twins, `\|`/`&` operators |
 | Async support | yes | yes | yes |
 | Sync support | yes | yes | yes (decorator works on both) |
 | Frozen config + reconfigure | no | no | yes |
-| Composes with the rest of the library | no | no | yes (one config story across `Retry`, `CircuitBreaker`, `Lock`, ...) |
+| Composes with the rest of the library | no | no | yes (`Match` is shared across `Retry`, `Fallback`, `CircuitBreaker`) |
 
-`tenacity` is the right pick for advanced retry policies. Its stop / wait / retry vocabulary is unmatched. Pick grelmicro `Retry` when you want a smaller surface that shares config and reconfigure ergonomics with the rest of your toolkit.
+`tenacity` is the right pick for the most advanced stop and wait vocabulary. Pick grelmicro `Retry` when you want a smaller surface, result-based retry out of the box (`Match.result(None)`), and a filter DSL (`Match`) shared across every resilience primitive.
 
 ## Distributed Lock
 
