@@ -128,9 +128,12 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
         RetryBackoffConfig,
         Field(default_factory=ExponentialBackoff),
         Doc(
-            "Backoff algorithm config. Discriminated union of "
-            "[`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff] "
-            "and [`ConstantBackoff`][grelmicro.resilience.ConstantBackoff]. "
+            "Backoff algorithm config. Discriminated union over "
+            "[`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff], "
+            "[`ConstantBackoff`][grelmicro.resilience.ConstantBackoff], "
+            "[`LinearBackoff`][grelmicro.resilience.LinearBackoff], "
+            "[`FibonacciBackoff`][grelmicro.resilience.FibonacciBackoff], "
+            "and [`RandomBackoff`][grelmicro.resilience.RandomBackoff]. "
             "Default: exponential with full jitter."
         ),
     ]
@@ -353,9 +356,13 @@ class Retry(Reconfigurable[RetryConfig]):
         backoff: Annotated[
             RetryBackoffConfig | None,
             Doc(
-                "The backoff algorithm config. Pass a "
-                "[`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff] "
-                "or [`ConstantBackoff`][grelmicro.resilience.ConstantBackoff], "
+                "The backoff algorithm config. Pass any "
+                "[`RetryBackoffConfig`][grelmicro.resilience.RetryBackoffConfig] "
+                "variant ([`ExponentialBackoff`][grelmicro.resilience.ExponentialBackoff], "
+                "[`ConstantBackoff`][grelmicro.resilience.ConstantBackoff], "
+                "[`LinearBackoff`][grelmicro.resilience.LinearBackoff], "
+                "[`FibonacciBackoff`][grelmicro.resilience.FibonacciBackoff], "
+                "[`RandomBackoff`][grelmicro.resilience.RandomBackoff]), "
                 "or omit for the default exponential + full jitter."
             ),
         ] = None,
