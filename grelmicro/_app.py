@@ -317,6 +317,7 @@ class Grelmicro:
         """
         if self._exit_stack is not None:
             raise OutOfContextError(self, "__aenter__")
+        self._resolve_provider_sharing()
         self._exit_stack = AsyncExitStack()
         await self._exit_stack.__aenter__()
         self._token = _current_micro.set(self)
@@ -349,6 +350,31 @@ class Grelmicro:
                 _current_micro.reset(self._token)
                 self._token = None
             self._exit_stack = None
+
+    def _resolve_provider_sharing(self) -> None:
+        """Dedupe implicitly-owned providers by `(class, env_prefix)`.
+
+        Walks registered items in order. The first adapter that owns a
+        provider keeps ownership and lifecycle responsibility. Later
+        adapters with the same `(provider_class, env_prefix)` key are
+        rebound to the same provider instance via `_rebind_provider`,
+        so a single connection pool feeds every consumer.
+
+        Adapters that received an explicit `provider=` instance are
+        left alone: their lifecycle is the caller's responsibility.
+        """
+        cache: dict[tuple[type, str], object] = {}
+        for item in self._items:
+            target = getattr(item, "backend", item)
+            if not getattr(target, "_owns_provider", False):
+                continue
+            provider = target._provider  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            key = (type(provider), provider.env_prefix)
+            shared = cache.get(key)
+            if shared is None:
+                cache[key] = provider
+            elif shared is not provider:
+                target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
 
 
 def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:

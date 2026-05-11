@@ -21,6 +21,7 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.health._backends import health_checks
 from grelmicro.health._checks import HealthChecks
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience._backends import (
     circuit_breaker_backend_registry,
     rate_limiter_backend_registry,
@@ -50,21 +51,13 @@ def _clean_registries() -> None:
 
 @pytest.fixture
 def mock_redis(mocker: MockerFixture) -> MagicMock:
-    """Mock the Redis client returned by ``_create_redis_client``."""
+    """Mock the Redis client built by `RedisProvider`."""
     mock_client = MagicMock()
     mock_client.aclose = AsyncMock()
     mock_client.register_script = MagicMock(return_value=AsyncMock())
     mocker.patch(
-        "grelmicro.sync.redis._create_redis_client",
-        return_value=("redis://localhost", mock_client),
-    )
-    mocker.patch(
-        "grelmicro.cache.redis._create_redis_client",
-        return_value=("redis://localhost", mock_client),
-    )
-    mocker.patch(
-        "grelmicro.resilience.redis._create_redis_client",
-        return_value=("redis://localhost", mock_client),
+        "grelmicro.providers.redis.Redis.from_url",
+        return_value=mock_client,
     )
     return mock_client
 
@@ -339,7 +332,7 @@ async def test_sync_redis_async_with_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
     """Sync redis async with round trip."""
-    async with RedisSyncAdapter("redis://localhost"):
+    async with RedisSyncAdapter(provider=RedisProvider("redis://localhost")):
         pass
 
 
@@ -388,7 +381,7 @@ async def test_cache_redis_async_with_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
     """Cache redis async with round trip."""
-    async with RedisCacheAdapter("redis://localhost"):
+    async with RedisCacheAdapter(provider=RedisProvider("redis://localhost")):
         pass
 
 
@@ -396,7 +389,9 @@ async def test_rate_limiter_redis_async_with_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
     """Rate limiter redis async with round trip."""
-    async with RedisRateLimiterBackend("redis://localhost"):
+    async with RedisRateLimiterBackend(
+        provider=RedisProvider("redis://localhost")
+    ):
         pass
 
 

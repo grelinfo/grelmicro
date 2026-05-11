@@ -3,11 +3,10 @@
 from types import TracebackType
 from typing import Annotated, Any, Self, assert_never
 
-from pydantic import RedisDsn
 from redis.asyncio import Redis
 from typing_extensions import Doc
 
-from grelmicro._redis import _create_redis_client
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -18,13 +17,12 @@ from grelmicro.resilience.algorithms import (
     RateLimiterConfig,
     TokenBucketConfig,
 )
-from grelmicro.resilience.errors import ResilienceSettingsValidationError
 
 
 class RedisRateLimiterBackend(RateLimiterBackend):
     """Redis rate limiter backend.
 
-    Supports both
+    Wraps a `RedisProvider` and supports both
     [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
     and [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]
     algorithm configs via atomic Lua scripts. Safe across processes
@@ -32,12 +30,14 @@ class RedisRateLimiterBackend(RateLimiterBackend):
 
     Example:
     ```python
+    from grelmicro.providers.redis import RedisProvider
     from grelmicro.resilience import RateLimiter, TokenBucketConfig
     from grelmicro.resilience.redis import RedisRateLimiterBackend
 
 
     async def main() -> None:
-        async with RedisRateLimiterBackend("redis://localhost:6379/0"):
+        provider = RedisProvider("redis://localhost:6379/0")
+        async with RedisRateLimiterBackend(provider=provider):
             rl = RateLimiter(
                 "api",
                 TokenBucketConfig(capacity=10, refill_rate=1),
@@ -50,19 +50,27 @@ class RedisRateLimiterBackend(RateLimiterBackend):
 
     def __init__(
         self,
-        url: Annotated[
-            RedisDsn | str | None,
+        *,
+        provider: Annotated[
+            RedisProvider | None,
             Doc(
                 """
-                The Redis URL.
-
-                If not provided, the URL will be taken from the
-                environment variables `REDIS_URL` or `REDIS_HOST`,
-                `REDIS_PORT`, `REDIS_DB`, and `REDIS_PASSWORD`.
+                A pre-built `RedisProvider`. When set, the backend
+                borrows the provider's client and does not manage
+                its lifecycle.
                 """
             ),
         ] = None,
-        *,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `RedisProvider` when `provider` is not set. Defaults
+                to `REDIS_`. Use a custom prefix to split pools.
+                """
+            ),
+        ] = "REDIS_",
         prefix: Annotated[
             str,
             Doc(
@@ -70,20 +78,34 @@ class RedisRateLimiterBackend(RateLimiterBackend):
                 Prefix prepended to every Redis key the backend
                 writes. Use it to avoid collisions with other
                 consumers of the same Redis database.
-
-                By default no prefix is added.
                 """
             ),
         ] = "",
     ) -> None:
         """Initialize the rate limiter backend."""
-        self._url, self._redis = _create_redis_client(
-            url, ResilienceSettingsValidationError
-        )
+        if provider is None:
+            self._provider = RedisProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
         self._prefix = prefix
+
+    @property
+    def provider(self) -> RedisProvider:
+        """The bound `RedisProvider`."""
+        return self._provider
+
+    def _rebind_provider(self, provider: RedisProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
 
     async def __aenter__(self) -> Self:
         """Open the rate limiter backend."""
+        if self._owns_provider:
+            await self._provider.__aenter__()
         return self
 
     async def __aexit__(
@@ -93,7 +115,8 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         traceback: TracebackType | None,
     ) -> None:
         """Close the rate limiter backend."""
-        await self._redis.aclose()
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
 
     def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.
@@ -101,11 +124,12 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         Each strategy has its own Lua scripts. It registers them
         with the Redis client when the strategy is created.
         """
+        client = self._provider.client
         match config:
             case TokenBucketConfig():
-                return _RedisTokenBucket(self._redis, self._prefix, config)
+                return _RedisTokenBucket(client, self._prefix, config)
             case GCRAConfig():
-                return _RedisGCRA(self._redis, self._prefix, config)
+                return _RedisGCRA(client, self._prefix, config)
         assert_never(config)
 
 

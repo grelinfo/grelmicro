@@ -11,6 +11,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.sync import use_backend
 from grelmicro.sync._backends import get_sync_backend, sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
@@ -157,7 +158,8 @@ async def backend(
     """Test Container for each Backend."""
     if backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
-        async with RedisSyncAdapter(f"redis://localhost:{port}/0") as backend:
+        provider = RedisProvider(f"redis://localhost:{port}/0")
+        async with RedisSyncAdapter(provider=provider) as backend:
             yield backend
     elif backend_name == "postgres" and container:
         port = container.get_exposed_port(5432)
@@ -413,7 +415,9 @@ async def test_owned_another(backend: SyncBackend) -> None:
     "backend_factory",
     [
         MemorySyncAdapter,
-        lambda: RedisSyncAdapter("redis://localhost:6379/0"),
+        lambda: RedisSyncAdapter(
+            provider=RedisProvider("redis://localhost:6379/0")
+        ),
         lambda: PostgresSyncAdapter(
             "postgresql://user:password@localhost:5432/db"
         ),
@@ -445,7 +449,9 @@ def test_get_sync_backend_not_loaded() -> None:
     "backend_factory",
     [
         MemorySyncAdapter,
-        lambda: RedisSyncAdapter("redis://localhost:6379/0"),
+        lambda: RedisSyncAdapter(
+            provider=RedisProvider("redis://localhost:6379/0")
+        ),
         lambda: PostgresSyncAdapter(
             "postgresql://user:password@localhost:5432/db"
         ),

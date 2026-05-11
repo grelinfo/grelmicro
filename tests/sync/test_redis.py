@@ -1,8 +1,8 @@
-"""Tests for Redis Backends."""
+"""Tests for the Redis Sync Adapter."""
 
 import pytest
 
-from grelmicro.sync.errors import SyncSettingsValidationError
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.sync.redis import RedisSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -10,60 +10,34 @@ pytestmark = [pytest.mark.timeout(1)]
 URL = "redis://:test_password@test_host:1234/0"
 
 
-@pytest.mark.parametrize(
-    ("environs"),
-    [
-        {"REDIS_URL": URL},
-        {
-            "REDIS_PASSWORD": "test_password",
-            "REDIS_HOST": "test_host",
-            "REDIS_PORT": "1234",
-            "REDIS_DB": "0",
-        },
-    ],
-)
-def test_redis_env_var_settings(
-    environs: dict[str, str], monkeypatch: pytest.MonkeyPatch
+def test_adapter_with_implicit_env_provider(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test Redis Settings from Environment Variables."""
-    # Arrange
-    for key, value in environs.items():
-        monkeypatch.setenv(key, value)
+    """Without `provider=`, the adapter builds its own from env vars."""
+    monkeypatch.setenv("REDIS_URL", URL)
 
-    # Act
     backend = RedisSyncAdapter()
 
-    # Assert
-    assert backend._url == URL
+    assert backend.provider.url == URL
+    assert backend._owns_provider is True
 
 
-@pytest.mark.parametrize(
-    ("environs"),
-    [
-        {},
-        {"REDIS_URL": "test://:test_password@test_host:1234/0"},
-        {"REDIS_PASSWORD": "test_password"},
-        {"REDIS_URL": URL, "REDIS_HOST": "test_host"},
-        {
-            "REDIS_URL": "test://:test_password@test_host:1234/0",
-            "REDIS_PASSWORD": "test_password",
-            "REDIS_HOST": "test_host",
-            "REDIS_PORT": "1234",
-            "REDIS_DB": "0",
-        },
-    ],
-)
-def test_redis_env_var_settings_validation_error(
-    environs: dict[str, str], monkeypatch: pytest.MonkeyPatch
+def test_adapter_borrows_external_provider() -> None:
+    """An explicit `provider=` is borrowed, not owned."""
+    provider = RedisProvider(URL)
+    backend = RedisSyncAdapter(provider=provider)
+
+    assert backend.provider is provider
+    assert backend._owns_provider is False
+
+
+def test_adapter_env_prefix_passed_to_implicit_provider(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test Redis Settings from Environment Variables."""
-    # Arrange
-    for key, value in environs.items():
-        monkeypatch.setenv(key, value)
+    """`env_prefix=` reaches the implicit provider."""
+    monkeypatch.setenv("CACHE_REDIS_URL", URL)
 
-    # Assert / Act
-    with pytest.raises(
-        SyncSettingsValidationError,
-        match=(r"Could not validate environment variables settings:\n"),
-    ):
-        RedisSyncAdapter()
+    backend = RedisSyncAdapter(env_prefix="CACHE_REDIS_")
+
+    assert backend.provider.url == URL
+    assert backend.provider.env_prefix == "CACHE_REDIS_"

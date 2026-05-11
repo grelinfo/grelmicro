@@ -1,3 +1,6 @@
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 
-backend = RedisRateLimiterBackend("redis://localhost:6379/0")
+backend = RedisRateLimiterBackend(
+    provider=RedisProvider("redis://localhost:6379/0")
+)

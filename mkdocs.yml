@@ -63,6 +63,7 @@ nav:
 - User Guide:
     - config.md
     - cache.md
+    - providers.md
     - health.md
     - json.md
     - logging.md

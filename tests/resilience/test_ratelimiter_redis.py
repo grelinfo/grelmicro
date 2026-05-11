@@ -2,8 +2,8 @@
 
 import pytest
 
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience._backends import rate_limiter_backend_registry
-from grelmicro.resilience.errors import ResilienceSettingsValidationError
 from grelmicro.resilience.redis import RedisRateLimiterBackend
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -17,63 +17,26 @@ def _reset_registry() -> None:
     rate_limiter_backend_registry.reset()
 
 
-@pytest.mark.parametrize(
-    ("environs"),
-    [
-        {"REDIS_URL": URL},
-        {
-            "REDIS_PASSWORD": "test_password",
-            "REDIS_HOST": "test_host",
-            "REDIS_PORT": "1234",
-            "REDIS_DB": "0",
-        },
-    ],
-)
-def test_redis_env_var_settings(
-    environs: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test Redis Settings from Environment Variables."""
-    # Arrange
-    for key, value in environs.items():
-        monkeypatch.setenv(key, value)
+def test_explicit_provider_is_borrowed() -> None:
+    """An explicit `provider=` is borrowed, not owned."""
+    provider = RedisProvider(URL)
 
-    # Act
+    backend = RedisRateLimiterBackend(provider=provider)
+
+    assert backend.provider is provider
+    assert backend._owns_provider is False
+
+
+def test_no_provider_builds_implicit_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without `provider=`, the backend builds its own from env vars."""
+    monkeypatch.setenv("REDIS_URL", URL)
+
     backend = RedisRateLimiterBackend()
 
-    # Assert
-    assert backend._url == URL
-
-
-@pytest.mark.parametrize(
-    ("environs"),
-    [
-        {},
-        {"REDIS_URL": "test://:test_password@test_host:1234/0"},
-        {"REDIS_PASSWORD": "test_password"},
-        {"REDIS_URL": URL, "REDIS_HOST": "test_host"},
-        {
-            "REDIS_URL": "test://:test_password@test_host:1234/0",
-            "REDIS_PASSWORD": "test_password",
-            "REDIS_HOST": "test_host",
-            "REDIS_PORT": "1234",
-            "REDIS_DB": "0",
-        },
-    ],
-)
-def test_redis_env_var_settings_validation_error(
-    environs: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test Redis Settings from Environment Variables."""
-    # Arrange
-    for key, value in environs.items():
-        monkeypatch.setenv(key, value)
-
-    # Act & Assert
-    with pytest.raises(
-        ResilienceSettingsValidationError,
-        match=(r"Could not validate environment variables settings:\n"),
-    ):
-        RedisRateLimiterBackend()
+    assert backend.provider.url == URL
+    assert backend._owns_provider is True
 
 
 def test_constructor_does_not_register(
@@ -88,21 +51,9 @@ def test_constructor_does_not_register(
 
 
 def test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test prefix parameter is stored."""
-    # Arrange
+    """`prefix=` is stored on the backend."""
     monkeypatch.setenv("REDIS_URL", URL)
 
-    # Act
     backend = RedisRateLimiterBackend(prefix="myapp:")
 
-    # Assert
     assert backend._prefix == "myapp:"
-
-
-def test_explicit_url() -> None:
-    """Test explicit URL parameter."""
-    # Act
-    backend = RedisRateLimiterBackend(URL)
-
-    # Assert
-    assert backend._url == URL
