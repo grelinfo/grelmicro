@@ -75,7 +75,7 @@ The config object is a frozen Pydantic model. Field names match the kwargs from 
 When `__init__` runs, the final value of each field is picked from the first source that has it:
 
 1. Caller `**kwargs`.
-2. Env var matching the component prefix (only when `env_load=True`).
+2. Env var matching the component prefix (when `env_load=True`, or when `env_load` is unset and `GREL_ENV_LOAD` is truthy).
 3. `Config` class default.
 
 ## Recipes

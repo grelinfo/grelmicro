@@ -135,7 +135,7 @@ class TestFromConfig:
         assert "cfg_host" in provider.url
         assert "4321" in provider.url
 
-    def test_from_config_does_not_env_load(
+    def test_from_config_ignores_env(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """`from_config` is authoritative and ignores the environment."""
