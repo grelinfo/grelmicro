@@ -19,8 +19,8 @@ class RedisCacheAdapter:
     """Redis cache storage backend.
 
     Wraps a `RedisProvider` and implements the cache protocol:
-    `get`, `set` (with per-entry TTL via `SETEX`), `delete`, and a
-    prefix-scoped `clear`. Pass an explicit `provider=` to share a
+    `get`, `set` (with per-entry TTL via `SET ... PX`), `delete`,
+    and a prefix-scoped `clear`. Pass an explicit `provider=` to share a
     pool with other components, or rely on the default `env_prefix=`
     to build one from environment variables.
     """

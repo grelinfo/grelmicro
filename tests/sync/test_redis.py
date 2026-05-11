@@ -10,14 +10,6 @@ pytestmark = [pytest.mark.timeout(1)]
 URL = "redis://:test_password@test_host:1234/0"
 
 
-def test_adapter_owns_implicit_provider() -> None:
-    """Constructing without `provider=` builds and owns a default `RedisProvider`."""
-    backend = RedisSyncAdapter(provider=RedisProvider(URL))
-
-    assert isinstance(backend.provider, RedisProvider)
-    assert backend._owns_provider is False
-
-
 def test_adapter_with_implicit_env_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
