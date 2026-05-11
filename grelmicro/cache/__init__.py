@@ -8,7 +8,7 @@ from typing_extensions import Doc
 from grelmicro._backends import DEFAULT_NAME
 from grelmicro._deprecation import warn_legacy
 from grelmicro.cache._backends import cache_backend_registry
-from grelmicro.cache._module import Cache
+from grelmicro.cache._component import Cache
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
 from grelmicro.cache.errors import CacheError, CacheSettingsValidationError

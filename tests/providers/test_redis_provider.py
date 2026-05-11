@@ -272,8 +272,8 @@ class TestSharingCache:
         cache_adapter = RedisCacheAdapter()
         assert sync_adapter.provider is not cache_adapter.provider
 
-        from grelmicro.cache._module import Cache  # noqa: PLC0415
-        from grelmicro.sync._module import Sync  # noqa: PLC0415
+        from grelmicro.cache._component import Cache  # noqa: PLC0415
+        from grelmicro.sync._component import Sync  # noqa: PLC0415
 
         for ad in (sync_adapter, cache_adapter):
             ad.provider._client = MagicMock(aclose=AsyncMock())
@@ -296,8 +296,8 @@ class TestSharingCache:
         for ad in (cache_adapter, sync_adapter):
             ad.provider._client = MagicMock(aclose=AsyncMock())
 
-        from grelmicro.cache._module import Cache  # noqa: PLC0415
-        from grelmicro.sync._module import Sync  # noqa: PLC0415
+        from grelmicro.cache._component import Cache  # noqa: PLC0415
+        from grelmicro.sync._component import Sync  # noqa: PLC0415
 
         micro = Grelmicro(uses=[Cache(cache_adapter), Sync(sync_adapter)])
         async with micro:

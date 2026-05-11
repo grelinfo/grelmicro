@@ -12,15 +12,15 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from typing_extensions import Doc
 
-from grelmicro._module import Module
+from grelmicro._component import Component
 from grelmicro.errors import GrelmicroError, OutOfContextError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable
     from types import TracebackType
 
-    from grelmicro.cache._module import Cache
-    from grelmicro.sync._module import Sync
+    from grelmicro.cache._component import Cache
+    from grelmicro.sync._component import Sync
 else:
     # Runtime fallback so `typing.get_type_hints(Grelmicro)` resolves the
     # `sync` / `cache` property annotations without forcing first-party
@@ -36,7 +36,7 @@ class Grelmicro:
     """The grelmicro application container.
 
     A `Grelmicro` is the user-owned root that holds every item attached to the
-    app (modules, task managers, health registries, custom async context
+    app (components, task managers, health registries, custom async context
     managers, ...) and opens them as a single async context manager. Two
     `Grelmicro` instances in the same process are fully independent.
 
@@ -76,7 +76,7 @@ class Grelmicro:
                 """
                 Items registered at construction time. Equivalent to a
                 sequence of `.use(item)` calls in the same order. Accepts
-                both `Module` instances (registered with `(kind, name)`
+                both `Component` instances (registered with `(kind, name)`
                 lookup, exposed on `micro.<kind>`) and plain async context
                 managers (lifecycled only, caller holds the reference).
                 """,
@@ -85,8 +85,8 @@ class Grelmicro:
     ) -> None:
         """Initialize the app and register any items passed at construction."""
         self._items: list[AbstractAsyncContextManager[object]] = []
-        self._by_key: dict[tuple[str, str], Module] = {}
-        self._by_kind: dict[str, Module] = {}
+        self._by_key: dict[tuple[str, str], Component] = {}
+        self._by_kind: dict[str, Component] = {}
         self._exit_stack: AsyncExitStack | None = None
         self._token: Any = None
         if uses is not None:
@@ -122,10 +122,10 @@ class Grelmicro:
 
         Three shapes are accepted:
 
-        1. A `Module` instance: registered with `(kind, name)` lookup and
+        1. A `Component` instance: registered with `(kind, name)` lookup and
            exposed on `micro.<kind>`.
         2. A first-party backend (e.g. `RedisSyncAdapter`): auto-wrapped
-           into its canonical `Module` (`Sync` for sync backends, `Cache`
+           into its canonical `Component` (`Sync` for sync backends, `Cache`
            for cache backends) before registration.
         3. Any other async context manager: just lifecycled with the app,
            the caller keeps the reference.
@@ -135,7 +135,7 @@ class Grelmicro:
         micro.use(RedisSyncAdapter())          # registered as (sync, default)
         micro.use(RedisCacheAdapter())         # registered as (cache, default)
 
-        # Explicit Module when a non-default name is needed
+        # Explicit Component when a non-default name is needed
         micro.use(Sync(RedisSyncAdapter(), name="analytics"))
 
         # Plain async context manager: lifecycled only, caller holds reference
@@ -145,79 +145,79 @@ class Grelmicro:
 
         Returns `None`. Mirrors FastAPI's `app.include_router(router)`
         pattern: pure side-effect registration. To access registered
-        modules, use the typed `micro.sync` / `micro.cache` properties or
+        components, use the typed `micro.sync` / `micro.cache` properties or
         `micro.get(kind, name)`. For plain async context managers, the
         caller already holds the reference.
 
         Raises:
-            ModuleAlreadyRegisteredError: A different module is already
+            ComponentAlreadyRegisteredError: A different component is already
                 registered under the same `(kind, name)` key. Plain async
                 context managers do not raise; they are appended.
         """
-        # Resolve the item to a Module if possible: pass-through for Module
+        # Resolve the item to a Component if possible: pass-through for Component
         # instances, auto-wrap for first-party backends, None for plain CMs.
-        module: Module | None = (
+        component: Component | None = (
             item
-            if isinstance(item, Module)
+            if isinstance(item, Component)
             else _maybe_wrap_first_party_backend(item)
         )
-        if module is None:
+        if component is None:
             # Plain async context manager: lifecycle only, no kind/name lookup.
             self._items.append(item)
             return
-        key = (module.kind, module.name)
+        key = (component.kind, component.name)
         existing = self._by_key.get(key)
-        if existing is module:
+        if existing is component:
             return
         if existing is not None:
             msg = (
-                f"module {key!r} is already registered. "
+                f"component {key!r} is already registered. "
                 f"Construct a new Grelmicro or pick a different name."
             )
-            raise ModuleAlreadyRegisteredError(msg)
-        self._by_key[key] = module
+            raise ComponentAlreadyRegisteredError(msg)
+        self._by_key[key] = component
         # `micro.<kind>` prefers the entry named `"default"`. Only update the
         # kind-default index when this registration is the default one.
         # `__getattr__` falls back to the sole entry per kind when no default
         # is registered.
-        if module.name == "default":
-            self._by_kind[module.kind] = module
-        self._items.append(module)
+        if component.name == "default":
+            self._by_kind[component.kind] = component
+        self._items.append(component)
 
     def get(self, kind: str, name: str = "default") -> Any:  # noqa: ANN401
-        """Resolve a registered module by `(kind, name)`.
+        """Resolve a registered component by `(kind, name)`.
 
         Returns `Any` for the same reason `micro.<kind>` does: the dynamic
         registration can't be statically typed without a global registry.
         Callers know the concrete type they registered.
 
         Raises:
-            ModuleNotRegisteredError: If no module matches.
+            ComponentNotRegisteredError: If no component matches.
         """
         try:
             return self._by_key[(kind, name)]
         except KeyError as exc:
-            msg = f"no module registered for {(kind, name)!r}."
-            raise ModuleNotRegisteredError(msg) from exc
+            msg = f"no component registered for {(kind, name)!r}."
+            raise ComponentNotRegisteredError(msg) from exc
 
     @asynccontextmanager
     async def override(
         self,
-        *modules: Annotated[
-            Module,
+        *components: Annotated[
+            Component,
             Doc(
                 """
-                Modules to install for the duration of the block. Each one
-                shadows any module already registered under the same
+                Components to install for the duration of the block. Each one
+                shadows any component already registered under the same
                 `(kind, name)` key. Original registrations are restored on
                 exit, even if the block raises.
                 """,
             ),
         ],
     ) -> AsyncIterator[None]:
-        """Swap module registrations for a block, restore them on exit.
+        """Swap component registrations for a block, restore them on exit.
 
-        Used in tests to substitute mock modules:
+        Used in tests to substitute mock components:
 
         ```python
         async with micro:
@@ -226,7 +226,7 @@ class Grelmicro:
         ```
 
         The override is scoped to the surrounding `async with micro:` block.
-        The new modules are entered when the override block opens and exited
+        The new components are entered when the override block opens and exited
         in reverse order when it closes.
 
         Plain async context managers (registered via `use(item)` without a
@@ -243,14 +243,14 @@ class Grelmicro:
         snapshot_items = self._items.copy()
         snapshot_by_kind = self._by_kind.copy()
         async with AsyncExitStack() as stack:
-            for module in modules:
-                key = (module.kind, module.name)
-                self._by_key[key] = module
-                if module not in self._items:
-                    self._items.append(module)
-                if module.name == "default":
-                    self._by_kind[module.kind] = module
-                await stack.enter_async_context(module)
+            for component in components:
+                key = (component.kind, component.name)
+                self._by_key[key] = component
+                if component not in self._items:
+                    self._items.append(component)
+                if component.name == "default":
+                    self._by_kind[component.kind] = component
+                await stack.enter_async_context(component)
             try:
                 yield
             finally:
@@ -259,13 +259,23 @@ class Grelmicro:
                 self._by_kind = snapshot_by_kind
 
     @property
+    def components(self) -> tuple[Component, ...]:
+        """Registered `Component` instances in registration order.
+
+        Plain async context managers passed to `use(...)` are not included.
+        Useful for `/healthz`-style introspection that prints what is wired
+        up on the running app.
+        """
+        return tuple(self._by_key.values())
+
+    @property
     def sync(self) -> Sync:
-        """The registered `Sync` module (default-named, or sole entry of kind `sync`)."""
+        """The registered `Sync` component (default-named, or sole entry of kind `sync`)."""
         return self._resolve_kind("sync")
 
     @property
     def cache(self) -> Cache:
-        """The registered `Cache` module (default-named, or sole entry of kind `cache`)."""
+        """The registered `Cache` component (default-named, or sole entry of kind `cache`)."""
         return self._resolve_kind("cache")
 
     def _resolve_kind(self, name: str) -> Any:  # noqa: ANN401
@@ -281,27 +291,27 @@ class Grelmicro:
         if matches:
             names = sorted(n for (k, n), _ in by_key.items() if k == name)
             msg = (
-                f"{cls!r} has multiple {name!r} modules ({names}), "
+                f"{cls!r} has multiple {name!r} components ({names}), "
                 f"none named 'default'. Use micro.get({name!r}, <name>)."
             )
             raise AttributeError(msg)
-        msg = f"{cls!r} object has no module of kind {name!r}"
+        msg = f"{cls!r} object has no component of kind {name!r}"
         raise AttributeError(msg)
 
     def __getattr__(self, name: str) -> Any:  # noqa: ANN401
-        """Resolve `micro.<kind>` to the registered module of that kind.
+        """Resolve `micro.<kind>` to the registered component of that kind.
 
         Falls through to `_resolve_kind` (used by typed properties for
-        first-party modules and by ad-hoc lookup for third-party modules).
+        first-party components and by ad-hoc lookup for third-party components).
 
         Resolution order, matching the legacy `BackendRegistry.get()` semantics:
 
-        1. The module registered as `(kind, "default")` if present.
+        1. The component registered as `(kind, "default")` if present.
         2. The sole entry of that kind if exactly one is registered.
         3. Otherwise raises `AttributeError`.
 
-        Returns `Any` so callers can invoke module-specific methods on
-        third-party modules without per-call casts. First-party modules
+        Returns `Any` so callers can invoke component-specific methods on
+        third-party components without per-call casts. First-party components
         (`sync`, `cache`) are typed via dedicated properties.
 
         Use `micro.get(kind, name)` for explicit name-based resolution.
@@ -384,16 +394,16 @@ def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
     return sys.exc_info()
 
 
-def _maybe_wrap_first_party_backend(item: object) -> Module | None:
-    """Wrap a first-party backend in its canonical Module, or return None.
+def _maybe_wrap_first_party_backend(item: object) -> Component | None:
+    """Wrap a first-party backend in its canonical Component, or return None.
 
-    Imports are lazy so unused modules stay out of `import grelmicro`.
+    Imports are lazy so unused submodules stay out of `import grelmicro`.
     The user importing `RedisCacheAdapter` already loads `grelmicro.cache`,
     so the lazy import here is a cache hit.
     """
-    from grelmicro.cache._module import Cache  # noqa: PLC0415
+    from grelmicro.cache._component import Cache  # noqa: PLC0415
     from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
-    from grelmicro.sync._module import Sync  # noqa: PLC0415
+    from grelmicro.sync._component import Sync  # noqa: PLC0415
     from grelmicro.sync.abc import SyncBackend  # noqa: PLC0415
 
     if isinstance(item, CacheBackend):
@@ -403,12 +413,12 @@ def _maybe_wrap_first_party_backend(item: object) -> Module | None:
     return None
 
 
-class ModuleAlreadyRegisteredError(GrelmicroError, RuntimeError):
-    """Raised when registering a different module under an existing `(kind, name)` key."""
+class ComponentAlreadyRegisteredError(GrelmicroError, RuntimeError):
+    """Raised when registering a different component under an existing `(kind, name)` key."""
 
 
-class ModuleNotRegisteredError(GrelmicroError, LookupError):
-    """Raised when resolving a module that has not been registered."""
+class ComponentNotRegisteredError(GrelmicroError, LookupError):
+    """Raised when resolving a component that has not been registered."""
 
 
 class NoActiveAppError(GrelmicroError, LookupError):

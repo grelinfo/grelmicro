@@ -1,17 +1,17 @@
-"""Tests for the `Sync` module (Grelmicro app integration)."""
+"""Tests for the `Sync` component (Grelmicro app integration)."""
 
 from __future__ import annotations
 
 import pytest
 
-from grelmicro import Grelmicro, Module
+from grelmicro import Component, Grelmicro
 from grelmicro.sync import LeaderElection, Lock, Sync, TaskLock
 from grelmicro.sync.memory import MemorySyncAdapter
 
 
-def test_sync_satisfies_module_protocol() -> None:
-    """`Sync` is a runtime-checkable `Module`."""
-    assert isinstance(Sync(MemorySyncAdapter()), Module)
+def test_sync_satisfies_component_protocol() -> None:
+    """`Sync` is a runtime-checkable `Component`."""
+    assert isinstance(Sync(MemorySyncAdapter()), Component)
 
 
 def test_sync_default_kind_and_name() -> None:
@@ -22,7 +22,7 @@ def test_sync_default_kind_and_name() -> None:
 
 
 def test_sync_named_registration() -> None:
-    """A named `Sync` module coexists with the default one."""
+    """A named `Sync` component coexists with the default one."""
     micro = Grelmicro(
         uses=[
             Sync(MemorySyncAdapter()),
@@ -101,7 +101,7 @@ async def test_use_auto_wrap_lifecycles_backend() -> None:
 
 
 async def test_micro_sync_prefers_default_when_named_also_registered() -> None:
-    """`micro.sync` resolves to the `(sync, default)` module even after named registrations."""
+    """`micro.sync` resolves to the `(sync, default)` component even after named registrations."""
     primary = MemorySyncAdapter()
     analytics = MemorySyncAdapter()
     micro = Grelmicro(
@@ -121,19 +121,19 @@ async def test_micro_sync_returns_sole_entry_when_no_default() -> None:
 
 
 async def test_micro_sync_raises_when_ambiguous() -> None:
-    """`micro.sync` raises when multiple non-default modules exist with no default."""
+    """`micro.sync` raises when multiple non-default components exist with no default."""
     micro = Grelmicro(
         uses=[
             Sync(MemorySyncAdapter(), name="primary"),
             Sync(MemorySyncAdapter(), name="analytics"),
         ]
     )
-    with pytest.raises(AttributeError, match="multiple 'sync' modules"):
+    with pytest.raises(AttributeError, match="multiple 'sync' components"):
         _ = micro.sync
 
 
 async def test_sync_multi_backend_named_lookup() -> None:
-    """Named `Sync` modules are reachable via `micro.get('sync', name)`."""
+    """Named `Sync` components are reachable via `micro.get('sync', name)`."""
     primary = MemorySyncAdapter()
     analytics = MemorySyncAdapter()
     micro = Grelmicro(

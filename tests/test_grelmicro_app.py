@@ -1,4 +1,4 @@
-"""Tests for the Grelmicro app container and Module protocol."""
+"""Tests for the Grelmicro app container and Component protocol."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 from grelmicro import (
+    Component,
+    ComponentAlreadyRegisteredError,
+    ComponentNotRegisteredError,
     Grelmicro,
-    Module,
-    ModuleAlreadyRegisteredError,
-    ModuleNotRegisteredError,
     NoActiveAppError,
 )
 from grelmicro.errors import OutOfContextError
@@ -23,8 +23,8 @@ _BOOM = "boom"
 _RAISED = "raised"
 
 
-class _RecordingModule:
-    """A Module implementation that records its enter/exit lifecycle."""
+class _RecordingComponent:
+    """A Component implementation that records its enter/exit lifecycle."""
 
     kind: ClassVar[str] = "rec"
 
@@ -52,13 +52,13 @@ class _RecordingModule:
         return None
 
 
-class _OtherModule(_RecordingModule):
-    """Different `kind` so it can coexist with `_RecordingModule` on `micro`."""
+class _OtherComponent(_RecordingComponent):
+    """Different `kind` so it can coexist with `_RecordingComponent` on `micro`."""
 
     kind: ClassVar[str] = "oth"
 
 
-class _RaisingModule(_RecordingModule):
+class _RaisingComponent(_RecordingComponent):
     """Raises on `__aenter__` so we can test partial-startup cleanup."""
 
     async def __aenter__(self) -> Self:
@@ -66,21 +66,56 @@ class _RaisingModule(_RecordingModule):
         raise RuntimeError(_BOOM)
 
 
-# --- Module protocol ---
+# --- Component protocol ---
 
 
-def test_module_protocol_is_runtime_checkable() -> None:
-    """A class with kind/name/__aenter__/__aexit__ satisfies the Module protocol."""
-    assert isinstance(_RecordingModule(), Module)
+def test_component_protocol_is_runtime_checkable() -> None:
+    """A class with kind/name/__aenter__/__aexit__ satisfies the Component protocol."""
+    assert isinstance(_RecordingComponent(), Component)
+
+
+# --- .components introspection ---
+
+
+def test_components_returns_registered_in_order() -> None:
+    """`.components` yields Component instances in registration order."""
+    micro = Grelmicro()
+    rec = _RecordingComponent(name="default")
+    oth = _OtherComponent(name="default")
+    micro.use(rec)
+    micro.use(oth)
+    assert micro.components == (rec, oth)
+
+
+def test_components_excludes_plain_context_managers() -> None:
+    """Plain async context managers are not exposed via `.components`."""
+
+    class _PlainCM:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> bool | None:
+            return None
+
+    micro = Grelmicro()
+    rec = _RecordingComponent()
+    micro.use(rec)
+    micro.use(_PlainCM())
+    assert micro.components == (rec,)
 
 
 # --- .use() registration ---
 
 
-def test_use_attaches_module_on_kind_attr() -> None:
-    """`.use()` exposes the module as `micro.<kind>`."""
+def test_use_attaches_component_on_kind_attr() -> None:
+    """`.use()` exposes the component as `micro.<kind>`."""
     micro = Grelmicro()
-    pattern = _RecordingModule()
+    pattern = _RecordingComponent()
     micro.use(pattern)
     assert micro.rec is pattern
 
@@ -88,14 +123,14 @@ def test_use_attaches_module_on_kind_attr() -> None:
 def test_use_returns_none() -> None:
     """`.use()` returns None (side-effect registration, mirrors FastAPI's include_router)."""
     micro = Grelmicro()
-    pattern = _RecordingModule()
+    pattern = _RecordingComponent()
     assert micro.use(pattern) is None
 
 
 def test_use_same_instance_is_noop() -> None:
     """Re-registering the exact same instance under the same name is a no-op."""
     micro = Grelmicro()
-    pattern = _RecordingModule()
+    pattern = _RecordingComponent()
     micro.use(pattern)
     micro.use(pattern)
 
@@ -103,16 +138,16 @@ def test_use_same_instance_is_noop() -> None:
 def test_use_different_instance_same_key_raises() -> None:
     """Two different instances under the same `(kind, name)` raises."""
     micro = Grelmicro()
-    micro.use(_RecordingModule())
-    with pytest.raises(ModuleAlreadyRegisteredError):
-        micro.use(_RecordingModule())
+    micro.use(_RecordingComponent())
+    with pytest.raises(ComponentAlreadyRegisteredError):
+        micro.use(_RecordingComponent())
 
 
 def test_use_same_kind_different_name_coexists() -> None:
-    """Multiple modules of the same kind under different names coexist."""
+    """Multiple components of the same kind under different names coexist."""
     micro = Grelmicro()
-    primary = _RecordingModule(name="primary")
-    analytics = _RecordingModule(name="analytics")
+    primary = _RecordingComponent(name="primary")
+    analytics = _RecordingComponent(name="analytics")
     micro.use(primary)
     micro.use(analytics)
     assert micro.get("rec", "primary") is primary
@@ -122,10 +157,10 @@ def test_use_same_kind_different_name_coexists() -> None:
 # --- uses= constructor ---
 
 
-def test_uses_kwarg_registers_modules_in_order() -> None:
+def test_uses_kwarg_registers_components_in_order() -> None:
     """`Grelmicro(uses=[...])` is equivalent to repeated `.use(...)` calls."""
-    a = _RecordingModule(name="a")
-    b = _OtherModule(name="b")
+    a = _RecordingComponent(name="a")
+    b = _OtherComponent(name="b")
     micro = Grelmicro(uses=[a, b])
     assert micro.get("rec", "a") is a
     assert micro.get("oth", "b") is b
@@ -134,7 +169,7 @@ def test_uses_kwarg_registers_modules_in_order() -> None:
 def test_uses_kwarg_accepts_none() -> None:
     """`uses=None` (the default) constructs an empty container."""
     micro = Grelmicro()
-    with pytest.raises(ModuleNotRegisteredError):
+    with pytest.raises(ComponentNotRegisteredError):
         micro.get("rec")
 
 
@@ -142,11 +177,11 @@ def test_uses_kwarg_accepts_none() -> None:
 
 
 async def test_lifespan_enters_and_exits_in_lifo_order() -> None:
-    """Modules enter in registration order, exit in reverse."""
+    """Components enter in registration order, exit in reverse."""
     log: list[str] = []
-    a = _RecordingModule(name="a", log=log)
-    b = _RecordingModule(name="b", log=log)
-    c = _RecordingModule(name="c", log=log)
+    a = _RecordingComponent(name="a", log=log)
+    b = _RecordingComponent(name="b", log=log)
+    c = _RecordingComponent(name="c", log=log)
     micro = Grelmicro(uses=[a, b, c])
     async with micro:
         assert log == ["enter:a", "enter:b", "enter:c"]
@@ -163,10 +198,10 @@ async def test_lifespan_enters_and_exits_in_lifo_order() -> None:
 async def test_lifespan_partial_startup_failure_unwinds_already_entered() -> (
     None
 ):
-    """A failure in module N rolls back modules 0..N-1 in LIFO order."""
+    """A failure in component N rolls back components 0..N-1 in LIFO order."""
     log: list[str] = []
-    good = _RecordingModule(name="good", log=log)
-    bad = _RaisingModule(name="bad", log=log)
+    good = _RecordingComponent(name="good", log=log)
+    bad = _RaisingComponent(name="bad", log=log)
     micro = Grelmicro(uses=[good, bad])
     with pytest.raises(RuntimeError, match=_BOOM):
         async with micro:
@@ -176,7 +211,7 @@ async def test_lifespan_partial_startup_failure_unwinds_already_entered() -> (
 
 async def test_lifespan_can_be_reentered_after_clean_exit() -> None:
     """A `Grelmicro` instance can be opened again after closing cleanly."""
-    micro = Grelmicro(uses=[_RecordingModule()])
+    micro = Grelmicro(uses=[_RecordingComponent()])
     async with micro:
         pass
     async with micro:
@@ -218,11 +253,11 @@ async def test_current_micro_is_per_task() -> None:
 # --- override() ---
 
 
-async def test_override_swaps_module_for_block() -> None:
-    """`micro.override(...)` replaces a module for the duration of the block."""
+async def test_override_swaps_component_for_block() -> None:
+    """`micro.override(...)` replaces a component for the duration of the block."""
     log: list[str] = []
-    real = _RecordingModule(name="default", log=log)
-    mock = _RecordingModule(name="default", log=[])
+    real = _RecordingComponent(name="default", log=log)
+    mock = _RecordingComponent(name="default", log=[])
     mock.log = log  # share log
     micro = Grelmicro(uses=[real])
     async with micro:
@@ -291,12 +326,12 @@ async def test_use_lifecycles_plain_context_manager_with_app() -> None:
     assert item.exited == 1
 
 
-async def test_uses_kwarg_accepts_modules_and_plain_managers_in_one_list() -> (
+async def test_uses_kwarg_accepts_components_and_plain_managers_in_one_list() -> (
     None
 ):
-    """`uses=[Module(), plain_manager]` mixes both kinds in registration order."""
+    """`uses=[Component(), plain_manager]` mixes both kinds in registration order."""
     log: list[str] = []
-    mod = _RecordingModule(name="default", log=log)
+    mod = _RecordingComponent(name="default", log=log)
     inc = _RecordingContext(log=log, label="entry_point")
     micro = Grelmicro(uses=[mod, inc])
     async with micro:
@@ -349,8 +384,8 @@ def test_runtime_type_hints_resolve_without_loading_submodules() -> None:
     assert isinstance(hints, dict)
 
 
-async def test_module_aenter_can_resolve_current_micro() -> None:
-    """Modules consulting `Grelmicro.current()` from `__aenter__` see the active app."""
+async def test_component_aenter_can_resolve_current_micro() -> None:
+    """Components consulting `Grelmicro.current()` from `__aenter__` see the active app."""
     seen: list[Grelmicro] = []
 
     class _CurrentLookupOnEnter:
@@ -401,11 +436,11 @@ async def test_plain_manager_aenter_can_resolve_current_micro() -> None:
     assert seen == [micro]
 
 
-async def test_module_aexit_can_resolve_current_micro() -> None:
-    """Modules consulting `Grelmicro.current()` from `__aexit__` see the active app."""
+async def test_component_aexit_can_resolve_current_micro() -> None:
+    """Components consulting `Grelmicro.current()` from `__aexit__` see the active app."""
     seen: list[Grelmicro] = []
 
-    class _CurrentLookupModule:
+    class _CurrentLookupComponent:
         kind: ClassVar[str] = "rec"
 
         def __init__(self) -> None:
@@ -423,7 +458,7 @@ async def test_module_aexit_can_resolve_current_micro() -> None:
             seen.append(Grelmicro.current())
             return None
 
-    micro = Grelmicro(uses=[_CurrentLookupModule()])
+    micro = Grelmicro(uses=[_CurrentLookupComponent()])
     async with micro:
         pass
     assert seen == [micro]
@@ -432,7 +467,7 @@ async def test_module_aexit_can_resolve_current_micro() -> None:
 async def test_override_outside_active_context_raises() -> None:
     """`override(...)` outside an active `async with micro:` raises `OutOfContextError`."""
     micro = Grelmicro()
-    mock = _RecordingModule(name="default")
+    mock = _RecordingComponent(name="default")
     with pytest.raises(OutOfContextError):
         async with micro.override(mock):
             pass
@@ -441,14 +476,14 @@ async def test_override_outside_active_context_raises() -> None:
 async def test_unknown_kind_attribute_raises_attribute_error() -> None:
     """`micro.<unknown_kind>` raises a regular `AttributeError`."""
     micro = Grelmicro()
-    with pytest.raises(AttributeError, match="no module of kind 'nope'"):
+    with pytest.raises(AttributeError, match="no component of kind 'nope'"):
         _ = micro.nope
 
 
 async def test_override_restores_on_exception() -> None:
     """`override(...)` restores prior registrations even when the block raises."""
-    real = _RecordingModule(name="default")
-    mock = _RecordingModule(name="default")
+    real = _RecordingComponent(name="default")
+    mock = _RecordingComponent(name="default")
     micro = Grelmicro(uses=[real])
     async with micro:
         with pytest.raises(RuntimeError, match=_RAISED):

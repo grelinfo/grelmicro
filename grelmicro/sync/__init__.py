@@ -8,7 +8,7 @@ from typing_extensions import Doc
 from grelmicro._backends import DEFAULT_NAME
 from grelmicro._deprecation import warn_legacy
 from grelmicro.sync._backends import sync_backend_registry
-from grelmicro.sync._module import Sync
+from grelmicro.sync._component import Sync
 from grelmicro.sync.abc import SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import SyncError, SyncSettingsValidationError
 from grelmicro.sync.leaderelection import LeaderElection

@@ -8,13 +8,13 @@ from contextlib import (
 )
 
 from grelmicro._app import (
+    ComponentAlreadyRegisteredError,
+    ComponentNotRegisteredError,
     Grelmicro,
-    ModuleAlreadyRegisteredError,
-    ModuleNotRegisteredError,
     NoActiveAppError,
 )
+from grelmicro._component import Component
 from grelmicro._deprecation import warn_legacy
-from grelmicro._module import Module
 
 
 def lifespan(
@@ -76,10 +76,10 @@ async def _lifespan(
 
 
 __all__ = [
+    "Component",
+    "ComponentAlreadyRegisteredError",
+    "ComponentNotRegisteredError",
     "Grelmicro",
-    "Module",
-    "ModuleAlreadyRegisteredError",
-    "ModuleNotRegisteredError",
     "NoActiveAppError",
     "lifespan",
 ]
