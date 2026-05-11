@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator, Generator
 import pytest
 from testcontainers.redis import RedisContainer
 
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -60,7 +61,7 @@ async def backend(
     if backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
         async with RedisRateLimiterBackend(
-            f"redis://localhost:{port}/0",
+            provider=RedisProvider(f"redis://localhost:{port}/0"),
             prefix="test:",
         ) as redis_backend:
             yield redis_backend

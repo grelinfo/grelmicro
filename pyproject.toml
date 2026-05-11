@@ -72,6 +72,9 @@ Documentation = "https://grelinfo.github.io/grelmicro"
 Repository = "https://github.com/grelinfo/grelmicro.git"
 Issues = "https://github.com/grelinfo/grelmicro/issues"
 
+[project.entry-points."grelmicro.providers"]
+redis = "grelmicro.providers.redis:RedisProvider"
+
 [project.optional-dependencies]
 standard = [
     "orjson>=3.10.11",
