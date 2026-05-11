@@ -122,13 +122,13 @@ def test_env_prefix_override(
     assert task_lock.config.max_lock_seconds == MAX_ENV
 
 
-def test_read_env_false_ignores_env(
+def test_env_load_false_ignores_env(
     backend: SyncBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``read_env=False`` skips env reads entirely."""
+    """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv("GREL_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
-    task_lock = TaskLock("cleanup", backend=backend, read_env=False)
+    task_lock = TaskLock("cleanup", backend=backend, env_load=False)
     assert task_lock.config.max_lock_seconds == DEFAULT_MAX
 
 

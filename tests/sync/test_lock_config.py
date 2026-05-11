@@ -117,13 +117,13 @@ def test_env_prefix_override(
     assert lock.config.lease_duration == LEASE_ENV
 
 
-def test_read_env_false_ignores_env(
+def test_env_load_false_ignores_env(
     backend: SyncBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``read_env=False`` skips env reads entirely."""
+    """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_ENV))
-    lock = Lock("cart", backend=backend, read_env=False)
+    lock = Lock("cart", backend=backend, env_load=False)
     assert lock.config.lease_duration == DEFAULT_LEASE
 
 

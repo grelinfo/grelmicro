@@ -89,10 +89,10 @@ def test_rate_limit_env_prefix_override(
     assert flt.config.capacity == RL_CAPACITY_ENV
 
 
-def test_rate_limit_read_env_false(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``read_env=False`` skips env reads entirely."""
+def test_rate_limit_env_load_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv("GREL_RATE_LIMIT_FILTER_CAPACITY", str(RL_CAPACITY_ENV))
-    flt = RateLimitFilter(read_env=False)
+    flt = RateLimitFilter(env_load=False)
     assert flt.config.capacity == RL_DEFAULT_CAPACITY
 
 
@@ -175,12 +175,12 @@ def test_duplicate_env_prefix_override(
     assert flt.config.allowed_repetitions == DF_REPS_ENV
 
 
-def test_duplicate_read_env_false(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``read_env=False`` skips env reads entirely."""
+def test_duplicate_env_load_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv(
         "GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
     )
-    flt = DuplicateFilter(read_env=False)
+    flt = DuplicateFilter(env_load=False)
     assert flt.config.allowed_repetitions == DF_DEFAULT_REPS
 
 

@@ -77,12 +77,12 @@ def test_env_prefix_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cb.config.error_threshold == ERROR_ENV
 
 
-def test_read_env_false_ignores_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``read_env=False`` skips env reads entirely."""
+def test_env_load_false_ignores_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv(
         "GREL_CIRCUIT_BREAKER_PAYMENTS_ERROR_THRESHOLD", str(ERROR_ENV)
     )
-    cb = CircuitBreaker("payments", read_env=False)
+    cb = CircuitBreaker("payments", env_load=False)
     assert cb.config.error_threshold == DEFAULT_ERROR
 
 

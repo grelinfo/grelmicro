@@ -37,7 +37,7 @@ def test_kwargs_only_uses_kwargs_and_defaults() -> None:
         explicit=None,
         kwargs={"name": "a", "timeout": KWARG_TIMEOUT},
         env_prefix="X_",
-        read_env=False,
+        env_load=False,
     )
     assert cfg.name == "a"
     assert cfg.timeout == KWARG_TIMEOUT
@@ -51,7 +51,7 @@ def test_none_kwargs_are_treated_as_unset() -> None:
         explicit=None,
         kwargs={"name": "a", "timeout": None, "retries": None},
         env_prefix="X_",
-        read_env=False,
+        env_load=False,
     )
     assert cfg.timeout == DEFAULT_TIMEOUT
     assert cfg.retries == DEFAULT_RETRIES
@@ -65,7 +65,7 @@ def test_explicit_returned_as_is() -> None:
         explicit=explicit,
         kwargs={"name": None, "timeout": None, "retries": None},
         env_prefix="X_",
-        read_env=True,
+        env_load=True,
     )
     assert cfg is explicit
 
@@ -79,7 +79,7 @@ def test_explicit_with_non_none_kwarg_raises() -> None:
             explicit=explicit,
             kwargs={"name": "seed", "timeout": KWARG_TIMEOUT},
             env_prefix="X_",
-            read_env=False,
+            env_load=False,
         )
 
 
@@ -94,7 +94,7 @@ def test_env_vars_fill_unset_fields(
         explicit=None,
         kwargs={"name": "a"},
         env_prefix="X_",
-        read_env=True,
+        env_load=True,
     )
     assert cfg.timeout == ENV_TIMEOUT
     assert cfg.retries == ENV_RETRIES
@@ -110,22 +110,22 @@ def test_kwargs_override_env(
         explicit=None,
         kwargs={"name": "a", "timeout": KWARG_TIMEOUT},
         env_prefix="X_",
-        read_env=True,
+        env_load=True,
     )
     assert cfg.timeout == KWARG_TIMEOUT
 
 
-def test_read_env_false_ignores_env(
+def test_env_load_false_ignores_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``read_env=False`` skips env reading entirely."""
+    """``env_load=False`` skips env reading entirely."""
     monkeypatch.setenv("X_TIMEOUT", str(ENV_TIMEOUT))
     cfg = resolve_config(
         _Sample,
         explicit=None,
         kwargs={"name": "a"},
         env_prefix="X_",
-        read_env=False,
+        env_load=False,
     )
     assert cfg.timeout == DEFAULT_TIMEOUT
 
@@ -141,7 +141,7 @@ def test_env_prefix_scopes_reads(
         explicit=None,
         kwargs={"name": "a"},
         env_prefix="X_",
-        read_env=True,
+        env_load=True,
     )
     assert cfg.timeout == SCOPED_ENV_TIMEOUT
 
@@ -154,7 +154,7 @@ def test_invalid_kwarg_raises_validation_error() -> None:
             explicit=None,
             kwargs={"name": "a", "unknown_field": 1},
             env_prefix="X_",
-            read_env=False,
+            env_load=False,
         )
 
 
@@ -167,7 +167,7 @@ def test_invalid_value_raises_validation_error() -> None:
             explicit=None,
             kwargs={"name": "a", "timeout": invalid_timeout},
             env_prefix="X_",
-            read_env=False,
+            env_load=False,
         )
 
 
@@ -182,7 +182,7 @@ def test_invalid_env_value_raises_validation_error(
             explicit=None,
             kwargs={"name": "a"},
             env_prefix="X_",
-            read_env=True,
+            env_load=True,
         )
 
 
@@ -193,7 +193,7 @@ def test_frozen_is_preserved() -> None:
         explicit=None,
         kwargs={"name": "a"},
         env_prefix="X_",
-        read_env=True,
+        env_load=True,
     )
     with pytest.raises(ValidationError):
         cfg.timeout = ENV_TIMEOUT  # type: ignore[misc]
@@ -206,7 +206,7 @@ def test_returns_correct_instance_type() -> None:
         explicit=None,
         kwargs={"name": "a"},
         env_prefix="X_",
-        read_env=True,
+        env_load=True,
     )
     assert isinstance(cfg, _Sample)
 

@@ -118,8 +118,8 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 Default per-check timeout in seconds. Checks that
                 exceed this duration are reported as ``error``.
 
-                Default: 5.0. When unset and env reads are enabled (see ``read_env`` and
-                ``GREL_CONFIG_FROM_ENV``), resolves from the
+                Default: 5.0. When unset and env reads are enabled (see ``env_load`` and
+                ``GREL_ENV_LOAD``), resolves from the
                 environment variable ``GREL_HEALTH_TIMEOUT`` if
                 present, otherwise falls back to the
                 ``HealthChecksConfig`` default.
@@ -132,8 +132,8 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 """
                 Per-check cache TTL in seconds. Set to 0 to disable.
 
-                Default: 1.0. When unset and env reads are enabled (see ``read_env`` and
-                ``GREL_CONFIG_FROM_ENV``), resolves from the
+                Default: 1.0. When unset and env reads are enabled (see ``env_load`` and
+                ``GREL_ENV_LOAD``), resolves from the
                 environment variable ``GREL_HEALTH_CACHE_TTL`` if
                 present, otherwise falls back to the
                 ``HealthChecksConfig`` default.
@@ -150,14 +150,14 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 """
             ),
         ] = None,
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc(
                 """
                 Whether to read environment variables.
 
                 When None (the default), follow the process-wide
-                ``GREL_CONFIG_FROM_ENV`` flag. Pass True or False to
+                ``GREL_ENV_LOAD`` flag. Pass True or False to
                 override the flag for this construction.
                 """
             ),
@@ -169,7 +169,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             explicit=None,
             kwargs={"timeout": timeout, "cache_ttl": cache_ttl},
             env_prefix=env_prefix or "GREL_HEALTH_",
-            read_env=read_env,
+            env_load=env_load,
         )
         self._setup(config)
 

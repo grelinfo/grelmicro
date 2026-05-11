@@ -75,7 +75,7 @@ The config object is a frozen Pydantic model. Field names match the kwargs from 
 When `__init__` runs, the final value of each field is picked from the first source that has it:
 
 1. Caller `**kwargs`.
-2. Env var matching the component prefix (only when `read_env=True`).
+2. Env var matching the component prefix (when `env_load=True`, or when `env_load` is unset and `GREL_ENV_LOAD` is truthy).
 3. `Config` class default.
 
 ## Recipes
@@ -89,7 +89,7 @@ lock = Lock("cart", env_prefix="MYAPP_LOCK_CART_")
 ### Disable env reads
 
 ```python
-lock = Lock("cart", read_env=False, lease_duration=10)
+lock = Lock("cart", env_load=False, lease_duration=10)
 ```
 
 ### Wire from `pydantic-settings`

@@ -138,8 +138,8 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
 
                 Default: 15. If the worker becomes unavailable, the lock
                 can only be acquired by another worker after it has
-                expired. When unset and env reads are enabled (see ``read_env`` and
-                ``GREL_CONFIG_FROM_ENV``), resolves from the environment
+                expired. When unset and env reads are enabled (see ``env_load`` and
+                ``GREL_ENV_LOAD``), resolves from the environment
                 variable
                 `GREL_LEADER_ELECTION_{NAME_UPPER}_LEASE_DURATION` if
                 present, otherwise falls back to the
@@ -211,14 +211,14 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
                 """,
             ),
         ] = None,
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc(
                 """
                 Whether to read environment variables.
 
                 When None (the default), follow the process-wide
-                ``GREL_CONFIG_FROM_ENV`` flag. Pass True or False to
+                ``GREL_ENV_LOAD`` flag. Pass True or False to
                 override the flag for this construction.
                 """,
             ),
@@ -238,7 +238,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
             },
             env_prefix=env_prefix
             or f"GREL_LEADER_ELECTION_{env_segment(name)}_",
-            read_env=read_env,
+            env_load=env_load,
         )
         self._setup(name, config, backend)
 

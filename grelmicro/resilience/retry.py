@@ -510,11 +510,11 @@ class Retry(Reconfigurable[RetryConfig]):
                 "Mutually exclusive with the per-field kwargs."
             ),
         ] = None,
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc(
                 "Whether to read environment variables. Defaults "
-                "to the process-wide ``GREL_CONFIG_FROM_ENV`` flag."
+                "to the process-wide ``GREL_ENV_LOAD`` flag."
             ),
         ] = None,
     ) -> None:
@@ -530,7 +530,7 @@ class Retry(Reconfigurable[RetryConfig]):
             explicit=config,
             kwargs=kwargs,
             env_prefix=f"GREL_RETRY_{env_segment(name)}_",
-            read_env=read_env,
+            env_load=env_load,
         )
         self._config = resolved
         self._state = _State(config=resolved, matcher=resolved.when)
@@ -589,7 +589,7 @@ class Retry(Reconfigurable[RetryConfig]):
             Literal["none", "full", "decorrelated"],
             Doc("Jitter mode."),
         ] = "full",
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc("Whether to read environment variables."),
         ] = None,
@@ -608,7 +608,7 @@ class Retry(Reconfigurable[RetryConfig]):
             backoff,
             when=when,
             attempts=attempts,
-            read_env=read_env,
+            env_load=env_load,
         )
 
     @classmethod
@@ -628,7 +628,7 @@ class Retry(Reconfigurable[RetryConfig]):
             PositiveFloat,
             Doc("Fixed delay in seconds between retries."),
         ] = 1.0,
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc("Whether to read environment variables."),
         ] = None,
@@ -645,7 +645,7 @@ class Retry(Reconfigurable[RetryConfig]):
             backoff,
             when=when,
             attempts=attempts,
-            read_env=read_env,
+            env_load=env_load,
         )
 
     def __aiter__(self) -> AsyncIterator[RetryAttempt]:

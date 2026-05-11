@@ -176,7 +176,7 @@ GREL_LOCK_CART_RETRY_INTERVAL=0.2
 ```
 
 !!! tip "Override the env prefix"
-    The derived prefix is only the zero-config default. Apps that want their own convention (for example `MYAPP_LOCK_CART_*`) pass `env_prefix=` explicitly. Pass `read_env=False` to skip env reading entirely when every field is already supplied via kwargs or when construction happens via `Lock.from_config(...)`.
+    The derived prefix is only the zero-config default. Apps that want their own convention (for example `MYAPP_LOCK_CART_*`) pass `env_prefix=` explicitly. Pass `env_load=False` to skip env reading entirely when every field is already supplied via kwargs or when construction happens via `Lock.from_config(...)`.
 
 !!! info "Composing with the wider settings tree"
     grelmicro does not ship a `BaseSettings` wrapper. Apps own the env namespace, the YAML path, and the aggregation strategy. Compose `LockConfig` into `pydantic-settings`, load it from YAML, secrets files, Vault, or any other source, then call `Lock.from_config("cart", cfg)`.
@@ -218,12 +218,12 @@ async def handle_order(order_id: int):
 | Construction path | Per call | Notes |
 |---|---:|---|
 | `Lock(name)` (programmatic, env disabled) | ~10 µs | Pydantic validation plus `env_segment(name)` for the default prefix |
-| `Lock(name)` (env enabled, `GREL_CONFIG_FROM_ENV=true` or `read_env=True`) | ~70 µs | Adds the env read on top |
+| `Lock(name)` (env enabled, `GREL_ENV_LOAD=true` or `env_load=True`) | ~70 µs | Adds the env read on top |
 | `Lock.from_config(name, cfg)` | ~10 µs | Skips env and the default-prefix build, reuses `cfg` |
 | `async with lock` resolution | ~80 ns | `ContextVar.get` plus dict lookup |
 | `backend.acquire(...)` (Redis Lua eval) | ~1 ms | Network round-trip |
 
-The acquire round-trip dominates wall-clock. The construction cost matters only for high-throughput dynamic-key flows. `Lock.from_config(...)` keeps the construction cost flat regardless of the global `GREL_CONFIG_FROM_ENV` setting.
+The acquire round-trip dominates wall-clock. The construction cost matters only for high-throughput dynamic-key flows. `Lock.from_config(...)` keeps the construction cost flat regardless of the global `GREL_ENV_LOAD` setting.
 
 #### When the simpler form is enough
 
@@ -231,4 +231,4 @@ A handful of dynamic-key Locks per request, on a handler that already pays a dat
 
 - the handler runs many Locks per request
 - the path is on a measured hot loop
-- the deployment has `GREL_CONFIG_FROM_ENV=true` and you want to skip the env path on per-request construction
+- the deployment has `GREL_ENV_LOAD=true` and you want to skip the env path on per-request construction

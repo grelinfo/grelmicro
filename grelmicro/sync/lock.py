@@ -114,8 +114,8 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 """
                 The duration in seconds for the lock to be held by default.
 
-                Default: 60. When unset and env reads are enabled (see ``read_env`` and
-                ``GREL_CONFIG_FROM_ENV``), resolves from the environment
+                Default: 60. When unset and env reads are enabled (see ``env_load`` and
+                ``GREL_ENV_LOAD``), resolves from the environment
                 variable `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION` if
                 present, otherwise falls back to the `LockConfig`
                 default.
@@ -129,8 +129,8 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 The duration in seconds between attempts to acquire the lock.
 
                 Default: 0.1. Must be >= 0.001 to prevent flooding
-                the lock backend. When unset and env reads are enabled (see ``read_env`` and
-                ``GREL_CONFIG_FROM_ENV``), resolves from the
+                the lock backend. When unset and env reads are enabled (see ``env_load`` and
+                ``GREL_ENV_LOAD``), resolves from the
                 environment variable
                 `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL` if present,
                 otherwise falls back to the `LockConfig` default.
@@ -149,14 +149,14 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 """,
             ),
         ] = None,
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc(
                 """
                 Whether to read environment variables.
 
                 When None (the default), follow the process-wide
-                ``GREL_CONFIG_FROM_ENV`` flag. Pass True or False to
+                ``GREL_ENV_LOAD`` flag. Pass True or False to
                 override the flag for this construction.
                 """,
             ),
@@ -172,7 +172,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 "retry_interval": retry_interval,
             },
             env_prefix=env_prefix or f"GREL_LOCK_{env_segment(name)}_",
-            read_env=read_env,
+            env_load=env_load,
         )
         self._setup(name, config, backend)
 

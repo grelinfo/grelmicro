@@ -138,15 +138,15 @@ def test_env_prefix_override(
     assert le.config.lease_duration == LEASE_ENV
 
 
-def test_read_env_false_ignores_env(
+def test_env_load_false_ignores_env(
     backend: SyncBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``read_env=False`` skips env reads entirely."""
+    """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv(
         "GREL_LEADER_ELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
     )
-    le = LeaderElection("cron", backend=backend, read_env=False)
+    le = LeaderElection("cron", backend=backend, env_load=False)
     assert le.config.lease_duration == DEFAULT_LEASE
 
 
