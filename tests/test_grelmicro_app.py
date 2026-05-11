@@ -369,7 +369,7 @@ async def test_use_partial_startup_failure_unwinds() -> None:
     assert log == ["enter:good", "enter:bad", "exit:good"]
 
 
-def test_runtime_type_hints_resolve_without_loading_subcomponents() -> None:
+def test_runtime_type_hints_resolve_without_loading_submodules() -> None:
     """`typing.get_type_hints(Grelmicro)` does not raise even with TYPE_CHECKING imports.
 
     The runtime fallback `Cache = Any` / `Sync = Any` keeps `sync` / `cache`
