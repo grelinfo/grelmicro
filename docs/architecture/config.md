@@ -34,7 +34,7 @@ config = resolve_config(
     explicit=None,
     kwargs={"lease_duration": lease_duration, ...},
     env_prefix=env_prefix or f"GREL_LOCK_{env_segment(name)}_",
-    read_env=read_env,
+    env_load=env_load,
 )
 ```
 

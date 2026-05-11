@@ -80,11 +80,11 @@ def configure(
             """
         ),
     ] = None,
-    read_env: Annotated[
+    env_load: Annotated[
         bool | None,
         Doc(
             "Whether to read `GREL_LOG_*` environment variables. "
-            "When None (default), follow `GREL_CONFIG_FROM_ENV`. "
+            "When None (default), follow `GREL_ENV_LOAD`. "
             "Pass True or False to override."
         ),
     ] = None,
@@ -94,7 +94,7 @@ def configure(
     Two paths:
 
     - Programmatic: pass any of the per-field kwargs. Unset fields
-      resolve from `GREL_LOG_*` env vars (when `read_env=True`),
+      resolve from `GREL_LOG_*` env vars (when `env_load=True`),
       then from `LoggingConfig` defaults.
     - Environmental: omit all kwargs. `GREL_LOG_*` env vars populate
       every field.
@@ -122,7 +122,7 @@ def configure(
             "otel_enabled": otel_enabled,
         },
         env_prefix="GREL_LOG_",
-        read_env=read_env,
+        env_load=env_load,
     )
     _apply(config)
     return config

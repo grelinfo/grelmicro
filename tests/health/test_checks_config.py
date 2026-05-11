@@ -66,12 +66,12 @@ def test_env_prefix_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert registry._config.timeout == TIMEOUT_ENV
 
 
-def test_read_env_false_ignores_env(
+def test_env_load_false_ignores_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``read_env=False`` skips env reads entirely."""
+    """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv("GREL_HEALTH_TIMEOUT", str(TIMEOUT_ENV))
-    registry = HealthChecks(read_env=False)
+    registry = HealthChecks(env_load=False)
     assert registry._config.timeout == DEFAULT_TIMEOUT
 
 

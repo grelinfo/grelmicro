@@ -132,7 +132,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
 
                 Default: 1. Prevents re-execution on other nodes
                 before this duration has elapsed. When unset and env reads
-                are enabled (see `read_env` and `GREL_CONFIG_FROM_ENV`),
+                are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
                 `GREL_TASK_LOCK_{NAME_UPPER}_MIN_LOCK_SECONDS` if
                 present, otherwise falls back to the
@@ -147,7 +147,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
                 The maximum duration in seconds to hold the lock (deadlock protection).
 
                 Default: 60. Acts as the TTL on acquire. When unset and env reads
-                are enabled (see `read_env` and `GREL_CONFIG_FROM_ENV`),
+                are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
                 `GREL_TASK_LOCK_{NAME_UPPER}_MAX_LOCK_SECONDS` if
                 present, otherwise falls back to the
@@ -167,14 +167,14 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
                 """
             ),
         ] = None,
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc(
                 """
                 Whether to read environment variables.
 
                 When None (the default), follow the process-wide
-                ``GREL_CONFIG_FROM_ENV`` flag. Pass True or False to
+                ``GREL_ENV_LOAD`` flag. Pass True or False to
                 override the flag for this construction.
                 """
             ),
@@ -190,7 +190,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
                 "max_lock_seconds": max_lock_seconds,
             },
             env_prefix=env_prefix or f"GREL_TASK_LOCK_{env_segment(name)}_",
-            read_env=read_env,
+            env_load=env_load,
         )
         self._setup(name, config, backend)
 

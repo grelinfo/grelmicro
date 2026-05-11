@@ -138,8 +138,8 @@ class RateLimitFilter(Filter):
                 """
                 Maximum burst size.
 
-                Default: 5. When unset and env reads are enabled (see ``read_env`` and
-                ``GREL_CONFIG_FROM_ENV``), resolves from the environment
+                Default: 5. When unset and env reads are enabled (see ``env_load`` and
+                ``GREL_ENV_LOAD``), resolves from the environment
                 variable ``GREL_RATE_LIMIT_FILTER_CAPACITY`` if
                 present, otherwise falls back to the
                 ``RateLimitFilterConfig`` default.
@@ -196,14 +196,14 @@ class RateLimitFilter(Filter):
                 """
             ),
         ] = None,
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc(
                 """
                 Whether to read environment variables.
 
                 When None (the default), follow the process-wide
-                ``GREL_CONFIG_FROM_ENV`` flag. Pass True or False to
+                ``GREL_ENV_LOAD`` flag. Pass True or False to
                 override the flag for this construction.
                 """
             ),
@@ -220,7 +220,7 @@ class RateLimitFilter(Filter):
                 "cost": cost,
             },
             env_prefix=env_prefix or "GREL_RATE_LIMIT_FILTER_",
-            read_env=read_env,
+            env_load=env_load,
         )
         Filter.__init__(self)
         self._setup(config, key)

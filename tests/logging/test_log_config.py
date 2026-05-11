@@ -44,13 +44,13 @@ def test_configure_reads_env_when_kwargs_unset(
     assert cfg.backend == LoggingBackendType.STDLIB
 
 
-def test_configure_read_env_false_ignores_env(
+def test_configure_env_load_false_ignores_env(
     monkeypatch: pytest.MonkeyPatch,
     reset_backend: None,  # noqa: ARG001
 ) -> None:
-    """`read_env=False` skips env reading entirely."""
+    """`env_load=False` skips env reading entirely."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "ERROR")
-    cfg = configure(read_env=False)
+    cfg = configure(env_load=False)
     assert cfg.level == LoggingLevelType.INFO  # default
 
 

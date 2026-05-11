@@ -206,8 +206,8 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
                 Errors of these types do not count toward `error_threshold`.
                 Accepts a single exception class, a tuple, or fully-qualified
                 import strings such as `"builtins.ValueError"` or
-                `"my_app.errors.PaymentError"`. When unset and env reads are enabled (see `read_env`
-                and `GREL_CONFIG_FROM_ENV`), resolves from the env path or
+                `"my_app.errors.PaymentError"`. When unset and env reads are enabled (see `env_load`
+                and `GREL_ENV_LOAD`), resolves from the env path or
                 falls back to the `CircuitBreakerConfig` default (empty tuple).
                 """
             ),
@@ -218,8 +218,8 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
                 """
                 Consecutive errors before the breaker opens.
 
-                Default: 5. When unset and env reads are enabled (see `read_env`
-                and `GREL_CONFIG_FROM_ENV`), resolves from
+                Default: 5. When unset and env reads are enabled (see `env_load`
+                and `GREL_ENV_LOAD`), resolves from
                 `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD` if
                 present, otherwise falls back to the
                 `CircuitBreakerConfig` default.
@@ -276,14 +276,14 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
                 """
             ),
         ] = None,
-        read_env: Annotated[
+        env_load: Annotated[
             bool | None,
             Doc(
                 """
                 Whether to read environment variables.
 
                 When None (the default), follow the process-wide
-                ``GREL_CONFIG_FROM_ENV`` flag. Pass True or False to
+                ``GREL_ENV_LOAD`` flag. Pass True or False to
                 override the flag for this construction.
                 """
             ),
@@ -317,7 +317,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             },
             env_prefix=env_prefix
             or f"GREL_CIRCUIT_BREAKER_{env_segment(name)}_",
-            read_env=read_env,
+            env_load=env_load,
         )
         self._setup(name, config, backend)
 

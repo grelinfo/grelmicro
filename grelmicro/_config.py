@@ -95,20 +95,17 @@ def env_segment(name: str) -> str:
     return cleaned
 
 
-_ENV_OPT_IN_VAR = "GREL_CONFIG_FROM_ENV"
-_ENV_OPT_IN_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_ENV_LOAD_VAR = "GREL_ENV_LOAD"
+_ENV_LOAD_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
-def env_opt_in_enabled() -> bool:
+def env_load_default() -> bool:
     """Return True when env-driven configuration is opted in process-wide.
 
-    Reads ``GREL_CONFIG_FROM_ENV`` and accepts ``1``, ``true``, ``yes``,
+    Reads ``GREL_ENV_LOAD`` and accepts ``1``, ``true``, ``yes``,
     ``on`` (case-insensitive) as truthy.
     """
-    return (
-        os.environ.get(_ENV_OPT_IN_VAR, "").strip().lower()
-        in _ENV_OPT_IN_TRUTHY
-    )
+    return os.environ.get(_ENV_LOAD_VAR, "").strip().lower() in _ENV_LOAD_TRUTHY
 
 
 def resolve_config[C: BaseModel](
@@ -117,7 +114,7 @@ def resolve_config[C: BaseModel](
     explicit: C | None,
     kwargs: Mapping[str, object | None],
     env_prefix: str,
-    read_env: bool | None = None,
+    env_load: bool | None = None,
 ) -> C:
     """Build a validated ``config_cls`` from an explicit instance or kwargs and env.
 
@@ -128,10 +125,10 @@ def resolve_config[C: BaseModel](
     non-``None`` kwargs win over environment variables, and
     environment variables win over defaults declared on ``config_cls``.
 
-    The env path is opt-in. When ``read_env`` is ``None`` (the
-    default), the process-wide ``GREL_CONFIG_FROM_ENV`` flag decides:
+    The env path is opt-in. When ``env_load`` is ``None`` (the
+    default), the process-wide ``GREL_ENV_LOAD`` flag decides:
     env reads run only when it is set to a truthy value. Pass
-    ``read_env=True`` or ``read_env=False`` on the call to override
+    ``env_load=True`` or ``env_load=False`` on the call to override
     the flag for that construction.
 
     The env path constructs a one-off ``BaseSettings`` subclass that
@@ -151,10 +148,10 @@ def resolve_config[C: BaseModel](
             raise TypeError(msg)
         return explicit
 
-    if read_env is None:
-        read_env = env_opt_in_enabled()
+    if env_load is None:
+        env_load = env_load_default()
 
-    if not read_env:
+    if not env_load:
         return config_cls.model_validate(provided)
 
     settings_cls = _build_settings_cls(config_cls, env_prefix)
