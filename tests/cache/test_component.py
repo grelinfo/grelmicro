@@ -1,17 +1,17 @@
-"""Tests for the `Cache` module (Grelmicro app integration)."""
+"""Tests for the `Cache` component (Grelmicro app integration)."""
 
 from __future__ import annotations
 
 import pytest
 
-from grelmicro import Grelmicro, Module
+from grelmicro import Component, Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 
 
-def test_cache_satisfies_module_protocol() -> None:
-    """`Cache` is a runtime-checkable `Module`."""
-    assert isinstance(Cache(MemoryCacheAdapter()), Module)
+def test_cache_satisfies_component_protocol() -> None:
+    """`Cache` is a runtime-checkable `Component`."""
+    assert isinstance(Cache(MemoryCacheAdapter()), Component)
 
 
 def test_cache_default_kind_and_name() -> None:
@@ -22,7 +22,7 @@ def test_cache_default_kind_and_name() -> None:
 
 
 def test_cache_named_registration() -> None:
-    """A named `Cache` module coexists with the default one."""
+    """A named `Cache` component coexists with the default one."""
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
@@ -122,7 +122,7 @@ async def test_use_auto_wrap_cache_lifecycles_backend() -> None:
 
 
 async def test_micro_cache_prefers_default_over_named() -> None:
-    """`micro.cache` resolves to `(cache, default)` even when named modules exist."""
+    """`micro.cache` resolves to `(cache, default)` even when named components exist."""
     primary = MemoryCacheAdapter()
     micro = Grelmicro(
         uses=[
@@ -134,12 +134,12 @@ async def test_micro_cache_prefers_default_over_named() -> None:
 
 
 async def test_micro_cache_raises_when_ambiguous() -> None:
-    """`micro.cache` raises when multiple non-default modules exist."""
+    """`micro.cache` raises when multiple non-default components exist."""
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter(), name="a"),
             Cache(MemoryCacheAdapter(), name="b"),
         ]
     )
-    with pytest.raises(AttributeError, match="multiple 'cache' modules"):
+    with pytest.raises(AttributeError, match="multiple 'cache' components"):
         _ = micro.cache
