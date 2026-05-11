@@ -34,6 +34,20 @@ Adaptations for grelmicro:
 Copyright (c) 2023 Upstash, Inc.
 Licensed under the [MIT License](#mit-license).
 
+## APScheduler
+
+The function-reference validation logic in
+`grelmicro/task/_utils.py` (`validate_and_generate_reference`) is
+adapted from
+[APScheduler](https://github.com/agronholm/apscheduler): specifically
+its `_marshalling` module. The checks for `partial`, bound methods,
+missing `__module__` / `__qualname__`, lambdas, and nested functions
+(via `<lambda>` and `<locals>` qualname markers) before building a
+`module:qualname` reference follow APScheduler's approach.
+
+Copyright (c) Alex Grönholm
+Licensed under the [MIT License](#mit-license).
+
 ## Funnel Display (Brand Assets)
 
 The grelmicro logo (wordmark and favicon SVGs under
