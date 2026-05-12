@@ -84,6 +84,7 @@ from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
     RateLimitExceededError,
@@ -102,10 +103,12 @@ health = HealthChecks()
 leader = LeaderElection("leader-election")
 tasks.add_task(leader)
 
+redis = RedisProvider("redis://localhost:6379/0")
+
 micro = Grelmicro(uses=[
-    RedisSyncAdapter("redis://localhost:6379/0"),
-    RedisCacheAdapter("redis://localhost:6379/0", prefix="myapp:"),
-    RedisRateLimiterAdapter("redis://localhost:6379/0"),
+    RedisSyncAdapter(provider=redis),
+    RedisCacheAdapter(provider=redis, prefix="myapp:"),
+    RedisRateLimiterAdapter(provider=redis),
     tasks,
     health,
 ])
