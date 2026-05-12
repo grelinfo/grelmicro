@@ -238,6 +238,7 @@ class PostgresProvider:
         """Close the pool when the provider owns it."""
         if self._own and self._pool is not None:
             await self._pool.close()
+            self._pool = None
 
 
 def _resolve_url(

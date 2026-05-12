@@ -119,12 +119,14 @@ provider wraps an `asyncpg.Pool` and is opened lazily on `__aenter__`.
 ```python
 from grelmicro import Grelmicro
 from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.sync import Sync
 from grelmicro.sync.postgres import PostgresSyncAdapter
 
 # Recipe 1: env-driven, implicit sharing
 micro = Grelmicro(uses=[
-    PostgresSyncAdapter(),                 # builds its own PostgresProvider
-    PostgresSyncAdapter(name="audit"),     # shares the same pool
+    PostgresSyncAdapter(),                                 # builds its own PostgresProvider
+    Sync(PostgresSyncAdapter(table_name="audit_locks"),    # shares the same pool
+         name="audit"),
 ])
 
 # Recipe 2: explicit provider
@@ -136,7 +138,8 @@ micro = Grelmicro(uses=[
 
 # Recipe 3: split pools by env prefix
 write = PostgresSyncAdapter(env_prefix="WRITE_POSTGRES_")
-read = PostgresSyncAdapter(env_prefix="READ_POSTGRES_", name="read")
+read = PostgresSyncAdapter(env_prefix="READ_POSTGRES_")
+micro = Grelmicro(uses=[Sync(write), Sync(read, name="read")])
 
 # Recipe 4: bring your own pool
 import asyncpg
