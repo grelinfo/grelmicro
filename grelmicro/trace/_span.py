@@ -4,20 +4,14 @@ from __future__ import annotations
 
 import sys
 from contextlib import contextmanager, nullcontext
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from grelmicro._context import pop_context as _pop_context
 from grelmicro._context import push_context as _push_context
+from grelmicro.trace._otel import get as _get_otel
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-
-try:
-    from opentelemetry import trace as _otel_trace
-    from opentelemetry.trace import StatusCode as _StatusCode
-except ImportError:  # pragma: no cover
-    _otel_trace: Any = None  # type: ignore[no-redef]
-    _StatusCode: Any = None  # type: ignore[no-redef,misc]
 
 
 @contextmanager
@@ -42,12 +36,13 @@ def span(name: str, **fields: object) -> Generator[None, None, None]:
         name: Span name.
         **fields: Structured fields added to both OTel span and log context.
     """
+    otel = _get_otel()
     token = _push_context(dict(fields))
     otel_cm = (
-        _otel_trace.get_tracer(__name__).start_as_current_span(
+        otel.trace.get_tracer(__name__).start_as_current_span(
             name, attributes={k: str(v) for k, v in fields.items()}
         )
-        if _otel_trace is not None
+        if otel.trace is not None
         else nullcontext()
     )
     with otel_cm as otel_span:
@@ -61,7 +56,7 @@ def span(name: str, **fields: object) -> Generator[None, None, None]:
             ):
                 exc = sys.exc_info()[1]
                 if exc is not None:
-                    otel_span.set_status(_StatusCode.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+                    otel_span.set_status(otel.status_code.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
                     otel_span.record_exception(exc)
             raise
         finally:

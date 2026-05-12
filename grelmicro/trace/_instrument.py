@@ -9,17 +9,11 @@ from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, overload
 
 from grelmicro._context import pop_context as _pop_context
 from grelmicro._context import push_context as _push_context
+from grelmicro.trace._otel import get as _get_otel
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from collections.abc import Set as AbstractSet
-
-try:
-    from opentelemetry import trace
-    from opentelemetry.trace import StatusCode
-except ImportError:  # pragma: no cover
-    trace: Any = None  # type: ignore[no-redef]
-    StatusCode: Any = None  # type: ignore[no-redef,misc]
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -36,7 +30,8 @@ def _record_exception(otel_span: object) -> None:
     ):
         exc = sys.exc_info()[1]
         if exc is not None:
-            otel_span.set_status(StatusCode.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            otel = _get_otel()
+            otel_span.set_status(otel.status_code.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
             otel_span.record_exception(exc)  # ty: ignore[unresolved-attribute]
 
 
@@ -114,7 +109,12 @@ def instrument[**P, R](  # type: ignore[return-value]
         extract = _make_extract_fields(
             inspect.signature(fn), skip_set, skip_all=skip_all
         )
-        tracer = trace.get_tracer(fn.__module__) if trace is not None else None
+        otel = _get_otel()
+        tracer = (
+            otel.trace.get_tracer(fn.__module__)
+            if otel.trace is not None
+            else None
+        )
 
         if inspect.iscoroutinefunction(fn):
 

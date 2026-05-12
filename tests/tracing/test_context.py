@@ -1,6 +1,7 @@
 """Unit tests for tracing context internals."""
 
 import asyncio
+import builtins
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,6 +21,7 @@ from grelmicro.trace._context import (
     get_context,
 )
 from grelmicro.trace._instrument import _record_exception, instrument
+from grelmicro.trace._otel import OTel
 from grelmicro.trace._span import span as tracing_span
 
 
@@ -119,9 +121,11 @@ class TestAddContext:
         mock_span = MagicMock()
         mock_span.is_recording.return_value = True
 
+        mock_trace = MagicMock()
+        mock_trace.get_current_span.return_value = mock_span
         mocker.patch(
-            "grelmicro.trace._context._otel_trace.get_current_span",
-            return_value=mock_span,
+            "grelmicro.trace._context._get_otel",
+            return_value=OTel(mock_trace, None),
         )
 
         token = _push_context({"a": 1})
@@ -140,9 +144,11 @@ class TestAddContext:
         mock_span = MagicMock()
         mock_span.is_recording.return_value = False
 
+        mock_trace = MagicMock()
+        mock_trace.get_current_span.return_value = mock_span
         mocker.patch(
-            "grelmicro.trace._context._otel_trace.get_current_span",
-            return_value=mock_span,
+            "grelmicro.trace._context._get_otel",
+            return_value=OTel(mock_trace, None),
         )
 
         token = _push_context({"a": 1})
@@ -264,9 +270,12 @@ class TestSpanExceptionRecording:
             return_value=False
         )
 
+        mock_trace = MagicMock()
+        mock_trace.get_tracer.return_value = mock_tracer
+        mock_status = MagicMock()
         mocker.patch(
-            "grelmicro.trace._span._otel_trace.get_tracer",
-            return_value=mock_tracer,
+            "grelmicro.trace._span._get_otel",
+            return_value=OTel(mock_trace, mock_status),  # ty: ignore[invalid-argument-type]
         )
 
         def _raise_in_span() -> None:
@@ -289,7 +298,10 @@ class TestInstrumentNoOtel:
         mocker: pytest_mock.MockerFixture,
     ) -> None:
         """Test sync @instrument works when tracer is None."""
-        mocker.patch("grelmicro.trace._instrument.trace", None)
+        mocker.patch(
+            "grelmicro.trace._instrument._get_otel",
+            return_value=OTel(None, None),
+        )
 
         @instrument
         def process(order_id: str) -> str:  # noqa: ARG001
@@ -302,10 +314,40 @@ class TestInstrumentNoOtel:
         mocker: pytest_mock.MockerFixture,
     ) -> None:
         """Test async @instrument works when tracer is None."""
-        mocker.patch("grelmicro.trace._instrument.trace", None)
+        mocker.patch(
+            "grelmicro.trace._instrument._get_otel",
+            return_value=OTel(None, None),
+        )
 
         @instrument
         async def async_process(order_id: str) -> str:  # noqa: ARG001
             return "done"
 
         assert asyncio.run(async_process("ORD-1")) == "done"
+
+
+class TestOTelResolver:
+    """Test `_otel.get` lazy resolution."""
+
+    def test_returns_none_when_opentelemetry_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """`get()` returns `OTel(None, None)` when opentelemetry import fails."""
+        from grelmicro.trace import _otel  # noqa: PLC0415
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):  # type: ignore[no-untyped-def]  # noqa: ANN001, ANN002, ANN003, ANN202
+            if name.startswith("opentelemetry"):
+                raise ImportError(name)
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        _otel.get.cache_clear()
+        try:
+            result = _otel.get()
+        finally:
+            _otel.get.cache_clear()
+
+        assert result == OTel(None, None)

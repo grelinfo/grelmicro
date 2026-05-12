@@ -25,6 +25,10 @@
 * 💥 Rename the env-loading flag to align the per-call kwarg and the global env var. `read_env=` becomes `env_load=` on every component, `GREL_CONFIG_FROM_ENV` becomes `GREL_ENV_LOAD`, and the `grelmicro._config.env_opt_in_enabled()` helper becomes `env_load_default()`. No deprecation shim. Issue [#232](https://github.com/grelinfo/grelmicro/issues/232).
 * 💥 `Retry` outcome filter is now `when=` accepting a `Match`. The old `on=` parameter is gone. The `Match` DSL (`Match.exception(...)`, `Match.result(...)`, `Match.exception_message(...)`, `Match.exception_cause(...)`, `Match.always()`, `Match.never()`, `Match.predicate(...)`) plus their `not_*` twins and the `|`/`&` operators cover the common retry-filter surface. Bare-class shorthand is still accepted (`when=httpx.HTTPError`). Result-based retry lands in the same change: `when=Match.result(None)` retries until the function stops returning `None`. Env var renamed `GREL_RETRY_{NAME}_ON` → `GREL_RETRY_{NAME}_WHEN`. Issue [#242](https://github.com/grelinfo/grelmicro/issues/242).
 
+### Internal
+
+* ⚡ Defer the `opentelemetry` import in `grelmicro.trace`. `import grelmicro.trace` no longer loads `opentelemetry` (was 16 modules); the package is resolved lazily on first call to `instrument`, `span`, or `add_context` and cached. Issue [#189](https://github.com/grelinfo/grelmicro/issues/189).
+
 ### Deprecated
 
 * 🗑️ Deprecate every module-level legacy helper in favor of the `Grelmicro` app object. `grelmicro.lifespan()` and the `register` / `unregister` / `use` / `use_backend` / `use_registry` family across `grelmicro.{sync,cache,health,resilience}` (plus the resilience circuit-breaker variants) now emit `DeprecationWarning`. Build a `Grelmicro(uses=[...])` and open it with `async with micro:` instead. Removal lands in 1.0.0. Issue [#206](https://github.com/grelinfo/grelmicro/issues/206), removal tracked in [#207](https://github.com/grelinfo/grelmicro/issues/207).
