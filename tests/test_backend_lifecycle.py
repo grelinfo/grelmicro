@@ -338,16 +338,18 @@ async def test_sync_redis_async_with_round_trip(
 
 async def test_sync_postgres_async_with_round_trip(
     mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Sync postgres async with round trip."""
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://localhost/db")
     mock_pool = MagicMock()
     mock_pool.execute = AsyncMock()
     mock_pool.close = AsyncMock()
     mocker.patch(
-        "grelmicro.sync.postgres.create_pool",
+        "grelmicro.providers.postgres.create_pool",
         AsyncMock(return_value=mock_pool),
     )
-    async with PostgresSyncAdapter("postgresql://localhost/db"):
+    async with PostgresSyncAdapter():
         pass
 
 

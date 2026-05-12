@@ -1,73 +1,27 @@
 """PostgreSQL Synchronization Adapter."""
 
-import asyncio
-import re
-from types import TracebackType
-from typing import Annotated, Self
+from __future__ import annotations
 
-from asyncpg import Pool, create_pool
-from pydantic import PostgresDsn
-from pydantic_core import MultiHostUrl, ValidationError
-from pydantic_settings import BaseSettings
+import re
+from typing import TYPE_CHECKING, Annotated, Self
+
 from typing_extensions import Doc
 
-from grelmicro.errors import OutOfContextError
+from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.errors import SyncSettingsValidationError
 
-
-class _PostgresSettings(BaseSettings):
-    """PostgreSQL settings from the environment variables."""
-
-    POSTGRES_HOST: str | None = None
-    POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str | None = None
-    POSTGRES_USER: str | None = None
-    POSTGRES_PASSWORD: str | None = None
-    POSTGRES_URL: PostgresDsn | None = None
-
-
-def _get_postgres_url() -> str:
-    """Get the PostgreSQL URL from the environment variables.
-
-    Raises:
-        SyncSettingsValidationError: If neither POSTGRES_URL nor all of POSTGRES_HOST,
-            POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD are set.
-    """
-    try:
-        settings = _PostgresSettings()
-    except ValidationError as error:
-        raise SyncSettingsValidationError(error) from None
-
-    required_parts = [
-        settings.POSTGRES_HOST,
-        settings.POSTGRES_DB,
-        settings.POSTGRES_USER,
-        settings.POSTGRES_PASSWORD,
-    ]
-
-    if settings.POSTGRES_URL and not any(required_parts):
-        return settings.POSTGRES_URL.unicode_string()
-
-    if all(required_parts) and not settings.POSTGRES_URL:
-        return MultiHostUrl.build(
-            scheme="postgresql",
-            username=settings.POSTGRES_USER,
-            password=settings.POSTGRES_PASSWORD,
-            host=settings.POSTGRES_HOST,
-            port=settings.POSTGRES_PORT,
-            path=settings.POSTGRES_DB,
-        ).unicode_string()
-
-    msg = (
-        "Either POSTGRES_URL or all of POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, and "
-        "POSTGRES_PASSWORD must be set"
-    )
-    raise SyncSettingsValidationError(msg)
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 class PostgresSyncAdapter(SyncBackend):
-    """PostgreSQL Synchronization Adapter."""
+    """PostgreSQL Synchronization Adapter.
+
+    Wraps a `PostgresProvider` and implements the `SyncBackend` protocol
+    for distributed locks. Pass an explicit `provider=` to share a pool
+    with other components, or rely on the default `env_prefix=` to build
+    one from environment variables.
+    """
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (
@@ -109,26 +63,43 @@ class PostgresSyncAdapter(SyncBackend):
 
     def __init__(
         self,
-        url: Annotated[
-            PostgresDsn | str | None,
-            Doc("""
-                The Postgres database URL.
-
-                If not provided, the URL will be taken from the environment variables POSTGRES_URL
-                or POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD.
-                """),
-        ] = None,
         *,
+        provider: Annotated[
+            PostgresProvider | None,
+            Doc(
+                """
+                A pre-built `PostgresProvider`. When set, the adapter
+                borrows the provider's pool and does not manage its
+                lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `PostgresProvider` when `provider` is not set. Defaults
+                to `POSTGRES_`. Use a custom prefix to split pools.
+                """,
+            ),
+        ] = "POSTGRES_",
         table_name: Annotated[
             str, Doc("The table name to store the locks.")
         ] = "locks",
     ) -> None:
-        """Initialize the lock backend."""
+        """Initialize the adapter."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise ValueError(msg)
 
-        self._url = url or _get_postgres_url()
+        if provider is None:
+            self._provider = PostgresProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
         self._table_name = table_name
         self._acquire_sql = self._SQL_ACQUIRE_OR_EXTEND.format(
             table_name=table_name
@@ -136,14 +107,22 @@ class PostgresSyncAdapter(SyncBackend):
         self._release_sql = self._SQL_RELEASE.format(table_name=table_name)
         self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
-        self._pool: Pool | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def provider(self) -> PostgresProvider:
+        """The bound `PostgresProvider`."""
+        return self._provider
+
+    def _rebind_provider(self, provider: PostgresProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
 
     async def __aenter__(self) -> Self:
-        """Open the lock backend."""
-        self._loop = asyncio.get_running_loop()
-        self._pool = await create_pool(str(self._url))
-        await self._pool.execute(
+        """Open the adapter and its provider when owned."""
+        if self._owns_provider:
+            await self._provider.__aenter__()
+        await self._provider.client.execute(
             self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
                 table_name=self._table_name
             ),
@@ -156,42 +135,35 @@ class PostgresSyncAdapter(SyncBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the lock backend."""
-        if self._pool:
-            await self._pool.execute(
-                self._SQL_RELEASE_ALL_EXPIRED.format(
-                    table_name=self._table_name
-                ),
-            )
-            await self._pool.close()
+        """Close the provider when owned. External providers are left alone."""
+        await self._provider.client.execute(
+            self._SQL_RELEASE_ALL_EXPIRED.format(table_name=self._table_name),
+        )
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
 
     async def acquire(self, *, name: str, token: str, duration: float) -> bool:
         """Acquire a lock."""
-        if not self._pool:
-            raise OutOfContextError(self, "acquire")
-
         return bool(
-            await self._pool.fetchval(self._acquire_sql, name, token, duration)
+            await self._provider.client.fetchval(
+                self._acquire_sql, name, token, duration
+            )
         )
 
     async def release(self, *, name: str, token: str) -> bool:
         """Release the lock."""
-        if not self._pool:
-            raise OutOfContextError(self, "release")
-        return bool(await self._pool.fetchval(self._release_sql, name, token))
+        return bool(
+            await self._provider.client.fetchval(self._release_sql, name, token)
+        )
 
     async def locked(self, *, name: str) -> bool:
         """Check if the lock is acquired."""
-        if not self._pool:
-            raise OutOfContextError(self, "locked")
         return bool(
-            await self._pool.fetchval(self._locked_sql, name),
+            await self._provider.client.fetchval(self._locked_sql, name),
         )
 
     async def owned(self, *, name: str, token: str) -> bool:
         """Check if the lock is owned."""
-        if not self._pool:
-            raise OutOfContextError(self, "owned")
         return bool(
-            await self._pool.fetchval(self._owned_sql, name, token),
+            await self._provider.client.fetchval(self._owned_sql, name, token),
         )

@@ -6,7 +6,8 @@ of both. Components like `Sync` and `Cache` borrow a client from a
 provider instead of opening their own, so two components against the
 same vendor share one connection.
 
-The first provider is `RedisProvider`. More providers will follow.
+Two providers ship today: `RedisProvider` and `PostgresProvider`. More
+will follow.
 
 ## Recipe 1: env-driven, implicit sharing
 
@@ -109,3 +110,52 @@ RedisProvider.from_client(client)            # bring-your-own client
 The builder methods `provider.sync(...)` and `provider.cache(...)` are
 pure sugar over `RedisSyncAdapter(provider=provider, ...)` and
 `RedisCacheAdapter(provider=provider, ...)`.
+
+## Postgres
+
+`PostgresProvider` mirrors the same four recipes for Postgres. The
+provider wraps an `asyncpg.Pool` and is opened lazily on `__aenter__`.
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.sync.postgres import PostgresSyncAdapter
+
+# Recipe 1: env-driven, implicit sharing
+micro = Grelmicro(uses=[
+    PostgresSyncAdapter(),                 # builds its own PostgresProvider
+    PostgresSyncAdapter(name="audit"),     # shares the same pool
+])
+
+# Recipe 2: explicit provider
+provider = PostgresProvider("postgresql://localhost/app")
+micro = Grelmicro(uses=[
+    provider,
+    PostgresSyncAdapter(provider=provider),
+])
+
+# Recipe 3: split pools by env prefix
+write = PostgresSyncAdapter(env_prefix="WRITE_POSTGRES_")
+read = PostgresSyncAdapter(env_prefix="READ_POSTGRES_", name="read")
+
+# Recipe 4: bring your own pool
+import asyncpg
+pool = await asyncpg.create_pool("postgresql://localhost/app")
+provider = PostgresProvider.from_client(pool)  # caller owns the pool
+```
+
+Set `POSTGRES_URL` (or `POSTGRES_HOST` + `POSTGRES_PORT` + `POSTGRES_DB`
++ `POSTGRES_USER` + `POSTGRES_PASSWORD`) for env-driven construction.
+
+Construction forms:
+
+```python
+PostgresProvider("postgresql://localhost/app")  # positional URL
+PostgresProvider(url="postgresql://...")        # keyword URL
+PostgresProvider(host="db", port=5432, database="app", user="u", password="pw")
+PostgresProvider()                              # env-driven (POSTGRES_*)
+PostgresProvider(env_prefix="WRITE_POSTGRES_")  # custom env prefix
+PostgresProvider(env_load=False)                # kwargs only, no env
+PostgresProvider.from_config(PostgresConfig(...))
+PostgresProvider.from_client(pool)              # bring-your-own pool
+```
