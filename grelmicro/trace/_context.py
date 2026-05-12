@@ -7,11 +7,7 @@ from typing import Any
 from grelmicro._context import (
     context_stack as _context_stack,
 )
-
-try:
-    from opentelemetry import trace as _otel_trace
-except ImportError:  # pragma: no cover
-    _otel_trace: Any = None  # type: ignore[no-redef]
+from grelmicro.trace._otel import get as _get_otel
 
 
 def get_context() -> dict[str, Any]:
@@ -50,8 +46,9 @@ def add_context(**fields: object) -> None:
     new_frame = {**stack[-1], **fields}
     _context_stack.set((*stack[:-1], new_frame))
 
-    if _otel_trace is not None:
-        span = _otel_trace.get_current_span()
+    otel = _get_otel()
+    if otel.trace is not None:
+        span = otel.trace.get_current_span()
         if span.is_recording():
             for k, v in fields.items():
                 span.set_attribute(k, str(v))
