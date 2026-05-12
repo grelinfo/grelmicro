@@ -9,15 +9,14 @@ for subsequent calls via `functools.cache`.
 from __future__ import annotations
 
 from functools import cache
-from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 if TYPE_CHECKING:
     from opentelemetry.trace import Span, StatusCode, Tracer
 
-
-class _OTelTrace(Protocol):
-    def get_tracer(self, instrumenting_module_name: str) -> Tracer: ...
-    def get_current_span(self) -> Span: ...
+    class _OTelTrace(Protocol):
+        def get_tracer(self, instrumenting_module_name: str) -> Tracer: ...
+        def get_current_span(self) -> Span: ...
 
 
 class OTel(NamedTuple):
@@ -35,4 +34,4 @@ def get() -> OTel:
         from opentelemetry.trace import StatusCode  # noqa: PLC0415
     except ImportError:
         return OTel(None, None)
-    return OTel(cast("_OTelTrace", trace), StatusCode)
+    return OTel(trace, StatusCode)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
