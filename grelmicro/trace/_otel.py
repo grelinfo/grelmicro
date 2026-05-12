@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
 if TYPE_CHECKING:
     from opentelemetry.trace import Span, StatusCode, Tracer
 
-    class _OTelTrace(Protocol):
-        def get_tracer(self, instrumenting_module_name: str) -> Tracer: ...
-        def get_current_span(self) -> Span: ...
+
+class _OTelTrace(Protocol):
+    def get_tracer(self, instrumenting_module_name: str) -> Tracer: ...
+    def get_current_span(self) -> Span: ...
 
 
 class OTel(NamedTuple):
