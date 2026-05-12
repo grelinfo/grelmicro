@@ -106,6 +106,7 @@ tasks.add_task(leader)
 redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(uses=[
+    redis,
     RedisSyncAdapter(provider=redis),
     RedisCacheAdapter(provider=redis, prefix="myapp:"),
     RedisRateLimiterAdapter(provider=redis),
