@@ -24,9 +24,9 @@
 ::: grelmicro.resilience.memory
     options:
       members:
-        - MemoryRateLimiterBackend
+        - MemoryRateLimiterAdapter
 
 ::: grelmicro.resilience.redis
     options:
       members:
-        - RedisRateLimiterBackend
+        - RedisRateLimiterAdapter

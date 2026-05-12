@@ -166,7 +166,7 @@ class MemoryTokenBucket:
             self._state.pop(key, None)
 
 
-class MemoryRateLimiterBackend(RateLimiterBackend):
+class MemoryRateLimiterAdapter(RateLimiterBackend):
     """In-memory rate limiter backend.
 
     Supports both
@@ -178,14 +178,14 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
 
     Use it for tests and single-process deployments. For
     distributed coordination, use
-    [`RedisRateLimiterBackend`][grelmicro.resilience.redis.RedisRateLimiterBackend].
+    [`RedisRateLimiterAdapter`][grelmicro.resilience.redis.RedisRateLimiterAdapter].
 
     Example:
     ```python
     from grelmicro.resilience import RateLimiter, TokenBucketConfig, use_backend
-    from grelmicro.resilience.memory import MemoryRateLimiterBackend
+    from grelmicro.resilience.memory import MemoryRateLimiterAdapter
 
-    use_backend(MemoryRateLimiterBackend())
+    use_backend(MemoryRateLimiterAdapter())
     rl = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
     ```
 
@@ -424,7 +424,7 @@ class _MemoryGCRA(RateLimiterStrategy):
             self._state.pop(key, None)
 
 
-class MemoryCircuitBreakerBackend(CircuitBreakerBackend):
+class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
     """In-memory circuit breaker backend.
 
     State for every breaker bound to this backend is held in process.

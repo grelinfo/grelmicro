@@ -58,9 +58,9 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
     Example:
     ```python
     from grelmicro.resilience import RateLimiter
-    from grelmicro.resilience.memory import MemoryRateLimiterBackend
+    from grelmicro.resilience.memory import MemoryRateLimiterAdapter
 
-    MemoryRateLimiterBackend()
+    MemoryRateLimiterAdapter()
     api = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
 
 

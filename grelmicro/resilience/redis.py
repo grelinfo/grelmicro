@@ -19,7 +19,7 @@ from grelmicro.resilience.algorithms import (
 )
 
 
-class RedisRateLimiterBackend(RateLimiterBackend):
+class RedisRateLimiterAdapter(RateLimiterBackend):
     """Redis rate limiter backend.
 
     Wraps a `RedisProvider` and supports both
@@ -32,12 +32,12 @@ class RedisRateLimiterBackend(RateLimiterBackend):
     ```python
     from grelmicro.providers.redis import RedisProvider
     from grelmicro.resilience import RateLimiter, TokenBucketConfig
-    from grelmicro.resilience.redis import RedisRateLimiterBackend
+    from grelmicro.resilience.redis import RedisRateLimiterAdapter
 
 
     async def main() -> None:
         provider = RedisProvider("redis://localhost:6379/0")
-        async with RedisRateLimiterBackend(provider=provider):
+        async with RedisRateLimiterAdapter(provider=provider):
             rl = RateLimiter(
                 "api",
                 TokenBucketConfig(capacity=10, refill_rate=1),

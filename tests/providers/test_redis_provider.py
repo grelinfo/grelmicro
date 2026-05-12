@@ -228,13 +228,13 @@ class TestRebindProvider:
     async def test_rate_limiter_owned_lifecycle(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """RedisRateLimiterBackend opens and closes the provider it owns."""
+        """RedisRateLimiterAdapter opens and closes the provider it owns."""
         monkeypatch.setenv("REDIS_URL", URL)
         from grelmicro.resilience.redis import (  # noqa: PLC0415
-            RedisRateLimiterBackend,
+            RedisRateLimiterAdapter,
         )
 
-        backend = RedisRateLimiterBackend()
+        backend = RedisRateLimiterAdapter()
         backend.provider._client = MagicMock(aclose=AsyncMock())
 
         async with backend:
@@ -243,14 +243,14 @@ class TestRebindProvider:
         backend.provider._client.aclose.assert_awaited_once()
 
     def test_rate_limiter_rebind(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """RedisRateLimiterBackend rebinds to a new provider."""
+        """RedisRateLimiterAdapter rebinds to a new provider."""
         monkeypatch.setenv("REDIS_URL", URL)
         from grelmicro.resilience.redis import (  # noqa: PLC0415
-            RedisRateLimiterBackend,
+            RedisRateLimiterAdapter,
         )
 
         owned = RedisProvider(URL)
-        backend = RedisRateLimiterBackend()
+        backend = RedisRateLimiterAdapter()
         assert backend._owns_provider is True
 
         backend._rebind_provider(owned)

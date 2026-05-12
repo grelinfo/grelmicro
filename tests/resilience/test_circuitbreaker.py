@@ -21,7 +21,7 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerState,
     ErrorDetails,
 )
-from grelmicro.resilience.memory import MemoryCircuitBreakerBackend
+from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
 
 
 class SentinelError(Exception):
@@ -40,13 +40,13 @@ ALL_STATES = [
 
 
 @pytest.fixture(autouse=True)
-def _register_cb_backend() -> Iterator[MemoryCircuitBreakerBackend]:
+def _register_cb_backend() -> Iterator[MemoryCircuitBreakerAdapter]:
     """Register an in-memory circuit breaker backend for every test."""
     from grelmicro.resilience._backends import (  # noqa: PLC0415
         circuit_breaker_backend_registry,
     )
 
-    backend = MemoryCircuitBreakerBackend()
+    backend = MemoryCircuitBreakerAdapter()
     circuit_breaker_backend_registry.register(backend)
     yield backend
     circuit_breaker_backend_registry.unregister()
@@ -54,7 +54,7 @@ def _register_cb_backend() -> Iterator[MemoryCircuitBreakerBackend]:
 
 @pytest.fixture(autouse=True)
 async def _open_cb_backend(
-    _register_cb_backend: MemoryCircuitBreakerBackend,
+    _register_cb_backend: MemoryCircuitBreakerAdapter,
 ) -> AsyncGenerator[None]:
     """Open the registered backend so its loop is captured for ``from_thread``."""
     async with _register_cb_backend:
@@ -174,7 +174,7 @@ async def test_circuit_from_thread_unopened_backend_raises() -> None:
     )
 
     circuit_breaker_backend_registry.unregister()
-    closed_backend = MemoryCircuitBreakerBackend()
+    closed_backend = MemoryCircuitBreakerAdapter()
     circuit_breaker_backend_registry.register(closed_backend)
     cb = CircuitBreaker("test")
 

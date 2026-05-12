@@ -89,7 +89,7 @@ from grelmicro.resilience import (
     RateLimitExceededError,
     RateLimiter,
 )
-from grelmicro.resilience.redis import RedisRateLimiterBackend
+from grelmicro.resilience.redis import RedisRateLimiterAdapter
 from grelmicro.sync import LeaderElection, Lock
 from grelmicro.sync.redis import RedisSyncAdapter
 from grelmicro.task import Tasks
@@ -105,7 +105,7 @@ tasks.add_task(leader)
 micro = Grelmicro(uses=[
     RedisSyncAdapter("redis://localhost:6379/0"),
     RedisCacheAdapter("redis://localhost:6379/0", prefix="myapp:"),
-    RedisRateLimiterBackend("redis://localhost:6379/0"),
+    RedisRateLimiterAdapter("redis://localhost:6379/0"),
     tasks,
     health,
 ])

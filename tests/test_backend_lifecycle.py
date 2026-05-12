@@ -27,10 +27,10 @@ from grelmicro.resilience._backends import (
     rate_limiter_backend_registry,
 )
 from grelmicro.resilience.memory import (
-    MemoryCircuitBreakerBackend,
-    MemoryRateLimiterBackend,
+    MemoryCircuitBreakerAdapter,
+    MemoryRateLimiterAdapter,
 )
-from grelmicro.resilience.redis import RedisRateLimiterBackend
+from grelmicro.resilience.redis import RedisRateLimiterAdapter
 from grelmicro.sync import Lock
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.kubernetes import KubernetesSyncAdapter
@@ -79,7 +79,7 @@ def test_cache_constructor_does_not_register() -> None:
 
 def test_rate_limiter_constructor_does_not_register() -> None:
     """Rate limiter constructor does not register."""
-    MemoryRateLimiterBackend()
+    MemoryRateLimiterAdapter()
     assert not rate_limiter_backend_registry.is_loaded
 
 
@@ -207,7 +207,7 @@ async def test_lifespan_opens_registered_backends() -> None:
     """Lifespan opens registered backends."""
     sync_b = MemorySyncAdapter()
     cache_b = MemoryCacheAdapter()
-    rl_b = MemoryRateLimiterBackend()
+    rl_b = MemoryRateLimiterAdapter()
     sync_backend_registry.register(sync_b, "default")
     cache_backend_registry.register(cache_b, "default")
     rate_limiter_backend_registry.register(rl_b, "default")
@@ -246,8 +246,8 @@ async def test_lifespan_excludes_named_entry() -> None:
         assert sync_backend_registry.get("primary") is primary
 
 
-class _CountingRateLimiterBackend(MemoryRateLimiterBackend):
-    """``MemoryRateLimiterBackend`` that tracks ``__aenter__`` calls."""
+class _CountingRateLimiterAdapter(MemoryRateLimiterAdapter):
+    """``MemoryRateLimiterAdapter`` that tracks ``__aenter__`` calls."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -261,8 +261,8 @@ class _CountingRateLimiterBackend(MemoryRateLimiterBackend):
 
 async def test_lifespan_excludes_resilience_module_key() -> None:
     """``exclude={"resilience"}`` skips every ``resilience.*`` registry."""
-    rl = _CountingRateLimiterBackend()
-    cb = MemoryCircuitBreakerBackend()
+    rl = _CountingRateLimiterAdapter()
+    cb = MemoryCircuitBreakerAdapter()
     rate_limiter_backend_registry.register(rl, "default")
     circuit_breaker_backend_registry.register(cb, "default")
     sync_backend_registry.register(MemorySyncAdapter(), "default")
@@ -277,8 +277,8 @@ async def test_lifespan_excludes_resilience_module_key() -> None:
 
 async def test_lifespan_excludes_specific_resilience_registry() -> None:
     """``exclude={"resilience.ratelimiter"}`` skips only that registry."""
-    rl = _CountingRateLimiterBackend()
-    cb = MemoryCircuitBreakerBackend()
+    rl = _CountingRateLimiterAdapter()
+    cb = MemoryCircuitBreakerAdapter()
     rate_limiter_backend_registry.register(rl, "default")
     circuit_breaker_backend_registry.register(cb, "default")
     with pytest.warns(DeprecationWarning, match="grelmicro.lifespan"):
@@ -389,7 +389,7 @@ async def test_rate_limiter_redis_async_with_round_trip(
     mock_redis: MagicMock,  # noqa: ARG001
 ) -> None:
     """Rate limiter redis async with round trip."""
-    async with RedisRateLimiterBackend(
+    async with RedisRateLimiterAdapter(
         provider=RedisProvider("redis://localhost")
     ):
         pass
@@ -416,7 +416,7 @@ def test_cache_use_backend_registers_default() -> None:
 
 def test_resilience_use_backend_registers_default() -> None:
     """Resilience use backend registers default."""
-    backend = MemoryRateLimiterBackend()
+    backend = MemoryRateLimiterAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.resilience"):
         resilience_mod.use_backend(backend)
     assert rate_limiter_backend_registry.get() is backend
@@ -461,11 +461,11 @@ def test_cache_register_unregister_use_module_helpers() -> None:
 
 def test_resilience_register_unregister_use_module_helpers() -> None:
     """Resilience register, unregister, and use module helpers."""
-    backend = MemoryRateLimiterBackend()
+    backend = MemoryRateLimiterAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.resilience"):
         resilience_mod.register(backend, "primary")
     assert rate_limiter_backend_registry.get("primary") is backend
-    override = MemoryRateLimiterBackend()
+    override = MemoryRateLimiterAdapter()
     with pytest.warns(DeprecationWarning, match="grelmicro.resilience"):
         cm = resilience_mod.use(override)
     with cm:
