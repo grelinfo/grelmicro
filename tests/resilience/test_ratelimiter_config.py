@@ -4,7 +4,7 @@ import pytest
 
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.algorithms import GCRAConfig, TokenBucketConfig
-from grelmicro.resilience.memory import MemoryRateLimiterBackend
+from grelmicro.resilience.memory import MemoryRateLimiterAdapter
 
 LIMIT = 10
 WINDOW = 60.0
@@ -13,9 +13,9 @@ REFILL_RATE = 1.0
 
 
 @pytest.fixture
-def _rate_limiter_backend() -> MemoryRateLimiterBackend:
+def _rate_limiter_backend() -> MemoryRateLimiterAdapter:
     """Register a memory backend for the test."""
-    return MemoryRateLimiterBackend()
+    return MemoryRateLimiterAdapter()
 
 
 @pytest.mark.usefixtures("_rate_limiter_backend")

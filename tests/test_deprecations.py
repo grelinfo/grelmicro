@@ -16,8 +16,8 @@ from grelmicro.resilience._backends import (
     rate_limiter_backend_registry,
 )
 from grelmicro.resilience.memory import (
-    MemoryCircuitBreakerBackend,
-    MemoryRateLimiterBackend,
+    MemoryCircuitBreakerAdapter,
+    MemoryRateLimiterAdapter,
 )
 from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.memory import MemorySyncAdapter
@@ -121,7 +121,7 @@ def test_resilience_use_backend_warns() -> None:
     with pytest.warns(
         DeprecationWarning, match="grelmicro.resilience.use_backend"
     ):
-        resilience_mod.use_backend(MemoryRateLimiterBackend())
+        resilience_mod.use_backend(MemoryRateLimiterAdapter())
 
 
 def test_resilience_register_warns() -> None:
@@ -129,13 +129,13 @@ def test_resilience_register_warns() -> None:
     with pytest.warns(
         DeprecationWarning, match="grelmicro.resilience.register"
     ):
-        resilience_mod.register(MemoryRateLimiterBackend(), "primary")
+        resilience_mod.register(MemoryRateLimiterAdapter(), "primary")
 
 
 def test_resilience_unregister_warns() -> None:
     """`grelmicro.resilience.unregister` warns."""
     rate_limiter_backend_registry.register(
-        MemoryRateLimiterBackend(), "primary"
+        MemoryRateLimiterAdapter(), "primary"
     )
     with pytest.warns(
         DeprecationWarning, match="grelmicro.resilience.unregister"
@@ -146,7 +146,7 @@ def test_resilience_unregister_warns() -> None:
 def test_resilience_use_warns() -> None:
     """`grelmicro.resilience.use` warns."""
     with pytest.warns(DeprecationWarning, match="grelmicro.resilience.use"):
-        cm = resilience_mod.use(MemoryRateLimiterBackend())
+        cm = resilience_mod.use(MemoryRateLimiterAdapter())
     with cm:
         pass
 
@@ -158,7 +158,7 @@ def test_resilience_register_circuit_breaker_warns() -> None:
         match="grelmicro.resilience.register_circuit_breaker",
     ):
         resilience_mod.register_circuit_breaker(
-            MemoryCircuitBreakerBackend(), "primary"
+            MemoryCircuitBreakerAdapter(), "primary"
         )
 
 
@@ -169,14 +169,14 @@ def test_resilience_use_circuit_breaker_backend_warns() -> None:
         match="grelmicro.resilience.use_circuit_breaker_backend",
     ):
         resilience_mod.use_circuit_breaker_backend(
-            MemoryCircuitBreakerBackend()
+            MemoryCircuitBreakerAdapter()
         )
 
 
 def test_resilience_unregister_circuit_breaker_warns() -> None:
     """`grelmicro.resilience.unregister_circuit_breaker` warns."""
     circuit_breaker_backend_registry.register(
-        MemoryCircuitBreakerBackend(), "primary"
+        MemoryCircuitBreakerAdapter(), "primary"
     )
     with pytest.warns(
         DeprecationWarning,

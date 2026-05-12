@@ -1,4 +1,4 @@
-"""Redis Rate Limiter Backend."""
+"""Redis Rate Limiter Adapter."""
 
 from types import TracebackType
 from typing import Annotated, Any, Self, assert_never
@@ -19,8 +19,8 @@ from grelmicro.resilience.algorithms import (
 )
 
 
-class RedisRateLimiterBackend(RateLimiterBackend):
-    """Redis rate limiter backend.
+class RedisRateLimiterAdapter(RateLimiterBackend):
+    """Redis rate limiter adapter.
 
     Wraps a `RedisProvider` and supports both
     [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
@@ -32,12 +32,12 @@ class RedisRateLimiterBackend(RateLimiterBackend):
     ```python
     from grelmicro.providers.redis import RedisProvider
     from grelmicro.resilience import RateLimiter, TokenBucketConfig
-    from grelmicro.resilience.redis import RedisRateLimiterBackend
+    from grelmicro.resilience.redis import RedisRateLimiterAdapter
 
 
     async def main() -> None:
         provider = RedisProvider("redis://localhost:6379/0")
-        async with RedisRateLimiterBackend(provider=provider):
+        async with RedisRateLimiterAdapter(provider=provider):
             rl = RateLimiter(
                 "api",
                 TokenBucketConfig(capacity=10, refill_rate=1),
@@ -55,7 +55,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
             RedisProvider | None,
             Doc(
                 """
-                A pre-built `RedisProvider`. When set, the backend
+                A pre-built `RedisProvider`. When set, the adapter
                 borrows the provider's client and does not manage
                 its lifecycle.
                 """
@@ -75,14 +75,14 @@ class RedisRateLimiterBackend(RateLimiterBackend):
             str,
             Doc(
                 """
-                Prefix prepended to every Redis key the backend
+                Prefix prepended to every Redis key the adapter
                 writes. Use it to avoid collisions with other
                 consumers of the same Redis database.
                 """
             ),
         ] = "",
     ) -> None:
-        """Initialize the rate limiter backend."""
+        """Initialize the rate limiter adapter."""
         if provider is None:
             self._provider = RedisProvider(env_prefix=env_prefix)
             self._owns_provider = True
@@ -103,7 +103,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         self._owns_provider = False
 
     async def __aenter__(self) -> Self:
-        """Open the rate limiter backend."""
+        """Open the rate limiter adapter."""
         if self._owns_provider:
             await self._provider.__aenter__()
         return self
@@ -114,7 +114,7 @@ class RedisRateLimiterBackend(RateLimiterBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the rate limiter backend."""
+        """Close the rate limiter adapter."""
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 

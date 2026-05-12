@@ -15,8 +15,8 @@ from grelmicro.resilience.algorithms import (
     RateLimiterConfig,
     TokenBucketConfig,
 )
-from grelmicro.resilience.memory import MemoryRateLimiterBackend
-from grelmicro.resilience.redis import RedisRateLimiterBackend
+from grelmicro.resilience.memory import MemoryRateLimiterAdapter
+from grelmicro.resilience.redis import RedisRateLimiterAdapter
 
 pytestmark = [pytest.mark.timeout(30)]
 
@@ -60,13 +60,13 @@ async def backend(
     """Rate limiter backend instance."""
     if backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
-        async with RedisRateLimiterBackend(
+        async with RedisRateLimiterAdapter(
             provider=RedisProvider(f"redis://localhost:{port}/0"),
             prefix="test:",
         ) as redis_backend:
             yield redis_backend
     elif backend_name == "memory":
-        async with MemoryRateLimiterBackend() as memory_backend:
+        async with MemoryRateLimiterAdapter() as memory_backend:
             yield memory_backend
 
 

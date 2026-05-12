@@ -57,9 +57,9 @@ def sync_route():                # runs in a worker thread
 
 ```python
 from grelmicro.resilience import CircuitBreaker, use_circuit_breaker_backend
-from grelmicro.resilience.memory import MemoryCircuitBreakerBackend
+from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
 
-use_circuit_breaker_backend(MemoryCircuitBreakerBackend())
+use_circuit_breaker_backend(MemoryCircuitBreakerAdapter())
 
 cb = CircuitBreaker("payment")
 

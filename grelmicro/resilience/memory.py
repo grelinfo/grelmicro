@@ -166,8 +166,8 @@ class MemoryTokenBucket:
             self._state.pop(key, None)
 
 
-class MemoryRateLimiterBackend(RateLimiterBackend):
-    """In-memory rate limiter backend.
+class MemoryRateLimiterAdapter(RateLimiterBackend):
+    """In-memory rate limiter adapter.
 
     Supports both
     [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
@@ -178,14 +178,14 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
 
     Use it for tests and single-process deployments. For
     distributed coordination, use
-    [`RedisRateLimiterBackend`][grelmicro.resilience.redis.RedisRateLimiterBackend].
+    [`RedisRateLimiterAdapter`][grelmicro.resilience.redis.RedisRateLimiterAdapter].
 
     Example:
     ```python
     from grelmicro.resilience import RateLimiter, TokenBucketConfig, use_backend
-    from grelmicro.resilience.memory import MemoryRateLimiterBackend
+    from grelmicro.resilience.memory import MemoryRateLimiterAdapter
 
-    use_backend(MemoryRateLimiterBackend())
+    use_backend(MemoryRateLimiterAdapter())
     rl = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
     ```
 
@@ -193,7 +193,7 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
     """
 
     def __init__(self) -> None:
-        """Initialize the rate limiter backend."""
+        """Initialize the rate limiter adapter."""
         # Separate per-algorithm state maps so keys never alias
         # across algorithms.
         self._token_bucket_state: dict[str, tuple[float, float]] = {}
@@ -201,7 +201,7 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         self._lock = Lock()
 
     async def __aenter__(self) -> Self:
-        """Open the rate limiter backend."""
+        """Open the rate limiter adapter."""
         return self
 
     async def __aexit__(
@@ -210,7 +210,7 @@ class MemoryRateLimiterBackend(RateLimiterBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the rate limiter backend."""
+        """Close the rate limiter adapter."""
         with self._lock:
             self._token_bucket_state.clear()
             self._gcra_state.clear()
@@ -424,11 +424,11 @@ class _MemoryGCRA(RateLimiterStrategy):
             self._state.pop(key, None)
 
 
-class MemoryCircuitBreakerBackend(CircuitBreakerBackend):
-    """In-memory circuit breaker backend.
+class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
+    """In-memory circuit breaker adapter.
 
-    State for every breaker bound to this backend is held in process.
-    Closing the backend (typically through ``grelmicro.lifespan``)
+    State for every breaker bound to this adapter is held in process.
+    Closing the adapter (typically through ``grelmicro.lifespan``)
     resets every registered breaker so the next start begins on a
     clean slate and any references the breaker still holds are
     released.
@@ -439,12 +439,12 @@ class MemoryCircuitBreakerBackend(CircuitBreakerBackend):
     """
 
     def __init__(self) -> None:
-        """Initialize the circuit breaker backend."""
+        """Initialize the circuit breaker adapter."""
         self._loop: asyncio.AbstractEventLoop | None = None
         self._breakers: WeakSet[CircuitBreaker] = WeakSet()
 
     async def __aenter__(self) -> Self:
-        """Open the backend and capture the running loop."""
+        """Open the adapter and capture the running loop."""
         self._loop = asyncio.get_running_loop()
         return self
 
@@ -454,7 +454,7 @@ class MemoryCircuitBreakerBackend(CircuitBreakerBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the backend, clearing every registered breaker."""
+        """Close the adapter, clearing every registered breaker."""
         for breaker in list(self._breakers):
             breaker._reset_state()  # noqa: SLF001
         self._breakers.clear()

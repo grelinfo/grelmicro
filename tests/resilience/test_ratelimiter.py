@@ -22,7 +22,7 @@ from grelmicro.resilience.algorithms import (
     TokenBucketConfig,
 )
 from grelmicro.resilience.errors import RateLimitExceededError
-from grelmicro.resilience.memory import MemoryRateLimiterBackend
+from grelmicro.resilience.memory import MemoryRateLimiterAdapter
 from grelmicro.resilience.ratelimiter import RateLimiter
 
 
@@ -46,21 +46,21 @@ def _reset_registry() -> None:
 
 
 @pytest.fixture
-async def _backend() -> AsyncGenerator[MemoryRateLimiterBackend]:
+async def _backend() -> AsyncGenerator[MemoryRateLimiterAdapter]:
     """Create and register a memory rate limiter backend."""
-    async with MemoryRateLimiterBackend() as b:
+    async with MemoryRateLimiterAdapter() as b:
         rate_limiter_backend_registry.register(b, "default")
         yield b
 
 
 @pytest.fixture
-def _sync_backend() -> MemoryRateLimiterBackend:
+def _sync_backend() -> MemoryRateLimiterAdapter:
     """Create and register a memory backend for sync-only tests.
 
     Sync tests can't consume the async `_backend` fixture
     (pytest-asyncio doesn't bridge them).
     """
-    backend = MemoryRateLimiterBackend()
+    backend = MemoryRateLimiterAdapter()
     rate_limiter_backend_registry.register(backend, "default")
     return backend
 
@@ -347,10 +347,10 @@ async def test_explicit_backend_bypasses_registry() -> None:
     """Test backend= arg wins over a registered default."""
     # Arrange: explicitly register a backend as the default, then build a
     # RateLimiter with a different explicit backend.
-    registered = MemoryRateLimiterBackend()
+    registered = MemoryRateLimiterAdapter()
     rate_limiter_backend_registry.register(registered)
     assert rate_limiter_backend_registry.get() is registered
-    my = MemoryRateLimiterBackend()
+    my = MemoryRateLimiterAdapter()
 
     # Act: limiter is built with the explicit backend instance
     rl = RateLimiter(
@@ -590,7 +590,7 @@ async def test_gcra_strategy_evicts_expired_keys(
     """Test _MemoryGCRA eviction drops keys whose TAT has passed."""
     # Arrange
     monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 1)
-    backend = MemoryRateLimiterBackend()
+    backend = MemoryRateLimiterAdapter()
     limiter = RateLimiter(
         "evict",
         GCRAConfig(limit=LIMIT, window=WINDOW),
@@ -614,7 +614,7 @@ async def test_token_bucket_strategy_evicts_full_keys(
     """Test _MemoryTokenBucket eviction drops keys at full capacity."""
     # Arrange
     monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 2)
-    backend = MemoryRateLimiterBackend()
+    backend = MemoryRateLimiterAdapter()
     limiter = RateLimiter(
         "evict",
         TokenBucketConfig(capacity=CAPACITY, refill_rate=1),
