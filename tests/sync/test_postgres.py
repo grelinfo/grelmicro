@@ -1,16 +1,18 @@
-"""Tests for PostgreSQL Backends."""
+"""Tests for the Postgres Sync Adapter."""
 
 import pytest
 
 from grelmicro.errors import OutOfContextError
+from grelmicro.providers.postgres import (
+    PostgresProvider,
+    PostgresProviderConfigError,
+)
 from grelmicro.sync._backends import sync_backend_registry
-from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.postgres import PostgresSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
-URL_DEFAULT_PORT = "postgresql://test_user:test_password@test_host:5432/test_db"
 
 
 @pytest.mark.parametrize(
@@ -23,124 +25,89 @@ URL_DEFAULT_PORT = "postgresql://test_user:test_password@test_host:5432/test_db"
         "locks; DROP TABLE users; --",
     ],
 )
-def test_sync_backend_table_name_invalid(table_name: str) -> None:
-    """Test Synchronization Backend Table Name Invalid."""
-    # Act / Assert
+def test_table_name_invalid(table_name: str) -> None:
+    """Invalid SQL identifiers for the table name raise."""
     with pytest.raises(
         ValueError, match=r"Table name '.*' is not a valid SQL identifier"
     ):
-        PostgresSyncAdapter(url=URL, table_name=table_name)
+        PostgresSyncAdapter(
+            provider=PostgresProvider(URL), table_name=table_name
+        )
 
 
-async def test_sync_backend_out_of_context_errors() -> None:
-    """Test Synchronization Backend Out Of Context Errors."""
-    # Arrange
-    backend = PostgresSyncAdapter(url=URL)
+async def test_out_of_context_errors() -> None:
+    """Adapter methods raise when called outside the context manager."""
+    backend = PostgresSyncAdapter(provider=PostgresProvider(URL))
     name = "lock"
-    key = "token"
+    token = "token"  # noqa: S105
 
-    # Act / Assert
     with pytest.raises(OutOfContextError):
-        await backend.acquire(name=name, token=key, duration=1)
+        await backend.acquire(name=name, token=token, duration=1)
     with pytest.raises(OutOfContextError):
-        await backend.release(name=name, token=key)
+        await backend.release(name=name, token=token)
     with pytest.raises(OutOfContextError):
         await backend.locked(name=name)
     with pytest.raises(OutOfContextError):
-        await backend.owned(name=name, token=key)
+        await backend.owned(name=name, token=token)
 
 
-@pytest.mark.parametrize(
-    ("environs"),
-    [
-        {"POSTGRES_URL": URL},
-        {
-            "POSTGRES_USER": "test_user",
-            "POSTGRES_PASSWORD": "test_password",
-            "POSTGRES_HOST": "test_host",
-            "POSTGRES_PORT": "1234",
-            "POSTGRES_DB": "test_db",
-        },
-    ],
-)
-def test_postgres_env_var_settings(
-    environs: dict[str, str], monkeypatch: pytest.MonkeyPatch
+def test_adapter_with_implicit_env_provider(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test PostgreSQL Settings from Environment Variables."""
-    # Arrange
-    for key, value in environs.items():
-        monkeypatch.setenv(key, value)
+    """Without `provider=`, the adapter builds its own from env vars."""
+    monkeypatch.setenv("POSTGRES_URL", URL)
 
-    # Act
     backend = PostgresSyncAdapter()
 
-    # Assert
-    assert backend._url == URL
+    assert backend.provider.url == URL
+    assert backend._owns_provider is True
 
 
-@pytest.mark.parametrize(
-    ("environs"),
-    [
-        {
-            "POSTGRES_URL": "test://test_user:test_password@test_host:1234/test_db"
-        },
-        {"POSTGRES_USER": "test_user"},
-        {
-            "POSTGRES_URL": URL,
-            "POSTGRES_USER": "test_user",
-            "POSTGRES_PASSWORD": "test_password",
-            "POSTGRES_HOST": "test_host",
-            "POSTGRES_PORT": "1234",
-            "POSTGRES_DB": "test_db",
-        },
-    ],
-)
-def test_postgres_env_var_settings_validation_error(
-    environs: dict[str, str], monkeypatch: pytest.MonkeyPatch
+def test_adapter_borrows_external_provider() -> None:
+    """An explicit `provider=` is borrowed, not owned."""
+    provider = PostgresProvider(URL)
+    backend = PostgresSyncAdapter(provider=provider)
+
+    assert backend.provider is provider
+    assert backend._owns_provider is False
+
+
+def test_adapter_env_prefix_passed_to_implicit_provider(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test PostgreSQL Settings from Environment Variables."""
-    # Arrange
-    for key, value in environs.items():
-        monkeypatch.setenv(key, value)
+    """`env_prefix=` reaches the implicit provider."""
+    monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
 
-    # Assert / Act
-    with pytest.raises(
-        SyncSettingsValidationError,
-        match=(r"Could not validate environment variables settings:\n"),
-    ):
+    backend = PostgresSyncAdapter(env_prefix="WRITE_POSTGRES_")
+
+    assert backend.provider.url == URL
+    assert backend.provider.env_prefix == "WRITE_POSTGRES_"
+
+
+def test_env_validation_error_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Implicit provider surfaces `PostgresProviderConfigError`."""
+    monkeypatch.delenv("POSTGRES_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_HOST", raising=False)
+
+    with pytest.raises(PostgresProviderConfigError):
         PostgresSyncAdapter()
 
 
-def test_sync_backend_constructor_does_not_register() -> None:
-    """Constructing the backend performs no registry writes."""
+def test_constructor_does_not_register() -> None:
+    """Constructing the adapter performs no registry writes."""
     sync_backend_registry.reset()
 
-    PostgresSyncAdapter(url=URL)
+    PostgresSyncAdapter(provider=PostgresProvider(URL))
 
     assert not sync_backend_registry.is_loaded
 
 
-def test_sync_backend_custom_table_name() -> None:
-    """Test Synchronization Backend Custom Table Name."""
-    # Act
-    backend = PostgresSyncAdapter(url=URL, table_name="my_locks")
+def test_custom_table_name() -> None:
+    """Custom `table_name=` is stored on the adapter."""
+    backend = PostgresSyncAdapter(
+        provider=PostgresProvider(URL), table_name="my_locks"
+    )
 
-    # Assert
     assert backend._table_name == "my_locks"
-
-
-def test_postgres_env_var_settings_default_port(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test PostgreSQL Settings from Environment Variables with Default Port."""
-    # Arrange
-    monkeypatch.setenv("POSTGRES_USER", "test_user")
-    monkeypatch.setenv("POSTGRES_PASSWORD", "test_password")
-    monkeypatch.setenv("POSTGRES_HOST", "test_host")
-    monkeypatch.setenv("POSTGRES_DB", "test_db")
-
-    # Act
-    backend = PostgresSyncAdapter()
-
-    # Assert
-    assert backend._url == URL_DEFAULT_PORT

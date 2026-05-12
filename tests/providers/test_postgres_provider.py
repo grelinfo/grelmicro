@@ -1,0 +1,259 @@
+"""Tests for `PostgresProvider`."""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from grelmicro import Grelmicro
+from grelmicro.providers.postgres import (
+    PostgresConfig,
+    PostgresProvider,
+    PostgresProviderConfigError,
+)
+from grelmicro.sync.postgres import PostgresSyncAdapter
+
+pytestmark = [pytest.mark.timeout(1)]
+
+URL = "postgresql://test_user:test_password@test_host:1234/test_db"
+
+
+class TestConstruction:
+    """Tests for `PostgresProvider` construction forms."""
+
+    def test_positional_url(self) -> None:
+        """Positional URL is accepted."""
+        provider = PostgresProvider(URL)
+        assert provider.url == URL
+
+    def test_keyword_url(self) -> None:
+        """Keyword `url=` is accepted."""
+        provider = PostgresProvider(url=URL)
+        assert provider.url == URL
+
+    def test_decomposed_kwargs(self) -> None:
+        """Decomposed kwargs are composed into a URL."""
+        provider = PostgresProvider(
+            host="test_host",
+            port=1234,
+            database="test_db",
+            user="test_user",
+            password="test_password",  # noqa: S106
+        )
+        assert provider.url == URL
+
+    def test_url_and_host_mutually_exclusive(self) -> None:
+        """Passing both `url` and `host` raises."""
+        with pytest.raises(PostgresProviderConfigError, match="not both"):
+            PostgresProvider(url=URL, host="test_host")
+
+    def test_env_load_disabled_requires_kwargs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With `env_load=False` and no kwargs, construction raises."""
+        monkeypatch.delenv("POSTGRES_URL", raising=False)
+        monkeypatch.delenv("POSTGRES_HOST", raising=False)
+
+        with pytest.raises(PostgresProviderConfigError):
+            PostgresProvider(env_load=False)
+
+    @pytest.mark.parametrize(
+        ("environs", "expected_url"),
+        [
+            ({"POSTGRES_URL": URL}, URL),
+            (
+                {
+                    "POSTGRES_USER": "test_user",
+                    "POSTGRES_PASSWORD": "test_password",
+                    "POSTGRES_HOST": "test_host",
+                    "POSTGRES_PORT": "1234",
+                    "POSTGRES_DB": "test_db",
+                },
+                URL,
+            ),
+            (
+                {"POSTGRES_HOST": "test_host"},
+                "postgresql://test_host:5432",
+            ),
+        ],
+    )
+    def test_env_driven(
+        self,
+        environs: dict[str, str],
+        expected_url: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Env vars under `POSTGRES_` populate the URL."""
+        for key, value in environs.items():
+            monkeypatch.setenv(key, value)
+
+        provider = PostgresProvider()
+
+        assert provider.url == expected_url
+
+    @pytest.mark.parametrize(
+        "environs",
+        [
+            {},
+            {"POSTGRES_URL": "test://h:1/0"},
+            {"POSTGRES_URL": URL, "POSTGRES_HOST": "test_host"},
+        ],
+    )
+    def test_env_validation_errors(
+        self,
+        environs: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Invalid env combinations raise `PostgresProviderConfigError`."""
+        monkeypatch.delenv("POSTGRES_URL", raising=False)
+        monkeypatch.delenv("POSTGRES_HOST", raising=False)
+        for key, value in environs.items():
+            monkeypatch.setenv(key, value)
+
+        with pytest.raises(PostgresProviderConfigError):
+            PostgresProvider()
+
+    def test_custom_env_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A custom `env_prefix` reads from a different env namespace."""
+        monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
+
+        provider = PostgresProvider(env_prefix="WRITE_POSTGRES_")
+
+        assert provider.url == URL
+        assert provider.env_prefix == "WRITE_POSTGRES_"
+
+
+class TestFromConfig:
+    """Tests for `PostgresProvider.from_config`."""
+
+    def test_from_config_uses_config_values(self) -> None:
+        """`from_config` builds the URL from the config kwargs."""
+        cfg = PostgresConfig(
+            host="cfg_host",
+            port=4321,
+            database="cfg_db",
+            user="cfg_user",
+            password="cfg_pw",  # noqa: S106
+        )
+
+        provider = PostgresProvider.from_config(cfg)
+
+        assert "cfg_host" in provider.url
+        assert "4321" in provider.url
+
+    def test_from_config_ignores_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`from_config` is authoritative and ignores the environment."""
+        monkeypatch.setenv("POSTGRES_URL", "postgresql://env_host:9999/env_db")
+        cfg = PostgresConfig(host="cfg_host")
+
+        provider = PostgresProvider.from_config(cfg)
+
+        assert "cfg_host" in provider.url
+        assert "env_host" not in provider.url
+
+
+class TestFromClient:
+    """Tests for `PostgresProvider.from_client`."""
+
+    async def test_borrowed_pool_not_closed(self) -> None:
+        """`own=False` leaves the pool alone on exit."""
+        pool = MagicMock()
+        pool.close = AsyncMock()
+
+        async with PostgresProvider.from_client(pool) as provider:
+            assert provider.client is pool
+
+        pool.close.assert_not_awaited()
+
+    async def test_owned_pool_closed(self) -> None:
+        """`own=True` closes the pool on exit."""
+        pool = MagicMock()
+        pool.close = AsyncMock()
+
+        async with PostgresProvider.from_client(pool, own=True):
+            pass
+
+        pool.close.assert_awaited_once()
+
+
+class TestBuilders:
+    """Pure-sugar `.sync()` builders."""
+
+    def test_sync_builder_binds_provider(self) -> None:
+        """`provider.sync()` returns an adapter borrowing the provider."""
+        provider = PostgresProvider(URL)
+
+        adapter = provider.sync()
+
+        assert isinstance(adapter, PostgresSyncAdapter)
+        assert adapter.provider is provider
+        assert adapter._owns_provider is False
+
+
+class TestRebindProvider:
+    """`_rebind_provider` swaps the bound provider on the adapter."""
+
+    def test_sync_adapter_rebind(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PostgresSyncAdapter rebinds to a new provider."""
+        monkeypatch.setenv("POSTGRES_URL", URL)
+        adapter = PostgresSyncAdapter()
+        assert adapter._owns_provider is True
+        owned = PostgresProvider(URL)
+
+        adapter._rebind_provider(owned)
+
+        assert adapter.provider is owned
+        assert adapter._owns_provider is False
+
+
+class TestSharingCache:
+    """`Grelmicro` dedupes implicit providers by `(class, env_prefix)`."""
+
+    async def test_two_adapters_same_env_prefix_share_provider(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two adapters with the same default env_prefix share one provider."""
+        monkeypatch.setenv("POSTGRES_URL", URL)
+
+        first = PostgresSyncAdapter()
+        second = PostgresSyncAdapter(table_name="other_locks")
+        assert first.provider is not second.provider
+
+        from grelmicro.sync._component import Sync  # noqa: PLC0415
+
+        pool = MagicMock()
+        pool.execute = AsyncMock()
+        pool.close = AsyncMock()
+        for ad in (first, second):
+            ad.provider._pool = pool
+
+        micro = Grelmicro(uses=[Sync(first), Sync(second, name="other")])
+        async with micro:
+            assert first.provider is second.provider
+            assert first._owns_provider is True
+            assert second._owns_provider is False
+
+    async def test_different_env_prefixes_keep_separate_providers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Distinct env_prefixes keep distinct providers."""
+        monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
+        monkeypatch.setenv("READ_POSTGRES_URL", URL)
+
+        write = PostgresSyncAdapter(env_prefix="WRITE_POSTGRES_")
+        read = PostgresSyncAdapter(
+            env_prefix="READ_POSTGRES_", table_name="read_locks"
+        )
+
+        from grelmicro.sync._component import Sync  # noqa: PLC0415
+
+        for ad in (write, read):
+            pool = MagicMock()
+            pool.execute = AsyncMock()
+            pool.close = AsyncMock()
+            ad.provider._pool = pool
+
+        micro = Grelmicro(uses=[Sync(write), Sync(read, name="read")])
+        async with micro:
+            assert write.provider is not read.provider

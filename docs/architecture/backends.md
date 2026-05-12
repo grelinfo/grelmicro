@@ -70,7 +70,7 @@ Register multiple backends under different names and pick one at the call site:
 
 ```python
 sync.register(RedisSyncAdapter())                                # → "default"
-sync.register(PostgresSyncAdapter("postgres://..."), "analytics")
+sync.register(PostgresSyncAdapter(provider=PostgresProvider("postgres://...")), "analytics")
 
 Lock("cart")                         # → "default" (Redis)
 Lock("audit", backend="analytics")   # → "analytics" (Postgres)

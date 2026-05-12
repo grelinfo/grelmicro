@@ -11,6 +11,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
+from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.sync import use_backend
 from grelmicro.sync._backends import get_sync_backend, sync_backend_registry
@@ -163,9 +164,10 @@ async def backend(
             yield backend
     elif backend_name == "postgres" and container:
         port = container.get_exposed_port(5432)
-        async with PostgresSyncAdapter(
+        provider = PostgresProvider(
             f"postgresql://test:test@localhost:{port}/test"
-        ) as backend:
+        )
+        async with provider, PostgresSyncAdapter(provider=provider) as backend:
             yield backend
     elif backend_name == "memory":
         async with MemorySyncAdapter() as backend:
@@ -419,7 +421,9 @@ async def test_owned_another(backend: SyncBackend) -> None:
             provider=RedisProvider("redis://localhost:6379/0")
         ),
         lambda: PostgresSyncAdapter(
-            "postgresql://user:password@localhost:5432/db"
+            provider=PostgresProvider(
+                "postgresql://user:password@localhost:5432/db"
+            )
         ),
         lambda: SQLiteSyncAdapter(":memory:"),
         lambda: KubernetesSyncAdapter(namespace="default"),
@@ -453,7 +457,9 @@ def test_get_sync_backend_not_loaded() -> None:
             provider=RedisProvider("redis://localhost:6379/0")
         ),
         lambda: PostgresSyncAdapter(
-            "postgresql://user:password@localhost:5432/db"
+            provider=PostgresProvider(
+                "postgresql://user:password@localhost:5432/db"
+            )
         ),
         lambda: SQLiteSyncAdapter(":memory:"),
         lambda: KubernetesSyncAdapter(namespace="default"),
