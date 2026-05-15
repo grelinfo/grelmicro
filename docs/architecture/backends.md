@@ -48,6 +48,7 @@ First-party adapters are auto-wrapped into their canonical Component (`Sync` for
 Register multiple adapters under different names and pick one at the call site:
 
 ```python
+from grelmicro import Grelmicro
 from grelmicro.sync import Lock, Sync
 from grelmicro.sync.redis import RedisSyncAdapter
 from grelmicro.sync.postgres import PostgresSyncAdapter
@@ -74,8 +75,13 @@ Resolution order, in priority:
 `micro.override(...)` installs scoped Component swaps for the duration of a block:
 
 ```python
-from grelmicro.sync import Sync
+from grelmicro import Grelmicro
+from grelmicro.sync import Lock, Sync
 from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.sync.redis import RedisSyncAdapter
+
+micro = Grelmicro(uses=[RedisSyncAdapter()])
+lock = Lock("cart")
 
 async with micro:
     async with micro.override(Sync(MemorySyncAdapter())):
