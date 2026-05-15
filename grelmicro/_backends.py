@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from grelmicro.errors import GrelmicroError
 
@@ -14,10 +14,6 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 DEFAULT_NAME = "default"
-
-# Subscribed at construction time so ``grelmicro.lifespan()`` walks
-# only the registries whose modules were actually imported.
-_ALL_REGISTRIES: dict[str, BackendRegistry[Any]] = {}
 
 
 class BackendRegistry[T]:
@@ -30,7 +26,6 @@ class BackendRegistry[T]:
         self._overrides: ContextVar[dict[str, T] | None] = ContextVar(
             f"{name}_backend_overrides", default=None
         )
-        _ALL_REGISTRIES[name] = self
 
     def _current_overrides(self) -> dict[str, T]:
         """Return the current task-scoped overrides (read-only view)."""
@@ -72,10 +67,6 @@ class BackendRegistry[T]:
         if backend is not None and existing is not backend:
             return
         del self._backends[name]
-
-    def items(self) -> Iterator[tuple[str, T]]:
-        """Iterate over registered (name, backend) pairs."""
-        return iter(self._backends.items())
 
     def get(self, name: str = DEFAULT_NAME) -> T:
         """Resolve a backend by ``name``.

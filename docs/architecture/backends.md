@@ -1,59 +1,99 @@
-# Backend Registry
+# Backends and Adapters
 
-grelmicro uses a shared backend registry pattern to make infrastructure backends (Redis, PostgreSQL, SQLite, etc.) swappable without changing application code.
+grelmicro splits infrastructure code into a small set of object kinds so each one stays swappable.
 
-## Why Async
+## Why async
 
-All backends use **async** methods because they perform network or disk I/O (Redis, PostgreSQL, SQLite, Kubernetes API). Async avoids blocking the event loop, which is critical in microservice applications handling many concurrent requests. Even backends with low-latency I/O (like SQLite) use async to maintain a consistent interface and allow the event loop to schedule other work during I/O waits.
+Every backend uses **async** methods because it performs network or disk I/O (Redis, PostgreSQL, SQLite, Kubernetes API). Async keeps the event loop free during round-trips, which matters in microservice applications that handle many concurrent requests. Even backends with low-latency I/O (like SQLite) use async so the interface stays uniform and the loop can schedule other work during I/O waits.
 
-## Design
+## The kinds
 
-`BackendRegistry[T]` is a generic, typed, multi-name container with task-scoped overrides. Each module owns one or more registries. The registry key is the value to use in `lifespan(exclude={...})` and follows the module path: a single-registry module reuses the module name (`sync`, `cache`, `health`), and modules with multiple registries add a suffix (`resilience.ratelimiter`, `resilience.circuitbreaker`).
+| Kind | Examples | Role |
+|---|---|---|
+| **Provider** | `RedisProvider`, `PostgresProvider` | Owns the connection pool and the vendor config. |
+| **Adapter** | `RedisSyncAdapter`, `RedisCacheAdapter` | Implements a `Backend` protocol over a `Provider`. |
+| **Backend** | `SyncBackend`, `CacheBackend` (Protocol) | Pure interface, no implementation. |
+| **Component** | `Sync`, `Cache` | Registration marker on a `Grelmicro` app: `(kind, name)` pair plus lifecycle delegation. |
+| **Pattern** | `Lock`, `TaskLock`, `LeaderElection`, `TTLCache` | The user-facing primitive that resolves its adapter at use time. |
 
-| Module | Registry key | Protocol / Type | Backends |
-|---|---|---|---|
-| `grelmicro.sync` | `sync` | `SyncBackend` | Redis, PostgreSQL, SQLite, Kubernetes, Memory |
-| `grelmicro.cache` | `cache` | `CacheBackend` | Redis, Memory |
-| `grelmicro.resilience` (rate limiter) | `resilience.ratelimiter` | `RateLimiterBackend` | Redis, Memory |
-| `grelmicro.resilience` (circuit breaker) | `resilience.circuitbreaker` | `CircuitBreakerBackend` | Memory |
-| `grelmicro.health` | `health` | `HealthChecks` | (any number of named instances) |
-
-A registry holds zero or more named entries. Backends are looked up by name at call time, and each entry is independent. The `"default"` slot is the implicit name when no `backend=` is passed.
+`Backend` and `Adapter` are infrastructure. Users construct **Providers**, register them on a **`Grelmicro` app** through **Components**, and import **Patterns** at module level.
 
 ## Construction vs registration
 
-Construction and registration are two distinct steps. `__init__` is pure: it validates configuration and binds locals. It performs no registry writes and no I/O. Registration is explicit and reversible.
-
-There are three ways to wire a backend:
-
-**1. Register and open via `grelmicro.lifespan()` (recommended for apps).** Register synchronously at startup, then open every registered backend with one call:
+Construction and registration are two distinct steps. `__init__` validates configuration and binds locals. It performs no registry writes and no I/O. Registration happens when the adapter is attached to a `Grelmicro` app.
 
 ```python
-import grelmicro
-from grelmicro import sync, cache
+from grelmicro import Grelmicro
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.sync.redis import RedisSyncAdapter
+from grelmicro.cache.redis import RedisCacheAdapter
 
-sync.register(RedisSyncAdapter())             # implicit "default"
-cache.register(RedisCacheAdapter())
+provider = RedisProvider("redis://localhost")
+micro = Grelmicro(uses=[
+    provider,
+    RedisSyncAdapter(provider=provider),
+    RedisCacheAdapter(provider=provider),
+])
 
-async with grelmicro.lifespan():
-    # every registered backend is open here
+async with micro:
+    # every adapter is open here
     ...
-# every registered backend is closed on exit (LIFO)
+# every adapter is closed on exit (LIFO)
 ```
 
-`grelmicro.lifespan()` walks every grelmicro registry that has been imported in the current process, opens each entry via its async context manager, and closes them in reverse order on exit. `exclude={...}` matches by dotted prefix: `{"sync"}` skips the whole sync registry, `{"resilience"}` skips both `resilience.ratelimiter` and `resilience.circuitbreaker`, `{"resilience.ratelimiter"}` skips only that registry, and `{"sync.analytics"}` skips just the named entry.
+First-party adapters are auto-wrapped into their canonical Component (`Sync` for sync adapters, `Cache` for cache adapters). Pass a `Sync(...)` or `Cache(...)` explicitly when you want a non-default name.
 
-**2. Module-level `use_backend` shorthand.** Equivalent to `register("default", backend)`:
+## Named backends and per-call selection
+
+Register multiple adapters under different names and pick one at the call site:
 
 ```python
-from grelmicro import sync
+from grelmicro import Grelmicro
+from grelmicro.sync import Lock, Sync
+from grelmicro.sync.redis import RedisSyncAdapter
+from grelmicro.sync.postgres import PostgresSyncAdapter
 
-sync.use_backend(RedisSyncAdapter())
+micro = Grelmicro(uses=[
+    RedisSyncAdapter(),
+    Sync(PostgresSyncAdapter(), name="analytics"),
+])
+
+Lock("cart")                       # → "default" (Redis)
+Lock("audit", backend="analytics") # → "analytics" (Postgres)
+Lock("cart", backend=my_adapter)   # → explicit instance, bypasses names
 ```
 
-Available as `grelmicro.sync.use_backend`, `grelmicro.cache.use_backend`, `grelmicro.resilience.use_backend`, and `grelmicro.health.use_registry`.
+Resolution order, in priority:
 
-**3. Pure construction with explicit pass-through.** Skip the registry entirely:
+1. Explicit instance (`backend=instance`).
+2. The Component registered under `("sync", requested_name)`.
+3. When the requested name is `"default"` and exactly one Component of that kind is registered: that sole entry.
+4. Otherwise raise `ComponentNotRegisteredError`.
+
+## Test-time overrides
+
+`micro.override(...)` installs scoped Component swaps for the duration of a block:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.sync import Lock, Sync
+from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.sync.redis import RedisSyncAdapter
+
+micro = Grelmicro(uses=[RedisSyncAdapter()])
+lock = Lock("cart")
+
+async with micro:
+    async with micro.override(Sync(MemorySyncAdapter())):
+        async with lock:  # routed to MemorySyncAdapter
+            ...
+```
+
+The override propagates downward through `await`, `asyncio.create_task`, and `asyncio.to_thread` because asyncio copies the calling context at every concurrency boundary.
+
+## Pure construction with explicit pass-through
+
+Skip the app entirely for one-off usage:
 
 ```python
 async with RedisSyncAdapter() as backend:
@@ -62,90 +102,22 @@ async with RedisSyncAdapter() as backend:
         ...
 ```
 
-`async with` opens the connection only. The backend is not registered.
+`async with` opens the connection only. The adapter is not registered with any app.
 
-## Named backends and per-call selection
+## Protocol-based polymorphism
 
-Register multiple backends under different names and pick one at the call site:
+Backends are defined by protocols (structural typing), not base classes. Any object implementing the required methods works. This enables:
 
-```python
-sync.register(RedisSyncAdapter())                                # → "default"
-sync.register(PostgresSyncAdapter(provider=PostgresProvider("postgres://...")), "analytics")
+- Swapping adapters without changing application code.
+- Writing test adapters (e.g. `MemorySyncAdapter`) with no external dependencies.
+- Adding new adapters without modifying existing code.
 
-Lock("cart")                         # → "default" (Redis)
-Lock("audit", backend="analytics")   # → "analytics" (Postgres)
-Lock("cart", backend=my_instance)    # → explicit instance, bypasses names
-```
+## Connection pool isolation
 
-Resolution order, in priority:
+Each adapter instance can either share or own its connection pool depending on construction. Sharing happens through a `Provider`: pass the same `RedisProvider` to two adapters and they share one pool. Without an explicit Provider, the app dedupes implicit providers by `(provider_class, env_prefix)` so two adapters that resolve to the same vendor config still share one pool.
 
-1. Explicit instance (`backend=instance`).
-2. Task-scoped override for the requested name (set via `<module>.use(...)`).
-3. Registered entry under the requested name.
-4. When the requested name is `"default"` and exactly one backend is registered: that sole entry.
-5. Otherwise raise `BackendNotLoadedError`.
+The default behavior is **share when possible, isolate when asked**. Pass distinct Providers to opt into per-domain isolation.
 
-## Task-scoped overrides
+## Error handling
 
-`<module>.use(...)` installs a per-task override for the duration of a `with` block. Stacks LIFO via `contextvars`:
-
-```python
-from grelmicro import sync
-
-with sync.use(MemorySyncAdapter()):           # overrides "default" only
-    Lock("cart")                              # → MemorySyncAdapter
-
-with sync.use(default=mem, analytics=fake):   # overrides multiple names
-    ...
-
-# Tests
-async def test_checkout():
-    with sync.use(MemorySyncAdapter()):
-        await checkout()
-```
-
-The override propagates downward through `await`, `asyncio.create_task`, and `asyncio.to_thread` (asyncio copies the calling context at every concurrency boundary). Set the override on the side that *calls into* the registry. A `from_thread` adapter dispatches the coroutine onto the parent loop with `asyncio.run_coroutine_threadsafe`, so the registry sees the worker thread's contextvars (those are copied across by `asyncio.to_thread`), not the loop's.
-
-## Lazy registration
-
-Each `BackendRegistry` subscribes itself into a process-wide map *when its module is imported*. Modules you never import never create their registry, never appear in `grelmicro.lifespan()`, and never consume RAM. `import grelmicro` alone is ~6 ms. The per-component cost is paid only when the user imports that component.
-
-## Identity-checked unregister
-
-`registry.unregister(name, backend)` clears the entry only when the registered instance is identical to the one passed in. Calling on a non-current instance is a no-op. A stale backend's teardown cannot evict a newer backend that replaced it under the same name.
-
-## Protocol-Based Polymorphism
-
-Backends are defined by protocols (structural typing), not base classes. Any object implementing the required methods works as a backend. This enables:
-
-- Swapping backends without changing application code
-- Writing test backends (e.g. `MemorySyncAdapter`) with no external dependencies
-- Adding new backends without modifying existing code
-
-## Connection Pool Isolation
-
-Each backend instance creates its own Redis client and connection pool, even when multiple backends point to the same Redis server. This is an intentional design choice:
-
-- **Failure isolation**: a slow lock Lua script cannot starve cache reads (and vice-versa)
-- **Independent lifecycle**: each backend opens and closes on its own schedule via `async with`
-- **Independent tuning**: pool settings (`max_connections`, timeouts) can be configured per domain
-- **No hidden coupling**: closing the cache backend does not affect sync locks
-
-The overhead is negligible (a few extra TCP connections, created lazily) and this approach follows the Python ecosystem standard (Django, SQLAlchemy, and Celery all use separate connection pools per concern).
-
-Shared Redis configuration (URL resolution from environment variables) is deduplicated in `grelmicro/_redis.py`, but each backend receives its own client instance.
-
-## Error Handling
-
-Accessing a registry before any backend is registered raises `BackendNotLoadedError` with a descriptive message:
-
-```
-No sync backend loaded for name 'default'.
-```
-
-Or, when multiple backends are registered without a `"default"`:
-
-```
-No default sync backend: multiple are registered
-(['analytics', 'primary']), none named 'default'.
-```
+Accessing a Component that has not been registered raises `ComponentNotRegisteredError` with a descriptive message. Resolving a Pattern outside any `async with micro:` block raises `NoActiveAppError`.

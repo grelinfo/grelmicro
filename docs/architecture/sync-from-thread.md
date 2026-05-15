@@ -21,17 +21,17 @@ Each primitive reads the loop through its bound backend (`self.backend._loop`) w
 ```python
 from contextlib import asynccontextmanager
 
-from grelmicro import lifespan
+from grelmicro import Grelmicro
+from grelmicro.sync import Lock
 from grelmicro.sync.memory import MemorySyncAdapter
-from grelmicro.sync import Lock, use_backend
 
-use_backend(MemorySyncAdapter())
+micro = Grelmicro(uses=[MemorySyncAdapter()])
 lock = Lock("cart")
 
 
 @asynccontextmanager
 async def app_lifespan(app):
-    async with lifespan():       # opens every registered backend
+    async with micro:            # opens every registered adapter
         yield
 
 
@@ -56,10 +56,11 @@ def sync_route():                # runs in a worker thread
 3. **Forward compatibility.** A future Redis-backed circuit breaker (issue #188) shares state across replicas. Switching is a backend swap, not an API change.
 
 ```python
-from grelmicro.resilience import CircuitBreaker, use_circuit_breaker_backend
+from grelmicro.resilience import CircuitBreaker
+from grelmicro.resilience._backends import circuit_breaker_backend_registry
 from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
 
-use_circuit_breaker_backend(MemoryCircuitBreakerAdapter())
+circuit_breaker_backend_registry.register(MemoryCircuitBreakerAdapter())
 
 cb = CircuitBreaker("payment")
 
@@ -76,7 +77,7 @@ def sync_route():
 
 ## Constraints
 
-- **The backend must be opened.** `async with backend:` (or `async with grelmicro.lifespan():`) captures the loop. Without it, the sync adapter raises `AttributeError` because `backend._loop` is `None`.
+- **The backend must be opened.** `async with backend:` (or `async with micro:` on a `Grelmicro` app) captures the loop. Without it, the sync adapter raises `AttributeError` because `backend._loop` is `None`.
 - **Same loop for the lifetime of the backend.** Sync calls dispatch to the loop the backend was opened on.
 - **Async is the default API.** Use `with cb.from_thread:` only inside a sync handler, to make the boundary explicit.
 

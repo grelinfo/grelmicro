@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from grelmicro.cache._backends import cache_backend_registry
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import CacheInfo, TTLCache
@@ -81,23 +82,16 @@ class TestInit:
         info = cache.cache_info()
         assert info.hits == 0
 
-    async def test_default_backend_from_registry(
+    async def test_default_backend_from_active_app(
         self, backend: MemoryCacheAdapter
     ) -> None:
-        """Test that TTLCache uses the registered backend when none is provided."""
-        # Arrange: register the backend
-        cache_backend_registry.register(backend, "default")
+        """Test that TTLCache resolves through the active `Grelmicro` app."""
+        async with Grelmicro(uses=[Cache(backend)]):
+            cache = TTLCache(maxsize=0, ttl=60)
+            await cache.set("app_test", b"works")
+            result = await cache.get("app_test")
 
-        # Act: create cache without explicit backend
-        cache = TTLCache(maxsize=0, ttl=60)
-        await cache.set("registry_test", b"works")
-        result = await cache.get("registry_test")
-
-        # Assert
         assert result == b"works"
-
-        # Cleanup
-        cache_backend_registry.reset()
 
 
 # ---------------------------------------------------------------------------

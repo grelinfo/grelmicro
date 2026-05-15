@@ -3,7 +3,7 @@
 import tempfile
 import time as time_module
 from asyncio import sleep
-from collections.abc import AsyncGenerator, Callable, Generator
+from collections.abc import AsyncGenerator, Generator
 from uuid import uuid4
 
 import pytest
@@ -13,10 +13,7 @@ from testcontainers.redis import RedisContainer
 
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync import use_backend
-from grelmicro.sync._backends import get_sync_backend, sync_backend_registry
 from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.errors import BackendNotLoadedError
 from grelmicro.sync.kubernetes import KubernetesSyncAdapter
 from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync.postgres import PostgresSyncAdapter
@@ -56,14 +53,6 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch, None, None]:
     monkeypatch = pytest.MonkeyPatch()
     yield monkeypatch
     monkeypatch.undo()
-
-
-@pytest.fixture
-def clean_registry() -> Generator[None, None, None]:
-    """Make sure the registry is clean."""
-    sync_backend_registry.reset()
-    yield
-    sync_backend_registry.reset()
 
 
 @pytest.fixture(
@@ -411,66 +400,3 @@ async def test_owned_another(backend: SyncBackend) -> None:
     # Assert
     assert owned_before is False
     assert owned_after is False
-
-
-@pytest.mark.parametrize(
-    "backend_factory",
-    [
-        MemorySyncAdapter,
-        lambda: RedisSyncAdapter(
-            provider=RedisProvider("redis://localhost:6379/0")
-        ),
-        lambda: PostgresSyncAdapter(
-            provider=PostgresProvider(
-                "postgresql://user:password@localhost:5432/db"
-            )
-        ),
-        lambda: SQLiteSyncAdapter(":memory:"),
-        lambda: KubernetesSyncAdapter(namespace="default"),
-    ],
-)
-@pytest.mark.usefixtures("clean_registry")
-def test_get_sync_backend(backend_factory: Callable[[], SyncBackend]) -> None:
-    """`use_backend` registers the constructed backend as the default."""
-    expected_backend = backend_factory()
-    with pytest.warns(DeprecationWarning, match="grelmicro.sync"):
-        use_backend(expected_backend)
-
-    backend = get_sync_backend()
-
-    assert backend is expected_backend
-
-
-@pytest.mark.usefixtures("clean_registry")
-def test_get_sync_backend_not_loaded() -> None:
-    """Test Get Synchronization Backend Not Loaded."""
-    # Act / Assert
-    with pytest.raises(BackendNotLoadedError):
-        get_sync_backend()
-
-
-@pytest.mark.parametrize(
-    "backend_factory",
-    [
-        MemorySyncAdapter,
-        lambda: RedisSyncAdapter(
-            provider=RedisProvider("redis://localhost:6379/0")
-        ),
-        lambda: PostgresSyncAdapter(
-            provider=PostgresProvider(
-                "postgresql://user:password@localhost:5432/db"
-            )
-        ),
-        lambda: SQLiteSyncAdapter(":memory:"),
-        lambda: KubernetesSyncAdapter(namespace="default"),
-    ],
-)
-@pytest.mark.usefixtures("clean_registry")
-def test_constructor_does_not_register(
-    backend_factory: Callable[[], SyncBackend],
-) -> None:
-    """Constructing any sync backend performs no registry writes."""
-    backend_factory()
-
-    with pytest.raises(BackendNotLoadedError):
-        get_sync_backend()

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Generic
 
 from typing_extensions import Doc, TypeVar
 
-from grelmicro.cache._backends import get_cache_backend
+from grelmicro._app import Grelmicro
 
 if TYPE_CHECKING:
     from grelmicro.cache._protocol import CacheBackend
@@ -126,10 +126,17 @@ class TTLCache(Generic[T]):
         self._keys: OrderedDict[str, None] = OrderedDict()
 
     def _get_backend(self) -> CacheBackend:
-        """Resolve the backend (lazy, to allow registration after construction)."""
-        if self._backend is None:
-            self._backend = get_cache_backend()
-        return self._backend
+        """Resolve the backend on every call.
+
+        When a backend instance was passed at construction it is
+        always returned. Otherwise the active `Grelmicro` app is
+        consulted via `Grelmicro.current()` so that
+        `micro.override(Cache(...))` blocks take effect.
+        """
+        if self._backend is not None:
+            return self._backend
+        cache = Grelmicro.current().get("cache", "default")
+        return cache.backend
 
     def _serialize(self, value: T) -> bytes:
         """Serialize a value to bytes for storage."""

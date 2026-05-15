@@ -5,9 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from grelmicro._backends import BackendNotLoadedError
-from grelmicro.cache import use_backend
-from grelmicro.cache._backends import cache_backend_registry, get_cache_backend
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.providers.redis import RedisProvider
 
@@ -64,37 +61,6 @@ class TestRedisCacheAdapterConstructor:
         backend, _ = _build(prefix="myns:")
 
         assert backend._key_prefix == "myns:"
-
-
-class TestCacheBackendRegistry:
-    """Tests for cache backend registry integration."""
-
-    def test_constructor_does_not_register(self) -> None:
-        """Constructing the adapter performs no registry writes."""
-        cache_backend_registry.reset()
-
-        _build()
-
-        assert not cache_backend_registry.is_loaded
-
-    def test_use_backend_registers(self) -> None:
-        """`cache.use_backend` registers the adapter as default."""
-        cache_backend_registry.reset()
-        backend, _ = _build()
-
-        with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
-            use_backend(backend)
-
-        assert get_cache_backend() is backend
-
-        cache_backend_registry.reset()
-
-    def test_get_cache_backend_not_loaded_raises(self) -> None:
-        """`get_cache_backend` raises when the registry is empty."""
-        cache_backend_registry.reset()
-
-        with pytest.raises(BackendNotLoadedError):
-            get_cache_backend()
 
 
 class TestRedisCacheAdapterAsyncMethods:

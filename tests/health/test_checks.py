@@ -12,7 +12,6 @@ from grelmicro._backends import (
     BackendAlreadyRegisteredError,
     BackendNotLoadedError,
 )
-from grelmicro.health import use_registry
 from grelmicro.health._backends import get_health_checks, health_checks
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import HealthStatus
@@ -532,15 +531,6 @@ def test_constructor_does_not_register() -> None:
 
     with pytest.raises(BackendNotLoadedError):
         get_health_checks()
-
-
-def test_use_registry_installs_singleton() -> None:
-    """`health.use_registry` installs the registry as the global default."""
-    registry = HealthChecks()
-    with pytest.warns(DeprecationWarning, match="grelmicro.health"):
-        use_registry(registry)
-
-    assert get_health_checks() is registry
 
 
 def test_get_health_checks_raises_when_not_loaded() -> None:

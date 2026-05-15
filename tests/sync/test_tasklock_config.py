@@ -3,7 +3,8 @@
 import pytest
 from pytest_mock import MockerFixture
 
-from grelmicro.sync._backends import sync_backend_registry
+from grelmicro import Grelmicro
+from grelmicro.sync import Sync
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
@@ -22,28 +23,21 @@ def backend() -> SyncBackend:
     return MemorySyncAdapter()
 
 
-def test_construction_does_not_touch_registry(mocker: MockerFixture) -> None:
-    """`TaskLock("cart")` performs zero registry calls at construction."""
-    spy = mocker.patch.object(sync_backend_registry, "get")
+def test_construction_does_not_resolve(mocker: MockerFixture) -> None:
+    """`TaskLock("cart")` performs zero ambient resolution at construction."""
+    spy = mocker.spy(Grelmicro, "current")
     TaskLock("cart")
     assert spy.call_count == 0
 
 
-def test_backend_property_resolves_on_every_call(
-    mocker: MockerFixture,
-) -> None:
-    """`task_lock.backend` consults the registry on each read so `sync.use(...)` overrides apply."""
+async def test_backend_property_resolves_on_every_call() -> None:
+    """`task_lock.backend` consults the active `Grelmicro` app on each read."""
     backend_instance = MemorySyncAdapter()
-    spy = mocker.patch(
-        "grelmicro.sync.tasklock.get_sync_backend",
-        return_value=backend_instance,
-    )
-    task_lock = TaskLock("cart")
-    assert spy.call_count == 0
-    assert task_lock.backend is backend_instance
-    assert task_lock.backend is backend_instance
-    expected_calls = 2
-    assert spy.call_count == expected_calls
+    micro = Grelmicro(uses=[Sync(backend_instance)])
+    async with micro:
+        task_lock = TaskLock("cart")
+        assert task_lock.backend is backend_instance
+        assert task_lock.backend is backend_instance
 
 
 def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:

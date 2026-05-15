@@ -7,7 +7,6 @@ from grelmicro.providers.postgres import (
     PostgresProvider,
     PostgresProviderConfigError,
 )
-from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.postgres import PostgresSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -93,15 +92,6 @@ def test_env_validation_error_propagates(
 
     with pytest.raises(PostgresProviderConfigError):
         PostgresSyncAdapter()
-
-
-def test_constructor_does_not_register() -> None:
-    """Constructing the adapter performs no registry writes."""
-    sync_backend_registry.reset()
-
-    PostgresSyncAdapter(provider=PostgresProvider(URL))
-
-    assert not sync_backend_registry.is_loaded
 
 
 def test_custom_table_name() -> None:

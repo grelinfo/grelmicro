@@ -59,14 +59,7 @@ def test_resilience_module_exports() -> None:
         "RetryConfig",
         "RetryStrategy",
         "TokenBucketConfig",
-        "register",
-        "register_circuit_breaker",
         "retry",
         "retrying",
-        "unregister",
-        "unregister_circuit_breaker",
-        "use",
-        "use_backend",
-        "use_circuit_breaker_backend",
     }
     assert set(resilience_mod.__all__) == expected
