@@ -10,9 +10,9 @@ from uuid import UUID
 from pydantic import model_validator
 from typing_extensions import Doc
 
+from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.errors import WouldBlockError
-from grelmicro.sync._backends import get_sync_backend
 from grelmicro.sync._base import BaseLockConfig
 from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
 from grelmicro.task.abc import Task
@@ -334,13 +334,14 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         """Bound sync backend, resolved on each call.
 
         When a backend instance was passed at construction it is
-        always returned. Otherwise the registry is consulted on
-        every access so that task-scoped ``sync.use(...)``
-        overrides take effect.
+        always returned. Otherwise the active `Grelmicro` app is
+        consulted via `Grelmicro.current()` on every access so that
+        `micro.override(Sync(...))` blocks take effect.
         """
         if self._backend is not None:
             return self._backend
-        return get_sync_backend(self._backend_name or "default")
+        sync = Grelmicro.current().get("sync", self._backend_name or "default")
+        return sync.backend
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""

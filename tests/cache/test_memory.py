@@ -4,9 +4,6 @@ from asyncio import sleep
 
 import pytest
 
-from grelmicro._backends import BackendNotLoadedError
-from grelmicro.cache import use_backend
-from grelmicro.cache._backends import cache_backend_registry, get_cache_backend
 from grelmicro.cache.memory import MemoryCacheAdapter
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -226,34 +223,3 @@ class TestMemoryCacheAdapterContextManager:
                 raise RuntimeError(msg)
 
         assert await backend.get(key="k") is None
-
-
-class TestMemoryCacheAdapterRegistration:
-    """Tests for explicit registration of MemoryCacheAdapter."""
-
-    def test_constructor_does_not_register(self) -> None:
-        """Constructing the backend performs no registry writes."""
-        cache_backend_registry.reset()
-
-        MemoryCacheAdapter()
-
-        assert not cache_backend_registry.is_loaded
-
-    def test_use_backend_registers(self) -> None:
-        """`cache.use_backend` registers the backend as default."""
-        cache_backend_registry.reset()
-        backend = MemoryCacheAdapter()
-
-        with pytest.warns(DeprecationWarning, match="grelmicro.cache"):
-            use_backend(backend)
-
-        assert get_cache_backend() is backend
-
-        cache_backend_registry.reset()
-
-    def test_get_cache_backend_not_loaded_raises(self) -> None:
-        """Test that get_cache_backend raises BackendNotLoadedError when empty."""
-        cache_backend_registry.reset()
-
-        with pytest.raises(BackendNotLoadedError):
-            get_cache_backend()

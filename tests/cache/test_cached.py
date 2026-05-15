@@ -28,8 +28,8 @@ def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
 
     Captures the running loop on the backend so the sync ``@cached``
     wrapper can dispatch from a worker thread without an explicit
-    ``async with backend:`` setup. Production code goes through
-    ``grelmicro.lifespan()`` which does this for free.
+    ``async with backend:`` setup. Production code opens the backend
+    through the ``Grelmicro`` app, which captures the loop on entry.
     """
     backend = MemoryCacheAdapter()
     with suppress(RuntimeError):

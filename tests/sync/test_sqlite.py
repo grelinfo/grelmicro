@@ -3,7 +3,6 @@
 import pytest
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync._backends import sync_backend_registry
 from grelmicro.sync.errors import SyncSettingsValidationError
 from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
@@ -69,15 +68,6 @@ def test_sqlite_env_var_settings_validation_error() -> None:
         match=(r"Could not validate environment variables settings:\n"),
     ):
         SQLiteSyncAdapter()
-
-
-def test_sync_backend_constructor_does_not_register() -> None:
-    """Constructing the backend performs no registry writes."""
-    sync_backend_registry.reset()
-
-    SQLiteSyncAdapter(path=":memory:")
-
-    assert not sync_backend_registry.is_loaded
 
 
 def test_sync_backend_custom_table_name() -> None:

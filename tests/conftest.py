@@ -2,27 +2,25 @@
 
 import pytest
 
-from grelmicro.cache._backends import cache_backend_registry
+from grelmicro.health._backends import health_checks
 from grelmicro.resilience._backends import (
     circuit_breaker_backend_registry,
     rate_limiter_backend_registry,
 )
-from grelmicro.sync._backends import sync_backend_registry
 
 
 @pytest.fixture(autouse=True)
 def _reset_backend_registries() -> None:
-    """Reset every backend registry before each test.
+    """Reset every remaining internal backend registry before each test.
 
-    Tests register backends ad-hoc and the order they run in is
-    randomised, so a leaked entry from one test can fail an
-    unrelated one with ``BackendAlreadyRegisteredError``. Resetting
-    up-front isolates each test from the rest.
+    The sync and cache registries were removed in #207: those kinds resolve
+    through the `Grelmicro` app. The rate limiter, circuit breaker, and
+    health registries are still internal infrastructure and benefit from
+    the per-test reset to avoid leak-across when test order is randomised.
     """
-    sync_backend_registry.reset()
-    cache_backend_registry.reset()
     rate_limiter_backend_registry.reset()
     circuit_breaker_backend_registry.reset()
+    health_checks.reset()
 
 
 @pytest.fixture(autouse=True)
