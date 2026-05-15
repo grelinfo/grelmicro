@@ -162,11 +162,8 @@ async def test_circuit_from_thread_init() -> None:
 
 async def test_circuit_from_thread_unopened_backend_raises() -> None:
     """Worker-thread entry on a closed backend raises a clear error."""
-    # Build a fresh app whose backend is never opened.
     closed_backend = MemoryCircuitBreakerAdapter()
-    micro = Grelmicro(uses=[Breaker(closed_backend)])
     cb = CircuitBreaker("test", backend=closed_backend)
-    _ = micro
 
     def enter() -> None:
         cb.from_thread.__enter__()
