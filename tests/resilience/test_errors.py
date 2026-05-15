@@ -28,6 +28,7 @@ def test_circuit_breaker_error() -> None:
 def test_resilience_module_exports() -> None:
     """Test resilience module __all__ contains expected symbols."""
     expected = {
+        "Breaker",
         "CircuitBreaker",
         "CircuitBreakerBackend",
         "CircuitBreakerConfig",
@@ -45,6 +46,7 @@ def test_resilience_module_exports() -> None:
         "MemoryTokenBucket",
         "Outcome",
         "RandomBackoff",
+        "RateLimit",
         "RateLimitExceededError",
         "RateLimitResult",
         "RateLimiter",

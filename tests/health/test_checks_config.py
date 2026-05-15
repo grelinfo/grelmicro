@@ -2,7 +2,6 @@
 
 import pytest
 
-from grelmicro.health._backends import health_checks
 from grelmicro.health._checks import HealthChecks, HealthChecksConfig
 
 TIMEOUT_KWARG = 2.5
@@ -11,12 +10,6 @@ TIMEOUT_ENV = 7.5
 CACHE_TTL_ENV = 3.0
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_CACHE_TTL = 1.0
-
-
-@pytest.fixture(autouse=True)
-def _reset_registry() -> None:
-    """Reset the global health registry between tests."""
-    health_checks.reset()
 
 
 def test_programmatic_path_uses_kwargs() -> None:
@@ -86,8 +79,8 @@ def test_zero_config_uses_health_defaults(
     assert registry._config.cache_ttl == DEFAULT_CACHE_TTL
 
 
-def test_from_config_does_not_register() -> None:
-    """`from_config(...)` is a pure constructor and does not register."""
+def test_from_config_keeps_default_name() -> None:
+    """`from_config(...)` defaults to name='default'."""
     cfg = HealthChecksConfig()
-    HealthChecks.from_config(cfg)
-    assert health_checks.is_loaded is False
+    registry = HealthChecks.from_config(cfg)
+    assert registry.name == "default"

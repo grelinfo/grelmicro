@@ -29,6 +29,7 @@ from pydantic import (
 from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
+from grelmicro._app import Grelmicro
 from grelmicro._config import (
     Reconfigurable,
     env_segment,
@@ -36,7 +37,6 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._types import LogLevel
-from grelmicro.resilience._backends import get_circuit_breaker_backend
 from grelmicro.resilience._protocol import CircuitBreakerBackend
 from grelmicro.resilience.errors import CircuitBreakerError
 
@@ -416,12 +416,16 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         """Bound circuit breaker backend, resolved on each call.
 
         When a backend instance was passed at construction it is
-        always returned. Otherwise the registry is consulted on
-        every access so that scoped overrides take effect.
+        always returned. Otherwise the active `Grelmicro` app is
+        consulted via `Grelmicro.current()` on every access so that
+        `micro.override(Breaker(...))` blocks take effect.
         """
         if self._backend is not None:  # pragma: no cover
             return self._backend
-        return get_circuit_breaker_backend(self._backend_name or "default")
+        breaker = Grelmicro.current().get(
+            "circuitbreaker", self._backend_name or "default"
+        )
+        return breaker.backend
 
     @property
     def from_thread(self) -> "_ThreadAdapter":

@@ -1,5 +1,6 @@
 """Resilience."""
 
+from grelmicro.resilience._components import Breaker, RateLimit
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience._protocol import (
@@ -46,6 +47,7 @@ from grelmicro.resilience.retry import (
 )
 
 __all__ = [
+    "Breaker",
     "CircuitBreaker",
     "CircuitBreakerBackend",
     "CircuitBreakerConfig",
@@ -63,6 +65,7 @@ __all__ = [
     "MemoryTokenBucket",
     "Outcome",
     "RandomBackoff",
+    "RateLimit",
     "RateLimitExceededError",
     "RateLimitResult",
     "RateLimiter",

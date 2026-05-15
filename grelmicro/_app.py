@@ -304,7 +304,7 @@ class Grelmicro:
         Falls through to `_resolve_kind` (used by typed properties for
         first-party components and by ad-hoc lookup for third-party components).
 
-        Resolution order, matching the legacy `BackendRegistry.get()` semantics:
+        Resolution order:
 
         1. The component registered as `(kind, "default")` if present.
         2. The sole entry of that kind if exactly one is registered.
@@ -403,6 +403,14 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     """
     from grelmicro.cache._component import Cache  # noqa: PLC0415
     from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
+    from grelmicro.resilience._components import (  # noqa: PLC0415
+        Breaker,
+        RateLimit,
+    )
+    from grelmicro.resilience._protocol import (  # noqa: PLC0415
+        CircuitBreakerBackend,
+        RateLimiterBackend,
+    )
     from grelmicro.sync._component import Sync  # noqa: PLC0415
     from grelmicro.sync.abc import SyncBackend  # noqa: PLC0415
 
@@ -410,6 +418,10 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
         return Cache(item)
     if isinstance(item, SyncBackend):
         return Sync(item)
+    if isinstance(item, RateLimiterBackend):
+        return RateLimit(item)
+    if isinstance(item, CircuitBreakerBackend):
+        return Breaker(item)
     return None
 
 

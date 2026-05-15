@@ -3,18 +3,11 @@
 import pytest
 
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience._backends import rate_limiter_backend_registry
 from grelmicro.resilience.redis import RedisRateLimiterAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
 URL = "redis://:test_password@test_host:1234/0"
-
-
-@pytest.fixture(autouse=True)
-def _reset_registry() -> None:
-    """Reset the rate limiter backend registry between tests."""
-    rate_limiter_backend_registry.reset()
 
 
 def test_explicit_provider_is_borrowed() -> None:
@@ -37,17 +30,6 @@ def test_no_provider_builds_implicit_one(
 
     assert backend.provider.url == URL
     assert backend._owns_provider is True
-
-
-def test_constructor_does_not_register(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Constructing the backend performs no registry writes."""
-    monkeypatch.setenv("REDIS_URL", URL)
-
-    RedisRateLimiterAdapter()
-
-    assert rate_limiter_backend_registry.is_loaded is False
 
 
 def test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:

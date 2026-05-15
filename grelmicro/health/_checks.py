@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from logging import getLogger
 from types import TracebackType
-from typing import Annotated, Self
+from typing import Annotated, ClassVar, Self
 
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
@@ -108,9 +108,20 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
     [Live reconfiguration](../architecture/reconfigure.md).
     """
 
+    kind: ClassVar[str] = "health"
+
     def __init__(
         self,
         *,
+        name: Annotated[
+            str,
+            Doc(
+                """
+                Registration name. Multiple `HealthChecks` instances may
+                coexist on one `Grelmicro` under different names.
+                """,
+            ),
+        ] = "default",
         timeout: Annotated[
             PositiveFloat | None,
             Doc(
@@ -171,7 +182,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             env_prefix=env_prefix or "GREL_HEALTH_",
             env_load=env_load,
         )
-        self._setup(config)
+        self._setup(config, name=name)
 
     @classmethod
     def from_config(
@@ -190,14 +201,22 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 """
             ),
         ],
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name. Defaults to `'default'`."),
+        ] = "default",
     ) -> Self:
         """Construct a `HealthChecks` from a pre-built `HealthChecksConfig`."""
         instance = cls.__new__(cls)
-        instance._setup(config)  # noqa: SLF001
+        instance._setup(config, name=name)  # noqa: SLF001
         return instance
 
-    def _setup(self, config: HealthChecksConfig) -> None:
+    def _setup(
+        self, config: HealthChecksConfig, *, name: str = "default"
+    ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
+        self.name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._entries: dict[str, _Entry] = {}

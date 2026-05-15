@@ -2,7 +2,6 @@
 
 import importlib
 import sys
-from collections.abc import Generator
 from unittest.mock import patch
 
 import pytest
@@ -17,7 +16,6 @@ from starlette.status import (
 )
 
 from grelmicro.errors import DependencyNotFoundError
-from grelmicro.health._backends import health_checks
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health.fastapi import health_router
 
@@ -26,27 +24,17 @@ from .conftest import healthy, healthy_with_details, unhealthy
 pytestmark = [pytest.mark.timeout(10)]
 
 
-@pytest.fixture(autouse=True)
-def _clean_registry() -> Generator[None]:
-    """Reset global health registry before and after each test."""
-    health_checks.reset()
-    yield
-    health_checks.reset()
-
-
 @pytest.fixture
 def registry() -> HealthChecks:
-    """Health registry with caching disabled, registered as the default."""
-    instance = HealthChecks(cache_ttl=0)
-    health_checks.register(instance, "default")
-    return instance
+    """Health registry with caching disabled."""
+    return HealthChecks(cache_ttl=0)
 
 
 @pytest.fixture
-def app() -> FastAPI:
-    """FastAPI app with default health router."""
+def app(registry: HealthChecks) -> FastAPI:
+    """FastAPI app with health router bound to the test registry."""
     application = FastAPI()
-    application.include_router(health_router())
+    application.include_router(health_router(registry=registry))
     return application
 
 
@@ -79,10 +67,9 @@ def test_livez_head_method(client: TestClient) -> None:
 def test_livez_never_runs_checkers() -> None:
     """A failing registered checker does not affect /livez."""
     registry = HealthChecks(cache_ttl=0)
-    health_checks.register(registry, "default")
     registry.add("db", unhealthy())
     app = FastAPI()
-    app.include_router(health_router())
+    app.include_router(health_router(registry=registry))
     client = TestClient(app)
 
     response = client.get("/livez")
@@ -231,10 +218,10 @@ def test_healthz_details_hidden_by_default(
 def test_healthz_details_true_always_shown() -> None:
     """show_details=True always includes details."""
     registry = HealthChecks(cache_ttl=0)
-    health_checks.register(registry, "default")
+
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
     app = FastAPI()
-    app.include_router(health_router(show_details=True))
+    app.include_router(health_router(registry=registry, show_details=True))
     client = TestClient(app)
 
     response = client.get("/healthz")
@@ -245,14 +232,16 @@ def test_healthz_details_true_always_shown() -> None:
 def test_healthz_details_dep_returns_false_strips() -> None:
     """A dep returning False strips details, endpoint returns 200."""
     registry = HealthChecks(cache_ttl=0)
-    health_checks.register(registry, "default")
+
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow() -> bool:
         return False
 
     app = FastAPI()
-    app.include_router(health_router(show_details=Depends(allow)))
+    app.include_router(
+        health_router(registry=registry, show_details=Depends(allow))
+    )
     client = TestClient(app)
 
     response = client.get("/healthz")
@@ -264,14 +253,16 @@ def test_healthz_details_dep_returns_false_strips() -> None:
 def test_healthz_details_dep_returns_true_shows() -> None:
     """A dep returning True includes details."""
     registry = HealthChecks(cache_ttl=0)
-    health_checks.register(registry, "default")
+
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow() -> bool:
         return True
 
     app = FastAPI()
-    app.include_router(health_router(show_details=Depends(allow)))
+    app.include_router(
+        health_router(registry=registry, show_details=Depends(allow))
+    )
     client = TestClient(app)
 
     response = client.get("/healthz")
@@ -282,14 +273,16 @@ def test_healthz_details_dep_returns_true_shows() -> None:
 def test_healthz_details_async_dep_shows() -> None:
     """An async dep is awaited by FastAPI's DI."""
     registry = HealthChecks(cache_ttl=0)
-    health_checks.register(registry, "default")
+
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     async def allow_async() -> bool:
         return True
 
     app = FastAPI()
-    app.include_router(health_router(show_details=Depends(allow_async)))
+    app.include_router(
+        health_router(registry=registry, show_details=Depends(allow_async))
+    )
     client = TestClient(app)
 
     response = client.get("/healthz")
@@ -300,14 +293,16 @@ def test_healthz_details_async_dep_shows() -> None:
 def test_healthz_details_dep_with_request() -> None:
     """A Request-annotated dep receives the request via FastAPI DI."""
     registry = HealthChecks(cache_ttl=0)
-    health_checks.register(registry, "default")
+
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow_if_admin(request: _Request) -> bool:
         return request.headers.get("x-admin") == "yes"
 
     app = FastAPI()
-    app.include_router(health_router(show_details=Depends(allow_if_admin)))
+    app.include_router(
+        health_router(registry=registry, show_details=Depends(allow_if_admin))
+    )
     client = TestClient(app)
 
     assert "details" not in client.get("/healthz").json()["checks"]["redis"]
@@ -318,7 +313,7 @@ def test_healthz_details_dep_with_request() -> None:
 def test_healthz_details_dep_with_sub_dependency() -> None:
     """FastAPI sub-dependencies resolve through ``Depends`` chains."""
     registry = HealthChecks(cache_ttl=0)
-    health_checks.register(registry, "default")
+
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def current_role(request: _Request) -> str:
@@ -328,7 +323,9 @@ def test_healthz_details_dep_with_sub_dependency() -> None:
         return role == "admin"
 
     app = FastAPI()
-    app.include_router(health_router(show_details=Depends(is_admin)))
+    app.include_router(
+        health_router(registry=registry, show_details=Depends(is_admin))
+    )
     client = TestClient(app)
 
     assert "details" not in client.get("/healthz").json()["checks"]["redis"]
@@ -339,14 +336,16 @@ def test_healthz_details_dep_with_sub_dependency() -> None:
 def test_healthz_details_dep_http_exception_blocks_endpoint() -> None:
     """Raising HTTPException in the dep blocks the endpoint (documented)."""
     registry = HealthChecks(cache_ttl=0)
-    health_checks.register(registry, "default")
+
     registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def deny() -> bool:
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
 
     app = FastAPI()
-    app.include_router(health_router(show_details=Depends(deny)))
+    app.include_router(
+        health_router(registry=registry, show_details=Depends(deny))
+    )
     client = TestClient(app)
 
     response = client.get("/healthz")
@@ -441,11 +440,10 @@ def test_health_router_raises_without_fastapi() -> None:
     importlib.import_module("grelmicro.health.fastapi")  # restore
 
 
-@pytest.mark.usefixtures("registry")
-def test_router_prefix() -> None:
+def test_router_prefix(registry: HealthChecks) -> None:
     """The prefix kwarg mounts endpoints under a custom path."""
     app = FastAPI()
-    app.include_router(health_router(prefix="/api/v1"))
+    app.include_router(health_router(registry=registry, prefix="/api/v1"))
     client = TestClient(app)
 
     assert client.get("/api/v1/livez").status_code == HTTP_200_OK

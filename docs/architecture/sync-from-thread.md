@@ -56,12 +56,11 @@ def sync_route():                # runs in a worker thread
 3. **Forward compatibility.** A future Redis-backed circuit breaker (issue #188) shares state across replicas. Switching is a backend swap, not an API change.
 
 ```python
-from grelmicro.resilience import CircuitBreaker
-from grelmicro.resilience._backends import circuit_breaker_backend_registry
+from grelmicro import Grelmicro
+from grelmicro.resilience import Breaker, CircuitBreaker
 from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
 
-circuit_breaker_backend_registry.register(MemoryCircuitBreakerAdapter())
-
+micro = Grelmicro(uses=[Breaker(MemoryCircuitBreakerAdapter())])
 cb = CircuitBreaker("payment")
 
 

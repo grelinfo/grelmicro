@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from grelmicro._backends import BackendNotLoadedError
-from grelmicro.resilience._backends import rate_limiter_backend_registry
+from grelmicro import ComponentNotRegisteredError, Grelmicro
+from grelmicro.resilience import RateLimit
 from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
@@ -39,30 +39,12 @@ CAPACITY = 5
 REFILL_RATE = 1.0
 
 
-@pytest.fixture(autouse=True)
-def _reset_registry() -> None:
-    """Reset the rate limiter backend registry between tests."""
-    rate_limiter_backend_registry.reset()
-
-
 @pytest.fixture
 async def _backend() -> AsyncGenerator[MemoryRateLimiterAdapter]:
-    """Create and register a memory rate limiter backend."""
-    async with MemoryRateLimiterAdapter() as b:
-        rate_limiter_backend_registry.register(b, "default")
-        yield b
-
-
-@pytest.fixture
-def _sync_backend() -> MemoryRateLimiterAdapter:
-    """Create and register a memory backend for sync-only tests.
-
-    Sync tests can't consume the async `_backend` fixture
-    (pytest-asyncio doesn't bridge them).
-    """
+    """Open the in-memory backend inside an active `Grelmicro` app."""
     backend = MemoryRateLimiterAdapter()
-    rate_limiter_backend_registry.register(backend, "default")
-    return backend
+    async with Grelmicro(uses=[RateLimit(backend)]):
+        yield backend
 
 
 @pytest.fixture
@@ -93,7 +75,6 @@ def limiter(
 # --- Properties ---
 
 
-@pytest.mark.usefixtures("_sync_backend")
 def test_gcra_properties() -> None:
     """Test RateLimiter with GCRA properties."""
     # Arrange
@@ -106,7 +87,6 @@ def test_gcra_properties() -> None:
     assert rl.config.window == WINDOW
 
 
-@pytest.mark.usefixtures("_sync_backend")
 def test_token_bucket_properties() -> None:
     """Test RateLimiter with TokenBucket properties."""
     # Arrange
@@ -288,12 +268,12 @@ async def test_acquire_or_raise_with_cost(limiter: RateLimiter) -> None:
 
 async def test_acquire_without_backend() -> None:
     """RateLimiter construction succeeds. The error is deferred to first call."""
-    # Act: construction performs no registry lookup
     rl = RateLimiter("test", GCRAConfig(limit=LIMIT, window=WINDOW))
 
-    # Assert: first method call surfaces the missing-backend error
-    with pytest.raises(BackendNotLoadedError):
-        await rl.acquire(key="k")
+    # No `Grelmicro` app is open: first method call surfaces the missing-backend error
+    async with Grelmicro():
+        with pytest.raises(ComponentNotRegisteredError):
+            await rl.acquire(key="k")
 
 
 # --- Validation ---
@@ -343,25 +323,19 @@ async def test_invalid_cost(limiter: RateLimiter, cost: int) -> None:
 # --- Explicit backend override ---
 
 
-async def test_explicit_backend_bypasses_registry() -> None:
-    """Test backend= arg wins over a registered default."""
-    # Arrange: explicitly register a backend as the default, then build a
-    # RateLimiter with a different explicit backend.
+async def test_explicit_backend_bypasses_app() -> None:
+    """Test backend= arg wins over the active `Grelmicro` app's component."""
     registered = MemoryRateLimiterAdapter()
-    rate_limiter_backend_registry.register(registered)
-    assert rate_limiter_backend_registry.get() is registered
     my = MemoryRateLimiterAdapter()
 
-    # Act: limiter is built with the explicit backend instance
-    rl = RateLimiter(
-        "explicit",
-        GCRAConfig(limit=LIMIT, window=WINDOW),
-        backend=my,
-    )
-
-    # Assert: RateLimiter exposes the explicit backend, ignores the registered one
-    assert rl.backend is my
-    assert rl.backend is not registered
+    async with Grelmicro(uses=[RateLimit(registered)]):
+        rl = RateLimiter(
+            "explicit",
+            GCRAConfig(limit=LIMIT, window=WINDOW),
+            backend=my,
+        )
+        assert rl.backend is my
+        assert rl.backend is not registered
 
 
 # --- Error class ---
@@ -716,7 +690,6 @@ async def test_reconfigure_rebuilds_fallback_and_strategy() -> None:
     assert result.limit == CAPACITY * 3
 
 
-@pytest.mark.usefixtures("_sync_backend")
 async def test_reconfigure_same_config_is_noop() -> None:
     """Equal configs short-circuit before any bind."""
     # Arrange
@@ -732,7 +705,6 @@ async def test_reconfigure_same_config_is_noop() -> None:
     backend.bind.assert_not_called()
 
 
-@pytest.mark.usefixtures("_sync_backend")
 async def test_reconfigure_rejects_different_config_type() -> None:
     """Swapping algorithm types raises TypeError."""
     # Arrange
@@ -745,7 +717,6 @@ async def test_reconfigure_rejects_different_config_type() -> None:
         )
 
 
-@pytest.mark.usefixtures("_sync_backend")
 async def test_reconfigure_preserves_state_when_bind_fails() -> None:
     """A bind failure during reconfigure leaves the previous state intact."""
     # Arrange
@@ -795,7 +766,6 @@ async def test_reconfigure_concurrent_with_acquire() -> None:
     assert rl.config == TokenBucketConfig(capacity=80, refill_rate=100)
 
 
-@pytest.mark.usefixtures("_sync_backend")
 async def test_reconfigure_inner_double_check_skips_rebuild() -> None:
     """Two concurrent reconfigure calls with the same target rebuild once."""
     config = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
@@ -815,7 +785,6 @@ async def test_reconfigure_inner_double_check_skips_rebuild() -> None:
     assert rl.config == new_config
 
 
-@pytest.mark.usefixtures("_sync_backend")
 async def test_reconfigure_fail_open_response_is_self_consistent() -> None:
     """Fail-open response uses fail_open and fallback from one config snapshot.
 
