@@ -8,8 +8,8 @@ from typing import Annotated, Self, assert_never
 from pydantic import PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
+from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable
-from grelmicro.resilience._backends import get_rate_limiter_backend
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -149,13 +149,16 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         """Bound rate-limiter backend, resolved on each call.
 
         When a backend instance was passed at construction it is
-        always returned. Otherwise the registry is consulted on
-        every access so that task-scoped ``resilience.use(...)``
-        overrides take effect.
+        always returned. Otherwise the active `Grelmicro` app is
+        consulted via `Grelmicro.current()` on every access so that
+        `micro.override(RateLimit(...))` blocks take effect.
         """
         if self._backend is not None:
             return self._backend
-        return get_rate_limiter_backend(self._backend_name or "default")
+        rl = Grelmicro.current().get(
+            "ratelimiter", self._backend_name or "default"
+        )
+        return rl.backend
 
     def _resolve_strategy(self, state: _State) -> RateLimiterStrategy:
         """Bind the algorithm config to the backend and republish the snapshot."""

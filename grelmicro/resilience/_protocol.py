@@ -1,7 +1,7 @@
 """Rate Limiter, Circuit Breaker, and Retry Protocols."""
 
 from types import TracebackType
-from typing import TYPE_CHECKING, NamedTuple, Protocol, Self
+from typing import TYPE_CHECKING, NamedTuple, Protocol, Self, runtime_checkable
 
 from grelmicro.resilience.algorithms import RateLimiterConfig
 
@@ -112,6 +112,7 @@ class RateLimiterStrategy(Protocol):
         ...
 
 
+@runtime_checkable
 class RateLimiterBackend(Protocol):
     """Protocol for rate-limiter storage backends.
 
@@ -160,6 +161,7 @@ class RateLimiterBackend(Protocol):
         ...
 
 
+@runtime_checkable
 class CircuitBreakerBackend(Protocol):
     """Protocol for circuit-breaker storage backends.
 

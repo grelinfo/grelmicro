@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Patterns `RateLimiter`, `CircuitBreaker`, and the FastAPI health router resolve through the active `Grelmicro` app. Add the two new Components `RateLimit` (wraps `RateLimiterBackend`, kind `"ratelimiter"`) and `Breaker` (wraps `CircuitBreakerBackend`, kind `"circuitbreaker"`). `Grelmicro.use(...)` auto-wraps a `RateLimiterBackend` or `CircuitBreakerBackend` instance into its canonical Component. `HealthChecks` becomes a Component (`kind = "health"`, default `name = "default"`); pass it to `Grelmicro(uses=[...])` and the FastAPI `health_router()` resolves it via `Grelmicro.current()`. Delete the `rate_limiter_backend_registry`, `circuit_breaker_backend_registry`, `health_checks` registries plus `grelmicro/_backends.py` (`BackendRegistry`, `BackendNotLoadedError`, `BackendAlreadyRegisteredError`). Closes out [#201](https://github.com/grelinfo/grelmicro/issues/201). Issue [#261](https://github.com/grelinfo/grelmicro/issues/261).
+
 ### Features
 
 * ✨ Add `Grelmicro` app object and `Component` protocol. The user composes everything attached to the app into one container and opens it with `async with micro:`. Single `Grelmicro.use(item)` registration verb (and `uses=` constructor kwarg) accepts `Component` instances (registered with `(kind, name)` lookup, exposed on `micro.<kind>`), first-party backends (auto-wrapped into their canonical Component: `RedisCacheAdapter` → `Cache`, `RedisSyncAdapter` → `Sync`), and any other async context manager (lifecycled only, caller keeps the reference). Typed accessors `micro.sync` and `micro.cache` provide IDE completion. `Grelmicro.components` returns the registered Components in order for `/healthz`-style introspection. Issue [#208](https://github.com/grelinfo/grelmicro/issues/208), epic [#201](https://github.com/grelinfo/grelmicro/issues/201), unified in [#219](https://github.com/grelinfo/grelmicro/issues/219), `Component` rename and `.components` accessor in [#233](https://github.com/grelinfo/grelmicro/issues/233).

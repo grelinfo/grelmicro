@@ -1,10 +1,8 @@
 """Synchronization Errors."""
 
-from grelmicro._backends import BackendNotLoadedError
 from grelmicro.errors import GrelmicroError, SettingsValidationError
 
 __all__ = [
-    "BackendNotLoadedError",
     "LockAcquireError",
     "LockLockedCheckError",
     "LockNotOwnedError",

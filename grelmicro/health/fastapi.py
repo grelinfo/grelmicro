@@ -119,9 +119,10 @@ def health_router(
 
         raise DependencyNotFoundError(module="fastapi")  # noqa: B904
 
-    from grelmicro.health._backends import (  # noqa: PLC0415
-        get_health_checks,
-    )
+    from grelmicro._app import Grelmicro  # noqa: PLC0415
+
+    def _resolve_registry() -> "HealthChecks":
+        return registry or Grelmicro.current().get("health", "default")
 
     show_details_dep = _resolve_show_details_dep(show_details)
 
@@ -155,7 +156,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Readiness probe. Runs critical checkers only."""
-        report = await (registry or get_health_checks()).run(
+        report = await _resolve_registry().run(
             critical_only=True,
             exclude=_parse_exclude(exclude),
         )
@@ -188,7 +189,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Aggregate JSON report of all checker results."""
-        report = await (registry or get_health_checks()).run(
+        report = await _resolve_registry().run(
             critical_only=False,
             exclude=_parse_exclude(exclude),
         )

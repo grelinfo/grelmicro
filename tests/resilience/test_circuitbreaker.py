@@ -4,7 +4,7 @@ import asyncio
 import logging
 import sys
 import threading
-from collections.abc import AsyncGenerator, Iterator
+from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, suppress
 from datetime import UTC, datetime
 from typing import Literal
@@ -13,7 +13,8 @@ import pydantic
 import pytest
 from freezegun import freeze_time
 
-from grelmicro.resilience import circuitbreaker
+from grelmicro import Grelmicro
+from grelmicro.resilience import Breaker, circuitbreaker
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     CircuitBreakerError,
@@ -40,25 +41,18 @@ ALL_STATES = [
 
 
 @pytest.fixture(autouse=True)
-def _register_cb_backend() -> Iterator[MemoryCircuitBreakerAdapter]:
-    """Register an in-memory circuit breaker backend for every test."""
-    from grelmicro.resilience._backends import (  # noqa: PLC0415
-        circuit_breaker_backend_registry,
-    )
-
-    backend = MemoryCircuitBreakerAdapter()
-    circuit_breaker_backend_registry.register(backend)
-    yield backend
-    circuit_breaker_backend_registry.unregister()
+async def _cb_app(
+    _cb_backend: MemoryCircuitBreakerAdapter,
+) -> AsyncGenerator[Grelmicro]:
+    """Open a `Grelmicro` app holding the in-memory CB backend for every test."""
+    async with Grelmicro(uses=[Breaker(_cb_backend)]) as micro:
+        yield micro
 
 
-@pytest.fixture(autouse=True)
-async def _open_cb_backend(
-    _register_cb_backend: MemoryCircuitBreakerAdapter,
-) -> AsyncGenerator[None]:
-    """Open the registered backend so its loop is captured for ``from_thread``."""
-    async with _register_cb_backend:
-        yield
+@pytest.fixture
+def _cb_backend() -> MemoryCircuitBreakerAdapter:
+    """Construct the in-memory CB backend fixture (one per test)."""
+    return MemoryCircuitBreakerAdapter()
 
 
 async def transition(cb: CircuitBreaker, state: CircuitBreakerState) -> None:
@@ -168,15 +162,11 @@ async def test_circuit_from_thread_init() -> None:
 
 async def test_circuit_from_thread_unopened_backend_raises() -> None:
     """Worker-thread entry on a closed backend raises a clear error."""
-    # Arrange: register a fresh backend that we never open.
-    from grelmicro.resilience._backends import (  # noqa: PLC0415
-        circuit_breaker_backend_registry,
-    )
-
-    circuit_breaker_backend_registry.unregister()
+    # Build a fresh app whose backend is never opened.
     closed_backend = MemoryCircuitBreakerAdapter()
-    circuit_breaker_backend_registry.register(closed_backend)
-    cb = CircuitBreaker("test")
+    micro = Grelmicro(uses=[Breaker(closed_backend)])
+    cb = CircuitBreaker("test", backend=closed_backend)
+    _ = micro
 
     def enter() -> None:
         cb.from_thread.__enter__()

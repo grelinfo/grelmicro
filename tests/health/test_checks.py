@@ -3,16 +3,15 @@
 import asyncio
 import logging
 import time
-from collections.abc import Generator
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from grelmicro._backends import (
-    BackendAlreadyRegisteredError,
-    BackendNotLoadedError,
+from grelmicro import (
+    ComponentAlreadyRegisteredError,
+    ComponentNotRegisteredError,
+    Grelmicro,
 )
-from grelmicro.health._backends import get_health_checks, health_checks
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import HealthStatus
 from grelmicro.health._types import HealthDetails
@@ -28,14 +27,6 @@ from .conftest import (
 )
 
 pytestmark = [pytest.mark.timeout(10)]
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry() -> Generator[None]:
-    """Reset global health registry before and after each test."""
-    health_checks.reset()
-    yield
-    health_checks.reset()
 
 
 async def test_user_timeout_error_is_not_classified_as_registry_timeout() -> (
@@ -518,53 +509,24 @@ def test_cache_ttl_negative_raises() -> None:
         HealthChecks(cache_ttl=-1.0)
 
 
-async def test_async_context_manager_does_not_register() -> None:
-    """``async with HealthChecks()`` opens but does not register."""
-    async with HealthChecks():
-        with pytest.raises(BackendNotLoadedError):
-            get_health_checks()
-
-
-def test_constructor_does_not_register() -> None:
-    """Constructing a HealthChecks performs no registry writes."""
-    HealthChecks()
-
-    with pytest.raises(BackendNotLoadedError):
-        get_health_checks()
-
-
-def test_get_health_checks_raises_when_not_loaded() -> None:
-    """get_health_checks raises before a registry is registered."""
-    with pytest.raises(BackendNotLoadedError):
-        get_health_checks()
-
-
-def test_overwrite_raises() -> None:
-    """Registering a different registry over an existing one raises."""
-    health_checks.register(HealthChecks(), "default")
-
-    with pytest.raises(BackendAlreadyRegisteredError):
-        health_checks.register(HealthChecks(), "default")
-
-
-def test_register_health_checks() -> None:
-    """health_checks.register installs the singleton."""
+async def test_resolves_via_active_app() -> None:
+    """`Grelmicro.current().get('health', 'default')` returns the registered instance."""
     registry = HealthChecks()
-
-    health_checks.register(registry, "default")
-
-    assert get_health_checks() is registry
+    async with Grelmicro(uses=[registry]) as micro:
+        assert micro.get("health", "default") is registry
 
 
-def test_reset_health_checks() -> None:
-    """health_checks.reset removes the singleton."""
-    registry = HealthChecks()
-    health_checks.register(registry, "default")
+async def test_two_default_health_components_clash() -> None:
+    """Two `HealthChecks` instances under the same name collide on registration."""
+    with pytest.raises(ComponentAlreadyRegisteredError):
+        Grelmicro(uses=[HealthChecks(), HealthChecks()])
 
-    health_checks.reset()
 
-    with pytest.raises(BackendNotLoadedError):
-        get_health_checks()
+async def test_resolve_missing_raises() -> None:
+    """`get('health', 'missing')` raises when no entry matches."""
+    async with Grelmicro() as micro:
+        with pytest.raises(ComponentNotRegisteredError):
+            micro.get("health", "default")
 
 
 # --- reconfigure ---
