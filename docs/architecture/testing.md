@@ -5,13 +5,18 @@
 Swaps components inside an active `async with micro:` block.
 
 ```python
+from unittest.mock import AsyncMock
+
 from grelmicro.sync import Sync
+from grelmicro.sync.abc import SyncBackend
 
 
 async def test_swap_for_block(micro: Grelmicro) -> None:
+    fake_backend = AsyncMock(spec=SyncBackend)
     async with micro:
-        async with micro.override(Sync(FakeSync())):
+        async with micro.override(Sync(fake_backend)):
             await do_something_that_uses_sync()
+            fake_backend.acquire.assert_awaited()
 ```
 
 Override components are entered when the block opens and exited in reverse order when it closes. Prior registrations are restored on exit, including when the block raises.
@@ -50,7 +55,14 @@ async def micro() -> AsyncIterator[Grelmicro]:
 Tests then read `micro` as a fixture and apply per-case overrides:
 
 ```python
+from unittest.mock import AsyncMock
+
+from grelmicro.sync import Sync
+from grelmicro.sync.abc import SyncBackend
+
+
 async def test_login(micro: Grelmicro) -> None:
-    async with micro.override(Sync(FakeSync())):
+    fake_backend = AsyncMock(spec=SyncBackend)
+    async with micro.override(Sync(fake_backend)):
         await do_login("u1")
 ```
