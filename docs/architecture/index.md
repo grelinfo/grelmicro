@@ -11,4 +11,4 @@ This section documents the internal design decisions and guarantees of grelmicro
 - **[Kubernetes Backend](kubernetes.md)**: Lease resources, optimistic concurrency, and name sanitization.
 - **[SQLite Backend](sqlite.md)**: WAL mode.
 - **[Tracing](tracing.md)**: Context stack, concurrency safety, and decoupled layering.
-- **[Testing](testing.md)**: `Grelmicro.testing()` baseline and `micro.override(...)` as block or decorator.
+- **[Testing](testing.md)**: `micro.override(...)` block and pytest conftest recipe.

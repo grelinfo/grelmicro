@@ -7,6 +7,7 @@ Swaps components inside an active `async with micro:` block.
 ```python
 from unittest.mock import AsyncMock
 
+from grelmicro import Grelmicro
 from grelmicro.sync import Sync
 from grelmicro.sync.abc import SyncBackend
 
@@ -57,6 +58,7 @@ Tests then read `micro` as a fixture and apply per-case overrides:
 ```python
 from unittest.mock import AsyncMock
 
+from grelmicro import Grelmicro
 from grelmicro.sync import Sync
 from grelmicro.sync.abc import SyncBackend
 
