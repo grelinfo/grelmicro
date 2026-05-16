@@ -7,6 +7,9 @@ import pytest
 from grelmicro import Component, Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.redis import RedisCacheAdapter
+from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.redis import RedisProvider
 
 
 def test_cache_satisfies_component_protocol() -> None:
@@ -143,3 +146,18 @@ async def test_micro_cache_raises_when_ambiguous() -> None:
     )
     with pytest.raises(AttributeError, match="multiple 'cache' components"):
         _ = micro.cache
+
+
+def test_cache_accepts_redis_provider() -> None:
+    """`Cache(RedisProvider(...))` calls `provider.cache()` to build the adapter."""
+    provider = RedisProvider("redis://localhost:6379/0")
+    cache = Cache(provider)
+    assert isinstance(cache.backend, RedisCacheAdapter)
+    assert cache.backend.provider is provider
+
+
+def test_cache_with_postgres_provider_raises() -> None:
+    """`Cache(PostgresProvider(...))` raises `NotImplementedError` (no cache adapter)."""
+    provider = PostgresProvider("postgresql://localhost:5432/app")
+    with pytest.raises(NotImplementedError, match="no cache adapter"):
+        Cache(provider)

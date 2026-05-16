@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
-from grelmicro.cache import PydanticSerializer, TTLCache, cached
-from grelmicro.cache.redis import RedisCacheAdapter
+from grelmicro.cache import Cache, PydanticSerializer, TTLCache, cached
+from grelmicro.providers.redis import RedisProvider
 
 
 class User(BaseModel):
@@ -9,17 +9,18 @@ class User(BaseModel):
     name: str
 
 
-backend = RedisCacheAdapter(prefix="myapp:")
+redis = RedisProvider("redis://localhost:6379/0")
+cache = Cache(redis)
 
-cache = TTLCache[User](ttl=300, serializer=PydanticSerializer(User))
+ttl_cache = TTLCache[User](ttl=300, serializer=PydanticSerializer(User))
 
 
-@cached(cache, lock=True)
+@cached(ttl_cache, lock=True)
 async def get_user(user_id: int) -> User:
     return User(id=user_id, name="Alice")
 
 
 async def main() -> None:
-    async with backend:
+    async with redis, cache:
         user = await get_user(1)
         print(user)

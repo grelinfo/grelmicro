@@ -2,72 +2,85 @@
 
 A **Provider** is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
-of both. Components like `Sync` and `Cache` borrow a client from a
-provider instead of opening their own, so two components against the
-same vendor share one connection.
+of both. Components like `Sync`, `Cache`, and `RateLimit` accept a
+Provider directly and use its canonical adapter under the hood.
 
 Two providers ship today: `RedisProvider` and `PostgresProvider`. More
 will follow.
 
-## Recipe 1: env-driven, implicit sharing
+## The canonical shape
 
-The most common shape. Construct adapters without arguments and let them
-build their own provider from `REDIS_*` environment variables.
-`Grelmicro` dedupes implicit providers by `(provider_class, env_prefix)`,
-so a single connection feeds both components:
+Pass a Provider to every Component that needs the same connection:
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.cache.redis import RedisCacheAdapter
-from grelmicro.sync.redis import RedisSyncAdapter
+from grelmicro.cache import Cache
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience import RateLimit
+from grelmicro.sync import Sync
+
+redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(uses=[
-    RedisSyncAdapter(),
-    RedisCacheAdapter(),  # shares the sync adapter's RedisProvider
+    redis,
+    Sync(redis),
+    Cache(redis),
+    RateLimit(redis),
 ])
 
 async with micro:
     ...
 ```
 
-Set `REDIS_URL` (or `REDIS_HOST` + `REDIS_PORT` + `REDIS_DB` +
-`REDIS_PASSWORD`) in the environment.
+Components dispatch to the Provider's factory methods (`provider.sync()`,
+`provider.cache()`, `provider.ratelimiter()`). The Adapter classes
+(`RedisSyncAdapter`, `RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay
+public as escape hatches but rarely appear in user code.
 
-## Recipe 2: explicit provider
+## Recipe 1: env-driven
 
-Build the provider yourself when you want to read its `.url` or share it
-beyond grelmicro:
+Construct the Provider without arguments and let it read `REDIS_*` from
+the environment:
 
 ```python
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.sync import Sync
 
-provider = RedisProvider("redis://localhost:6379")
+redis = RedisProvider()  # reads REDIS_URL or REDIS_HOST + REDIS_PORT + ...
 
 micro = Grelmicro(uses=[
-    RedisSyncAdapter(provider=provider),
-    RedisCacheAdapter(provider=provider),
+    redis,
+    Sync(redis),
+    Cache(redis),
 ])
 ```
 
-An explicit `provider=` is borrowed, not owned. The caller drives its
-lifecycle.
+Set `REDIS_URL` (or `REDIS_HOST` + `REDIS_PORT` + `REDIS_DB` +
+`REDIS_PASSWORD`) in the environment.
 
-## Recipe 3: split pools by env prefix
+## Recipe 2: split pools by env prefix
 
 Two Redis instances (or two databases) live behind different prefixes.
-Each prefix gets its own shared provider:
+Each prefix gets its own Provider:
 
 ```python
-cache_adapter = RedisCacheAdapter(env_prefix="CACHE_REDIS_")
-session_adapter = RedisSyncAdapter(env_prefix="SESSION_REDIS_")
+cache_redis = RedisProvider(env_prefix="CACHE_REDIS_")
+session_redis = RedisProvider(env_prefix="SESSION_REDIS_")
 
-micro = Grelmicro(uses=[cache_adapter, session_adapter])
+micro = Grelmicro(uses=[
+    cache_redis,
+    session_redis,
+    Sync(session_redis),
+    Cache(cache_redis),
+])
 ```
 
 Set `CACHE_REDIS_URL` and `SESSION_REDIS_URL` (or the decomposed forms).
-The two adapters now talk to two pools.
+The two components talk to two pools.
 
-## Recipe 4: bring your own client
+## Recipe 3: bring your own client
 
 You already own a Redis client (custom retry, sentinel, auth, or a
 testcontainers fixture). Wrap it with `from_client`:
@@ -77,9 +90,9 @@ import redis.asyncio as redis
 from grelmicro.providers.redis import RedisProvider
 
 client = redis.Redis(host="prod.cache", socket_timeout=5)
-provider = RedisProvider.from_client(client)  # caller owns the client
+redis_provider = RedisProvider.from_client(client)  # caller owns the client
 
-micro = Grelmicro(uses=[RedisCacheAdapter(provider=provider)])
+micro = Grelmicro(uses=[redis_provider, Cache(redis_provider)])
 ```
 
 Pass `own=True` to hand ownership to the provider. It will close the
@@ -107,48 +120,55 @@ RedisProvider.from_config(RedisConfig(...))  # from a config object
 RedisProvider.from_client(client)            # bring-your-own client
 ```
 
-The builder methods `provider.sync(...)` and `provider.cache(...)` are
-pure sugar over `RedisSyncAdapter(provider=provider, ...)` and
-`RedisCacheAdapter(provider=provider, ...)`.
+## Factory methods
+
+Each Provider exposes factory methods that return its canonical adapter:
+
+| Method                      | Returns                       | RedisProvider | PostgresProvider |
+|----------------------------|-------------------------------|:-------------:|:----------------:|
+| `.sync(**kwargs)`           | `SyncBackend` implementation  |       ✓        |        ✓         |
+| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        —         |
+| `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        —         |
+| `.breaker(**kwargs)`        | `CircuitBreakerBackend` impl  |       —        |        —         |
+
+Factories that do not apply raise `NotImplementedError` with a message
+pointing to the right alternative. `Sync(provider)`, `Cache(provider)`,
+`RateLimit(provider)`, and `Breaker(provider)` call these factories.
 
 ## Postgres
 
-`PostgresProvider` mirrors the same four recipes for Postgres. The
-provider wraps an `asyncpg.Pool` and is opened lazily on `__aenter__`.
+`PostgresProvider` ships the `.sync()` factory. The provider wraps an
+`asyncpg.Pool` and opens it lazily on `__aenter__`.
 
 ```python
 from grelmicro import Grelmicro
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.sync import Sync
-from grelmicro.sync.postgres import PostgresSyncAdapter
 
-# Recipe 1: env-driven, implicit sharing
+postgres = PostgresProvider("postgresql://localhost/app")
+
 micro = Grelmicro(uses=[
-    PostgresSyncAdapter(),                                 # builds its own PostgresProvider
-    Sync(PostgresSyncAdapter(table_name="audit_locks"),    # shares the same pool
-         name="audit"),
+    postgres,
+    Sync(postgres),
 ])
-
-# Recipe 2: explicit provider
-provider = PostgresProvider("postgresql://localhost/app")
-micro = Grelmicro(uses=[
-    provider,
-    PostgresSyncAdapter(provider=provider),
-])
-
-# Recipe 3: split pools by env prefix
-write = PostgresSyncAdapter(env_prefix="WRITE_POSTGRES_")
-read = PostgresSyncAdapter(env_prefix="READ_POSTGRES_")
-micro = Grelmicro(uses=[Sync(write), Sync(read, name="read")])
-
-# Recipe 4: bring your own pool
-import asyncpg
-pool = await asyncpg.create_pool("postgresql://localhost/app")
-provider = PostgresProvider.from_client(pool)  # caller owns the pool
 ```
 
 Set `POSTGRES_URL` (or `POSTGRES_HOST` + `POSTGRES_PORT` + `POSTGRES_DB`
 + `POSTGRES_USER` + `POSTGRES_PASSWORD`) for env-driven construction.
+
+For two pools (writer + reader), split by env prefix:
+
+```python
+write = PostgresProvider(env_prefix="WRITE_POSTGRES_")
+read = PostgresProvider(env_prefix="READ_POSTGRES_")
+
+micro = Grelmicro(uses=[
+    write,
+    read,
+    Sync(write),
+    Sync(read, name="read"),
+])
+```
 
 Construction forms:
 
@@ -161,4 +181,27 @@ PostgresProvider(env_prefix="WRITE_POSTGRES_")  # custom env prefix
 PostgresProvider(env_load=False)                # kwargs only, no env
 PostgresProvider.from_config(PostgresConfig(...))
 PostgresProvider.from_client(pool)              # bring-your-own pool
+```
+
+## Lifecycle
+
+The Provider is opened when the `Grelmicro` app enters and closed when
+the app exits. Components borrow the Provider's client without managing
+its lifecycle. Always list the Provider in `uses=` next to the
+Components that depend on it.
+
+## Memory backends
+
+In-memory backends (`MemorySyncAdapter`, `MemoryCacheAdapter`,
+`MemoryRateLimiterAdapter`, `MemoryCircuitBreakerAdapter`) have no
+provider. Pass the adapter directly to its Component:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.resilience import Breaker
+from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
+
+micro = Grelmicro(uses=[
+    Breaker(MemoryCircuitBreakerAdapter()),
+])
 ```

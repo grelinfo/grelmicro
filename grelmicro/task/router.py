@@ -119,8 +119,8 @@ class TaskRouter:
                 """
                 The distributed lock backend.
 
-                By default, uses the lock backend registry.
-                Only used when distributed locking is enabled.
+                By default, resolves through the active `Grelmicro` app's
+                `Sync` component. Only used when distributed locking is enabled.
                 """,
             ),
         ] = None,

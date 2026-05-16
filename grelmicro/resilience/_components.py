@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro.providers._base import Provider
+
 if TYPE_CHECKING:
     from types import TracebackType
 
@@ -18,17 +20,21 @@ if TYPE_CHECKING:
 class RateLimit:
     """`RateLimiterBackend` wrapper exposing `(ratelimiter, name)` registration.
 
-    Registered on a `Grelmicro` app via `Grelmicro(uses=[RateLimit(adapter)])`.
+    Registered on a `Grelmicro` app via `Grelmicro(uses=[RateLimit(redis)])`.
     The active app resolves `RateLimiter` patterns to this Component's backend
     on every call.
+
+    Accepts a `Provider` or a `RateLimiterBackend`. When given a Provider, the
+    component calls `provider.ratelimiter()` to build the canonical adapter.
 
     Example:
         ```python
         from grelmicro import Grelmicro
+        from grelmicro.providers.redis import RedisProvider
         from grelmicro.resilience import RateLimit, RateLimiter
-        from grelmicro.resilience.redis import RedisRateLimiterAdapter
 
-        micro = Grelmicro(uses=[RateLimit(RedisRateLimiterAdapter())])
+        redis = RedisProvider("redis://localhost:6379/0")
+        micro = Grelmicro(uses=[redis, RateLimit(redis)])
         api = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
 
         async with micro:
@@ -40,9 +46,15 @@ class RateLimit:
 
     def __init__(
         self,
-        backend: Annotated[
-            RateLimiterBackend,
-            Doc("The rate limiter backend opened with the Component."),
+        source: Annotated[
+            Provider | RateLimiterBackend,
+            Doc(
+                """
+                A `Provider` (e.g. `RedisProvider`) or a `RateLimiterBackend`
+                instance. When a Provider is given, the component calls
+                `provider.ratelimiter()` to build the canonical adapter.
+                """,
+            ),
         ],
         *,
         name: Annotated[
@@ -57,7 +69,10 @@ class RateLimit:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self.name = name
-        self._backend = backend
+        if isinstance(source, Provider):
+            self._backend = source.ratelimiter()
+        else:
+            self._backend = source
 
     @property
     def backend(self) -> RateLimiterBackend:
@@ -86,6 +101,11 @@ class Breaker:
     The active app resolves `CircuitBreaker` patterns to this Component's
     backend on every call.
 
+    Accepts a `Provider` or a `CircuitBreakerBackend`. The circuit breaker is
+    memory-only today, so the common form passes a `MemoryCircuitBreakerAdapter`
+    directly. The `Provider` overload is reserved for future Redis or
+    Postgres-backed circuit breakers.
+
     Example:
         ```python
         from grelmicro import Grelmicro
@@ -105,9 +125,16 @@ class Breaker:
 
     def __init__(
         self,
-        backend: Annotated[
-            CircuitBreakerBackend,
-            Doc("The circuit breaker backend opened with the Component."),
+        source: Annotated[
+            Provider | CircuitBreakerBackend,
+            Doc(
+                """
+                A `Provider` or a `CircuitBreakerBackend` instance. When a
+                Provider is given, the component calls `provider.breaker()` to
+                build the canonical adapter. First-party providers do not
+                ship a circuit breaker adapter today.
+                """,
+            ),
         ],
         *,
         name: Annotated[
@@ -122,7 +149,10 @@ class Breaker:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self.name = name
-        self._backend = backend
+        if isinstance(source, Provider):
+            self._backend = source.breaker()
+        else:
+            self._backend = source
 
     @property
     def backend(self) -> CircuitBreakerBackend:

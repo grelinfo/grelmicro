@@ -490,3 +490,72 @@ async def test_override_restores_on_exception() -> None:
             async with micro.override(mock):
                 raise RuntimeError(_RAISED)
         assert micro.rec is real
+
+
+async def test_provider_public_export() -> None:
+    """`grelmicro.providers.Provider` is importable as the base class."""
+    from grelmicro.providers import Provider  # noqa: PLC0415
+    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+
+    assert issubclass(RedisProvider, Provider)
+
+
+async def test_provider_base_sync_raises_not_implemented() -> None:
+    """`Provider.sync()` raises when a subclass does not override it."""
+    from grelmicro.providers import Provider  # noqa: PLC0415
+
+    class _BareProvider(Provider):
+        short_name = "bare"
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            return None
+
+    bare = _BareProvider()
+    with pytest.raises(NotImplementedError, match="no sync adapter"):
+        bare.sync()
+
+
+async def test_warns_when_component_provider_not_in_uses(
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """`Sync(redis)` without `redis` in `uses=` warns at startup."""
+    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+    from grelmicro.sync import Sync  # noqa: PLC0415
+
+    redis = RedisProvider("redis://localhost:6379/0")
+    micro = Grelmicro(uses=[Sync(redis)])
+    async with micro:
+        pass
+
+    assert any(
+        issubclass(w.category, UserWarning)
+        and "not listed in" in str(w.message)
+        for w in recwarn
+    )
+
+
+async def test_no_warning_when_provider_in_uses(
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """`Sync(redis)` with `redis` in `uses=` does not warn."""
+    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+    from grelmicro.sync import Sync  # noqa: PLC0415
+
+    redis = RedisProvider("redis://localhost:6379/0")
+    micro = Grelmicro(uses=[redis, Sync(redis)])
+    async with micro:
+        pass
+
+    assert not any(
+        issubclass(w.category, UserWarning)
+        and "not listed in" in str(w.message)
+        for w in recwarn
+    )

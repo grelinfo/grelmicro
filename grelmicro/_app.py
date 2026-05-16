@@ -327,6 +327,7 @@ class Grelmicro:
         """
         if self._exit_stack is not None:
             raise OutOfContextError(self, "__aenter__")
+        self._warn_unlifecycled_providers()
         self._resolve_provider_sharing()
         self._exit_stack = AsyncExitStack()
         await self._exit_stack.__aenter__()
@@ -385,6 +386,35 @@ class Grelmicro:
                 cache[key] = provider
             elif shared is not provider:
                 target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+
+    def _warn_unlifecycled_providers(self) -> None:
+        """Warn when a Component holds a Provider not listed in `uses=`.
+
+        Components built with `Sync(provider)` borrow the provider's client
+        but do not lifecycle it. The user must list the provider in `uses=`
+        so its connection opens and closes with the app. Without that, the
+        provider leaks: the client is never closed on shutdown.
+        """
+        import warnings  # noqa: PLC0415
+
+        for item in self._items:
+            target = getattr(item, "backend", item)
+            provider = getattr(target, "_provider", None)
+            if provider is None:
+                continue
+            owns = getattr(target, "_owns_provider", True)
+            if owns or provider in self._items:
+                continue
+            warnings.warn(
+                f"{type(target).__name__} holds a "
+                f"{type(provider).__name__} that is not listed in "
+                f"Grelmicro(uses=[...]). The provider will not be "
+                f"lifecycled with the app and its connection will leak. "
+                f"Add the provider to uses= so it is opened and closed "
+                f"with the components that depend on it.",
+                UserWarning,
+                stacklevel=3,
+            )
 
 
 def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:

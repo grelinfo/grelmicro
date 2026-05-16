@@ -10,52 +10,58 @@ Every backend uses **async** methods because it performs network or disk I/O (Re
 
 | Kind | Examples | Role |
 |---|---|---|
-| **Provider** | `RedisProvider`, `PostgresProvider` | Owns the connection pool and the vendor config. |
-| **Adapter** | `RedisSyncAdapter`, `RedisCacheAdapter` | Implements a `Backend` protocol over a `Provider`. |
-| **Backend** | `SyncBackend`, `CacheBackend` (Protocol) | Pure interface, no implementation. |
-| **Component** | `Sync`, `Cache` | Registration marker on a `Grelmicro` app: `(kind, name)` pair plus lifecycle delegation. |
-| **Pattern** | `Lock`, `TaskLock`, `LeaderElection`, `TTLCache` | The user-facing primitive that resolves its adapter at use time. |
+| **Provider** | `RedisProvider`, `PostgresProvider` | Owns the connection pool and the vendor config. Components attach to it. |
+| **Component** | `Sync`, `Cache`, `RateLimit`, `Breaker` | Registration on a `Grelmicro` app: `(kind, name)` pair plus lifecycle. Accepts a Provider or a Backend. |
+| **Backend** | `SyncBackend`, `CacheBackend` (Protocol) | Pure interface. Memory backends (`MemorySyncAdapter`) implement it directly. |
+| **Adapter** | `RedisSyncAdapter`, `RedisCacheAdapter` | Internal. Built by `Provider.{kind}()` factory. Public escape hatch for custom Providers. |
+| **Pattern** | `Lock`, `TaskLock`, `LeaderElection`, `TTLCache` | The user-facing primitive. Declared at module load, resolves its backend at use time. |
 
-`Backend` and `Adapter` are infrastructure. Users construct **Providers**, register them on a **`Grelmicro` app** through **Components**, and import **Patterns** at module level.
+Users construct **Providers**, attach **Components** that share each Provider, and import **Patterns** at module level. Adapter classes rarely appear in user code.
 
 ## Construction vs registration
 
-Construction and registration are two distinct steps. `__init__` validates configuration and binds locals. It performs no registry writes and no I/O. Registration happens when the adapter is attached to a `Grelmicro` app.
+Construction and registration are two distinct steps. `__init__` validates configuration and binds locals. It performs no registry writes and no I/O. Registration happens when the Component is attached to a `Grelmicro` app.
 
 ```python
 from grelmicro import Grelmicro
+from grelmicro.cache import Cache
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync.redis import RedisSyncAdapter
-from grelmicro.cache.redis import RedisCacheAdapter
+from grelmicro.sync import Sync
 
-provider = RedisProvider("redis://localhost")
+redis = RedisProvider("redis://localhost")
+
 micro = Grelmicro(uses=[
-    provider,
-    RedisSyncAdapter(provider=provider),
-    RedisCacheAdapter(provider=provider),
+    redis,
+    Sync(redis),
+    Cache(redis),
 ])
 
 async with micro:
-    # every adapter is open here
+    # the provider is open, every component is open
     ...
-# every adapter is closed on exit (LIFO)
+# every item is closed on exit (LIFO)
 ```
 
-First-party adapters are auto-wrapped into their canonical Component (`Sync` for sync adapters, `Cache` for cache adapters). Pass a `Sync(...)` or `Cache(...)` explicitly when you want a non-default name.
+`Sync(provider)` calls `provider.sync()` to obtain the canonical `SyncBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Sync(MemorySyncAdapter())`).
 
 ## Named backends and per-call selection
 
-Register multiple adapters under different names and pick one at the call site:
+Register multiple Components under different names and pick one at the call site:
 
 ```python
 from grelmicro import Grelmicro
+from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.sync import Lock, Sync
-from grelmicro.sync.redis import RedisSyncAdapter
-from grelmicro.sync.postgres import PostgresSyncAdapter
+
+redis = RedisProvider()
+postgres = PostgresProvider()
 
 micro = Grelmicro(uses=[
-    RedisSyncAdapter(),
-    Sync(PostgresSyncAdapter(), name="analytics"),
+    redis,
+    postgres,
+    Sync(redis),
+    Sync(postgres, name="analytics"),
 ])
 
 Lock("cart")                       # → "default" (Redis)
@@ -76,11 +82,12 @@ Resolution order, in priority:
 
 ```python
 from grelmicro import Grelmicro
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.sync import Lock, Sync
 from grelmicro.sync.memory import MemorySyncAdapter
-from grelmicro.sync.redis import RedisSyncAdapter
 
-micro = Grelmicro(uses=[RedisSyncAdapter()])
+redis = RedisProvider()
+micro = Grelmicro(uses=[redis, Sync(redis)])
 lock = Lock("cart")
 
 async with micro:
@@ -96,8 +103,8 @@ The override propagates downward through `await`, `asyncio.create_task`, and `as
 Skip the app entirely for one-off usage:
 
 ```python
-async with RedisSyncAdapter() as backend:
-    lock = Lock(name="my-lock", backend=backend)
+async with RedisProvider() as redis:
+    lock = Lock(name="my-lock", backend=redis.sync())
     async with lock:
         ...
 ```
@@ -114,9 +121,9 @@ Backends are defined by protocols (structural typing), not base classes. Any obj
 
 ## Connection pool isolation
 
-Each adapter instance can either share or own its connection pool depending on construction. Sharing happens through a `Provider`: pass the same `RedisProvider` to two adapters and they share one pool. Without an explicit Provider, the app dedupes implicit providers by `(provider_class, env_prefix)` so two adapters that resolve to the same vendor config still share one pool.
+Components share a connection pool through a `Provider`: pass the same `RedisProvider` to two Components (`Sync(redis)`, `Cache(redis)`) and they share one pool. To isolate pools, build distinct Providers with different `env_prefix=` values (`CACHE_REDIS_`, `SESSION_REDIS_`) and pass each to the matching Component.
 
-The default behavior is **share when possible, isolate when asked**. Pass distinct Providers to opt into per-domain isolation.
+The default behavior is **share when possible, isolate when asked**. Distinct Providers opt into per-domain isolation.
 
 ## Error handling
 

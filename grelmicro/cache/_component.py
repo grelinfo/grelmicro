@@ -1,4 +1,4 @@
-"""Cache module for the Grelmicro app object."""
+"""Cache component for the Grelmicro app object."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing_extensions import Doc
 
 from grelmicro.cache.cached import cached
 from grelmicro.cache.ttl import TTLCache
+from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -17,19 +18,23 @@ if TYPE_CHECKING:
 
 
 class Cache:
-    """Cache module: wraps a `CacheBackend` and exposes the `TTLCache` factory.
+    """Cache component: wraps a `CacheBackend` and exposes the `TTLCache` factory.
 
-    Registered as `micro.cache` after `Grelmicro.use(Cache(backend))`. The
-    `ttl(...)` factory builds a `TTLCache` bound to this module's backend so
+    Registered as `micro.cache` after `Grelmicro.use(Cache(...))`. The
+    `ttl(...)` factory builds a `TTLCache` bound to this component's backend so
     users do not need to thread `backend=` on every cache instance.
+
+    Accepts a `Provider` or a `CacheBackend`. When given a Provider, the
+    component calls `provider.cache()` to build the canonical adapter.
 
     Example:
         ```python
         from grelmicro import Grelmicro
         from grelmicro.cache import Cache, JsonSerializer
-        from grelmicro.cache.redis import RedisCacheAdapter
+        from grelmicro.providers.redis import RedisProvider
 
-        micro = Grelmicro(uses=[Cache(RedisCacheAdapter("redis://localhost"))])
+        redis = RedisProvider("redis://localhost:6379/0")
+        micro = Grelmicro(uses=[redis, Cache(redis)])
         user_cache = micro.cache.ttl(ttl=300, serializer=JsonSerializer())
 
         @micro.cache.cached(user_cache)
@@ -50,24 +55,33 @@ class Cache:
 
     def __init__(
         self,
-        backend: Annotated[
-            CacheBackend,
-            Doc("The cache backend opened with the module."),
+        source: Annotated[
+            Provider | CacheBackend,
+            Doc(
+                """
+                A `Provider` (e.g. `RedisProvider`) or a `CacheBackend`
+                instance. When a Provider is given, the component calls
+                `provider.cache()` to build the canonical adapter.
+                """,
+            ),
         ],
         *,
         name: Annotated[
             str,
             Doc(
                 """
-                Registration name. Multiple `Cache` modules may coexist on
+                Registration name. Multiple `Cache` components may coexist on
                 one `Grelmicro` under different names.
                 """,
             ),
         ] = "default",
     ) -> None:
-        """Initialize the module with the wrapped backend."""
+        """Initialize the component with the wrapped backend."""
         self.name = name
-        self._backend = backend
+        if isinstance(source, Provider):
+            self._backend = source.cache()
+        else:
+            self._backend = source
 
     @property
     def backend(self) -> CacheBackend:
@@ -81,7 +95,7 @@ class Cache:
         maxsize: int = 0,
         serializer: CacheSerializer[T] | None = None,
     ) -> TTLCache[T]:
-        """Construct a `TTLCache` bound to this module's backend.
+        """Construct a `TTLCache` bound to this component's backend.
 
         The return type tracks the serializer's type parameter, so passing
         `JsonSerializer[User]()` yields a `TTLCache[User]`.

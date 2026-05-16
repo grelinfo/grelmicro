@@ -1,5 +1,6 @@
+from grelmicro import Grelmicro
 from grelmicro.providers.postgres import PostgresProvider
-from grelmicro.sync.postgres import PostgresSyncAdapter
+from grelmicro.sync import Sync
 
-provider = PostgresProvider("postgresql://user:password@localhost:5432/db")
-backend = PostgresSyncAdapter(provider=provider)
+postgres = PostgresProvider("postgresql://user:password@localhost:5432/db")
+micro = Grelmicro(uses=[postgres, Sync(postgres)])

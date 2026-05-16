@@ -11,6 +11,7 @@ from grelmicro.providers.redis import (
     RedisProvider,
     RedisProviderConfigError,
 )
+from grelmicro.resilience.redis import RedisRateLimiterAdapter
 from grelmicro.sync.redis import RedisSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -194,6 +195,25 @@ class TestBuilders:
         assert isinstance(adapter, RedisCacheAdapter)
         assert adapter.provider is provider
         assert adapter._key_prefix == "ns:"
+
+    def test_ratelimiter_builder_binds_provider(self) -> None:
+        """`provider.ratelimiter()` returns an adapter borrowing the provider."""
+        provider = RedisProvider(URL)
+
+        adapter = provider.ratelimiter(prefix="rl:")
+
+        assert isinstance(adapter, RedisRateLimiterAdapter)
+        assert adapter.provider is provider
+        assert adapter._prefix == "rl:"
+
+    def test_breaker_factory_raises_not_implemented(self) -> None:
+        """`provider.breaker()` raises (no Redis circuit breaker adapter today)."""
+        provider = RedisProvider(URL)
+
+        with pytest.raises(
+            NotImplementedError, match="no circuit breaker adapter"
+        ):
+            provider.breaker()
 
 
 class TestRebindProvider:

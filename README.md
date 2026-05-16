@@ -80,19 +80,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 
 from grelmicro import Grelmicro
-from grelmicro.cache import JsonSerializer, TTLCache, cached
-from grelmicro.cache.redis import RedisCacheAdapter
+from grelmicro.cache import Cache, JsonSerializer, TTLCache, cached
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
+    RateLimit,
     RateLimitExceededError,
     RateLimiter,
 )
-from grelmicro.resilience.redis import RedisRateLimiterAdapter
-from grelmicro.sync import LeaderElection, Lock
-from grelmicro.sync.redis import RedisSyncAdapter
+from grelmicro.sync import LeaderElection, Lock, Sync
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
@@ -107,9 +105,9 @@ redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(uses=[
     redis,
-    RedisSyncAdapter(provider=redis),
-    RedisCacheAdapter(provider=redis, prefix="myapp:"),
-    RedisRateLimiterAdapter(provider=redis),
+    Sync(redis),
+    Cache(redis),
+    RateLimit(redis),
     tasks,
     health,
 ])
@@ -191,10 +189,10 @@ def leader_only_task():
 
 The key shape:
 
-- **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Adapter and active manager. `async with micro:` opens them all in order, closes in reverse.
-- **Adapters auto-register.** `RedisSyncAdapter(...)` becomes the default sync backend, `RedisCacheAdapter(...)` becomes the default cache backend. Use `Sync(adapter, name="...")` and `Cache(adapter, name="...")` for non-default names.
+- **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Provider, Component, and active manager. `async with micro:` opens them all in order, closes in reverse.
+- **One Provider, many Components.** `Sync(redis)`, `Cache(redis)`, `RateLimit(redis)` all share the same `RedisProvider` pool. The Provider holds the connection, the Components attach to it.
 - **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`. The same `Lock` works in production with Redis and in tests with `MemorySyncAdapter`, no rewiring.
-- **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Adapters live under `grelmicro.{kind}.{vendor}` and load only when you import them.
+- **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
 
 For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelinfo.github.io/grelmicro/).
 
