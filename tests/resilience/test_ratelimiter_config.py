@@ -1,9 +1,14 @@
 """Tests for RateLimiter configuration paths."""
 
 import pytest
+from pydantic import TypeAdapter
 
 from grelmicro.resilience import RateLimiter
-from grelmicro.resilience.algorithms import GCRAConfig, TokenBucketConfig
+from grelmicro.resilience.algorithms import (
+    RateLimiterConfig,
+    SlidingWindowConfig,
+    TokenBucketConfig,
+)
 from grelmicro.resilience.memory import MemoryRateLimiterAdapter
 
 LIMIT = 10
@@ -31,11 +36,11 @@ def test_token_bucket_config() -> None:
 
 
 @pytest.mark.usefixtures("_rate_limiter_backend")
-def test_gcra_config() -> None:
-    """`RateLimiter` accepts a `GCRAConfig` positional config."""
-    rl = RateLimiter("auth", GCRAConfig(limit=LIMIT, window=WINDOW))
+def test_sliding_window_config() -> None:
+    """`RateLimiter` accepts a `SlidingWindowConfig` positional config."""
+    rl = RateLimiter("auth", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
     assert rl.name == "auth"
-    assert isinstance(rl.config, GCRAConfig)
+    assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
     assert rl.config.window == WINDOW
 
@@ -64,11 +69,11 @@ def test_token_bucket_factory() -> None:
 
 
 @pytest.mark.usefixtures("_rate_limiter_backend")
-def test_gcra_factory() -> None:
-    """`RateLimiter.gcra` builds a GCRA rate limiter."""
-    rl = RateLimiter.gcra("auth", limit=LIMIT, window=WINDOW)
+def test_sliding_window_factory() -> None:
+    """`RateLimiter.sliding_window` builds a sliding-window rate limiter."""
+    rl = RateLimiter.sliding_window("auth", limit=LIMIT, window=WINDOW)
     assert rl.name == "auth"
-    assert isinstance(rl.config, GCRAConfig)
+    assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
     assert rl.config.window == WINDOW
     assert rl.config.fail_open is False
@@ -90,3 +95,31 @@ def test_from_config_classmethod() -> None:
     rl = RateLimiter.from_config("api", cfg)
     assert rl.name == "api"
     assert rl.config is cfg
+
+
+def test_discriminator_values() -> None:
+    """Discriminator values are part of the public serialized API surface."""
+    assert (
+        TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE).type
+        == "token_bucket"
+    )
+    assert (
+        SlidingWindowConfig(limit=LIMIT, window=WINDOW).type == "sliding_window"
+    )
+
+
+def test_rate_limiter_config_union_round_trips() -> None:
+    """`RateLimiterConfig` parses both discriminator values."""
+    adapter = TypeAdapter(RateLimiterConfig)
+    sliding = adapter.validate_python(
+        {"type": "sliding_window", "limit": LIMIT, "window": WINDOW}
+    )
+    bucket = adapter.validate_python(
+        {
+            "type": "token_bucket",
+            "capacity": CAPACITY,
+            "refill_rate": REFILL_RATE,
+        }
+    )
+    assert isinstance(sliding, SlidingWindowConfig)
+    assert isinstance(bucket, TokenBucketConfig)

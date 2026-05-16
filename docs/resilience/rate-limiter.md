@@ -22,7 +22,7 @@ Use `RateLimiter.from_config(name, config)` when the algorithm config already co
 --8<-- "resilience/ratelimiter_from_config.py"
 ```
 
-`RateLimiter` intentionally does not flatten both algorithms into one generic kwargs constructor. Token bucket and GCRA have different parameter vocabularies, and keeping one explicit entry point per behaviour makes the public API easier to read.
+`RateLimiter` intentionally does not flatten both algorithms into one generic kwargs constructor. Token bucket and sliding window have different parameter vocabularies, and keeping one explicit entry point per behaviour makes the public API easier to read.
 
 ## Choosing an algorithm
 
@@ -30,14 +30,14 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 
 ### Decision guide
 
-1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]. Its sliding-window model matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
+1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]. It matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
 2. **Do you want "allow a burst of N, then 1 per second sustained"?** Use [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]. The `capacity` and `refill_rate` parameters describe exactly that.
-3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]. The capacity absorbs the spike. GCRA can allow bursts too, but the configuration is less direct.
-4. **Did you search for "leaky bucket"?** Use [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]. It is the leaky-bucket-as-meter formulation.
+3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]. The capacity absorbs the spike.
+4. **Did you search for "leaky bucket"?** Use [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]. It is the leaky-bucket-as-meter formulation.
 
 ### Side-by-side
 
-| | **GCRAConfig** | **TokenBucketConfig** |
+| | **SlidingWindowConfig** | **TokenBucketConfig** |
 |---|---|---|
 | **Mental model** | "N requests per sliding T-second window" | "A bucket holding N tokens that refills at R tokens/sec" |
 | **Parameters** | `limit`, `window` | `capacity`, `refill_rate` |
@@ -50,13 +50,13 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 
 ### Worked scenarios
 
-- **"Limit each user to 100 API calls per minute."** Use `GCRAConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into `RateLimit-Reset`.
+- **"Limit each user to 100 API calls per minute."** Use `SlidingWindowConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into `RateLimit-Reset`.
 - **"Allow a burst of 20 uploads, then 2 per second."** Use `TokenBucketConfig(capacity=20, refill_rate=2)`. Each word in the sentence maps to one parameter.
 - **"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."** Use `TokenBucketConfig(capacity=5, refill_rate=0.1)`.
-- **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `GCRAConfig(limit=10, window=60)`.
+- **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `SlidingWindowConfig(limit=10, window=60)`.
 
 !!! note
-    There is no separate `LeakyBucket` algorithm because GCRA **is** the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `GCRAConfig`.
+    There is no separate `LeakyBucket` algorithm. `SlidingWindowConfig` is the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `SlidingWindowConfig`.
 
 ## Backend
 
@@ -99,7 +99,7 @@ The backend compiles the algorithm into a bound strategy at `RateLimiter.__init_
 | Field | Type | Description | HTTP Header |
 |---|---|---|---|
 | `allowed` | `bool` | Whether the request is permitted | 200 vs 429 status |
-| `limit` | `int` | Total quota (`limit` for GCRAConfig, `int(capacity)` for TokenBucketConfig) | `RateLimit-Limit` / `X-RateLimit-Limit` |
+| `limit` | `int` | Total quota (`limit` for SlidingWindowConfig, `int(capacity)` for TokenBucketConfig) | `RateLimit-Limit` / `X-RateLimit-Limit` |
 | `remaining` | `int` | Remaining requests / tokens | `RateLimit-Remaining` / `X-RateLimit-Remaining` |
 | `retry_after` | `float` | Seconds until next allowed request | `Retry-After` |
 | `reset_after` | `float` | Seconds until full quota resets | `RateLimit-Reset` / `X-RateLimit-Reset` |

@@ -12,13 +12,13 @@ from typing import Annotated
 
 from pydantic import Discriminator
 
-from grelmicro.resilience.algorithms.gcra import GCRAConfig
+from grelmicro.resilience.algorithms.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.algorithms.tokenbucket import TokenBucketConfig
 
 RateLimiterConfig = Annotated[
-    TokenBucketConfig | GCRAConfig,
+    TokenBucketConfig | SlidingWindowConfig,
     Discriminator("type"),
 ]
 """Discriminated union of supported rate-limiter algorithm configurations."""
 
-__all__ = ["GCRAConfig", "RateLimiterConfig", "TokenBucketConfig"]
+__all__ = ["RateLimiterConfig", "SlidingWindowConfig", "TokenBucketConfig"]

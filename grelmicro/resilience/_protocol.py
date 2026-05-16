@@ -44,7 +44,7 @@ class RateLimitResult(NamedTuple):
     """Whether the request is permitted."""
 
     limit: int
-    """Total quota (`capacity` for TokenBucketConfig, `limit` for GCRAConfig)."""
+    """Total quota (`capacity` for TokenBucketConfig, `limit` for SlidingWindowConfig)."""
 
     remaining: int
     """Remaining tokens or requests."""
@@ -153,7 +153,7 @@ class RateLimiterBackend(Protocol):
 
         Args:
             config: The algorithm configuration
-                (`TokenBucketConfig` or `GCRAConfig`).
+                (`TokenBucketConfig` or `SlidingWindowConfig`).
 
         Returns:
             A strategy bound to `config` and this backend's storage.

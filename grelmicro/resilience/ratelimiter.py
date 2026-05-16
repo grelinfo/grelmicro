@@ -16,8 +16,8 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
 )
 from grelmicro.resilience.algorithms import (
-    GCRAConfig,
     RateLimiterConfig,
+    SlidingWindowConfig,
     TokenBucketConfig,
 )
 from grelmicro.resilience.errors import RateLimitExceededError
@@ -39,14 +39,14 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
     Most Python call sites should use the factory classmethods:
     [`RateLimiter.token_bucket`][grelmicro.resilience.RateLimiter.token_bucket]
     for burst-friendly semantics or
-    [`RateLimiter.gcra`][grelmicro.resilience.RateLimiter.gcra] for
+    [`RateLimiter.sliding_window`][grelmicro.resilience.RateLimiter.sliding_window] for
     precise sliding-window semantics.
 
     Construct it directly with the instance name and a discriminated
     algorithm configuration when a config object already exists:
     [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
     for burst-friendly semantics, or
-    [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig] for
+    [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig] for
     precise sliding-window semantics.
 
     The algorithm is bound to the backend once at construction via
@@ -95,7 +95,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
 
                 Most callers should prefer the
                 [`RateLimiter.token_bucket`][grelmicro.resilience.RateLimiter.token_bucket]
-                or [`RateLimiter.gcra`][grelmicro.resilience.RateLimiter.gcra]
+                or [`RateLimiter.sliding_window`][grelmicro.resilience.RateLimiter.sliding_window]
                 factory classmethods. Pass a config directly when it
                 is already assembled elsewhere, for example from YAML
                 or a `pydantic-settings` tree.
@@ -103,7 +103,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
                 Pass a
                 [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
                 or a
-                [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig].
+                [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig].
                 Both carry algorithm parameters plus the shared
                 `fail_open` setting. The classes share a
                 discriminated `type` field so serialization
@@ -248,7 +248,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         return cls(name, config, backend=backend)
 
     @classmethod
-    def gcra(
+    def sliding_window(
         cls,
         name: Annotated[
             str,
@@ -282,13 +282,15 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
             ),
         ] = None,
     ) -> Self:
-        """Construct a GCRA (sliding-window) rate limiter.
+        """Construct a sliding-window rate limiter.
 
         Convenience factory for the common case. Builds a
-        [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]
+        [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]
         internally and forwards to the constructor.
         """
-        config = GCRAConfig(limit=limit, window=window, fail_open=fail_open)
+        config = SlidingWindowConfig(
+            limit=limit, window=window, fail_open=fail_open
+        )
         return cls(name, config, backend=backend)
 
     def _log_fail_open(
@@ -443,7 +445,7 @@ def _config_limit(config: RateLimiterConfig) -> int:
     match config:
         case TokenBucketConfig():
             return config.capacity
-        case GCRAConfig():
+        case SlidingWindowConfig():
             return config.limit
         case _ as unknown:  # pragma: no cover
             assert_never(unknown)

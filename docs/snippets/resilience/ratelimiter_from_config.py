@@ -1,4 +1,4 @@
-from grelmicro.resilience import GCRAConfig, RateLimiter
+from grelmicro.resilience import RateLimiter, SlidingWindowConfig
 
-cfg = GCRAConfig(limit=5, window=60)
+cfg = SlidingWindowConfig(limit=5, window=60)
 limiter = RateLimiter.from_config("auth", cfg)

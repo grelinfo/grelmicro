@@ -26,7 +26,7 @@ For variant-driven components (`RateLimiter`), use the factory classmethods:
 from grelmicro.resilience import RateLimiter
 
 api_limiter = RateLimiter.token_bucket("api", capacity=100, refill_rate=10)
-auth_limiter = RateLimiter.gcra("auth", limit=5, window=60)
+auth_limiter = RateLimiter.sliding_window("auth", limit=5, window=60)
 ```
 
 ## Environmental

@@ -20,7 +20,7 @@ Components fall in two categories.
 | `__init__(**kwargs)` | Optional fields only | Programmatic and environmental construction |
 | `from_config(config)` | Frozen config only | Declarative construction from a settings tree |
 
-**Variant-driven components** (`RateLimiter`) substitute the `__init__` surface with factory classmethods (`RateLimiter.token_bucket(name, ...)`, `RateLimiter.gcra(name, ...)`) but keep `from_config(name, config)` unchanged.
+**Variant-driven components** (`RateLimiter`) substitute the `__init__` surface with factory classmethods (`RateLimiter.token_bucket(name, ...)`, `RateLimiter.sliding_window(name, ...)`) but keep `from_config(name, config)` unchanged.
 
 The `Config` Pydantic class carries settings only. For multi-instance components the identity lives on the component, never inside the config object. This matches the `Map<name, Settings>` shape that YAML and `pydantic-settings` aggregations produce naturally.
 
