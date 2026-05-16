@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Doc
 
 from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -52,7 +53,7 @@ class _PostgresEnvSettings(BaseSettings):
     password: str | None = None
 
 
-class PostgresProvider:
+class PostgresProvider(Provider):
     """Postgres connection provider.
 
     Holds the resolved URL and an asyncpg connection pool. Adapters

@@ -190,6 +190,28 @@ class TestBuilders:
         assert adapter.provider is provider
         assert adapter._owns_provider is False
 
+    def test_cache_factory_raises_not_implemented(self) -> None:
+        """`provider.cache()` raises (no Postgres cache adapter today)."""
+        provider = PostgresProvider(URL)
+        with pytest.raises(NotImplementedError, match="no cache adapter"):
+            provider.cache()
+
+    def test_ratelimiter_factory_raises_not_implemented(self) -> None:
+        """`provider.ratelimiter()` raises (no Postgres rate limiter today)."""
+        provider = PostgresProvider(URL)
+        with pytest.raises(
+            NotImplementedError, match="no rate limiter adapter"
+        ):
+            provider.ratelimiter()
+
+    def test_breaker_factory_raises_not_implemented(self) -> None:
+        """`provider.breaker()` raises (no Postgres circuit breaker today)."""
+        provider = PostgresProvider(URL)
+        with pytest.raises(
+            NotImplementedError, match="no circuit breaker adapter"
+        ):
+            provider.breaker()
+
 
 class TestRebindProvider:
     """`_rebind_provider` swaps the bound provider on the adapter."""

@@ -98,9 +98,12 @@ Centralise everything under one `BaseSettings` and hand grelmicro the slices it 
 
 ```python
 from pydantic_settings import BaseSettings
+
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.sync import Lock
 from grelmicro.sync.lock import LockConfig
-from grelmicro.cache.redis import RedisCacheAdapter
 
 class AppSettings(BaseSettings):
     cart_lock: LockConfig = LockConfig()
@@ -108,7 +111,8 @@ class AppSettings(BaseSettings):
 
 settings = AppSettings()
 cart_lock = Lock.from_config("cart", settings.cart_lock)
-cache_backend = RedisCacheAdapter(settings.redis_url)
+redis = RedisProvider(settings.redis_url)
+micro = Grelmicro(uses=[redis, Cache(redis)])
 ```
 
 ## Going deeper

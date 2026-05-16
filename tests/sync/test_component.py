@@ -5,8 +5,12 @@ from __future__ import annotations
 import pytest
 
 from grelmicro import Component, Grelmicro
+from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.sync import LeaderElection, Lock, Sync, TaskLock
 from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.sync.postgres import PostgresSyncAdapter
+from grelmicro.sync.redis import RedisSyncAdapter
 
 
 def test_sync_satisfies_component_protocol() -> None:
@@ -147,3 +151,19 @@ async def test_sync_multi_backend_named_lookup() -> None:
             pass
         assert micro.get("sync", "analytics").backend is analytics
         assert micro.get("sync", "default").backend is primary
+
+
+def test_sync_accepts_redis_provider() -> None:
+    """`Sync(RedisProvider(...))` calls `provider.sync()` to build the adapter."""
+    provider = RedisProvider("redis://localhost:6379/0")
+    sync = Sync(provider)
+    assert isinstance(sync.backend, RedisSyncAdapter)
+    assert sync.backend.provider is provider
+
+
+def test_sync_accepts_postgres_provider() -> None:
+    """`Sync(PostgresProvider(...))` calls `provider.sync()` to build the adapter."""
+    provider = PostgresProvider("postgresql://localhost:5432/app")
+    sync = Sync(provider)
+    assert isinstance(sync.backend, PostgresSyncAdapter)
+    assert sync.backend.provider is provider

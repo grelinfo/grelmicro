@@ -7,3 +7,7 @@ components against the same vendor share one connection.
 
 Read more in the [Providers](providers.md) docs.
 """
+
+from grelmicro.providers._base import Provider
+
+__all__ = ["Provider"]

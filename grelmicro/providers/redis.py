@@ -11,11 +11,13 @@ from redis.asyncio.client import Redis
 from typing_extensions import Doc
 
 from grelmicro.errors import SettingsValidationError
+from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache.redis import RedisCacheAdapter
+    from grelmicro.resilience.redis import RedisRateLimiterAdapter
     from grelmicro.sync.redis import RedisSyncAdapter
 
 
@@ -46,7 +48,7 @@ class _RedisEnvSettings(BaseSettings):
     password: str | None = None
 
 
-class RedisProvider:
+class RedisProvider(Provider):
     """Redis connection provider.
 
     Holds the resolved URL and an async Redis client. Adapters
@@ -210,6 +212,12 @@ class RedisProvider:
         from grelmicro.cache.redis import RedisCacheAdapter  # noqa: PLC0415
 
         return RedisCacheAdapter(provider=self, **kwargs)
+
+    def ratelimiter(self, **kwargs: Any) -> RedisRateLimiterAdapter:  # noqa: ANN401
+        """Build a `RedisRateLimiterAdapter` bound to this provider."""
+        from grelmicro.resilience import redis as _redis_rl  # noqa: PLC0415
+
+        return _redis_rl.RedisRateLimiterAdapter(provider=self, **kwargs)
 
     async def __aenter__(self) -> Self:
         """Open the provider. The client is already constructed eagerly."""

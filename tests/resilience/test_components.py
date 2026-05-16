@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from grelmicro import Grelmicro
+from grelmicro.providers.postgres import PostgresProvider
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import Breaker, RateLimit
 from grelmicro.resilience.memory import (
     MemoryCircuitBreakerAdapter,
     MemoryRateLimiterAdapter,
 )
+from grelmicro.resilience.redis import RedisRateLimiterAdapter
 
 
 def test_ratelimit_exposes_backend() -> None:
@@ -58,3 +63,25 @@ async def test_breaker_lifecycles_backend() -> None:
     adapter = MemoryCircuitBreakerAdapter()
     async with Breaker(adapter):
         pass
+
+
+def test_ratelimit_accepts_redis_provider() -> None:
+    """`RateLimit(RedisProvider(...))` calls `provider.ratelimiter()` to build the adapter."""
+    provider = RedisProvider("redis://localhost:6379/0")
+    component = RateLimit(provider)
+    assert isinstance(component.backend, RedisRateLimiterAdapter)
+    assert component.backend.provider is provider
+
+
+def test_ratelimit_with_postgres_provider_raises() -> None:
+    """`RateLimit(PostgresProvider(...))` raises `NotImplementedError`."""
+    provider = PostgresProvider("postgresql://localhost:5432/app")
+    with pytest.raises(NotImplementedError, match="no rate limiter adapter"):
+        RateLimit(provider)
+
+
+def test_breaker_with_provider_raises() -> None:
+    """`Breaker(provider)` raises `NotImplementedError` (no provider ships a breaker today)."""
+    provider = RedisProvider("redis://localhost:6379/0")
+    with pytest.raises(NotImplementedError, match="no circuit breaker adapter"):
+        Breaker(provider)

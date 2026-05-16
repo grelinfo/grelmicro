@@ -9,32 +9,33 @@ The cache is technology-agnostic, supporting multiple backends (see more in the 
 
 ## Backend
 
-You must load a cache backend before using `TTLCache`.
+You must load a cache backend before using `TTLCache`. Wire the backend
+into a `Grelmicro` app via the `Cache` component. For Redis, pass the
+`RedisProvider` directly to `Cache(...)`.
 
 !!! tip "Install"
     The Redis backend needs the `redis` extra: `pip install "grelmicro[redis]"`. See the [installation guide](installation.md) for `uv` and `poetry`.
 
 === "Memory"
     ```python
+    from grelmicro import Grelmicro
+    from grelmicro.cache import Cache
     from grelmicro.cache.memory import MemoryCacheAdapter
 
-    backend = MemoryCacheAdapter()
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     ```
 
 === "Redis"
     ```python
-    from grelmicro.cache.redis import RedisCacheAdapter
+    from grelmicro import Grelmicro
+    from grelmicro.cache import Cache
+    from grelmicro.providers.redis import RedisProvider
 
-    backend = RedisCacheAdapter("redis://localhost:6379/0", prefix="myapp:")
+    redis = RedisProvider("redis://localhost:6379/0")
+    micro = Grelmicro(uses=[redis, Cache(redis)])
     ```
 
-Backends must be used as async context managers:
-
-```python
-async with backend:
-    # cache operations here
-    ...
-```
+`async with micro:` opens the provider and the cache backend together.
 
 ## TTLCache
 
