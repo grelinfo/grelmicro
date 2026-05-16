@@ -3,26 +3,38 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from grelmicro import Grelmicro
 from grelmicro.log import configure
-from grelmicro.resilience import CircuitBreaker
-from grelmicro.sync import LeaderElection, Lock
-from grelmicro.sync.redis import RedisSyncBackend
-from grelmicro.task import TaskManager
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience import Breaker, CircuitBreaker
+from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
+from grelmicro.sync import LeaderElection, Lock, Sync
+from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
 
 # === grelmicro ===
-task = TaskManager()
-sync_backend = RedisSyncBackend("redis://localhost:6379/0")
+tasks = Tasks()
 leader_election = LeaderElection("leader-election")
-task.add_task(leader_election)
+tasks.add_task(leader_election)
+
+redis = RedisProvider("redis://localhost:6379/0")
+
+micro = Grelmicro(
+    uses=[
+        redis,
+        Sync(redis),
+        Breaker(MemoryCircuitBreakerAdapter()),
+        tasks,
+    ]
+)
 
 
 # === FastAPI ===
 @asynccontextmanager
 async def lifespan(app):
     configure()
-    async with sync_backend, task:
+    async with micro:
         yield
 
 
@@ -50,18 +62,18 @@ async def protected():
 
 
 # --- Interval Task: run locally on every worker ---
-@task.interval(seconds=5)
+@tasks.interval(seconds=5)
 def heartbeat():
     logger.info("heartbeat")
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@task.interval(seconds=60, max_lock_seconds=300)
+@tasks.interval(seconds=60, max_lock_seconds=300)
 def cleanup():
     logger.info("cleanup")
 
 
 # --- Leader-gated Task: only the leader executes ---
-@task.interval(seconds=10, leader=leader_election)
+@tasks.interval(seconds=10, leader=leader_election)
 def leader_only_task():
     logger.info("leader task")

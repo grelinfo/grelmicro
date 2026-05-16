@@ -1,6 +1,6 @@
-from grelmicro.health import HealthDetails, HealthRegistry
+from grelmicro.health import HealthChecks, HealthDetails
 
-health = HealthRegistry()
+health = HealthChecks()
 
 
 @health.check("slow-api", critical=False, timeout=0.5)

@@ -1,8 +1,8 @@
 from grelmicro.sync import LeaderElection
-from grelmicro.task import TaskManager
+from grelmicro.task import Tasks
 
 leader = LeaderElection("my-service")
-task = TaskManager()
+task = Tasks()
 task.add_task(leader)
 
 

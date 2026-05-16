@@ -96,3 +96,19 @@
   white-space: nowrap;
   word-break: keep-all;
 }
+
+/* Visually hide the auto-generated h1 only on pages that carry the
+   wordmark image (the landing page). The wordmark stands in for the
+   title. The h1 stays in the a11y tree for screen readers. Other docs
+   pages keep their visible page titles. */
+.md-content .md-typeset:has(img.grel-wordmark) > h1:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

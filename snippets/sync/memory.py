@@ -1,3 +1,5 @@
-from grelmicro.sync.memory import MemorySyncBackend
+from grelmicro import Grelmicro
+from grelmicro.sync import Sync
+from grelmicro.sync.memory import MemorySyncAdapter
 
-backend = MemorySyncBackend()
+micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])

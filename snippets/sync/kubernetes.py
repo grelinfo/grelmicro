@@ -1,3 +1,5 @@
-from grelmicro.sync.kubernetes import KubernetesSyncBackend
+from grelmicro import Grelmicro
+from grelmicro.sync import Sync
+from grelmicro.sync.kubernetes import KubernetesSyncAdapter
 
-backend = KubernetesSyncBackend(namespace="default")
+micro = Grelmicro(uses=[Sync(KubernetesSyncAdapter(namespace="default"))])

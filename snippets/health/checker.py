@@ -1,7 +1,7 @@
-from grelmicro.health import HealthDetails, HealthRegistry
+from grelmicro.health import HealthChecks, HealthDetails
 from grelmicro.health.errors import HealthError
 
-health = HealthRegistry()
+health = HealthChecks()
 
 
 # Decorator form: register an async function under a name

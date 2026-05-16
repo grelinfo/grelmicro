@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 from grelmicro.cache import PydanticSerializer, TTLCache
-from grelmicro.cache.memory import MemoryCacheBackend
+from grelmicro.cache.memory import MemoryCacheAdapter
 
 
 class User(BaseModel):
@@ -9,7 +9,7 @@ class User(BaseModel):
     name: str
 
 
-backend = MemoryCacheBackend()
+backend = MemoryCacheAdapter()
 
 cache = TTLCache[User](ttl=300, serializer=PydanticSerializer(User))
 
