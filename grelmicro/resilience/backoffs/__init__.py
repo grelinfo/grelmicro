@@ -25,7 +25,7 @@ RetryBackoffConfig = Annotated[
     | LinearBackoff
     | FibonacciBackoff
     | RandomBackoff,
-    Discriminator("type"),
+    Discriminator("kind"),
 ]
 """Discriminated union of supported retry backoff configurations."""
 

@@ -29,7 +29,7 @@ class ConstantBackoff(BaseModel, frozen=True, extra="forbid"):
     Read more in the [Retry](../resilience/retry.md) docs.
     """
 
-    type: Annotated[
+    kind: Annotated[
         Literal["constant"],
         Doc("Discriminator for the backoff Pydantic union."),
     ] = "constant"

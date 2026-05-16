@@ -14,9 +14,9 @@ _NEW_DELAY = 2.0
 
 
 def test_default_config() -> None:
-    """Default config: type=constant, delay=1.0."""
+    """Default config: kind=constant, delay=1.0."""
     config = ConstantBackoff()
-    assert config.type == "constant"
+    assert config.kind == "constant"
     assert config.delay == _DEFAULT_DELAY
 
 

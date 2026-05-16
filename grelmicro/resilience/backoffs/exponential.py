@@ -30,7 +30,7 @@ class ExponentialBackoff(BaseModel, frozen=True, extra="forbid"):
     Read more in the [Retry](../resilience/retry.md) docs.
     """
 
-    type: Annotated[
+    kind: Annotated[
         Literal["exponential"],
         Doc("Discriminator for the backoff Pydantic union."),
     ] = "exponential"

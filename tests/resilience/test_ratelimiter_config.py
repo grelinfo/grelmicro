@@ -100,11 +100,11 @@ def test_from_config_classmethod() -> None:
 def test_discriminator_values() -> None:
     """Discriminator values are part of the public serialized API surface."""
     assert (
-        TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE).type
+        TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE).kind
         == "token_bucket"
     )
     assert (
-        SlidingWindowConfig(limit=LIMIT, window=WINDOW).type == "sliding_window"
+        SlidingWindowConfig(limit=LIMIT, window=WINDOW).kind == "sliding_window"
     )
 
 
@@ -112,11 +112,11 @@ def test_rate_limiter_config_union_round_trips() -> None:
     """`RateLimiterConfig` parses both discriminator values."""
     adapter = TypeAdapter(RateLimiterConfig)
     sliding = adapter.validate_python(
-        {"type": "sliding_window", "limit": LIMIT, "window": WINDOW}
+        {"kind": "sliding_window", "limit": LIMIT, "window": WINDOW}
     )
     bucket = adapter.validate_python(
         {
-            "type": "token_bucket",
+            "kind": "token_bucket",
             "capacity": CAPACITY,
             "refill_rate": REFILL_RATE,
         }

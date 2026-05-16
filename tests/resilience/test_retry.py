@@ -513,7 +513,7 @@ async def test_env_backoff_via_json(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GREL_RETRY_FOO_ATTEMPTS", "3")
     monkeypatch.setenv("GREL_RETRY_FOO_WHEN", "builtins.ValueError")
     monkeypatch.setenv(
-        "GREL_RETRY_FOO_BACKOFF", '{"type":"constant","delay":2.5}'
+        "GREL_RETRY_FOO_BACKOFF", '{"kind":"constant","delay":2.5}'
     )
     policy = Retry("foo")  # type: ignore[call-arg]
     assert isinstance(policy.config.backoff, ConstantBackoff)

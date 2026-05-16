@@ -36,7 +36,7 @@ class RandomBackoff(BaseModel, frozen=True, extra="forbid"):
     Read more in the [Retry](../resilience/retry.md) docs.
     """
 
-    type: Annotated[
+    kind: Annotated[
         Literal["random"],
         Doc("Discriminator for the backoff Pydantic union."),
     ] = "random"

@@ -34,7 +34,7 @@ class LinearBackoff(BaseModel, frozen=True, extra="forbid"):
     Read more in the [Retry](../resilience/retry.md) docs.
     """
 
-    type: Annotated[
+    kind: Annotated[
         Literal["linear"],
         Doc("Discriminator for the backoff Pydantic union."),
     ] = "linear"

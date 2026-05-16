@@ -145,11 +145,11 @@ Prefix: `GREL_RETRY_{NAME_UPPER}_`
 |---|---|---|---|
 | `GREL_RETRY_{NAME_UPPER}_ATTEMPTS` | `attempts` | `int` (>= 1) | `3` |
 | `GREL_RETRY_{NAME_UPPER}_WHEN` | `when` | CSV or JSON list of FQN strings (e.g. `httpx.HTTPError`). Coerced to `Match.exception(...)`. Predicate forms cannot come from env. | required |
-| `GREL_RETRY_{NAME_UPPER}_BACKOFF` | `backoff` | JSON object with a `type` field (see below) | `{"type":"exponential"}` |
+| `GREL_RETRY_{NAME_UPPER}_BACKOFF` | `backoff` | JSON object with a `kind` field (see below) | `{"kind":"exponential"}` |
 
 The full backoff config is a discriminated Pydantic union, so the env value is parsed as one JSON object. Each algorithm accepts the same fields it takes in code:
 
-| `type` | Fields |
+| `kind` | Fields |
 |---|---|
 | `exponential` | `base_delay`, `max_delay`, `jitter` (`none` / `full` / `equal` / `decorrelated`) |
 | `constant` | `delay` |
