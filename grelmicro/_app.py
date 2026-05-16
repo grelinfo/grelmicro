@@ -20,14 +20,18 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache._component import Cache
+    from grelmicro.log._component import Log
     from grelmicro.sync._component import Sync
+    from grelmicro.trace._component import Trace
 else:
     # Runtime fallback so `typing.get_type_hints(Grelmicro)` resolves the
     # `sync` / `cache` property annotations without forcing first-party
     # submodules to load at `import grelmicro`. Real types are visible to
     # static type checkers via the `TYPE_CHECKING` branch above.
     Cache = Any
+    Log = Any
     Sync = Any
+    Trace = Any
 
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
 
@@ -277,6 +281,16 @@ class Grelmicro:
     def cache(self) -> Cache:
         """The registered `Cache` component (default-named, or sole entry of kind `cache`)."""
         return self._resolve_kind("cache")
+
+    @property
+    def log(self) -> Log:
+        """The registered `Log` component (default-named, or sole entry of kind `log`)."""
+        return self._resolve_kind("log")
+
+    @property
+    def trace(self) -> Trace:
+        """The registered `Trace` component (default-named, or sole entry of kind `trace`)."""
+        return self._resolve_kind("trace")
 
     def _resolve_kind(self, name: str) -> Any:  # noqa: ANN401
         """Shared resolution logic for typed properties and `__getattr__`."""

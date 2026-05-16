@@ -92,6 +92,8 @@ When OpenTelemetry is installed, `@instrument` and `span()` also create OTel spa
 !!! tip "Install"
     OpenTelemetry integration needs the `opentelemetry` extra: `pip install "grelmicro[opentelemetry]"`. See the [installation guide](installation.md) for `uv` and `poetry`.
 
+### Standalone
+
 ```python
 # Logging only (no OTel dependency needed)
 configure()
@@ -100,6 +102,24 @@ configure()
 # @instrument and span() will automatically create OTel spans when opentelemetry
 # is installed and a TracerProvider is configured.
 ```
+
+### Via Grelmicro app
+
+`Trace()` owns the `TracerProvider` lifecycle when registered on a
+`Grelmicro` app. The provider is installed on enter and restored to the
+prior global on exit, so sequential apps in tests do not stack
+providers.
+
+```python
+--8<-- "trace/component.py"
+```
+
+`Trace()` reads `GREL_TRACE_*` environment variables (see `TracingConfig`
+for the full field set) or accepts the same fields as keyword arguments.
+The OTLP HTTP and gRPC exporters require their own packages
+(`opentelemetry-exporter-otlp-proto-http` or
+`opentelemetry-exporter-otlp-proto-grpc`) and are imported only when
+selected.
 
 ## Works With All Backends
 

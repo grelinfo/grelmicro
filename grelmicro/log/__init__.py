@@ -5,6 +5,8 @@ from typing import Annotated
 from typing_extensions import Doc
 
 from grelmicro._config import resolve_config
+from grelmicro.log._apply import apply as _apply
+from grelmicro.log._component import Log
 from grelmicro.log._dedup import DuplicateFilter, DuplicateFilterConfig
 from grelmicro.log._ratelimit import (
     RateLimitFilter,
@@ -20,24 +22,6 @@ from grelmicro.log.config import (
 )
 from grelmicro.log.errors import LoggingError
 from grelmicro.log.types import ErrorDict, JSONRecordDict
-
-
-def _apply(config: LoggingConfig) -> None:
-    """Dispatch to the selected backend with the resolved config."""
-    if config.backend == LoggingBackendType.STRUCTLOG:
-        from grelmicro.log._structlog import (  # noqa: PLC0415
-            configure as _configure,
-        )
-    elif config.backend == LoggingBackendType.STDLIB:
-        from grelmicro.log._stdlib import (  # noqa: PLC0415
-            configure as _configure,
-        )
-    else:
-        from grelmicro.log._loguru import (  # noqa: PLC0415
-            configure as _configure,
-        )
-
-    _configure(config)
 
 
 def configure(
@@ -156,6 +140,7 @@ __all__ = [
     "DuplicateFilterConfig",
     "ErrorDict",
     "JSONRecordDict",
+    "Log",
     "LoggingConfig",
     "LoggingError",
     "RateLimitFilter",

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add `Log` and `Trace` components. Register `Log()` and `Trace()` in `Grelmicro(uses=[...])` to wire observability through the same verb as `Sync`, `Cache`, `RateLimit`, `Breaker`, and `Tasks`. `Log()` wraps `grelmicro.log.configure(...)` and snapshots stdlib root handlers on enter so sequential apps in tests do not stack handlers. `Trace()` owns an OTel `TracerProvider`: builds it from `TracingConfig` (env prefix `GREL_TRACE_`), installs it on enter, shuts it down and restores the prior global provider on exit. OTLP HTTP and gRPC exporters are lazy-imported. Issue [#224](https://github.com/grelinfo/grelmicro/issues/224).
+
 ## 0.22.0 - 2026-05-16
 
 ### Features
