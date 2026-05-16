@@ -10,7 +10,9 @@ from typing_extensions import Doc
 class _CaseInsensitiveEnum(StrEnum):
     @classmethod
     def _missing_(cls, value: object) -> Self | None:
-        value = str(value).lower()
+        if not isinstance(value, str):
+            return None
+        value = value.lower()
         for member in cls:
             if member.lower() == value:
                 return member

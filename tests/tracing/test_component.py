@@ -30,6 +30,12 @@ def test_tracing_config_rejects_unknown_enum_value() -> None:
         TracingConfig.model_validate({"exporter": "bogus"})
 
 
+def test_tracing_config_rejects_none_for_enum() -> None:
+    """`None` does not silently resolve to `TracingExporterType.NONE`."""
+    with pytest.raises(ValueError, match="exporter"):
+        TracingConfig.model_validate({"exporter": None})
+
+
 def test_trace_satisfies_component_protocol() -> None:
     """`Trace` is a runtime-checkable `Component`."""
     assert isinstance(Trace(exporter=TracingExporterType.NONE), Component)

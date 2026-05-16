@@ -23,9 +23,15 @@ class Trace:
     """Trace component: installs an OTel `TracerProvider` for the app's lifetime.
 
     Registered as `micro.trace` after `Grelmicro.use(Trace(...))`. On enter,
-    builds a `TracerProvider` from the resolved config and installs it via
-    `opentelemetry.trace.set_tracer_provider`. On exit, the provider is shut
-    down and the previously-installed provider (if any) is restored.
+    builds a `TracerProvider` from the resolved config and installs it as the
+    process-global provider. On exit, the provider is shut down and the
+    previously-installed provider (if any) is restored.
+
+    OTel's `set_tracer_provider` refuses to override an already-installed
+    provider, so `Trace` writes the process-global directly. This means a
+    single process should not run two `Grelmicro` apps with `Trace`
+    components concurrently: their lifecycles share one OTel global.
+    Sequential apps (the common test scenario) work fine.
 
     Example:
         ```python

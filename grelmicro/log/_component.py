@@ -45,6 +45,10 @@ class Log:
     `loguru` and `structlog` backends keep the configuration installed on
     enter (no restore).
 
+    A single process should not run two `Grelmicro` apps with `Log`
+    components concurrently: stdlib's root logger is a single global, so
+    overlapping lifecycles would clobber each other's snapshots.
+
     Read more in the [Logging](../logging.md) docs.
     """
 
