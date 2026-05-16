@@ -15,7 +15,7 @@ Tone: factual. Where the focused alternative is the better fit, this page says s
 | If you only need this | Use this | Pick grelmicro when you also need |
 |---|---|---|
 | Async cache decorator over Redis | [`aiocache`](https://github.com/aio-libs/aiocache) or [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | Opt-in per-key stampede protection (`lock=True`), type-safe `TTLCache[T]`, Postgres backend (planned, see [#167](https://github.com/grelinfo/grelmicro/issues/167)) |
-| FastAPI rate limiter | [`slowapi`](https://github.com/laurentS/slowapi) or [`fastapi-limiter`](https://github.com/long2ice/fastapi-limiter) | GCRA algorithm, structured `RateLimitResult` for retry-after headers, swap Memory and Redis with the same API |
+| FastAPI rate limiter | [`slowapi`](https://github.com/laurentS/slowapi) or [`fastapi-limiter`](https://github.com/long2ice/fastapi-limiter) | Sliding-window algorithm, structured `RateLimitResult` for retry-after headers, swap Memory and Redis with the same API |
 | Async circuit breaker | [`pybreaker`](https://github.com/danielfm/pybreaker) or [`aiobreaker`](https://github.com/arlyon/aiobreaker) | Reconfigurable thresholds, frozen Pydantic config, structured logging context, distributed backend (planned, see [#163](https://github.com/grelinfo/grelmicro/issues/163)) |
 | Retry with `@retry(stop=, wait=)` | [`tenacity`](https://github.com/jd/tenacity) | A `Retry` that shares the same config + reconfigure shape as the rest of grelmicro |
 | Redis distributed lock | [`aioredlock`](https://github.com/joanvila/aioredlock) | Same Lock primitive across Redis, PostgreSQL, SQLite, Kubernetes, in-memory. Adapter-agnostic protocol |
@@ -33,7 +33,7 @@ What you get from a single import:
 | Leader election | `LeaderElection` | same as `Lock` |
 | Scheduled-task lock | `TaskLock` | same as `Lock` |
 | Cache decorator + TTL store | `Cache`, `TTLCache[T]`, `@cached` | Redis, Memory (Postgres planned) |
-| Rate limiter | `RateLimiter` (token bucket, GCRA) | Redis, Memory |
+| Rate limiter | `RateLimiter` (token bucket, sliding window) | Redis, Memory |
 | Circuit breaker | `CircuitBreaker` | Memory (distributed planned) |
 | Retry | `Retry`, `@retry` | n/a (in-process) |
 | Health checks | `HealthChecks` + `/livez` `/readyz` `/healthz` router | n/a |
@@ -70,18 +70,18 @@ Pick `aiocache` if you only need the cache primitive and want Memcached. Pick `f
 
 ## Rate Limiter
 
-Cap requests per window with token bucket or GCRA, per key.
+Cap requests per window with token bucket or sliding window, per key.
 
 | Axis | [`slowapi`](https://github.com/laurentS/slowapi) | [`fastapi-limiter`](https://github.com/long2ice/fastapi-limiter) | [`aiolimiter`](https://github.com/mjpieters/aiolimiter) | grelmicro `RateLimiter` |
 |---|---|---|---|---|
-| Algorithm | fixed/sliding window | fixed window | token bucket | token bucket, GCRA |
+| Algorithm | fixed/sliding window | fixed window | token bucket | token bucket, sliding window |
 | Backends | Memory, Redis, Memcached, MongoDB | Redis only | in-process only | Memory, Redis (Postgres + SQLite at 1.0, see [#164](https://github.com/grelinfo/grelmicro/issues/164), [#173](https://github.com/grelinfo/grelmicro/issues/173)) |
 | Async-first | partial (Flask-Limiter port) | yes | yes | yes |
 | Result shape for retry-after | string parsing | string parsing | none | `RateLimitResult(allowed, limit, remaining, retry_after, reset_after)` |
 | Reconfigurable at runtime | no | no | no | yes (`reconfigure(new_config)`) |
 | FastAPI integration | first-class | first-class | manual | works in any async framework |
 
-Pick `slowapi` if you want fixed-window per-route limiting on FastAPI and a wider backend choice. Pick `aiolimiter` for the smallest in-process token bucket. Pick grelmicro when you also need a distributed Lock or Cache on the same backend, when you need GCRA semantics, or when you need a structured retry-after result without parsing strings.
+Pick `slowapi` if you want fixed-window per-route limiting on FastAPI and a wider backend choice. Pick `aiolimiter` for the smallest in-process token bucket. Pick grelmicro when you also need a distributed Lock or Cache on the same backend, when you need precise sliding-window semantics, or when you need a structured retry-after result without parsing strings.
 
 ## Circuit Breaker
 

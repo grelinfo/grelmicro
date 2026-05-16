@@ -13,8 +13,8 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
 )
 from grelmicro.resilience.algorithms import (
-    GCRAConfig,
     RateLimiterConfig,
+    SlidingWindowConfig,
     TokenBucketConfig,
 )
 
@@ -24,7 +24,7 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
 
     Wraps a `RedisProvider` and supports both
     [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
-    and [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]
+    and [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]
     algorithm configs via atomic Lua scripts. Safe across processes
     and machines.
 
@@ -128,7 +128,7 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
         match config:
             case TokenBucketConfig():
                 return _RedisTokenBucket(client, self._prefix, config)
-            case GCRAConfig():
+            case SlidingWindowConfig():
                 return _RedisGCRA(client, self._prefix, config)
         assert_never(config)
 
@@ -226,7 +226,7 @@ class _RedisGCRA(RateLimiterStrategy):
         self,
         redis: Redis,
         prefix: str,
-        config: GCRAConfig,
+        config: SlidingWindowConfig,
     ) -> None:
         self._redis = redis
         self._key_prefix = f"{prefix}{self._ALGO_PREFIX}"

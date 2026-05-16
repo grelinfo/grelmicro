@@ -17,8 +17,8 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
 )
 from grelmicro.resilience.algorithms import (
-    GCRAConfig,
     RateLimiterConfig,
+    SlidingWindowConfig,
     TokenBucketConfig,
 )
 from grelmicro.resilience.errors import RateLimitExceededError
@@ -48,9 +48,11 @@ async def _backend() -> AsyncGenerator[MemoryRateLimiterAdapter]:
 
 
 @pytest.fixture
-def gcra_limiter() -> RateLimiter:
-    """RateLimiter with GCRA."""
-    return RateLimiter("test-gcra", GCRAConfig(limit=LIMIT, window=WINDOW))
+def sliding_window_limiter() -> RateLimiter:
+    """RateLimiter with sliding window."""
+    return RateLimiter(
+        "test-sw", SlidingWindowConfig(limit=LIMIT, window=WINDOW)
+    )
 
 
 @pytest.fixture
@@ -62,27 +64,31 @@ def token_bucket_limiter() -> RateLimiter:
     )
 
 
-@pytest.fixture(params=["gcra", "token_bucket"])
+@pytest.fixture(params=["sliding_window", "token_bucket"])
 def limiter(
     request: pytest.FixtureRequest,
-    gcra_limiter: RateLimiter,
+    sliding_window_limiter: RateLimiter,
     token_bucket_limiter: RateLimiter,
 ) -> RateLimiter:
     """Parametrize tests across both algorithms."""
-    return gcra_limiter if request.param == "gcra" else token_bucket_limiter
+    return (
+        sliding_window_limiter
+        if request.param == "sliding_window"
+        else token_bucket_limiter
+    )
 
 
 # --- Properties ---
 
 
-def test_gcra_properties() -> None:
-    """Test RateLimiter with GCRA properties."""
+def test_sliding_window_properties() -> None:
+    """Test RateLimiter with SlidingWindowConfig properties."""
     # Arrange
-    rl = RateLimiter("auth", GCRAConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter("auth", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
 
     # Assert
     assert rl.name == "auth"
-    assert isinstance(rl.config, GCRAConfig)
+    assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
     assert rl.config.window == WINDOW
 
@@ -268,7 +274,7 @@ async def test_acquire_or_raise_with_cost(limiter: RateLimiter) -> None:
 
 async def test_acquire_without_backend() -> None:
     """RateLimiter construction succeeds. The error is deferred to first call."""
-    rl = RateLimiter("test", GCRAConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter("test", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
 
     # No `Grelmicro` app is open: first method call surfaces the missing-backend error
     async with Grelmicro():
@@ -288,11 +294,11 @@ async def test_acquire_without_backend() -> None:
         (LIMIT, -1),
     ],
 )
-def test_invalid_gcra_config(limit: int, window: float) -> None:
+def test_invalid_sliding_window_config(limit: int, window: float) -> None:
     """Test non-positive limit or window raises ValidationError."""
     # Act & Assert
     with pytest.raises(ValidationError):
-        GCRAConfig(limit=limit, window=window)
+        SlidingWindowConfig(limit=limit, window=window)
 
 
 @pytest.mark.parametrize(
@@ -331,7 +337,7 @@ async def test_explicit_backend_bypasses_app() -> None:
     async with Grelmicro(uses=[RateLimit(registered)]):
         rl = RateLimiter(
             "explicit",
-            GCRAConfig(limit=LIMIT, window=WINDOW),
+            SlidingWindowConfig(limit=LIMIT, window=WINDOW),
             backend=my,
         )
         assert rl.backend is my
@@ -472,7 +478,7 @@ def failing_limiter() -> RateLimiter:
     """RateLimiter whose strategy raises on every call, fail_open=True."""
     return RateLimiter(
         "failing",
-        GCRAConfig(limit=LIMIT, window=WINDOW, fail_open=True),
+        SlidingWindowConfig(limit=LIMIT, window=WINDOW, fail_open=True),
         backend=_FailingBackend(),
     )
 
@@ -482,7 +488,7 @@ def failing_limiter_strict() -> RateLimiter:
     """RateLimiter whose strategy raises; fail_open=False."""
     return RateLimiter(
         "failing-strict",
-        GCRAConfig(limit=LIMIT, window=WINDOW, fail_open=False),
+        SlidingWindowConfig(limit=LIMIT, window=WINDOW, fail_open=False),
         backend=_FailingBackend(),
     )
 
@@ -558,7 +564,7 @@ async def test_fail_open_acquire_or_raise(
     assert result.allowed is True
 
 
-async def test_gcra_strategy_evicts_expired_keys(
+async def test_sliding_window_strategy_evicts_expired_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test _MemoryGCRA eviction drops keys whose TAT has passed."""
@@ -567,7 +573,7 @@ async def test_gcra_strategy_evicts_expired_keys(
     backend = MemoryRateLimiterAdapter()
     limiter = RateLimiter(
         "evict",
-        GCRAConfig(limit=LIMIT, window=WINDOW),
+        SlidingWindowConfig(limit=LIMIT, window=WINDOW),
         backend=backend,
     )
     # Seed two fully-expired GCRA entries (TAT in the distant past).
@@ -613,7 +619,7 @@ async def test_fail_open_still_rejects_when_limit_exceeded() -> None:
     # Arrange
     limiter = RateLimiter(
         "fo_reject",
-        GCRAConfig(limit=LIMIT, window=WINDOW, fail_open=True),
+        SlidingWindowConfig(limit=LIMIT, window=WINDOW, fail_open=True),
     )
     for _ in range(LIMIT):
         await limiter.acquire(key="user:1")
@@ -631,7 +637,7 @@ async def test_fail_open_acquire_or_raise_still_raises_on_exceeded() -> None:
     # Arrange
     limiter = RateLimiter(
         "fo_raise",
-        GCRAConfig(limit=LIMIT, window=WINDOW, fail_open=True),
+        SlidingWindowConfig(limit=LIMIT, window=WINDOW, fail_open=True),
     )
     for _ in range(LIMIT):
         await limiter.acquire(key="user:1")
@@ -648,8 +654,8 @@ async def test_fail_open_acquire_or_raise_still_raises_on_exceeded() -> None:
 async def test_reconfigure_swaps_config() -> None:
     """Reconfigure publishes the new config."""
     # Arrange
-    rl = RateLimiter("rc", GCRAConfig(limit=LIMIT, window=WINDOW))
-    new_config = GCRAConfig(limit=LIMIT * 2, window=WINDOW)
+    rl = RateLimiter("rc", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
+    new_config = SlidingWindowConfig(limit=LIMIT * 2, window=WINDOW)
 
     # Act
     await rl.reconfigure(new_config)
@@ -693,13 +699,13 @@ async def test_reconfigure_rebuilds_fallback_and_strategy() -> None:
 async def test_reconfigure_same_config_is_noop() -> None:
     """Equal configs short-circuit before any bind."""
     # Arrange
-    config = GCRAConfig(limit=LIMIT, window=WINDOW)
+    config = SlidingWindowConfig(limit=LIMIT, window=WINDOW)
     backend: Any = MagicMock()
     backend.bind = MagicMock(return_value=AsyncMock(spec=RateLimiterStrategy))
     rl = RateLimiter("rc", config, backend=backend)
 
     # Act
-    await rl.reconfigure(GCRAConfig(limit=LIMIT, window=WINDOW))
+    await rl.reconfigure(SlidingWindowConfig(limit=LIMIT, window=WINDOW))
 
     # Assert: bind never ran (no acquire was called either)
     backend.bind.assert_not_called()
@@ -708,10 +714,10 @@ async def test_reconfigure_same_config_is_noop() -> None:
 async def test_reconfigure_rejects_different_config_type() -> None:
     """Swapping algorithm types raises TypeError."""
     # Arrange
-    rl = RateLimiter("rc", GCRAConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter("rc", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
 
     # Act & Assert
-    with pytest.raises(TypeError, match="GCRAConfig"):
+    with pytest.raises(TypeError, match="SlidingWindowConfig"):
         await rl.reconfigure(
             TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
         )

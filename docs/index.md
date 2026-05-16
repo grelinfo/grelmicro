@@ -53,7 +53,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | [**Cache**](cache.md) | `@cached` decorator with per-key stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
 | [**Synchronization**](sync.md) | Distributed `Lock`, `TaskLock`, `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Task Scheduler**](task.md) | Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement. |
-| [**Resilience**](resilience/index.md) | [Circuit Breaker](resilience/circuit-breaker.md) and [Rate Limiter](resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `GCRAConfig`). |
+| [**Resilience**](resilience/index.md) | [Circuit Breaker](resilience/circuit-breaker.md) and [Rate Limiter](resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
 | [**Logging**](logging.md) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
 | [**Tracing**](tracing.md) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
 | [**Health**](health.md) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
@@ -116,7 +116,7 @@ micro = Grelmicro(uses=[
 ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer())
 lock = Lock("shared-resource")
 cb = CircuitBreaker("my-service")
-api_limiter = RateLimiter.gcra("api", limit=100, window=60)
+api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
 
 # === FastAPI lifespan ===

@@ -9,7 +9,7 @@ from typing_extensions import Doc
 class _BaseRateLimiterConfig(BaseModel, frozen=True, extra="forbid"):
     """Common fields shared by every rate-limiter algorithm config.
 
-    Concrete algorithm configs (`TokenBucketConfig`, `GCRAConfig`)
+    Concrete algorithm configs (`TokenBucketConfig`, `SlidingWindowConfig`)
     inherit from this base. Settings that apply to every variant,
     such as fail-open behaviour, live here so they round-trip with
     the config object.

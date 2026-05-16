@@ -11,8 +11,8 @@ from grelmicro.resilience._protocol import (
     RetryStrategy,
 )
 from grelmicro.resilience.algorithms import (
-    GCRAConfig,
     RateLimiterConfig,
+    SlidingWindowConfig,
     TokenBucketConfig,
 )
 from grelmicro.resilience.backoffs import (
@@ -58,7 +58,6 @@ __all__ = [
     "ErrorDetails",
     "ExponentialBackoff",
     "FibonacciBackoff",
-    "GCRAConfig",
     "LinearBackoff",
     "Match",
     "Matcher",
@@ -79,6 +78,7 @@ __all__ = [
     "RetryBackoffConfig",
     "RetryConfig",
     "RetryStrategy",
+    "SlidingWindowConfig",
     "TokenBucketConfig",
     "retry",
     "retrying",

@@ -11,8 +11,8 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
 )
 from grelmicro.resilience.algorithms import (
-    GCRAConfig,
     RateLimiterConfig,
+    SlidingWindowConfig,
     TokenBucketConfig,
 )
 from grelmicro.resilience.memory import MemoryRateLimiterAdapter
@@ -70,11 +70,11 @@ async def backend(
             yield memory_backend
 
 
-@pytest.fixture(params=["gcra", "token_bucket"])
+@pytest.fixture(params=["sliding_window", "token_bucket"])
 def config(request: pytest.FixtureRequest) -> RateLimiterConfig:
     """Algorithm config instance (parametrized)."""
-    if request.param == "gcra":
-        return GCRAConfig(limit=LIMIT, window=WINDOW)
+    if request.param == "sliding_window":
+        return SlidingWindowConfig(limit=LIMIT, window=WINDOW)
     return TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
 
 

@@ -3,7 +3,10 @@
 import pytest
 
 from grelmicro.resilience import RateLimiter
-from grelmicro.resilience.algorithms import GCRAConfig, TokenBucketConfig
+from grelmicro.resilience.algorithms import (
+    SlidingWindowConfig,
+    TokenBucketConfig,
+)
 from grelmicro.resilience.memory import MemoryRateLimiterAdapter
 
 LIMIT = 10
@@ -31,11 +34,11 @@ def test_token_bucket_config() -> None:
 
 
 @pytest.mark.usefixtures("_rate_limiter_backend")
-def test_gcra_config() -> None:
-    """`RateLimiter` accepts a `GCRAConfig` positional config."""
-    rl = RateLimiter("auth", GCRAConfig(limit=LIMIT, window=WINDOW))
+def test_sliding_window_config() -> None:
+    """`RateLimiter` accepts a `SlidingWindowConfig` positional config."""
+    rl = RateLimiter("auth", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
     assert rl.name == "auth"
-    assert isinstance(rl.config, GCRAConfig)
+    assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
     assert rl.config.window == WINDOW
 
@@ -64,11 +67,11 @@ def test_token_bucket_factory() -> None:
 
 
 @pytest.mark.usefixtures("_rate_limiter_backend")
-def test_gcra_factory() -> None:
-    """`RateLimiter.gcra` builds a GCRA rate limiter."""
-    rl = RateLimiter.gcra("auth", limit=LIMIT, window=WINDOW)
+def test_sliding_window_factory() -> None:
+    """`RateLimiter.sliding_window` builds a sliding-window rate limiter."""
+    rl = RateLimiter.sliding_window("auth", limit=LIMIT, window=WINDOW)
     assert rl.name == "auth"
-    assert isinstance(rl.config, GCRAConfig)
+    assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
     assert rl.config.window == WINDOW
     assert rl.config.fail_open is False

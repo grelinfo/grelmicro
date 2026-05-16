@@ -17,8 +17,8 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
 )
 from grelmicro.resilience.algorithms import (
-    GCRAConfig,
     RateLimiterConfig,
+    SlidingWindowConfig,
     TokenBucketConfig,
 )
 
@@ -171,7 +171,7 @@ class MemoryRateLimiterAdapter(RateLimiterBackend):
 
     Supports both
     [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
-    and [`GCRAConfig`][grelmicro.resilience.algorithms.GCRAConfig]
+    and [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]
     algorithm configs. State is held in separate per-algorithm
     maps so two rate limiters with the same name but different
     algorithms cannot collide. Thread-safe.
@@ -229,7 +229,7 @@ class MemoryRateLimiterAdapter(RateLimiterBackend):
                 return _MemoryTokenBucket(
                     self._token_bucket_state, self._lock, config
                 )
-            case GCRAConfig():
+            case SlidingWindowConfig():
                 return _MemoryGCRA(self._gcra_state, self._lock, config)
         assert_never(config)
 
@@ -332,7 +332,7 @@ class _MemoryGCRA(RateLimiterStrategy):
         self,
         state: dict[str, float],
         lock: Lock,
-        config: GCRAConfig,
+        config: SlidingWindowConfig,
     ) -> None:
         self._state = state
         self._lock = lock

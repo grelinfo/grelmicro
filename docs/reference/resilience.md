@@ -9,7 +9,6 @@
         - CircuitBreakerMetrics
         - CircuitBreakerState
         - ErrorDetails
-        - GCRAConfig
         - MemoryTokenBucket
         - RateLimiter
         - RateLimiterBackend
@@ -19,6 +18,7 @@
         - RateLimitResult
         - ResilienceError
         - ResilienceSettingsValidationError
+        - SlidingWindowConfig
         - TokenBucketConfig
 
 ::: grelmicro.resilience.memory
