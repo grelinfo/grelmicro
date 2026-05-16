@@ -18,9 +18,9 @@ _CAPPED_MAX = 4.0
 
 
 def test_default_config() -> None:
-    """Default config: type=exponential, base=0.1, max=30, jitter=full."""
+    """Default config: kind=exponential, base=0.1, max=30, jitter=full."""
     config = ExponentialBackoff()
-    assert config.type == "exponential"
+    assert config.kind == "exponential"
     assert config.base_delay == _DEFAULT_BASE
     assert config.max_delay == _DEFAULT_MAX
     assert config.jitter == "full"

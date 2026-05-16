@@ -14,9 +14,9 @@ _FIB_DELAYS = [1.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0]
 
 
 def test_default_config() -> None:
-    """Default config: type=fibonacci, base=1.0, max=30.0."""
+    """Default config: kind=fibonacci, base=1.0, max=30.0."""
     config = FibonacciBackoff()
-    assert config.type == "fibonacci"
+    assert config.kind == "fibonacci"
     assert config.base_delay == _DEFAULT_BASE
     assert config.max_delay == _DEFAULT_MAX
 

@@ -327,7 +327,7 @@ class _AttemptLoop:
 
 def _backoff_name(config: RetryBackoffConfig) -> str:
     """Return a human-readable name for the backoff config."""
-    return config.type
+    return config.kind
 
 
 async def _async_iter(

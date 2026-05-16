@@ -13,9 +13,9 @@ _DEFAULT_MAX = 2.0
 
 
 def test_default_config() -> None:
-    """Default config: type=random, min=0.5, max=2.0."""
+    """Default config: kind=random, min=0.5, max=2.0."""
     config = RandomBackoff()
-    assert config.type == "random"
+    assert config.kind == "random"
     assert config.min_delay == _DEFAULT_MIN
     assert config.max_delay == _DEFAULT_MAX
 

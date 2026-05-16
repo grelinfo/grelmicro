@@ -31,7 +31,7 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
-    type: Annotated[
+    kind: Annotated[
         Literal["sliding_window"],
         Doc("Discriminator for the algorithm Pydantic union."),
     ] = "sliding_window"

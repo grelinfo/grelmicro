@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 Rename the discriminator field from `type` to `kind` on every tagged union. Affects `RateLimiterConfig` (`TokenBucketConfig`, `SlidingWindowConfig`) and `RetryBackoffConfig` (`ExponentialBackoff`, `ConstantBackoff`, `LinearBackoff`, `FibonacciBackoff`, `RandomBackoff`). Serialized YAML and JSON configs must replace `type:` with `kind:` (for example `GREL_RETRY_FOO_BACKOFF={"kind":"exponential",...}`). Frees the Python `type` builtin from being shadowed on every config object. Issue [#268](https://github.com/grelinfo/grelmicro/issues/268).
 * 💥 Rename `GCRAConfig` to `SlidingWindowConfig` and `RateLimiter.gcra(...)` to `RateLimiter.sliding_window(...)`. The discriminator value also moves from `"gcra"` to `"sliding_window"`. Module `grelmicro.resilience.algorithms.gcra` becomes `grelmicro.resilience.algorithms.sliding_window`. Internal strategy classes (`_RedisGCRA`, `_MemoryGCRA`) keep their names since they describe the underlying algorithm. Issue [#259](https://github.com/grelinfo/grelmicro/issues/259).
 
 ### Features

@@ -37,7 +37,7 @@ class FibonacciBackoff(BaseModel, frozen=True, extra="forbid"):
     Read more in the [Retry](../resilience/retry.md) docs.
     """
 
-    type: Annotated[
+    kind: Annotated[
         Literal["fibonacci"],
         Doc("Discriminator for the backoff Pydantic union."),
     ] = "fibonacci"

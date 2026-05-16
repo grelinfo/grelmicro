@@ -17,7 +17,7 @@ from grelmicro.resilience.algorithms.tokenbucket import TokenBucketConfig
 
 RateLimiterConfig = Annotated[
     TokenBucketConfig | SlidingWindowConfig,
-    Discriminator("type"),
+    Discriminator("kind"),
 ]
 """Discriminated union of supported rate-limiter algorithm configurations."""
 

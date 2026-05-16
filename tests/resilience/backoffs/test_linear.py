@@ -13,9 +13,9 @@ _DEFAULT_MAX = 30.0
 
 
 def test_default_config() -> None:
-    """Default config: type=linear, base=1.0, max=30.0."""
+    """Default config: kind=linear, base=1.0, max=30.0."""
     config = LinearBackoff()
-    assert config.type == "linear"
+    assert config.kind == "linear"
     assert config.base_delay == _DEFAULT_BASE
     assert config.max_delay == _DEFAULT_MAX
 

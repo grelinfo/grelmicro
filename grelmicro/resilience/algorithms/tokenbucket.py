@@ -31,7 +31,7 @@ class TokenBucketConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
-    type: Annotated[
+    kind: Annotated[
         Literal["token_bucket"],
         Doc("Discriminator for the algorithm Pydantic union."),
     ] = "token_bucket"
