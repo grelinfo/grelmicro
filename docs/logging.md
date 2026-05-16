@@ -10,6 +10,16 @@ Logs go to stdout. Format is selected automatically. Configuration is done via e
 --8<-- "log/configure.py"
 ```
 
+Or attach it to a `Grelmicro` app via `uses=`:
+
+```python
+--8<-- "log/component.py"
+```
+
+`Log()` accepts the same knobs as `configure()` and resolves `GREL_LOG_*`
+environment variables. On exit, the previous stdlib root handlers are
+restored.
+
 With no environment variables set, `configure()` detects your terminal:
 
 - **Terminal (TTY)**: human-readable colored text
