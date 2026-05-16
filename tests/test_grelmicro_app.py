@@ -559,3 +559,21 @@ async def test_no_warning_when_provider_in_uses(
         and "not listed in" in str(w.message)
         for w in recwarn
     )
+
+
+async def test_warns_when_provider_listed_after_component(
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """A provider listed after the Component triggers the ordering warning."""
+    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+    from grelmicro.sync import Sync  # noqa: PLC0415
+
+    redis = RedisProvider("redis://localhost:6379/0")
+    micro = Grelmicro(uses=[Sync(redis), redis])
+    async with micro:
+        pass
+
+    assert any(
+        issubclass(w.category, UserWarning) and "listed after" in str(w.message)
+        for w in recwarn
+    )

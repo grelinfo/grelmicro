@@ -28,7 +28,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
 
     Attributes:
         short_name: Vendor identifier (e.g. `"redis"`, `"postgres"`). Used
-            in error messages and by the implicit-sharing cache.
+            for vendor identification in error messages and introspection.
     """
 
     short_name: ClassVar[str]

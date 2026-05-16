@@ -388,33 +388,55 @@ class Grelmicro:
                 target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
 
     def _warn_unlifecycled_providers(self) -> None:
-        """Warn when a Component holds a Provider not listed in `uses=`.
+        """Warn when a Component holds a Provider that is not lifecycled correctly.
 
         Components built with `Sync(provider)` borrow the provider's client
         but do not lifecycle it. The user must list the provider in `uses=`
-        so its connection opens and closes with the app. Without that, the
-        provider leaks: the client is never closed on shutdown.
+        *before* the Component so the provider opens first.
+
+        Two warnings:
+
+        1. The provider is missing from `uses=`. The provider is never opened
+           or closed, so its client leaks on shutdown.
+        2. The provider is in `uses=` but listed after the dependent
+           Component. `Grelmicro.__aenter__` enters items in declaration
+           order. Providers with lazy resources (`PostgresProvider` builds
+           its pool on `__aenter__`) raise `OutOfContextError` when the
+           Component opens first.
         """
         import warnings  # noqa: PLC0415
 
-        for item in self._items:
+        for index, item in enumerate(self._items):
             target = getattr(item, "backend", item)
             provider = getattr(target, "_provider", None)
             if provider is None:
                 continue
             owns = getattr(target, "_owns_provider", True)
-            if owns or provider in self._items:
+            if owns:
                 continue
-            warnings.warn(
-                f"{type(target).__name__} holds a "
-                f"{type(provider).__name__} that is not listed in "
-                f"Grelmicro(uses=[...]). The provider will not be "
-                f"lifecycled with the app and its connection will leak. "
-                f"Add the provider to uses= so it is opened and closed "
-                f"with the components that depend on it.",
-                UserWarning,
-                stacklevel=3,
-            )
+            try:
+                provider_index = self._items.index(provider)
+            except ValueError:
+                warnings.warn(
+                    f"{type(target).__name__} holds a "
+                    f"{type(provider).__name__} that is not listed in "
+                    f"Grelmicro(uses=[...]). The provider will not be "
+                    f"lifecycled with the app and its connection will "
+                    f"leak. Add the provider to uses= so it is opened "
+                    f"and closed with the components that depend on it.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                continue
+            if provider_index > index:
+                warnings.warn(
+                    f"{type(provider).__name__} is listed after "
+                    f"{type(target).__name__} in Grelmicro(uses=[...]). "
+                    f"Providers must be listed before the components that "
+                    f"depend on them so they open first.",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
 
 def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:

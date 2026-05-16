@@ -87,6 +87,9 @@ testcontainers fixture). Wrap it with `from_client`:
 
 ```python
 import redis.asyncio as redis
+
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
 from grelmicro.providers.redis import RedisProvider
 
 client = redis.Redis(host="prod.cache", socket_timeout=5)
@@ -187,8 +190,14 @@ PostgresProvider.from_client(pool)              # bring-your-own pool
 
 The Provider is opened when the `Grelmicro` app enters and closed when
 the app exits. Components borrow the Provider's client without managing
-its lifecycle. Always list the Provider in `uses=` next to the
-Components that depend on it.
+its lifecycle.
+
+Always **list the Provider before** the Components that depend on it.
+`uses=` opens items in declaration order. `PostgresProvider` builds its
+`asyncpg.Pool` on `__aenter__`, so a Component placed before its
+Provider would access `provider.client` before the pool exists and raise
+`OutOfContextError`. `Grelmicro.__aenter__` warns on this ordering, but
+the correct fix is to list the Provider first.
 
 ## Memory backends
 
