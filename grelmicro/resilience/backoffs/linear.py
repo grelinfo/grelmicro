@@ -26,7 +26,7 @@ class LinearBackoff(BaseModel, frozen=True, extra="forbid"):
     policy = Retry(
         "ramp",
         LinearBackoff(base_delay=1.0, max_delay=10.0),
-        on=ServiceError,
+        when=ServiceError,
         attempts=5,
     )
     ```

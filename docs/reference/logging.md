@@ -8,6 +8,7 @@
         - DuplicateFilterConfig
         - ErrorDict
         - JSONRecordDict
+        - Log
         - LoggingConfig
         - LoggingError
         - RateLimitFilter
