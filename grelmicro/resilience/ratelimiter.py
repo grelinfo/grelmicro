@@ -106,7 +106,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
                 [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig].
                 Both carry algorithm parameters plus the shared
                 `fail_open` setting. The classes share a
-                discriminated `type` field so serialization
+                discriminated `kind` field so serialization
                 round-trips and pydantic-settings composition both
                 work.
                 """

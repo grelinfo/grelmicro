@@ -23,7 +23,7 @@ class ExponentialBackoff(BaseModel, frozen=True, extra="forbid"):
     policy = Retry(
         "payments",
         ExponentialBackoff(base_delay=0.2, max_delay=10.0),
-        on=httpx.HTTPError,
+        when=httpx.HTTPError,
     )
     ```
 

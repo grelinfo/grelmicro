@@ -4,12 +4,24 @@
     options:
       show_submodules: true
       members:
+        - Breaker
         - CircuitBreaker
+        - CircuitBreakerBackend
+        - CircuitBreakerConfig
         - CircuitBreakerError
         - CircuitBreakerMetrics
         - CircuitBreakerState
+        - ConstantBackoff
         - ErrorDetails
+        - ExponentialBackoff
+        - FibonacciBackoff
+        - LinearBackoff
+        - Match
+        - Matcher
         - MemoryTokenBucket
+        - Outcome
+        - RandomBackoff
+        - RateLimit
         - RateLimiter
         - RateLimiterBackend
         - RateLimiterConfig
@@ -18,8 +30,15 @@
         - RateLimitResult
         - ResilienceError
         - ResilienceSettingsValidationError
+        - Retry
+        - RetryAttempt
+        - RetryBackoffConfig
+        - RetryConfig
+        - RetryStrategy
         - SlidingWindowConfig
         - TokenBucketConfig
+        - retry
+        - retrying
 
 ::: grelmicro.resilience.memory
     options:

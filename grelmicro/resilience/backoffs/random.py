@@ -28,7 +28,7 @@ class RandomBackoff(BaseModel, frozen=True, extra="forbid"):
     policy = Retry(
         "stampede",
         RandomBackoff(min_delay=0.5, max_delay=2.0),
-        on=CacheMissError,
+        when=CacheMissError,
         attempts=3,
     )
     ```

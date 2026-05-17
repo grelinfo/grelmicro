@@ -21,7 +21,7 @@ class ConstantBackoff(BaseModel, frozen=True, extra="forbid"):
     policy = Retry(
         "wait_job",
         ConstantBackoff(delay=1.0),
-        on=NotReady,
+        when=NotReady,
         attempts=20,
     )
     ```

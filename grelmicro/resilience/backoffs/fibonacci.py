@@ -29,7 +29,7 @@ class FibonacciBackoff(BaseModel, frozen=True, extra="forbid"):
     policy = Retry(
         "deferred",
         FibonacciBackoff(base_delay=1.0, max_delay=60.0),
-        on=ServiceError,
+        when=ServiceError,
         attempts=8,
     )
     ```
