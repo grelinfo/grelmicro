@@ -1,7 +1,7 @@
 from grelmicro.resilience import RateLimiter
 
-# GCRA for precise sliding-window API throttling.
-auth_limiter = RateLimiter.gcra("auth", limit=5, window=60)
+# Sliding window for precise API throttling.
+auth_limiter = RateLimiter.sliding_window("auth", limit=5, window=60)
 
 # Token bucket for burst-friendly "N then 1/sec" semantics.
 api_limiter = RateLimiter.token_bucket("api", capacity=100, refill_rate=10)

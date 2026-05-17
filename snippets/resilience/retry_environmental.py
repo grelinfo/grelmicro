@@ -7,5 +7,5 @@ from grelmicro.resilience import Retry
 #
 # - GREL_RETRY_PAYMENTS_ATTEMPTS=5
 # - GREL_RETRY_PAYMENTS_WHEN=httpx.HTTPError
-# - GREL_RETRY_PAYMENTS_BACKOFF={"type":"exponential","base_delay":0.2}
+# - GREL_RETRY_PAYMENTS_BACKOFF={"kind":"exponential","base_delay":0.2}
 policy = Retry("payments", when=httpx.HTTPError)
