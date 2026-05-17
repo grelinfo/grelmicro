@@ -1,4 +1,4 @@
-# Compatibility matrix
+# Capability matrix
 
 Which Pattern × Adapter combinations ship today, and which gaps the `1.0.0` milestone closes.
 
