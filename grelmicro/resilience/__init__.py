@@ -5,6 +5,7 @@ from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
+    CircuitBreakerSharedState,
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
@@ -53,6 +54,7 @@ __all__ = [
     "CircuitBreakerConfig",
     "CircuitBreakerError",
     "CircuitBreakerMetrics",
+    "CircuitBreakerSharedState",
     "CircuitBreakerState",
     "ConstantBackoff",
     "ErrorDetails",

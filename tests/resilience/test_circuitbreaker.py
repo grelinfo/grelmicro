@@ -7,7 +7,8 @@ import threading
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, suppress
 from datetime import UTC, datetime
-from typing import Literal
+from types import TracebackType
+from typing import Any, ClassVar, Literal, Self
 
 import pydantic
 import pytest
@@ -15,6 +16,7 @@ from freezegun import freeze_time
 
 from grelmicro import Grelmicro
 from grelmicro.resilience import Breaker, circuitbreaker
+from grelmicro.resilience._protocol import CircuitBreakerSharedState
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     CircuitBreakerError,
@@ -59,15 +61,15 @@ async def transition(cb: CircuitBreaker, state: CircuitBreakerState) -> None:
     """Transition the circuit breaker to the specified state."""
     match state:
         case CircuitBreakerState.OPEN:
-            cb.transition_to_open()
+            await cb.transition_to_open()
         case CircuitBreakerState.HALF_OPEN:
-            cb.transition_to_half_open()
+            await cb.transition_to_half_open()
         case CircuitBreakerState.CLOSED:
-            cb.transition_to_closed()
+            await cb.transition_to_closed()
         case CircuitBreakerState.FORCED_CLOSED:
-            cb.transition_to_forced_closed()
+            await cb.transition_to_forced_closed()
         case CircuitBreakerState.FORCED_OPEN:
-            cb.transition_to_forced_open()
+            await cb.transition_to_forced_open()
 
 
 async def create_circuit(
@@ -744,7 +746,7 @@ async def test_circuit_restart() -> None:
     await generate_success(cb)
 
     # Act
-    cb.restart()
+    await cb.restart()
 
     # Assert
     assert cb.metrics() == CircuitBreakerMetrics(
@@ -759,18 +761,18 @@ async def test_circuit_restart() -> None:
     )
 
 
-async def test_circuit_from_thread_restart() -> None:
-    """Test circuit breaker restarts after forced open using from_thread."""
+async def test_circuit_restart_after_calls() -> None:
+    """Test circuit breaker restarts after recorded calls."""
     # Arrange
     cb = CircuitBreaker("test")
     await generate_error(cb)
     await generate_success(cb)
 
     # Act
-    def sync() -> None:
-        cb.restart()
+    await cb.restart()
 
-    await asyncio.to_thread(sync)
+    # Assert
+    assert cb.state == CircuitBreakerState.CLOSED
 
     # Assert
     assert cb.metrics() == CircuitBreakerMetrics(
@@ -799,32 +801,6 @@ async def test_circuit_state_transition(
     await transition(cb, to_state)
 
     # Assert
-    assert cb.state == to_state
-
-
-@pytest.mark.parametrize("from_state", ALL_STATES)
-@pytest.mark.parametrize("to_state", ALL_STATES)
-async def test_circuit_from_thread_state_transition(
-    from_state: CircuitBreakerState,
-    to_state: CircuitBreakerState,
-) -> None:
-    """Test explicit state transition methods using from_thread."""
-    cb = await create_circuit(from_state)
-
-    def sync_transition() -> None:
-        match to_state:
-            case CircuitBreakerState.OPEN:
-                cb.transition_to_open()
-            case CircuitBreakerState.HALF_OPEN:
-                cb.transition_to_half_open()
-            case CircuitBreakerState.CLOSED:
-                cb.transition_to_closed()
-            case CircuitBreakerState.FORCED_CLOSED:
-                cb.transition_to_forced_closed()
-            case CircuitBreakerState.FORCED_OPEN:
-                cb.transition_to_forced_open()
-
-    await asyncio.to_thread(sync_transition)
     assert cb.state == to_state
 
 
@@ -990,3 +966,267 @@ async def test_reconfigure_rejects_different_config_type() -> None:
     cb = CircuitBreaker("rc")
     with pytest.raises(TypeError, match="CircuitBreakerConfig"):
         await cb.reconfigure(Other())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+# --- shared-backend integration ---
+
+
+class _FakeSharedBackend:
+    """In-test fake backend with shared semantics."""
+
+    is_shared: ClassVar[bool] = True
+
+    def __init__(self) -> None:
+        """Initialize the fake backend."""
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self.try_acquire_calls: list[dict[str, Any]] = []
+        self.record_success_calls: list[dict[str, Any]] = []
+        self.record_error_calls: list[dict[str, Any]] = []
+        self.transition_calls: list[dict[str, Any]] = []
+        self.admit_result = True
+        self.next_state = CircuitBreakerSharedState(
+            state=CircuitBreakerState.CLOSED,
+            consecutive_error_count=0,
+            consecutive_success_count=0,
+            opened_at=0.0,
+        )
+
+    async def __aenter__(self) -> Self:
+        """Capture the running loop on open."""
+        self._loop = asyncio.get_running_loop()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Release the loop reference on close."""
+        self._loop = None
+
+    def register(self, breaker: CircuitBreaker) -> None:
+        """Accept the breaker registration."""
+
+    async def try_acquire(
+        self, *, name: str, half_open_capacity: int, reset_timeout: float
+    ) -> bool:
+        """Record the admission request and return `admit_result`."""
+        self.try_acquire_calls.append(
+            {
+                "name": name,
+                "half_open_capacity": half_open_capacity,
+                "reset_timeout": reset_timeout,
+            }
+        )
+        return self.admit_result
+
+    async def record_success(
+        self, *, name: str, success_threshold: int, reset_timeout: float
+    ) -> CircuitBreakerSharedState:
+        """Record the success and return `next_state`."""
+        self.record_success_calls.append(
+            {
+                "name": name,
+                "success_threshold": success_threshold,
+                "reset_timeout": reset_timeout,
+            }
+        )
+        return self.next_state
+
+    async def record_error(
+        self, *, name: str, error_threshold: int, reset_timeout: float
+    ) -> CircuitBreakerSharedState:
+        """Record the error and return `next_state`."""
+        self.record_error_calls.append(
+            {
+                "name": name,
+                "error_threshold": error_threshold,
+                "reset_timeout": reset_timeout,
+            }
+        )
+        return self.next_state
+
+    async def transition(
+        self,
+        *,
+        name: str,
+        desired: CircuitBreakerState,
+        reset_timeout: float | None = None,
+    ) -> None:
+        """Record the forced transition request."""
+        self.transition_calls.append(
+            {"name": name, "desired": desired, "reset_timeout": reset_timeout}
+        )
+
+    async def get_state(
+        self,
+        *,
+        name: str,  # noqa: ARG002
+    ) -> CircuitBreakerSharedState:
+        """Return the configured `next_state`."""
+        return self.next_state
+
+
+class TestSharedBackendIntegration:
+    """Verify CircuitBreaker routes through a shared backend."""
+
+    async def test_aenter_calls_try_acquire_and_admits(self) -> None:
+        """`__aenter__` forwards the admission request to the backend."""
+        backend = _FakeSharedBackend()
+        async with backend:
+            cb = CircuitBreaker(
+                "shared",
+                backend=backend,
+                half_open_capacity=3,
+                reset_timeout=42.0,
+            )
+            async with cb:
+                pass
+        assert backend.try_acquire_calls == [
+            {
+                "name": "shared",
+                "half_open_capacity": 3,
+                "reset_timeout": 42.0,
+            }
+        ]
+
+    async def test_aenter_raises_when_backend_denies(self) -> None:
+        """`__aenter__` raises CircuitBreakerError when admission is refused."""
+        backend = _FakeSharedBackend()
+        backend.admit_result = False
+        async with backend:
+            cb = CircuitBreaker("shared", backend=backend)
+            with pytest.raises(CircuitBreakerError):
+                async with cb:
+                    pytest.fail("Expected not reached")
+
+    async def test_aexit_success_records_and_refreshes_state(self) -> None:
+        """`__aexit__` records success and refreshes local cache."""
+        backend = _FakeSharedBackend()
+        backend.next_state = CircuitBreakerSharedState(
+            state=CircuitBreakerState.HALF_OPEN,
+            consecutive_error_count=0,
+            consecutive_success_count=1,
+            opened_at=0.0,
+        )
+        async with backend:
+            cb = CircuitBreaker("shared", backend=backend, success_threshold=4)
+            async with cb:
+                pass
+        assert backend.record_success_calls == [
+            {"name": "shared", "success_threshold": 4, "reset_timeout": 30.0}
+        ]
+        assert cb.state == CircuitBreakerState.HALF_OPEN
+        assert cb.metrics().consecutive_success_count == 1
+
+    async def test_aexit_error_records_and_updates_last_error(self) -> None:
+        """`__aexit__` records the error and updates local `last_error`."""
+        backend = _FakeSharedBackend()
+        async with backend:
+            cb = CircuitBreaker(
+                "shared",
+                backend=backend,
+                error_threshold=7,
+                reset_timeout=12.5,
+            )
+            with pytest.raises(SentinelError):
+                async with cb:
+                    raise sentinel_error
+        assert backend.record_error_calls == [
+            {
+                "name": "shared",
+                "error_threshold": 7,
+                "reset_timeout": 12.5,
+            }
+        ]
+        assert cb.last_error is sentinel_error
+
+    async def test_transition_to_open_calls_backend(self) -> None:
+        """`transition_to_open` forwards the desired state to the backend."""
+        backend = _FakeSharedBackend()
+        async with backend:
+            cb = CircuitBreaker("shared", backend=backend, reset_timeout=9.0)
+            await cb.transition_to_open()
+        assert backend.transition_calls == [
+            {
+                "name": "shared",
+                "desired": CircuitBreakerState.OPEN,
+                "reset_timeout": 9.0,
+            }
+        ]
+
+    async def test_all_transitions_and_restart_call_backend(self) -> None:
+        """Every manual transition and `restart` forwards to the backend."""
+        backend = _FakeSharedBackend()
+        async with backend:
+            cb = CircuitBreaker("shared", backend=backend)
+            await cb.transition_to_closed()
+            await cb.transition_to_half_open()
+            await cb.transition_to_forced_open()
+            await cb.transition_to_forced_closed()
+            await cb.restart()
+        desired_states = [c["desired"] for c in backend.transition_calls]
+        assert desired_states == [
+            CircuitBreakerState.CLOSED,
+            CircuitBreakerState.HALF_OPEN,
+            CircuitBreakerState.FORCED_OPEN,
+            CircuitBreakerState.FORCED_CLOSED,
+            CircuitBreakerState.CLOSED,
+        ]
+
+    async def test_memory_adapter_shared_methods_raise(self) -> None:
+        """`MemoryCircuitBreakerAdapter` rejects shared-state calls."""
+        adapter = MemoryCircuitBreakerAdapter()
+        with pytest.raises(NotImplementedError, match="local-only"):
+            await adapter.try_acquire(
+                name="x", half_open_capacity=1, reset_timeout=1.0
+            )
+        with pytest.raises(NotImplementedError):
+            await adapter.record_error(
+                name="x", error_threshold=1, reset_timeout=1.0
+            )
+        with pytest.raises(NotImplementedError):
+            await adapter.record_success(
+                name="x", success_threshold=1, reset_timeout=1.0
+            )
+        with pytest.raises(NotImplementedError):
+            await adapter.transition(name="x", desired=CircuitBreakerState.OPEN)
+        with pytest.raises(NotImplementedError):
+            await adapter.get_state(name="x")
+
+    async def test_from_thread_shared_path(self) -> None:
+        """The thread adapter routes admission and exit through the backend."""
+        backend = _FakeSharedBackend()
+        async with backend:
+            cb = CircuitBreaker("shared", backend=backend, half_open_capacity=2)
+
+            def ok() -> None:
+                with cb.from_thread:
+                    pass
+
+            def err() -> None:
+                with cb.from_thread:
+                    raise sentinel_error
+
+            await asyncio.to_thread(ok)
+            with pytest.raises(SentinelError):
+                await asyncio.to_thread(err)
+
+            backend.admit_result = False
+
+            def denied() -> None:
+                with cb.from_thread:
+                    pytest.fail("Expected not reached")
+
+            with pytest.raises(CircuitBreakerError):
+                await asyncio.to_thread(denied)
+        assert backend.try_acquire_calls
+        assert backend.record_success_calls
+        assert backend.record_error_calls
+        assert (
+            len(backend.try_acquire_calls)
+            == len(backend.record_success_calls)
+            + len(backend.record_error_calls)
+            + 1
+        )

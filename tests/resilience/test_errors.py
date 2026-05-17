@@ -34,6 +34,7 @@ def test_resilience_module_exports() -> None:
         "CircuitBreakerConfig",
         "CircuitBreakerError",
         "CircuitBreakerMetrics",
+        "CircuitBreakerSharedState",
         "CircuitBreakerState",
         "ConstantBackoff",
         "ErrorDetails",

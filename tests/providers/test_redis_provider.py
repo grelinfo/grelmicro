@@ -11,7 +11,10 @@ from grelmicro.providers.redis import (
     RedisProvider,
     RedisProviderConfigError,
 )
-from grelmicro.resilience.redis import RedisRateLimiterAdapter
+from grelmicro.resilience.redis import (
+    RedisCircuitBreakerAdapter,
+    RedisRateLimiterAdapter,
+)
 from grelmicro.sync.redis import RedisSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -206,14 +209,15 @@ class TestBuilders:
         assert adapter.provider is provider
         assert adapter._prefix == "rl:"
 
-    def test_breaker_factory_raises_not_implemented(self) -> None:
-        """`provider.breaker()` raises (no Redis circuit breaker adapter today)."""
+    def test_breaker_factory(self) -> None:
+        """`provider.breaker()` returns the canonical Redis adapter borrowing the provider."""
         provider = RedisProvider(URL)
 
-        with pytest.raises(
-            NotImplementedError, match="no circuit breaker adapter"
-        ):
-            provider.breaker()
+        adapter = provider.breaker(prefix="cb:")
+
+        assert isinstance(adapter, RedisCircuitBreakerAdapter)
+        assert adapter.provider is provider
+        assert adapter._prefix == "cb:"
 
 
 class TestRebindProvider:
@@ -261,6 +265,35 @@ class TestRebindProvider:
             pass
 
         backend.provider._client.aclose.assert_awaited_once()
+
+    async def test_circuit_breaker_owned_lifecycle(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """RedisCircuitBreakerAdapter opens and closes the provider it owns."""
+        monkeypatch.setenv("REDIS_URL", URL)
+
+        backend = RedisCircuitBreakerAdapter()
+        backend.provider._client = MagicMock(aclose=AsyncMock())
+
+        async with backend:
+            pass
+
+        backend.provider._client.aclose.assert_awaited_once()
+
+    def test_circuit_breaker_rebind(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """RedisCircuitBreakerAdapter rebinds to a new provider."""
+        monkeypatch.setenv("REDIS_URL", URL)
+
+        owned = RedisProvider(URL)
+        backend = RedisCircuitBreakerAdapter()
+        assert backend._owns_provider is True
+
+        backend._rebind_provider(owned)
+
+        assert backend.provider is owned
+        assert backend._owns_provider is False
 
     def test_rate_limiter_rebind(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """RedisRateLimiterAdapter rebinds to a new provider."""

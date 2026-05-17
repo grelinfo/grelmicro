@@ -37,7 +37,10 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._types import LogLevel
-from grelmicro.resilience._protocol import CircuitBreakerBackend
+from grelmicro.resilience._protocol import (
+    CircuitBreakerBackend,
+    CircuitBreakerSharedState,
+)
 from grelmicro.resilience.errors import CircuitBreakerError
 
 __all__ = [
@@ -384,6 +387,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         self._last_error: Exception | None = None
         self._last_error_time: datetime | None = None
         self._open_until_time = 0.0
+        self._opened_at: float = 0.0
         self._active_call_count = 0
         self._logger = getLogger(f"grelmicro.circuitbreaker.{name}")
         self._logger.setLevel(config.log_level)
@@ -442,9 +446,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
     async def __aenter__(self) -> Self:
         """Enter the circuit breaker context.
 
-        Async is the primary API. It stays compatible with a future
-        Redis-backed circuit breaker (issue #188) where ``__aenter__``
-        will await backend I/O. Synchronous handlers go through
+        Async is the primary API. Synchronous handlers go through
         ``cb.from_thread``.
         """
         backend = self.backend
@@ -453,7 +455,23 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             backend._loop = asyncio.get_running_loop()  # noqa: SLF001  # ty: ignore[unresolved-attribute]
         backend.register(self)
         config = self._config
-        if not self._try_acquire_call(config):
+        if backend.is_shared:
+            admit = await backend.try_acquire(
+                name=self._name,
+                half_open_capacity=config.half_open_capacity,
+                reset_timeout=config.reset_timeout,
+            )
+            if not admit:
+                self._apply_shared_state(
+                    await backend.get_state(name=self._name)
+                )
+                raise CircuitBreakerError(
+                    name=self.name,
+                    last_error_time=self._last_error_time,
+                    last_error=self._last_error,
+                )
+            self._active_call_count += 1
+        elif not self._try_acquire_call(config):
             raise CircuitBreakerError(
                 name=self.name,
                 last_error_time=self._last_error_time,
@@ -479,6 +497,29 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
 
         self._release_call()
 
+        backend = self.backend
+        if backend.is_shared:
+            if not exc_type or issubclass(exc_type, config.ignore_exceptions):
+                shared = await backend.record_success(
+                    name=self._name,
+                    success_threshold=config.success_threshold,
+                    reset_timeout=config.reset_timeout,
+                )
+                self._total_success_count += 1
+            elif isinstance(exc_value, Exception):
+                shared = await backend.record_error(
+                    name=self._name,
+                    error_threshold=config.error_threshold,
+                    reset_timeout=config.reset_timeout,
+                )
+                self._total_error_count += 1
+                self._last_error = exc_value
+                self._last_error_time = datetime.now(UTC)
+            else:  # pragma: no cover
+                return None
+            self._apply_shared_state(shared)
+            return None
+
         if not exc_type or issubclass(exc_type, config.ignore_exceptions):
             self._on_success(config)
 
@@ -486,6 +527,13 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             self._on_error(config, exc_value)
 
         return None
+
+    def _apply_shared_state(self, shared: CircuitBreakerSharedState) -> None:
+        """Refresh local cache from the backend snapshot."""
+        self._state = shared.state
+        self._consecutive_error_count = shared.consecutive_error_count
+        self._consecutive_success_count = shared.consecutive_success_count
+        self._opened_at = shared.opened_at
 
     def _reset_state(self) -> None:
         """Clear runtime counters. Called by the backend on close."""
@@ -497,6 +545,7 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
         self._last_error = None
         self._last_error_time = None
         self._open_until_time = 0.0
+        self._opened_at = 0.0
         self._active_call_count = 0
 
     @property
@@ -534,23 +583,44 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             last_error=last_error,
         )
 
-    def restart(self) -> None:
+    async def restart(self) -> None:
         """Restart the circuit breaker, clearing all counts and resetting to CLOSED state."""
         self._total_error_count = 0
         self._total_success_count = 0
         self._last_error = None
+        backend = self.backend
+        if backend.is_shared:
+            await backend.transition(
+                name=self._name,
+                desired=CircuitBreakerState.CLOSED,
+            )
         self._do_transition_to_state(
             self._config, CircuitBreakerState.CLOSED, _TransitionCause.RESTART
         )
 
-    def transition_to_closed(self) -> None:
+    async def transition_to_closed(self) -> None:
         """Transition the circuit breaker to CLOSED state."""
+        backend = self.backend
+        if backend.is_shared:
+            await backend.transition(
+                name=self._name,
+                desired=CircuitBreakerState.CLOSED,
+            )
         self._do_transition_to_state(
             self._config, CircuitBreakerState.CLOSED, _TransitionCause.MANUAL
         )
 
-    def transition_to_open(self, until: float | None = None) -> None:
+    async def transition_to_open(self, until: float | None = None) -> None:
         """Transition the circuit breaker to OPEN state."""
+        backend = self.backend
+        if backend.is_shared:
+            await backend.transition(
+                name=self._name,
+                desired=CircuitBreakerState.OPEN,
+                reset_timeout=(
+                    until if until is not None else self._config.reset_timeout
+                ),
+            )
         self._do_transition_to_state(
             self._config,
             CircuitBreakerState.OPEN,
@@ -558,22 +628,40 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
             open_until=until,
         )
 
-    def transition_to_half_open(self) -> None:
+    async def transition_to_half_open(self) -> None:
         """Transition the circuit breaker to HALF_OPEN state."""
+        backend = self.backend
+        if backend.is_shared:
+            await backend.transition(
+                name=self._name,
+                desired=CircuitBreakerState.HALF_OPEN,
+            )
         self._do_transition_to_state(
             self._config, CircuitBreakerState.HALF_OPEN, _TransitionCause.MANUAL
         )
 
-    def transition_to_forced_open(self) -> None:
+    async def transition_to_forced_open(self) -> None:
         """Transition the circuit breaker to FORCED_OPEN state."""
+        backend = self.backend
+        if backend.is_shared:
+            await backend.transition(
+                name=self._name,
+                desired=CircuitBreakerState.FORCED_OPEN,
+            )
         self._do_transition_to_state(
             self._config,
             CircuitBreakerState.FORCED_OPEN,
             _TransitionCause.MANUAL,
         )
 
-    def transition_to_forced_closed(self) -> None:
+    async def transition_to_forced_closed(self) -> None:
         """Transition the circuit breaker to FORCED_CLOSED state."""
+        backend = self.backend
+        if backend.is_shared:
+            await backend.transition(
+                name=self._name,
+                desired=CircuitBreakerState.FORCED_CLOSED,
+            )
         self._do_transition_to_state(
             self._config,
             CircuitBreakerState.FORCED_CLOSED,
@@ -696,11 +784,10 @@ class CircuitBreaker(Reconfigurable[CircuitBreakerConfig]):
 class _ThreadAdapter:
     """Sync adapter for ``CircuitBreaker`` use from a worker thread.
 
-    Stays forward-compatible with a future backend that performs real
-    I/O: each entry/exit dispatches the corresponding internal helper
-    on the loop captured by the backend. The admission-config snapshot
-    stack is held in ``threading.local`` so concurrent worker threads
-    do not collide.
+    Each entry/exit dispatches the corresponding internal helper on the
+    loop captured by the backend. The admission-config snapshot stack
+    is held in ``threading.local`` so concurrent worker threads do not
+    collide.
     """
 
     def __init__(self, circuit_breaker: CircuitBreaker) -> None:
@@ -759,10 +846,18 @@ async def _async_admit(
 
     Both ``register`` and the counter mutation happen on the loop
     thread so worker threads never touch backend state directly.
-    Forward-compatible: when a Redis-backed breaker arrives this
-    coroutine will await backend I/O.
     """
-    cb.backend.register(cb)
+    backend = cb.backend
+    backend.register(cb)
+    if backend.is_shared:
+        admit = await backend.try_acquire(
+            name=cb.name,
+            half_open_capacity=config.half_open_capacity,
+            reset_timeout=config.reset_timeout,
+        )
+        if admit:
+            cb._active_call_count += 1  # noqa: SLF001
+        return admit
     return cb._try_acquire_call(config)  # noqa: SLF001
 
 
@@ -774,6 +869,28 @@ async def _async_handle_exit(
 ) -> None:
     """Async wrapper around the breaker's sync exit path."""
     cb._release_call()  # noqa: SLF001
+    backend = cb.backend
+    if backend.is_shared:
+        if not exc_type or issubclass(exc_type, config.ignore_exceptions):
+            shared = await backend.record_success(
+                name=cb.name,
+                success_threshold=config.success_threshold,
+                reset_timeout=config.reset_timeout,
+            )
+            cb._total_success_count += 1  # noqa: SLF001
+        elif isinstance(exc_value, Exception):
+            shared = await backend.record_error(
+                name=cb.name,
+                error_threshold=config.error_threshold,
+                reset_timeout=config.reset_timeout,
+            )
+            cb._total_error_count += 1  # noqa: SLF001
+            cb._last_error = exc_value  # noqa: SLF001
+            cb._last_error_time = datetime.now(UTC)  # noqa: SLF001
+        else:  # pragma: no cover
+            return
+        cb._apply_shared_state(shared)  # noqa: SLF001
+        return
     if not exc_type or issubclass(exc_type, config.ignore_exceptions):
         cb._on_success(config)  # noqa: SLF001
     elif isinstance(exc_value, Exception):

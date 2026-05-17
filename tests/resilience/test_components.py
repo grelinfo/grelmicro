@@ -12,7 +12,10 @@ from grelmicro.resilience.memory import (
     MemoryCircuitBreakerAdapter,
     MemoryRateLimiterAdapter,
 )
-from grelmicro.resilience.redis import RedisRateLimiterAdapter
+from grelmicro.resilience.redis import (
+    RedisCircuitBreakerAdapter,
+    RedisRateLimiterAdapter,
+)
 
 
 def test_ratelimit_exposes_backend() -> None:
@@ -80,8 +83,16 @@ def test_ratelimit_with_postgres_provider_raises() -> None:
         RateLimit(provider)
 
 
-def test_breaker_with_provider_raises() -> None:
-    """`Breaker(provider)` raises `NotImplementedError` (no provider ships a breaker today)."""
-    provider = RedisProvider("redis://localhost:6379/0")
+def test_breaker_with_postgres_provider_raises() -> None:
+    """`Breaker(PostgresProvider(...))` raises `NotImplementedError`."""
+    provider = PostgresProvider("postgresql://localhost:5432/app")
     with pytest.raises(NotImplementedError, match="no circuit breaker adapter"):
         Breaker(provider)
+
+
+def test_breaker_with_redis_provider_builds_shared_adapter() -> None:
+    """`Breaker(RedisProvider(...))` resolves to the canonical Redis adapter."""
+    provider = RedisProvider("redis://localhost:6379/0")
+    component = Breaker(provider)
+    assert isinstance(component.backend, RedisCircuitBreakerAdapter)
+    assert component.backend.is_shared is True

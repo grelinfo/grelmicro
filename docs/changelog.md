@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add `RedisCircuitBreakerAdapter` for fleet-wide breaker state. Register via `Grelmicro(uses=[redis, Breaker(redis)])` and `CircuitBreaker("name")` consults Redis for admission, counters, and transitions. Half-open admission cap is enforced globally via atomic Lua scripts. `last_error` and `last_error_time` stay per-replica. Issue [#163](https://github.com/grelinfo/grelmicro/issues/163).
+
+### Breaking
+
+* 💥 `CircuitBreaker.transition_to_closed`, `transition_to_open`, `transition_to_half_open`, `transition_to_forced_open`, `transition_to_forced_closed`, and `restart` are now `async def`. Add `await` at every call site. Issue [#163](https://github.com/grelinfo/grelmicro/issues/163).
+
 ## 0.23.0 - 2026-05-17
 
 ### Breaking

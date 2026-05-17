@@ -10,6 +10,7 @@
         - CircuitBreakerConfig
         - CircuitBreakerError
         - CircuitBreakerMetrics
+        - CircuitBreakerSharedState
         - CircuitBreakerState
         - ConstantBackoff
         - ErrorDetails
@@ -48,4 +49,5 @@
 ::: grelmicro.resilience.redis
     options:
       members:
+        - RedisCircuitBreakerAdapter
         - RedisRateLimiterAdapter
