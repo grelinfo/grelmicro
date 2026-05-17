@@ -484,10 +484,10 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
         return Cache(item)
     if isinstance(item, SyncBackend):
         return Sync(item)
-    if isinstance(item, RateLimiterBackend):
-        return RateLimit(item)
     if isinstance(item, CircuitBreakerBackend):
         return Breaker(item)
+    if isinstance(item, RateLimiterBackend):
+        return RateLimit(item)
     return None
 
 

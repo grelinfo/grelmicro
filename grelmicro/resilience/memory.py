@@ -12,7 +12,8 @@ from typing_extensions import Doc
 
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
-    CircuitBreakerSharedState,
+    CircuitBreakerSnapshot,
+    CircuitBreakerStrategy,
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
@@ -26,6 +27,7 @@ from grelmicro.resilience.algorithms import (
 if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker import (
         CircuitBreaker,
+        CircuitBreakerConfig,
         CircuitBreakerState,
     )
 
@@ -475,46 +477,48 @@ class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
         """Bind a breaker so it is reset on close."""
         self._breakers.add(breaker)
 
-    async def try_acquire(
+    def bind(
         self,
         *,
-        name: str,
-        half_open_capacity: int,
-        reset_timeout: float,
-    ) -> bool:
-        """Not implemented for the local adapter."""
+        name: str,  # noqa: ARG002
+        config: "CircuitBreakerConfig",  # noqa: ARG002
+    ) -> CircuitBreakerStrategy:
+        """Return a strategy that raises on every shared-path call.
+
+        The breaker keeps its local fast path when ``is_shared`` is
+        False, so this strategy is never invoked under normal use. It
+        exists to satisfy the Protocol.
+        """
+        return _MemoryStubStrategy()
+
+
+class _MemoryStubStrategy(CircuitBreakerStrategy):
+    """Stub strategy returned by `MemoryCircuitBreakerAdapter.bind`.
+
+    Every method raises NotImplementedError because the breaker's
+    local code path bypasses the strategy when the backend reports
+    `is_shared=False`. Reach for a shared adapter to share state
+    across replicas.
+    """
+
+    async def try_acquire(self) -> bool:
         raise NotImplementedError(_LOCAL_ONLY_MESSAGE)
 
-    async def record_error(
+    async def record_outcome(
         self,
         *,
-        name: str,
-        error_threshold: int,
-        reset_timeout: float,
-    ) -> CircuitBreakerSharedState:
-        """Not implemented for the local adapter."""
-        raise NotImplementedError(_LOCAL_ONLY_MESSAGE)
-
-    async def record_success(
-        self,
-        *,
-        name: str,
-        success_threshold: int,
-        reset_timeout: float,
-    ) -> CircuitBreakerSharedState:
-        """Not implemented for the local adapter."""
+        success: bool,
+        duration: float = 0.0,
+    ) -> CircuitBreakerSnapshot:
         raise NotImplementedError(_LOCAL_ONLY_MESSAGE)
 
     async def transition(
         self,
         *,
-        name: str,
         desired: "CircuitBreakerState",
-        reset_timeout: float | None = None,
+        cool_down: float | None = None,
     ) -> None:
-        """Not implemented for the local adapter."""
         raise NotImplementedError(_LOCAL_ONLY_MESSAGE)
 
-    async def get_state(self, *, name: str) -> CircuitBreakerSharedState:
-        """Not implemented for the local adapter."""
+    async def get_snapshot(self) -> CircuitBreakerSnapshot:
         raise NotImplementedError(_LOCAL_ONLY_MESSAGE)

@@ -7,7 +7,12 @@ import pytest
 from testcontainers.redis import RedisContainer
 
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import CircuitBreaker, CircuitBreakerState
+from grelmicro.resilience import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerState,
+    CircuitBreakerStrategy,
+)
 from grelmicro.resilience.errors import CircuitBreakerError
 from grelmicro.resilience.redis import RedisCircuitBreakerAdapter
 
@@ -53,6 +58,18 @@ def test_is_shared() -> None:
     assert RedisCircuitBreakerAdapter.is_shared is True
 
 
+def test_bind_rejects_unknown_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`bind` raises NotImplementedError on an unknown algorithm kind."""
+    monkeypatch.setenv("REDIS_URL", URL)
+    backend = RedisCircuitBreakerAdapter()
+
+    class Fake:
+        kind = "failure_rate"
+
+    with pytest.raises(NotImplementedError, match="failure_rate"):
+        backend.bind(name="x", config=Fake())  # type: ignore[arg-type] # ty: ignore[invalid-argument-type]
+
+
 # --- Integration tests against a real Redis container ---
 
 
@@ -79,16 +96,34 @@ async def backend(
             yield adapter
 
 
+def _bind(
+    backend: RedisCircuitBreakerAdapter,
+    *,
+    name: str = "api",
+    error_threshold: int = 3,
+    success_threshold: int = 2,
+    reset_timeout: float = 5,
+    half_open_capacity: int = 1,
+) -> CircuitBreakerStrategy:
+    return backend.bind(
+        name=name,
+        config=CircuitBreakerConfig(
+            error_threshold=error_threshold,
+            success_threshold=success_threshold,
+            reset_timeout=reset_timeout,
+            half_open_capacity=half_open_capacity,
+        ),
+    )
+
+
 @pytest.mark.integration
 @_INTEGRATION_TIMEOUT
 async def test_try_acquire_closed_admits(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """A fresh breaker admits calls."""
-    admitted = await backend.try_acquire(
-        name="api", half_open_capacity=1, reset_timeout=5
-    )
-    assert admitted is True
+    strategy = _bind(backend)
+    assert await strategy.try_acquire() is True
 
 
 @pytest.mark.integration
@@ -97,18 +132,15 @@ async def test_record_error_opens_at_threshold(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """Reaching the error threshold transitions to OPEN with `opened_at` set."""
+    strategy = _bind(backend, error_threshold=3)
     for _ in range(2):
-        state = await backend.record_error(
-            name="api", error_threshold=3, reset_timeout=5
-        )
-        assert state.state is CircuitBreakerState.CLOSED
+        snapshot = await strategy.record_outcome(success=False)
+        assert snapshot.state is CircuitBreakerState.CLOSED
 
-    state = await backend.record_error(
-        name="api", error_threshold=3, reset_timeout=5
-    )
-    assert state.state is CircuitBreakerState.OPEN
-    assert state.opened_at > 0
-    assert state.consecutive_error_count == 0
+    snapshot = await strategy.record_outcome(success=False)
+    assert snapshot.state is CircuitBreakerState.OPEN
+    assert snapshot.opened_at > 0
+    assert snapshot.consecutive_error_count == 0
 
 
 @pytest.mark.integration
@@ -117,27 +149,16 @@ async def test_open_rejects_until_reset_timeout_elapses(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """OPEN rejects calls until `reset_timeout`, then enters HALF_OPEN."""
-    await backend.transition(
-        name="api", desired=CircuitBreakerState.OPEN, reset_timeout=0.5
-    )
+    strategy = _bind(backend, reset_timeout=0.5)
+    await strategy.transition(desired=CircuitBreakerState.OPEN)
 
-    assert (
-        await backend.try_acquire(
-            name="api", half_open_capacity=1, reset_timeout=0.5
-        )
-        is False
-    )
+    assert await strategy.try_acquire() is False
 
     await asyncio.sleep(0.6)
 
-    assert (
-        await backend.try_acquire(
-            name="api", half_open_capacity=1, reset_timeout=0.5
-        )
-        is True
-    )
-    state = await backend.get_state(name="api")
-    assert state.state is CircuitBreakerState.HALF_OPEN
+    assert await strategy.try_acquire() is True
+    snapshot = await strategy.get_snapshot()
+    assert snapshot.state is CircuitBreakerState.HALF_OPEN
 
 
 @pytest.mark.integration
@@ -146,20 +167,12 @@ async def test_half_open_admission_cap_enforced_globally(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """N concurrent acquires in HALF_OPEN never exceed `half_open_capacity`."""
-    await backend.transition(
-        name="api", desired=CircuitBreakerState.OPEN, reset_timeout=0.1
-    )
+    cap = 2
+    strategy = _bind(backend, half_open_capacity=cap, reset_timeout=0.1)
+    await strategy.transition(desired=CircuitBreakerState.OPEN)
     await asyncio.sleep(0.15)
 
-    cap = 2
-    results = await asyncio.gather(
-        *(
-            backend.try_acquire(
-                name="api", half_open_capacity=cap, reset_timeout=0.1
-            )
-            for _ in range(10)
-        )
-    )
+    results = await asyncio.gather(*(strategy.try_acquire() for _ in range(10)))
 
     assert sum(results) == cap
 
@@ -170,23 +183,12 @@ async def test_half_open_admits_next_probe_after_previous_completes(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """`half_open_capacity=1` admits a new probe after the previous one completes."""
-    await backend.transition(name="api", desired=CircuitBreakerState.HALF_OPEN)
+    strategy = _bind(backend, half_open_capacity=1, success_threshold=10)
+    await strategy.transition(desired=CircuitBreakerState.HALF_OPEN)
 
-    assert (
-        await backend.try_acquire(
-            name="api", half_open_capacity=1, reset_timeout=5
-        )
-        is True
-    )
-    await backend.record_success(
-        name="api", success_threshold=10, reset_timeout=5
-    )
-    assert (
-        await backend.try_acquire(
-            name="api", half_open_capacity=1, reset_timeout=5
-        )
-        is True
-    )
+    assert await strategy.try_acquire() is True
+    await strategy.record_outcome(success=True)
+    assert await strategy.try_acquire() is True
 
 
 @pytest.mark.integration
@@ -195,19 +197,16 @@ async def test_record_success_closes_half_open_at_threshold(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
     """HALF_OPEN transitions to CLOSED after `success_threshold` successes."""
-    await backend.transition(name="api", desired=CircuitBreakerState.HALF_OPEN)
+    strategy = _bind(backend, success_threshold=2)
+    await strategy.transition(desired=CircuitBreakerState.HALF_OPEN)
 
-    state = await backend.record_success(
-        name="api", success_threshold=2, reset_timeout=5
-    )
-    assert state.state is CircuitBreakerState.HALF_OPEN
+    snapshot = await strategy.record_outcome(success=True)
+    assert snapshot.state is CircuitBreakerState.HALF_OPEN
 
-    state = await backend.record_success(
-        name="api", success_threshold=2, reset_timeout=5
-    )
-    assert state.state is CircuitBreakerState.CLOSED
-    assert state.opened_at == 0
-    assert state.consecutive_success_count == 0
+    snapshot = await strategy.record_outcome(success=True)
+    assert snapshot.state is CircuitBreakerState.CLOSED
+    assert snapshot.opened_at == 0
+    assert snapshot.consecutive_success_count == 0
 
 
 @pytest.mark.integration
@@ -215,45 +214,30 @@ async def test_record_success_closes_half_open_at_threshold(
 async def test_transition_to_open_honors_custom_cool_down(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
-    """`transition(OPEN, reset_timeout=X)` cools down for X, ignoring try_acquire's arg."""
-    await backend.transition(
-        name="api", desired=CircuitBreakerState.OPEN, reset_timeout=0.2
-    )
+    """`transition(OPEN, cool_down=X)` cools down for X, ignoring config.reset_timeout."""
+    strategy = _bind(backend, reset_timeout=60)
+    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=0.2)
 
-    assert (
-        await backend.try_acquire(
-            name="api", half_open_capacity=1, reset_timeout=60
-        )
-        is False
-    )
+    assert await strategy.try_acquire() is False
 
     await asyncio.sleep(0.25)
 
-    assert (
-        await backend.try_acquire(
-            name="api", half_open_capacity=1, reset_timeout=60
-        )
-        is True
-    )
+    assert await strategy.try_acquire() is True
 
 
 @pytest.mark.integration
 @_INTEGRATION_TIMEOUT
-async def test_manual_transition_visible_via_get_state(
+async def test_manual_transition_visible_via_get_snapshot(
     backend: RedisCircuitBreakerAdapter,
 ) -> None:
-    """`transition` is immediately visible to subsequent `get_state` calls."""
-    await backend.transition(
-        name="api", desired=CircuitBreakerState.FORCED_OPEN
-    )
+    """`transition` is immediately visible to subsequent `get_snapshot` calls."""
+    strategy = _bind(backend)
+    await strategy.transition(desired=CircuitBreakerState.FORCED_OPEN)
 
-    state = await backend.get_state(name="api")
-    assert state.state is CircuitBreakerState.FORCED_OPEN
+    snapshot = await strategy.get_snapshot()
+    assert snapshot.state is CircuitBreakerState.FORCED_OPEN
 
-    admitted = await backend.try_acquire(
-        name="api", half_open_capacity=1, reset_timeout=5
-    )
-    assert admitted is False
+    assert await strategy.try_acquire() is False
 
 
 @pytest.mark.integration

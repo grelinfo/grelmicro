@@ -4,11 +4,13 @@
 
 ### Features
 
+* ✨ Add `CircuitBreakerStrategy` Protocol and `CircuitBreakerBackend.bind(name, config) -> Strategy`. Mirrors the RateLimiter shape so a second algorithm plugs in without breaking changes. `CircuitBreakerConfig` gains a `kind: Literal["consecutive_count"]` discriminator. Issue [#163](https://github.com/grelinfo/grelmicro/issues/163).
 * ✨ Add `RedisCircuitBreakerAdapter` for fleet-wide breaker state. Register via `Grelmicro(uses=[redis, Breaker(redis)])` and `CircuitBreaker("name")` consults Redis for admission, counters, and transitions. Half-open admission cap is enforced globally via atomic Lua scripts. `last_error` and `last_error_time` stay per-replica. Issue [#163](https://github.com/grelinfo/grelmicro/issues/163).
 
 ### Breaking
 
 * 💥 `CircuitBreaker.transition_to_closed`, `transition_to_open`, `transition_to_half_open`, `transition_to_forced_open`, `transition_to_forced_closed`, and `restart` are now `async def`. Add `await` at every call site. Issue [#163](https://github.com/grelinfo/grelmicro/issues/163).
+* 💥 `CircuitBreakerBackend` Protocol is now lifecycle + `bind(name, config)`. Custom backends should return a `CircuitBreakerStrategy` instance from `bind`. `CircuitBreakerSharedState` renamed to `CircuitBreakerSnapshot`. Issue [#163](https://github.com/grelinfo/grelmicro/issues/163).
 
 ## 0.23.0 - 2026-05-17
 

@@ -10,8 +10,9 @@
         - CircuitBreakerConfig
         - CircuitBreakerError
         - CircuitBreakerMetrics
-        - CircuitBreakerSharedState
+        - CircuitBreakerSnapshot
         - CircuitBreakerState
+        - CircuitBreakerStrategy
         - ConstantBackoff
         - ErrorDetails
         - ExponentialBackoff

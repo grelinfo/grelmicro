@@ -15,6 +15,7 @@ from grelmicro.resilience.algorithms import RateLimiterConfig
 if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker import (
         CircuitBreaker,
+        CircuitBreakerConfig,
         CircuitBreakerState,
     )
 
@@ -171,20 +172,89 @@ class RateLimiterBackend(Protocol):
         ...
 
 
-class CircuitBreakerSharedState(NamedTuple):
-    """Snapshot of circuit breaker state returned by a shared backend."""
+class CircuitBreakerSnapshot(NamedTuple):
+    """Snapshot of circuit breaker state returned by a strategy.
+
+    Returned by every
+    [`CircuitBreakerStrategy`][grelmicro.resilience.CircuitBreakerStrategy]
+    method that mutates or reads shared state. The breaker uses it to
+    refresh its local cache so reads of `cb.state` and `cb.metrics()`
+    reflect the latest shared truth on this replica.
+
+    Algorithm-specific counters (`consecutive_error_count`,
+    `consecutive_success_count`) are populated by the consecutive-count
+    algorithm. Future algorithms may populate additional fields.
+    """
 
     state: "CircuitBreakerState"
     """Authoritative state for the breaker."""
 
-    consecutive_error_count: int
-    """Consecutive errors recorded by the backend."""
-
-    consecutive_success_count: int
-    """Consecutive successes recorded by the backend."""
-
     opened_at: float
     """Server-side epoch seconds when the breaker entered OPEN. 0.0 when not OPEN."""
+
+    consecutive_error_count: int = 0
+    """Consecutive errors recorded by the strategy. Consecutive-count algorithm only."""
+
+    consecutive_success_count: int = 0
+    """Consecutive successes recorded by the strategy. Consecutive-count algorithm only."""
+
+
+class CircuitBreakerStrategy(Protocol):
+    """A circuit-breaker strategy for a specific algorithm and backend.
+
+    Returned by
+    [`CircuitBreakerBackend.bind`][grelmicro.resilience.CircuitBreakerBackend.bind].
+    The breaker name and algorithm settings are already stored in the
+    strategy, so the methods take no extra arguments beyond the call's
+    own data (outcome, manual transition target).
+    """
+
+    async def try_acquire(self) -> bool:
+        """Attempt to admit a call.
+
+        Returns True when the call is admitted. Returns False when the
+        breaker is OPEN or FORCED_OPEN, or when HALF_OPEN has no
+        remaining capacity.
+        """
+        ...
+
+    async def record_outcome(
+        self,
+        *,
+        success: bool,
+        duration: float = 0.0,
+    ) -> "CircuitBreakerSnapshot":
+        """Record a call outcome and return the resulting snapshot.
+
+        Args:
+            success: Whether the call completed without an error that
+                counts against the breaker.
+            duration: Wall-clock seconds the call took. Consumed by
+                algorithms that classify slow calls; ignored by the
+                consecutive-count algorithm.
+        """
+        ...
+
+    async def transition(
+        self,
+        *,
+        desired: "CircuitBreakerState",
+        cool_down: float | None = None,
+    ) -> None:
+        """Force the breaker into ``desired``.
+
+        Args:
+            desired: Target state.
+            cool_down: Seconds the breaker should stay OPEN before
+                transitioning to HALF_OPEN. When ``None`` the strategy
+                uses its configured ``reset_timeout``. Ignored for
+                non-OPEN targets.
+        """
+        ...
+
+    async def get_snapshot(self) -> "CircuitBreakerSnapshot":
+        """Return the current snapshot without mutating state."""
+        ...
 
 
 @runtime_checkable
@@ -192,8 +262,14 @@ class CircuitBreakerBackend(Protocol):
     """Protocol for circuit-breaker storage backends.
 
     A backend owns the lifespan boundary for every circuit breaker
-    bound to it. The in-memory implementation keeps state in process.
-    The Redis implementation shares state across replicas.
+    bound to it. It turns an algorithm config into a strategy through
+    [`bind`][grelmicro.resilience.CircuitBreakerBackend.bind]. The
+    returned
+    [`CircuitBreakerStrategy`][grelmicro.resilience.CircuitBreakerStrategy]
+    is what a
+    [`CircuitBreaker`][grelmicro.resilience.CircuitBreaker] calls on
+    each `try_acquire`, `record_outcome`, `transition`, or
+    `get_snapshot`.
 
     Implementations capture the running event loop on ``__aenter__``
     in a ``_loop`` attribute so the sync ``from_thread`` adapter can
@@ -220,68 +296,17 @@ class CircuitBreakerBackend(Protocol):
         """Bind a breaker to this backend so it is reset on close."""
         ...
 
-    async def try_acquire(
+    def bind(
         self,
         *,
         name: str,
-        half_open_capacity: int,
-        reset_timeout: float,
-    ) -> bool:
-        """Attempt to admit a call for the named breaker.
+        config: "CircuitBreakerConfig",
+    ) -> CircuitBreakerStrategy:
+        """Build a strategy for the named breaker and algorithm config.
 
-        Returns True when the call is admitted. Returns False when the
-        breaker is OPEN or FORCED_OPEN, or when HALF_OPEN has no
-        remaining capacity. Transitions OPEN to HALF_OPEN when the
-        ``reset_timeout`` window has elapsed.
+        Called once per
+        [`CircuitBreaker`][grelmicro.resilience.CircuitBreaker] the
+        first time it enters a shared backend, and again whenever the
+        breaker's config changes through live reconfiguration.
         """
-        ...
-
-    async def record_error(
-        self,
-        *,
-        name: str,
-        error_threshold: int,
-        reset_timeout: float,
-    ) -> "CircuitBreakerSharedState":
-        """Record an error against the named breaker.
-
-        Increments the consecutive error counter, resets the
-        consecutive success counter, and transitions to OPEN when the
-        counter reaches ``error_threshold``. Returns the resulting
-        shared state.
-        """
-        ...
-
-    async def record_success(
-        self,
-        *,
-        name: str,
-        success_threshold: int,
-        reset_timeout: float,
-    ) -> "CircuitBreakerSharedState":
-        """Record a success against the named breaker.
-
-        Increments the consecutive success counter, resets the
-        consecutive error counter, and transitions HALF_OPEN to CLOSED
-        when the counter reaches ``success_threshold``. Returns the
-        resulting shared state.
-        """
-        ...
-
-    async def transition(
-        self,
-        *,
-        name: str,
-        desired: "CircuitBreakerState",
-        reset_timeout: float | None = None,
-    ) -> None:
-        """Force the named breaker into ``desired``.
-
-        Clears consecutive counters. Sets ``opened_at`` when ``desired``
-        is OPEN, using ``reset_timeout`` as the window length.
-        """
-        ...
-
-    async def get_state(self, *, name: str) -> "CircuitBreakerSharedState":
-        """Return the current shared state for the named breaker."""
         ...

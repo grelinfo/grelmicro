@@ -10,7 +10,8 @@ from typing_extensions import Doc
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
-    CircuitBreakerSharedState,
+    CircuitBreakerSnapshot,
+    CircuitBreakerStrategy,
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
@@ -23,7 +24,10 @@ from grelmicro.resilience.algorithms import (
 from grelmicro.resilience.circuitbreaker import CircuitBreakerState
 
 if TYPE_CHECKING:
-    from grelmicro.resilience.circuitbreaker import CircuitBreaker
+    from grelmicro.resilience.circuitbreaker import (
+        CircuitBreaker,
+        CircuitBreakerConfig,
+    )
 
 
 class RedisRateLimiterAdapter(RateLimiterBackend):
@@ -426,21 +430,15 @@ class _RedisTokenBucket(RateLimiterStrategy):
 class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
     """Redis circuit breaker adapter.
 
-    Stores breaker state in a Redis hash per name, keyed
-    `{prefix}cb:{name}`. All admission and counter updates run as
-    atomic Lua scripts so concurrent replicas converge to the same
-    state without coordination locks.
+    Builds a per-breaker
+    [`CircuitBreakerStrategy`][grelmicro.resilience.CircuitBreakerStrategy]
+    that stores state in a Redis hash keyed `{prefix}cb:{name}`. All
+    admission and counter updates run as atomic Lua scripts so
+    concurrent replicas converge to the same state without
+    coordination locks.
 
-    Fields stored per hash:
-
-    - `state` - one of `CLOSED`, `OPEN`, `HALF_OPEN`, `FORCED_OPEN`,
-      `FORCED_CLOSED`.
-    - `opened_at` - Redis-server epoch seconds when the breaker
-      entered OPEN. Absent or `0` otherwise.
-    - `cerr` - consecutive error count.
-    - `csucc` - consecutive success count.
-    - `ho_admit` - probes admitted while in HALF_OPEN. Reset on every
-      state transition.
+    Today the consecutive-count algorithm is the only strategy. Future
+    algorithm configs plug in through the same `bind` entry point.
 
     `last_error` and `last_error_time` stay per-replica.
 
@@ -462,11 +460,120 @@ class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
 
     _KEY_PREFIX = "cb:"
 
-    _STATE_CLOSED = "CLOSED"
-    _STATE_OPEN = "OPEN"
-    _STATE_HALF_OPEN = "HALF_OPEN"
-    _STATE_FORCED_OPEN = "FORCED_OPEN"
-    _STATE_FORCED_CLOSED = "FORCED_CLOSED"
+    def __init__(
+        self,
+        *,
+        provider: Annotated[
+            RedisProvider | None,
+            Doc(
+                """
+                A pre-built `RedisProvider`. When set, the adapter
+                borrows the provider's client and does not manage
+                its lifecycle.
+                """
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `RedisProvider` when `provider` is not set. Defaults
+                to `REDIS_`.
+                """
+            ),
+        ] = "REDIS_",
+        prefix: Annotated[
+            str,
+            Doc(
+                """
+                Prefix prepended to every Redis key the adapter
+                writes. Use it to avoid collisions with other
+                consumers of the same Redis database.
+                """
+            ),
+        ] = "",
+    ) -> None:
+        """Initialize the circuit breaker adapter."""
+        if provider is None:
+            self._provider = RedisProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
+        self._prefix = prefix
+        self._key_prefix = f"{prefix}{self._KEY_PREFIX}"
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def provider(self) -> RedisProvider:
+        """The bound `RedisProvider`."""
+        return self._provider
+
+    def _rebind_provider(self, provider: RedisProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+
+    async def __aenter__(self) -> Self:
+        """Open the circuit breaker adapter."""
+        if self._owns_provider:
+            await self._provider.__aenter__()
+        self._loop = asyncio.get_running_loop()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the circuit breaker adapter."""
+        self._loop = None
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
+
+    def register(self, breaker: "CircuitBreaker") -> None:
+        """Bind a breaker to the adapter (no per-breaker local state)."""
+
+    def bind(
+        self,
+        *,
+        name: str,
+        config: "CircuitBreakerConfig",
+    ) -> CircuitBreakerStrategy:
+        """Build a strategy for the named breaker and config.
+
+        Dispatches on the `config.kind` discriminator. Today only
+        `consecutive_count` is supported.
+        """
+        if config.kind == "consecutive_count":
+            return _RedisConsecutiveCountStrategy(
+                client=self._provider.client,
+                key=f"{self._key_prefix}{name}",
+                config=config,
+            )
+        msg = f"Unsupported circuit breaker algorithm: {config.kind!r}"
+        raise NotImplementedError(msg)
+
+
+class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
+    """Redis consecutive-count strategy.
+
+    Stores state in a Redis hash:
+
+    - `state` - one of `CLOSED`, `OPEN`, `HALF_OPEN`, `FORCED_OPEN`,
+      `FORCED_CLOSED`.
+    - `opened_at` - Redis-server epoch seconds when the breaker
+      entered OPEN. Absent or `0` otherwise.
+    - `cool_down` - seconds the breaker should stay OPEN before
+      transitioning to HALF_OPEN.
+    - `cerr` - consecutive error count.
+    - `csucc` - consecutive success count.
+    - `ho_admit` - probes admitted while in HALF_OPEN. Reset on every
+      state transition.
+    """
 
     _LUA_TRY_ACQUIRE = """
         local key = KEYS[1]
@@ -645,69 +752,17 @@ class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
     def __init__(
         self,
         *,
-        provider: Annotated[
-            RedisProvider | None,
-            Doc(
-                """
-                A pre-built `RedisProvider`. When set, the adapter
-                borrows the provider's client and does not manage
-                its lifecycle.
-                """
-            ),
-        ] = None,
-        env_prefix: Annotated[
-            str,
-            Doc(
-                """
-                Environment variable prefix used by the implicit
-                `RedisProvider` when `provider` is not set. Defaults
-                to `REDIS_`.
-                """
-            ),
-        ] = "REDIS_",
-        prefix: Annotated[
-            str,
-            Doc(
-                """
-                Prefix prepended to every Redis key the adapter
-                writes. Use it to avoid collisions with other
-                consumers of the same Redis database.
-                """
-            ),
-        ] = "",
+        client: Redis,
+        key: str,
+        config: "CircuitBreakerConfig",
     ) -> None:
-        """Initialize the circuit breaker adapter."""
-        if provider is None:
-            self._provider = RedisProvider(env_prefix=env_prefix)
-            self._owns_provider = True
-        else:
-            self._provider = provider
-            self._owns_provider = False
-        self._env_prefix = env_prefix
-        self._prefix = prefix
-        self._key_prefix = f"{prefix}{self._KEY_PREFIX}"
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._lua_try_acquire: Any = None
-        self._lua_record_error: Any = None
-        self._lua_record_success: Any = None
-        self._lua_transition: Any = None
-        self._lua_get_state: Any = None
-
-    @property
-    def provider(self) -> RedisProvider:
-        """The bound `RedisProvider`."""
-        return self._provider
-
-    def _rebind_provider(self, provider: RedisProvider) -> None:
-        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
-        self._provider = provider
-        self._owns_provider = False
-
-    async def __aenter__(self) -> Self:
-        """Open the circuit breaker adapter."""
-        if self._owns_provider:
-            await self._provider.__aenter__()
-        client = self._provider.client
+        """Bind the strategy to the breaker's key and config."""
+        self._client = client
+        self._key = key
+        self._error_threshold = config.error_threshold
+        self._success_threshold = config.success_threshold
+        self._reset_timeout = config.reset_timeout
+        self._half_open_capacity = config.half_open_capacity
         self._lua_try_acquire = client.register_script(self._LUA_TRY_ACQUIRE)
         self._lua_record_error = client.register_script(self._LUA_RECORD_ERROR)
         self._lua_record_success = client.register_script(
@@ -715,104 +770,69 @@ class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
         )
         self._lua_transition = client.register_script(self._LUA_TRANSITION)
         self._lua_get_state = client.register_script(self._LUA_GET_STATE)
-        self._loop = asyncio.get_running_loop()
-        return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        """Close the circuit breaker adapter."""
-        self._loop = None
-        if self._owns_provider:
-            await self._provider.__aexit__(exc_type, exc_value, traceback)
-
-    def register(self, breaker: "CircuitBreaker") -> None:
-        """Bind a breaker to the adapter (no per-breaker local state)."""
-
-    async def try_acquire(
-        self,
-        *,
-        name: str,
-        half_open_capacity: int,
-        reset_timeout: float,
-    ) -> bool:
+    async def try_acquire(self) -> bool:
         """Atomic admission via Lua."""
         result = await self._lua_try_acquire(
-            keys=[self._key(name)],
-            args=[half_open_capacity, reset_timeout],
-            client=self._provider.client,
+            keys=[self._key],
+            args=[self._half_open_capacity, self._reset_timeout],
+            client=self._client,
         )
         return bool(result)
 
-    async def record_error(
+    async def record_outcome(
         self,
         *,
-        name: str,
-        error_threshold: int,
-        reset_timeout: float,
-    ) -> CircuitBreakerSharedState:
-        """Atomic error record with conditional OPEN transition."""
-        result: list[Any] = await self._lua_record_error(
-            keys=[self._key(name)],
-            args=[error_threshold, reset_timeout],
-            client=self._provider.client,
-        )
-        return self._unpack(result)
-
-    async def record_success(
-        self,
-        *,
-        name: str,
-        success_threshold: int,
-        reset_timeout: float,
-    ) -> CircuitBreakerSharedState:
-        """Atomic success record with conditional CLOSED transition."""
-        result: list[Any] = await self._lua_record_success(
-            keys=[self._key(name)],
-            args=[success_threshold, reset_timeout],
-            client=self._provider.client,
-        )
+        success: bool,
+        duration: float = 0.0,  # noqa: ARG002
+    ) -> CircuitBreakerSnapshot:
+        """Atomic outcome record with conditional state transition."""
+        if success:
+            result: list[Any] = await self._lua_record_success(
+                keys=[self._key],
+                args=[self._success_threshold, self._reset_timeout],
+                client=self._client,
+            )
+        else:
+            result = await self._lua_record_error(
+                keys=[self._key],
+                args=[self._error_threshold, self._reset_timeout],
+                client=self._client,
+            )
         return self._unpack(result)
 
     async def transition(
         self,
         *,
-        name: str,
         desired: CircuitBreakerState,
-        reset_timeout: float | None = None,
+        cool_down: float | None = None,
     ) -> None:
         """Manual transition. Last-write-wins."""
         await self._lua_transition(
-            keys=[self._key(name)],
+            keys=[self._key],
             args=[
                 desired.value,
-                reset_timeout if reset_timeout is not None else 0,
+                cool_down if cool_down is not None else self._reset_timeout,
             ],
-            client=self._provider.client,
+            client=self._client,
         )
 
-    async def get_state(self, *, name: str) -> CircuitBreakerSharedState:
-        """Read the current shared state."""
+    async def get_snapshot(self) -> CircuitBreakerSnapshot:
+        """Read the current snapshot."""
         result: list[Any] = await self._lua_get_state(
-            keys=[self._key(name)],
-            client=self._provider.client,
+            keys=[self._key],
+            client=self._client,
         )
         return self._unpack(result)
 
-    def _key(self, name: str) -> str:
-        return f"{self._key_prefix}{name}"
-
     @staticmethod
-    def _unpack(result: list[Any]) -> CircuitBreakerSharedState:
+    def _unpack(result: list[Any]) -> CircuitBreakerSnapshot:
         state_raw = result[0]
         if isinstance(state_raw, bytes):
             state_raw = state_raw.decode()
-        return CircuitBreakerSharedState(
+        return CircuitBreakerSnapshot(
             state=CircuitBreakerState(state_raw),
+            opened_at=float(result[3]),
             consecutive_error_count=int(result[1]),
             consecutive_success_count=int(result[2]),
-            opened_at=float(result[3]),
         )
