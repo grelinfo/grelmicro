@@ -60,6 +60,7 @@ nav:
 - grelmicro: index.md
 - installation.md
 - comparison.md
+- compatibility.md
 - User Guide:
     - config.md
     - cache.md

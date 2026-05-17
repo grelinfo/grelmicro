@@ -14,6 +14,7 @@
 ### Docs
 
 * 📝 Add [Testing](architecture/testing.md) page documenting `micro.override(...)` and the conftest recipe. Issue [#236](https://github.com/grelinfo/grelmicro/issues/236).
+* 📝 Add [Compatibility matrix](compatibility.md) page covering Pattern × Adapter pairs for `1.0.0`. Issue [#161](https://github.com/grelinfo/grelmicro/issues/161).
 
 ## 0.22.0 - 2026-05-16
 
