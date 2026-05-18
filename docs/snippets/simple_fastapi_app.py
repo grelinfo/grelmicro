@@ -43,7 +43,7 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 
-# --- Circuit CircuitBreakers: protect calls to an unreliable service ---
+# --- Circuit Breaker: protect calls to an unreliable service ---
 cb = CircuitBreaker("my-service")
 
 

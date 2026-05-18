@@ -83,7 +83,7 @@ Cap requests per window with token bucket or sliding window, per key.
 
 Pick `slowapi` if you want fixed-window per-route limiting on FastAPI and a wider backend choice. Pick `aiolimiter` for the smallest in-process token bucket. Pick grelmicro when you also need a distributed Lock or Cache on the same backend, when you need precise sliding-window semantics, or when you need a structured retry-after result without parsing strings.
 
-## Circuit CircuitBreakers
+## Circuit Breaker
 
 Half-open / open / closed states, with thresholds and ignore lists.
 

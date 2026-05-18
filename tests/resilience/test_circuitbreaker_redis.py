@@ -1,4 +1,4 @@
-"""Tests for Redis Circuit CircuitBreakers Adapter."""
+"""Tests for Redis Circuit Breaker Adapter."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Generator

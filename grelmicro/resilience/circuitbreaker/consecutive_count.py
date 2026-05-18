@@ -39,7 +39,7 @@ class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):
     )
     ```
 
-    Read more in the [Circuit CircuitBreakers](../resilience/circuit-breaker.md) docs.
+    Read more in the [Circuit Breaker](../resilience/circuit-breaker.md) docs.
     """
 
     kind: Annotated[

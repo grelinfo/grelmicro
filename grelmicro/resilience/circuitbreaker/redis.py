@@ -51,7 +51,7 @@ class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
     payments = CircuitBreaker("payments")
     ```
 
-    Read more in the [Circuit CircuitBreakers](../resilience/circuit-breaker.md) docs.
+    Read more in the [Circuit Breaker](../resilience/circuit-breaker.md) docs.
     """
 
     is_shared: ClassVar[bool] = True
@@ -212,8 +212,6 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         if state == "HALF_OPEN" then
             if ho_admit < capacity then
                 redis.call("HINCRBY", key, "ho_admit", 1)
-                local ttl = math.max(1, math.ceil(reset_timeout * 2))
-                redis.call("EXPIRE", key, ttl)
                 return 1
             end
             return 0
@@ -246,8 +244,6 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
             end
         end
 
-        local ttl = math.max(1, math.ceil(reset_timeout * 2))
-
         if cerr >= threshold then
             local now_pair = redis.call("TIME")
             local now = now_pair[1] + (now_pair[2] / 1000000)
@@ -259,11 +255,9 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
                 "cool_down", reset_timeout,
                 "cerr", 0, "csucc", 0, "ho_admit", 0
             )
-            redis.call("EXPIRE", key, ttl)
             return {state, 0, 0, tostring(opened_at)}
         end
 
-        redis.call("EXPIRE", key, ttl)
         return {state, cerr, 0, tostring(opened_at)}
     """
 
@@ -291,8 +285,6 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
             end
         end
 
-        local ttl = math.max(1, math.ceil(reset_timeout * 2))
-
         if state == "HALF_OPEN" and csucc >= threshold then
             state = "CLOSED"
             redis.call(
@@ -303,7 +295,6 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
             return {state, 0, 0, "0"}
         end
 
-        redis.call("EXPIRE", key, ttl)
         return {state, 0, csucc, tostring(opened_at)}
     """
 
@@ -320,10 +311,6 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
                 "state", desired, "opened_at", now, "cool_down", cool_down,
                 "cerr", 0, "csucc", 0, "ho_admit", 0
             )
-            if cool_down > 0 then
-                local ttl = math.max(1, math.ceil(cool_down * 2))
-                redis.call("EXPIRE", key, ttl)
-            end
         else
             redis.call(
                 "HSET", key,
@@ -331,6 +318,7 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
             )
             redis.call("HDEL", key, "opened_at", "cool_down")
         end
+        redis.call("PERSIST", key)
     """
 
     _LUA_GET_STATE = """

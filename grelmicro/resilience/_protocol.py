@@ -1,4 +1,4 @@
-"""Rate Limiter, Circuit CircuitBreakers, and Retry Protocols."""
+"""Rate Limiter, Circuit Breaker, and Retry Protocols."""
 
 from __future__ import annotations
 
@@ -46,10 +46,10 @@ class RateLimitResult(NamedTuple):
 
     Fields map to HTTP rate limit headers:
     - `allowed` -> 200 vs 429 status
-    - `limit` -> `X-RateLimiters-Limit` / `RateLimiters-Policy: ;q=`
-    - `remaining` -> `X-RateLimiters-Remaining` / `RateLimiters: ;r=`
+    - `limit` -> `X-RateLimit-Limit` / `RateLimit-Policy: ;q=`
+    - `remaining` -> `X-RateLimit-Remaining` / `RateLimit: ;r=`
     - `retry_after` -> `Retry-After` header
-    - `reset_after` -> `X-RateLimiters-Reset` / `RateLimiters: ;t=`
+    - `reset_after` -> `X-RateLimit-Reset` / `RateLimit: ;t=`
     """
 
     allowed: bool

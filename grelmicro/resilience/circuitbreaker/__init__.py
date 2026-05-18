@@ -1,4 +1,4 @@
-"""Circuit CircuitBreakers."""
+"""Circuit Breaker."""
 
 from __future__ import annotations
 
@@ -148,7 +148,7 @@ class CircuitBreakerMetrics(BaseModel, frozen=True, extra="forbid"):
 
 
 class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
-    """Circuit CircuitBreakers.
+    """Circuit Breaker.
 
     Implements the circuit breaker pattern. It watches calls to
     a protected service and blocks them when the service is
