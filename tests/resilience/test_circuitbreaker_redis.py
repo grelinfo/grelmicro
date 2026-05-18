@@ -1,4 +1,4 @@
-"""Tests for Redis Circuit Breaker Adapter."""
+"""Tests for Redis Circuit CircuitBreakers Adapter."""
 
 import asyncio
 from collections.abc import AsyncGenerator, Generator
@@ -9,12 +9,12 @@ from testcontainers.redis import RedisContainer
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
-    CircuitBreakerConfig,
     CircuitBreakerState,
     CircuitBreakerStrategy,
+    ConsecutiveCountConfig,
 )
+from grelmicro.resilience.circuitbreaker.redis import RedisCircuitBreakerAdapter
 from grelmicro.resilience.errors import CircuitBreakerError
-from grelmicro.resilience.redis import RedisCircuitBreakerAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -107,7 +107,7 @@ def _bind(
 ) -> CircuitBreakerStrategy:
     return backend.bind(
         name=name,
-        config=CircuitBreakerConfig(
+        config=ConsecutiveCountConfig(
             error_threshold=error_threshold,
             success_threshold=success_threshold,
             reset_timeout=reset_timeout,
@@ -250,7 +250,7 @@ async def test_circuit_breaker_integration_end_to_end(
     class BoomError(Exception):
         pass
 
-    cb = CircuitBreaker(
+    cb = CircuitBreaker.consecutive_count(
         "payments",
         error_threshold=2,
         success_threshold=1,
@@ -280,14 +280,14 @@ async def test_two_breakers_share_state(
     class BoomError(Exception):
         pass
 
-    cb_a = CircuitBreaker(
+    cb_a = CircuitBreaker.consecutive_count(
         "shared",
         error_threshold=2,
         success_threshold=1,
         reset_timeout=5,
         backend=backend,
     )
-    cb_b = CircuitBreaker(
+    cb_b = CircuitBreaker.consecutive_count(
         "shared",
         error_threshold=2,
         success_threshold=1,

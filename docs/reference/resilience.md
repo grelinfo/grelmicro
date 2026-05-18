@@ -4,7 +4,7 @@
     options:
       show_submodules: true
       members:
-        - Breaker
+        - CircuitBreakers
         - CircuitBreaker
         - CircuitBreakerBackend
         - CircuitBreakerConfig
@@ -13,6 +13,7 @@
         - CircuitBreakerSnapshot
         - CircuitBreakerState
         - CircuitBreakerStrategy
+        - ConsecutiveCountConfig
         - ConstantBackoff
         - ErrorDetails
         - ExponentialBackoff
@@ -20,16 +21,20 @@
         - LinearBackoff
         - Match
         - Matcher
+        - MemoryCircuitBreakerAdapter
+        - MemoryRateLimiterAdapter
         - MemoryTokenBucket
         - Outcome
         - RandomBackoff
-        - RateLimit
+        - RateLimiters
         - RateLimiter
         - RateLimiterBackend
         - RateLimiterConfig
         - RateLimiterStrategy
         - RateLimitExceededError
         - RateLimitResult
+        - RedisCircuitBreakerAdapter
+        - RedisRateLimiterAdapter
         - ResilienceError
         - ResilienceSettingsValidationError
         - Retry
@@ -41,14 +46,3 @@
         - TokenBucketConfig
         - retry
         - retrying
-
-::: grelmicro.resilience.memory
-    options:
-      members:
-        - MemoryRateLimiterAdapter
-
-::: grelmicro.resilience.redis
-    options:
-      members:
-        - RedisCircuitBreakerAdapter
-        - RedisRateLimiterAdapter

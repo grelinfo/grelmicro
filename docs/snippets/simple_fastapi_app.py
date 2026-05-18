@@ -6,8 +6,10 @@ from fastapi import FastAPI
 from grelmicro import Grelmicro
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import Breaker, CircuitBreaker
-from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
+from grelmicro.resilience import CircuitBreaker, CircuitBreakers
+from grelmicro.resilience.circuitbreaker.memory import (
+    MemoryCircuitBreakerAdapter,
+)
 from grelmicro.sync import LeaderElection, Lock, Sync
 from grelmicro.task import Tasks
 
@@ -24,7 +26,7 @@ micro = Grelmicro(
     uses=[
         redis,
         Sync(redis),
-        Breaker(MemoryCircuitBreakerAdapter()),
+        CircuitBreakers(MemoryCircuitBreakerAdapter()),
         tasks,
     ]
 )
@@ -41,7 +43,7 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 
-# --- Circuit Breaker: protect calls to an unreliable service ---
+# --- Circuit CircuitBreakers: protect calls to an unreliable service ---
 cb = CircuitBreaker("my-service")
 
 

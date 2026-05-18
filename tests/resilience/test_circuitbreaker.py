@@ -15,7 +15,7 @@ import pytest
 from freezegun import freeze_time
 
 from grelmicro import Grelmicro
-from grelmicro.resilience import Breaker, circuitbreaker
+from grelmicro.resilience import CircuitBreakers
 from grelmicro.resilience._protocol import (
     CircuitBreakerSnapshot,
     CircuitBreakerStrategy,
@@ -28,7 +28,10 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerState,
     ErrorDetails,
 )
-from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
+from grelmicro.resilience.circuitbreaker import memory as cb_memory_module
+from grelmicro.resilience.circuitbreaker.memory import (
+    MemoryCircuitBreakerAdapter,
+)
 
 
 class SentinelError(Exception):
@@ -51,7 +54,7 @@ async def _cb_app(
     _cb_backend: MemoryCircuitBreakerAdapter,
 ) -> AsyncGenerator[Grelmicro]:
     """Open a `Grelmicro` app holding the in-memory CB backend for every test."""
-    async with Grelmicro(uses=[Breaker(_cb_backend)]) as micro:
+    async with Grelmicro(uses=[CircuitBreakers(_cb_backend)]) as micro:
         yield micro
 
 
@@ -86,14 +89,18 @@ async def create_circuit(
     half_open_capacity: int | None = None,
 ) -> CircuitBreaker:
     """Create a circuit breaker in the specified state."""
-    cb = CircuitBreaker(
-        "test",
-        ignore_exceptions=ignore_exceptions,
-        error_threshold=error_threshold,
-        success_threshold=success_threshold,
-        reset_timeout=reset_timeout,
-        half_open_capacity=half_open_capacity,
-    )
+    kwargs: dict[str, Any] = {
+        k: v
+        for k, v in {
+            "ignore_exceptions": ignore_exceptions,
+            "error_threshold": error_threshold,
+            "success_threshold": success_threshold,
+            "reset_timeout": reset_timeout,
+            "half_open_capacity": half_open_capacity,
+        }.items()
+        if v is not None and v != ()
+    }
+    cb = CircuitBreaker.consecutive_count("test", **kwargs)
     await transition(cb, state)
     return cb
 
@@ -120,14 +127,20 @@ async def generate_error(cb: CircuitBreaker) -> None:
 )
 async def circuit_call_not_permitted(
     request: pytest.FixtureRequest,
-) -> CircuitBreaker:
+) -> AsyncGenerator[CircuitBreaker]:
     """Fixture for circuit breakers that do not permit calls."""
     # `half_open_capacity=1` is the minimum. For HALF_OPEN, we saturate
-    # the slot below so any further call is rejected.
+    # the slot by entering the breaker once and releasing only on teardown,
+    # so any further call from the test is rejected.
     cb = await create_circuit(request.param, half_open_capacity=1)
     if request.param == CircuitBreakerState.HALF_OPEN:
-        cb._try_acquire_call(cb.config)
-    return cb
+        await cb.__aenter__()
+        try:
+            yield cb
+        finally:
+            await cb.__aexit__(None, None, None)
+    else:
+        yield cb
 
 
 @pytest.fixture(
@@ -177,6 +190,32 @@ async def test_circuit_from_thread_unopened_backend_raises() -> None:
     # Act + Assert: the helpful message guides the user to open lifespan.
     with pytest.raises(RuntimeError, match="lifespan"):
         await asyncio.to_thread(enter)
+
+
+async def test_memory_strategy_get_snapshot_returns_default_when_unused() -> (
+    None
+):
+    """`get_snapshot` returns the default CLOSED snapshot before any operation."""
+    backend = MemoryCircuitBreakerAdapter()
+    cfg = CircuitBreaker("fresh").config
+    strategy = backend.bind(name="fresh", config=cfg)
+    snapshot = await strategy.get_snapshot()
+    assert snapshot.state is CircuitBreakerState.CLOSED
+    assert snapshot.opened_at == 0.0
+    assert snapshot.consecutive_error_count == 0
+    assert snapshot.consecutive_success_count == 0
+
+
+async def test_circuit_falls_back_to_implicit_memory_adapter_when_no_component() -> (
+    None
+):
+    """Resolves to the implicit memory adapter when no Component is registered."""
+    # No `CircuitBreakers` Component on this app:
+    async with Grelmicro():
+        cb = CircuitBreaker("ad-hoc")
+        async with cb:
+            pass
+        assert cb.state is CircuitBreakerState.CLOSED
 
 
 async def test_circuit_initial_state() -> None:
@@ -386,7 +425,7 @@ async def test_circuit_from_thread_decorator_with_call_not_permitted(
 async def test_circuit_transition_to_open(error_count: int) -> None:
     """Test circuit breaker opens after threshold errors."""
     # Arrange
-    cb = CircuitBreaker("test", error_threshold=error_count)
+    cb = CircuitBreaker.consecutive_count("test", error_threshold=error_count)
 
     # Act
     for _ in range(error_count):
@@ -404,9 +443,8 @@ async def test_circuit_transition_to_half_open_after_timeout(
     cb = await create_circuit(
         CircuitBreakerState.OPEN, success_threshold=2
     )  # Ensure it doesn't close immediately
-    monkeypatch.setattr(
-        circuitbreaker, "monotonic", lambda: cb._open_until_time
-    )
+    # Push monotonic far enough into the future for the cool_down to elapse.
+    monkeypatch.setattr(cb_memory_module, "monotonic", lambda: 10**9)
 
     # Act
     await generate_success(cb)
@@ -417,18 +455,18 @@ async def test_circuit_transition_to_half_open_after_timeout(
 
 @pytest.mark.parametrize("reset_timeout", [0.5, 1, 30])
 async def test_circuit_not_transition_to_half_open_before_timeout(
-    monkeypatch: pytest.MonkeyPatch, reset_timeout: float
+    reset_timeout: float,
 ) -> None:
     """Test circuit breaker does not transition to half-open before reset timeout."""
     # Arrange
     cb = await create_circuit(
         CircuitBreakerState.OPEN, reset_timeout=reset_timeout
     )
-    monkeypatch.setattr(
-        circuitbreaker, "monotonic", lambda: cb._open_until_time - 0.001
-    )
 
     # Act & Assert
+    # Without monkeypatching `monotonic`, real time advances by
+    # microseconds during await — well within the `reset_timeout`s
+    # tested here.
     with pytest.raises(CircuitBreakerError):
         await generate_success(cb)
     assert cb.state == CircuitBreakerState.OPEN
@@ -594,6 +632,13 @@ async def test_circuit_metrics_counters_with_successes(
     stats = circuit_call_permitted.metrics()
 
     # Assert
+    # Forced states pause strategy-side counters (matches Redis and
+    # resilience4j). Per-replica totals still tick.
+    expected_consecutive = (
+        0
+        if circuit_call_permitted.state == CircuitBreakerState.FORCED_CLOSED
+        else success_count
+    )
     assert stats == CircuitBreakerMetrics(
         name=circuit_call_permitted.name,
         state=circuit_call_permitted.state,
@@ -601,7 +646,7 @@ async def test_circuit_metrics_counters_with_successes(
         total_error_count=0,
         total_success_count=success_count,
         consecutive_error_count=0,
-        consecutive_success_count=success_count,
+        consecutive_success_count=expected_consecutive,
         last_error=None,
     )
 
@@ -621,13 +666,20 @@ async def test_circuit_metrics_with_errors(
     stats = circuit_call_permitted.metrics()
 
     # Assert
+    # Forced states pause strategy-side counters (matches Redis and
+    # resilience4j). Per-replica totals still tick.
+    expected_consecutive_errors = (
+        0
+        if circuit_call_permitted.state == CircuitBreakerState.FORCED_CLOSED
+        else error_count
+    )
     assert stats == CircuitBreakerMetrics(
         name=circuit_call_permitted.name,
         state=circuit_call_permitted.state,
         active_calls=0,
         total_error_count=error_count,
         total_success_count=0,
-        consecutive_error_count=error_count,
+        consecutive_error_count=expected_consecutive_errors,
         consecutive_success_count=0,
         last_error=ErrorDetails(
             type=SentinelError.__name__,
@@ -665,6 +717,11 @@ async def test_circuit_metrics_counters_with_ignore_exceptions(
     stats = cb.metrics()
 
     # Assert
+    # Forced states pause strategy-side counters; CLOSED and HALF_OPEN
+    # accumulate consecutive successes.
+    expected_consecutive = (
+        0 if state == CircuitBreakerState.FORCED_CLOSED else success_count
+    )
     assert stats == CircuitBreakerMetrics(
         name=cb.name,
         state=state,
@@ -672,7 +729,7 @@ async def test_circuit_metrics_counters_with_ignore_exceptions(
         total_error_count=0,
         total_success_count=success_count,
         consecutive_error_count=0,
-        consecutive_success_count=success_count,
+        consecutive_success_count=expected_consecutive,
         last_error=None,
     )
 
@@ -816,7 +873,7 @@ async def test_circuitbreaker_log_level(
 ) -> None:
     """`log_level` is read from the frozen config."""
     # Act
-    cb = CircuitBreaker("test", log_level=level)
+    cb = CircuitBreaker.consecutive_count("test", log_level=level)
 
     # Assert
     assert cb.config.log_level == level
@@ -827,7 +884,7 @@ async def test_circuitbreaker_log_level(
 
 async def test_reconfigure_swaps_config() -> None:
     """Reconfigure publishes the new config."""
-    cb = CircuitBreaker("rc", error_threshold=5)
+    cb = CircuitBreaker.consecutive_count("rc", error_threshold=5)
     new_config = cb.config.model_copy(update={"error_threshold": 10})
 
     await cb.reconfigure(new_config)
@@ -837,7 +894,7 @@ async def test_reconfigure_swaps_config() -> None:
 
 async def test_reconfigure_same_config_is_noop() -> None:
     """Equal configs short-circuit."""
-    cb = CircuitBreaker("rc", error_threshold=5)
+    cb = CircuitBreaker.consecutive_count("rc", error_threshold=5)
     same = cb.config.model_copy()
 
     await cb.reconfigure(same)
@@ -847,7 +904,7 @@ async def test_reconfigure_same_config_is_noop() -> None:
 
 async def test_reconfigure_preserves_runtime_state() -> None:
     """A swap does not reset state, counters, or last_error."""
-    cb = CircuitBreaker("rc", error_threshold=2)
+    cb = CircuitBreaker.consecutive_count("rc", error_threshold=2)
     boom = RuntimeError("boom")
     with pytest.raises(RuntimeError):
         async with cb:
@@ -865,7 +922,7 @@ async def test_reconfigure_preserves_runtime_state() -> None:
 
 async def test_reconfigure_updates_logger_level() -> None:
     """`log_level` change propagates to the instance logger."""
-    cb = CircuitBreaker("rc", log_level="WARNING")
+    cb = CircuitBreaker.consecutive_count("rc", log_level="WARNING")
     assert cb._logger.level == logging.WARNING
 
     await cb.reconfigure(cb.config.model_copy(update={"log_level": "DEBUG"}))
@@ -875,7 +932,7 @@ async def test_reconfigure_updates_logger_level() -> None:
 
 async def test_reconfigure_changes_error_threshold_for_next_call() -> None:
     """Error threshold change applies to the next call without resetting counters."""
-    cb = CircuitBreaker("rc", error_threshold=5)
+    cb = CircuitBreaker.consecutive_count("rc", error_threshold=5)
     new_config = cb.config.model_copy(update={"error_threshold": 1})
 
     await cb.reconfigure(new_config)
@@ -897,7 +954,9 @@ async def test_reconfigure_during_inflight_call_uses_admission_config() -> None:
     unchanged: this is the documented "in-flight operations complete
     on the previous config" guarantee.
     """
-    cb = CircuitBreaker("rc", ignore_exceptions=RuntimeError, error_threshold=1)
+    cb = CircuitBreaker.consecutive_count(
+        "rc", ignore_exceptions=RuntimeError, error_threshold=1
+    )
     boom = RuntimeError("boom")
     enter_event = asyncio.Event()
     can_exit = asyncio.Event()
@@ -932,7 +991,9 @@ async def test_reconfigure_during_inflight_thread_call_uses_admission_config() -
     None
 ):
     """The thread adapter preserves the admission snapshot across `__exit__`."""
-    cb = CircuitBreaker("rc", ignore_exceptions=RuntimeError, error_threshold=1)
+    cb = CircuitBreaker.consecutive_count(
+        "rc", ignore_exceptions=RuntimeError, error_threshold=1
+    )
     boom = RuntimeError("boom")
     entered = threading.Event()
     can_exit = threading.Event()
@@ -968,7 +1029,7 @@ async def test_reconfigure_rejects_different_config_type() -> None:
         pass
 
     cb = CircuitBreaker("rc")
-    with pytest.raises(TypeError, match="CircuitBreakerConfig"):
+    with pytest.raises(TypeError, match="ConsecutiveCountConfig"):
         await cb.reconfigure(Other())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
@@ -1069,7 +1130,7 @@ class TestSharedBackendIntegration:
         cap = 3
         timeout = 42.0
         async with backend:
-            cb = CircuitBreaker(
+            cb = CircuitBreaker.consecutive_count(
                 "shared",
                 backend=backend,
                 half_open_capacity=cap,
@@ -1103,7 +1164,9 @@ class TestSharedBackendIntegration:
             consecutive_success_count=1,
         )
         async with backend:
-            cb = CircuitBreaker("shared", backend=backend, success_threshold=4)
+            cb = CircuitBreaker.consecutive_count(
+                "shared", backend=backend, success_threshold=4
+            )
             async with cb:
                 pass
         assert backend.record_outcome_calls == [
@@ -1116,7 +1179,7 @@ class TestSharedBackendIntegration:
         """`__aexit__` records the error and updates local `last_error`."""
         backend = _FakeSharedBackend()
         async with backend:
-            cb = CircuitBreaker(
+            cb = CircuitBreaker.consecutive_count(
                 "shared",
                 backend=backend,
                 error_threshold=7,
@@ -1134,7 +1197,9 @@ class TestSharedBackendIntegration:
         """`transition_to_open` forwards the desired state to the backend."""
         backend = _FakeSharedBackend()
         async with backend:
-            cb = CircuitBreaker("shared", backend=backend, reset_timeout=9.0)
+            cb = CircuitBreaker.consecutive_count(
+                "shared", backend=backend, reset_timeout=9.0
+            )
             await cb.transition_to_open()
         assert backend.transition_calls == [
             {
@@ -1174,28 +1239,13 @@ class TestSharedBackendIntegration:
             CircuitBreakerState.CLOSED,
         ]
 
-    async def test_memory_adapter_strategy_raises_on_shared_methods(
-        self,
-    ) -> None:
-        """`MemoryCircuitBreakerAdapter.bind()` returns a stub that raises."""
-        adapter = MemoryCircuitBreakerAdapter()
-        strategy = adapter.bind(name="x", config=CircuitBreakerConfig())
-        with pytest.raises(NotImplementedError, match="local-only"):
-            await strategy.try_acquire()
-        with pytest.raises(NotImplementedError):
-            await strategy.record_outcome(success=True)
-        with pytest.raises(NotImplementedError):
-            await strategy.record_outcome(success=False)
-        with pytest.raises(NotImplementedError):
-            await strategy.transition(desired=CircuitBreakerState.OPEN)
-        with pytest.raises(NotImplementedError):
-            await strategy.get_snapshot()
-
     async def test_from_thread_shared_path(self) -> None:
         """The thread adapter routes admission and exit through the backend."""
         backend = _FakeSharedBackend()
         async with backend:
-            cb = CircuitBreaker("shared", backend=backend, half_open_capacity=2)
+            cb = CircuitBreaker.consecutive_count(
+                "shared", backend=backend, half_open_capacity=2
+            )
 
             def ok() -> None:
                 with cb.from_thread:

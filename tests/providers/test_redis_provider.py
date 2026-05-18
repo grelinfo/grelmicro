@@ -11,10 +11,10 @@ from grelmicro.providers.redis import (
     RedisProvider,
     RedisProviderConfigError,
 )
-from grelmicro.resilience.redis import (
+from grelmicro.resilience.circuitbreaker.redis import (
     RedisCircuitBreakerAdapter,
-    RedisRateLimiterAdapter,
 )
+from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 from grelmicro.sync.redis import RedisSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -254,7 +254,7 @@ class TestRebindProvider:
     ) -> None:
         """RedisRateLimiterAdapter opens and closes the provider it owns."""
         monkeypatch.setenv("REDIS_URL", URL)
-        from grelmicro.resilience.redis import (  # noqa: PLC0415
+        from grelmicro.resilience.ratelimiter.redis import (  # noqa: PLC0415
             RedisRateLimiterAdapter,
         )
 
@@ -298,7 +298,7 @@ class TestRebindProvider:
     def test_rate_limiter_rebind(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """RedisRateLimiterAdapter rebinds to a new provider."""
         monkeypatch.setenv("REDIS_URL", URL)
-        from grelmicro.resilience.redis import (  # noqa: PLC0415
+        from grelmicro.resilience.ratelimiter.redis import (  # noqa: PLC0415
             RedisRateLimiterAdapter,
         )
 

@@ -17,8 +17,10 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache.redis import RedisCacheAdapter
-    from grelmicro.resilience.redis import (
+    from grelmicro.resilience.circuitbreaker.redis import (
         RedisCircuitBreakerAdapter,
+    )
+    from grelmicro.resilience.ratelimiter.redis import (
         RedisRateLimiterAdapter,
     )
     from grelmicro.sync.redis import RedisSyncAdapter
@@ -218,15 +220,19 @@ class RedisProvider(Provider):
 
     def ratelimiter(self, **kwargs: Any) -> RedisRateLimiterAdapter:  # noqa: ANN401
         """Build a `RedisRateLimiterAdapter` bound to this provider."""
-        from grelmicro.resilience import redis as _redis_rl  # noqa: PLC0415
+        from grelmicro.resilience.ratelimiter.redis import (  # noqa: PLC0415
+            RedisRateLimiterAdapter,
+        )
 
-        return _redis_rl.RedisRateLimiterAdapter(provider=self, **kwargs)
+        return RedisRateLimiterAdapter(provider=self, **kwargs)
 
     def breaker(self, **kwargs: Any) -> RedisCircuitBreakerAdapter:  # noqa: ANN401
         """Build a `RedisCircuitBreakerAdapter` bound to this provider."""
-        from grelmicro.resilience import redis as _redis_cb  # noqa: PLC0415
+        from grelmicro.resilience.circuitbreaker.redis import (  # noqa: PLC0415
+            RedisCircuitBreakerAdapter,
+        )
 
-        return _redis_cb.RedisCircuitBreakerAdapter(provider=self, **kwargs)
+        return RedisCircuitBreakerAdapter(provider=self, **kwargs)
 
     async def __aenter__(self) -> Self:
         """Open the provider. The client is already constructed eagerly."""

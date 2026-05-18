@@ -1,6 +1,7 @@
-"""Rate Limiter, Circuit Breaker, and Retry Protocols."""
+"""Rate Limiter, Circuit CircuitBreakers, and Retry Protocols."""
 
-from types import TracebackType
+from __future__ import annotations
+
 from typing import (
     TYPE_CHECKING,
     ClassVar,
@@ -10,14 +11,14 @@ from typing import (
     runtime_checkable,
 )
 
-from grelmicro.resilience.algorithms import RateLimiterConfig
-
 if TYPE_CHECKING:
+    from types import TracebackType
+
     from grelmicro.resilience.circuitbreaker import (
-        CircuitBreaker,
         CircuitBreakerConfig,
         CircuitBreakerState,
     )
+    from grelmicro.resilience.ratelimiter import RateLimiterConfig
 
 
 class RetryStrategy(Protocol):
@@ -45,10 +46,10 @@ class RateLimitResult(NamedTuple):
 
     Fields map to HTTP rate limit headers:
     - `allowed` -> 200 vs 429 status
-    - `limit` -> `X-RateLimit-Limit` / `RateLimit-Policy: ;q=`
-    - `remaining` -> `X-RateLimit-Remaining` / `RateLimit: ;r=`
+    - `limit` -> `X-RateLimiters-Limit` / `RateLimiters-Policy: ;q=`
+    - `remaining` -> `X-RateLimiters-Remaining` / `RateLimiters: ;r=`
     - `retry_after` -> `Retry-After` header
-    - `reset_after` -> `X-RateLimit-Reset` / `RateLimit: ;t=`
+    - `reset_after` -> `X-RateLimiters-Reset` / `RateLimiters: ;t=`
     """
 
     allowed: bool
@@ -177,20 +178,24 @@ class CircuitBreakerSnapshot(NamedTuple):
 
     Returned by every
     [`CircuitBreakerStrategy`][grelmicro.resilience.CircuitBreakerStrategy]
-    method that mutates or reads shared state. The breaker uses it to
-    refresh its local cache so reads of `cb.state` and `cb.metrics()`
-    reflect the latest shared truth on this replica.
+    method that mutates or reads state. The breaker uses it to refresh
+    its local cache so reads of `cb.state` and `cb.metrics()` reflect
+    the latest truth from the strategy.
 
     Algorithm-specific counters (`consecutive_error_count`,
     `consecutive_success_count`) are populated by the consecutive-count
     algorithm. Future algorithms may populate additional fields.
     """
 
-    state: "CircuitBreakerState"
+    state: CircuitBreakerState
     """Authoritative state for the breaker."""
 
     opened_at: float
-    """Server-side epoch seconds when the breaker entered OPEN. 0.0 when not OPEN."""
+    """Strategy-clock seconds when the breaker entered OPEN. 0.0 when not OPEN.
+
+    Each strategy picks its own clock. Treat this as a relative value:
+    only compare with timestamps emitted by the same strategy.
+    """
 
     consecutive_error_count: int = 0
     """Consecutive errors recorded by the strategy. Consecutive-count algorithm only."""
@@ -223,7 +228,7 @@ class CircuitBreakerStrategy(Protocol):
         *,
         success: bool,
         duration: float = 0.0,
-    ) -> "CircuitBreakerSnapshot":
+    ) -> CircuitBreakerSnapshot:
         """Record a call outcome and return the resulting snapshot.
 
         Args:
@@ -238,7 +243,7 @@ class CircuitBreakerStrategy(Protocol):
     async def transition(
         self,
         *,
-        desired: "CircuitBreakerState",
+        desired: CircuitBreakerState,
         cool_down: float | None = None,
     ) -> None:
         """Force the breaker into ``desired``.
@@ -252,7 +257,7 @@ class CircuitBreakerStrategy(Protocol):
         """
         ...
 
-    async def get_snapshot(self) -> "CircuitBreakerSnapshot":
+    async def get_snapshot(self) -> CircuitBreakerSnapshot:
         """Return the current snapshot without mutating state."""
         ...
 
@@ -261,15 +266,16 @@ class CircuitBreakerStrategy(Protocol):
 class CircuitBreakerBackend(Protocol):
     """Protocol for circuit-breaker storage backends.
 
-    A backend owns the lifespan boundary for every circuit breaker
-    bound to it. It turns an algorithm config into a strategy through
+    A backend owns the lifespan boundary and the storage for every
+    circuit breaker bound to it. It turns a name and a config into a
+    strategy through
     [`bind`][grelmicro.resilience.CircuitBreakerBackend.bind]. The
     returned
     [`CircuitBreakerStrategy`][grelmicro.resilience.CircuitBreakerStrategy]
     is what a
     [`CircuitBreaker`][grelmicro.resilience.CircuitBreaker] calls on
     each `try_acquire`, `record_outcome`, `transition`, or
-    `get_snapshot`.
+    `get_snapshot`. No extra algorithm lookup happens at call time.
 
     Implementations capture the running event loop on ``__aenter__``
     in a ``_loop`` attribute so the sync ``from_thread`` adapter can
@@ -277,7 +283,12 @@ class CircuitBreakerBackend(Protocol):
     """
 
     is_shared: ClassVar[bool]
-    """Whether the backend stores state outside the local process."""
+    """Whether the backend stores state outside the local process.
+
+    `True` for distributed backends (e.g. Redis), `False` for
+    process-local backends (e.g. memory). User code can read this
+    to decide whether `last_error` is per-replica or fleet-wide.
+    """
 
     async def __aenter__(self) -> Self:
         """Open the backend."""
@@ -292,21 +303,17 @@ class CircuitBreakerBackend(Protocol):
         """Close the backend, releasing per-breaker state."""
         ...
 
-    def register(self, breaker: "CircuitBreaker") -> None:
-        """Bind a breaker to this backend so it is reset on close."""
-        ...
-
     def bind(
         self,
         *,
         name: str,
-        config: "CircuitBreakerConfig",
+        config: CircuitBreakerConfig,
     ) -> CircuitBreakerStrategy:
         """Build a strategy for the named breaker and algorithm config.
 
         Called once per
-        [`CircuitBreaker`][grelmicro.resilience.CircuitBreaker] the
-        first time it enters a shared backend, and again whenever the
-        breaker's config changes through live reconfiguration.
+        [`CircuitBreaker`][grelmicro.resilience.CircuitBreaker] when
+        it is created, and again whenever the breaker's config changes
+        through live reconfiguration.
         """
         ...

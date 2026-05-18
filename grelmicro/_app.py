@@ -470,8 +470,8 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     from grelmicro.cache._component import Cache  # noqa: PLC0415
     from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
     from grelmicro.resilience._components import (  # noqa: PLC0415
-        Breaker,
-        RateLimit,
+        CircuitBreakers,
+        RateLimiters,
     )
     from grelmicro.resilience._protocol import (  # noqa: PLC0415
         CircuitBreakerBackend,
@@ -485,9 +485,9 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     if isinstance(item, SyncBackend):
         return Sync(item)
     if isinstance(item, CircuitBreakerBackend):
-        return Breaker(item)
+        return CircuitBreakers(item)
     if isinstance(item, RateLimiterBackend):
-        return RateLimit(item)
+        return RateLimiters(item)
     return None
 
 

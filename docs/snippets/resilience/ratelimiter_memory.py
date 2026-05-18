@@ -1,3 +1,3 @@
-from grelmicro.resilience.memory import MemoryRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 backend = MemoryRateLimiterAdapter()

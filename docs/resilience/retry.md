@@ -163,9 +163,9 @@ The full backoff config is a discriminated Pydantic union, so the env value is p
 
 The callable form of `when` cannot come from env. Use the FQN list for env-driven configs.
 
-## Composition with Circuit Breaker
+## Composition with Circuit CircuitBreakers
 
-Retry and Circuit Breaker compose by intent. When the breaker is `OPEN`, it raises `CircuitBreakerError`. Pick a narrow `when=` allowlist so the retry loop does not swallow that signal:
+Retry and Circuit CircuitBreakers compose by intent. When the breaker is `OPEN`, it raises `CircuitBreakerError`. Pick a narrow `when=` allowlist so the retry loop does not swallow that signal:
 
 ```python
 --8<-- "resilience/retry_composition.py"

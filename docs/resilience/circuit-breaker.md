@@ -1,6 +1,6 @@
-# Circuit Breaker
+# Circuit CircuitBreakers
 
-A **Circuit Breaker** prevents repeated failures when calling an unreliable downstream. It watches call outcomes and, after too many consecutive failures, **opens** to block further calls for a cool-down period so the dependency can recover.
+A **Circuit CircuitBreakers** prevents repeated failures when calling an unreliable downstream. It watches call outcomes and, after too many consecutive failures, **opens** to block further calls for a cool-down period so the dependency can recover.
 
 **Why**
 
@@ -37,15 +37,15 @@ stateDiagram-v2
 ```
 
 !!! warning "Thread safety"
-    The Circuit Breaker is not thread-safe. The async API (`async with cb:` or `@cb` on `async def`) is the default. From a synchronous handler running in a worker thread (for example a sync route in your web framework), use `with cb.from_thread:` or apply `@cb` to a sync function. The adapter dispatches state changes onto the parent event loop captured by the backend, so calls stay serialized. See [Sync from thread](../architecture/sync-from-thread.md).
+    The Circuit CircuitBreakers is not thread-safe. The async API (`async with cb:` or `@cb` on `async def`) is the default. From a synchronous handler running in a worker thread (for example a sync route in your web framework), use `with cb.from_thread:` or apply `@cb` to a sync function. The adapter dispatches state changes onto the parent event loop captured by the backend, so calls stay serialized. See [Sync from thread](../architecture/sync-from-thread.md).
 
 See the [API reference](../reference/resilience.md#grelmicro.resilience.CircuitBreaker) for every option.
 
 ## Configuration
 
-`CircuitBreaker` follows the three-paths configuration contract.
+`CircuitBreaker` exposes two construction paths.
 
-### Programmatic
+### Factory classmethod
 
 ```python
 --8<-- "resilience/circuitbreaker_programmatic.py"
@@ -57,35 +57,13 @@ See the [API reference](../reference/resilience.md#grelmicro.resilience.CircuitB
 --8<-- "resilience/circuitbreaker_declarative.py"
 ```
 
-### Environmental
-
-Prefix: `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_`
-
-| Env var                                                  | Config field         | Type                | Default      |
-|----------------------------------------------------------|----------------------|---------------------|--------------|
-| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD`      | `error_threshold`    | `int` (> 0)         | `5`          |
-| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_SUCCESS_THRESHOLD`    | `success_threshold`  | `int` (> 0)         | `2`          |
-| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_RESET_TIMEOUT`        | `reset_timeout`      | `float` (> 0)       | `30.0`       |
-| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_HALF_OPEN_CAPACITY`   | `half_open_capacity` | `int` (> 0)         | `1`          |
-| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_LOG_LEVEL`            | `log_level`          | `str`               | `"WARNING"`  |
-| `GREL_CIRCUIT_BREAKER_{NAME_UPPER}_IGNORE_EXCEPTIONS`    | `ignore_exceptions`  | CSV or JSON list of FQN strings (e.g. `builtins.ValueError,my_app.errors.PaymentError` or `'["builtins.ValueError"]'`) | `[]`         |
-
-Concrete example for `CircuitBreaker("payments")`:
-
-```bash
-GREL_CIRCUIT_BREAKER_PAYMENTS_ERROR_THRESHOLD=10
-GREL_CIRCUIT_BREAKER_PAYMENTS_RESET_TIMEOUT=60
-```
-
-```python
---8<-- "resilience/circuitbreaker_environmental.py"
-```
+For environment-driven configuration, build a `ConsecutiveCountConfig` with `pydantic-settings` and pass it positionally to `CircuitBreaker.from_config(name, config)`.
 
 ## Backend
 
 By default each replica keeps its own breaker state. A degraded downstream trips one replica's breaker without telling the others, and `error_threshold` errors must happen on every replica before the dependency stops being probed.
 
-Pass a shared `Breaker(redis_provider)` to fan that state out. The first replica to trip the breaker opens it for the fleet, the `half_open_capacity` admission cap is enforced globally so probes never exceed the cap across replicas, and manual `transition_to_*` calls are visible everywhere.
+Pass a shared `CircuitBreakers(redis_provider)` to fan that state out. The first replica to trip the breaker opens it for the fleet, the `half_open_capacity` admission cap is enforced globally so probes never exceed the cap across replicas, and manual `transition_to_*` calls are visible everywhere.
 
 !!! tip "Install"
     The Redis backend needs the `redis` extra: `pip install "grelmicro[redis]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
@@ -96,7 +74,7 @@ Pass a shared `Breaker(redis_provider)` to fan that state out. The first replica
     ```
 
 === "Memory (per-replica)"
-    No setup required. When no `Breaker` is registered on the `Grelmicro` app, the breaker uses an in-process adapter and state is local to the replica.
+    No setup required. When no `CircuitBreakers` is registered on the `Grelmicro` app, the breaker uses an in-process adapter and state is local to the replica.
 
 !!! warning
     Use environment variables for connection URLs in production, not hard-coded strings like the example above.
