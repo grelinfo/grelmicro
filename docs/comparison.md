@@ -34,7 +34,7 @@ What you get from a single import:
 | Scheduled-task lock | `TaskLock` | same as `Lock` |
 | Cache decorator + TTL store | `Cache`, `TTLCache[T]`, `@cached` | Redis, Memory (Postgres planned) |
 | Rate limiter | `RateLimiter` (token bucket, sliding window) | Redis, Memory |
-| Circuit breaker | `CircuitBreaker` | Memory (distributed planned) |
+| Circuit breaker | `CircuitBreaker` | Redis, Memory |
 | Retry | `Retry`, `@retry` | n/a (in-process) |
 | Health checks | `HealthChecks` + `/livez` `/readyz` `/healthz` router | n/a |
 | Scheduled tasks | `Tasks`, `TaskRouter`, `@interval` | n/a |
