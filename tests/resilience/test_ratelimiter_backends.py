@@ -3,8 +3,11 @@
 from collections.abc import AsyncGenerator, Generator
 
 import pytest
+from testcontainers.core.container import DockerContainer
+from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
+from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -16,6 +19,7 @@ from grelmicro.resilience.ratelimiter import (
     TokenBucketConfig,
 )
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 
 pytestmark = [pytest.mark.timeout(30)]
@@ -33,6 +37,7 @@ REFILL_RATE = 0.1  # slow enough to not refill between assertions
     params=[
         "memory",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        pytest.param("postgres", marks=[pytest.mark.integration]),
     ],
     scope="module",
 )
@@ -44,18 +49,21 @@ def backend_name(request: pytest.FixtureRequest) -> str:
 @pytest.fixture(scope="module")
 def container(
     backend_name: str,
-) -> Generator[RedisContainer | None, None, None]:
-    """Docker container (only for Redis)."""
+) -> Generator[DockerContainer | None, None, None]:
+    """Docker container (only for Redis and Postgres)."""
     if backend_name == "redis":
         with RedisContainer() as redis_container:
             yield redis_container
+    elif backend_name == "postgres":
+        with PostgresContainer() as pg_container:
+            yield pg_container
     else:
         yield None
 
 
 @pytest.fixture(scope="module")
 async def backend(
-    backend_name: str, container: RedisContainer | None
+    backend_name: str, container: DockerContainer | None
 ) -> AsyncGenerator[RateLimiterBackend]:
     """Rate limiter backend instance."""
     if backend_name == "redis" and container:
@@ -65,6 +73,18 @@ async def backend(
             prefix="test:",
         ) as redis_backend:
             yield redis_backend
+    elif backend_name == "postgres" and container:
+        port = container.get_exposed_port(5432)
+        provider = PostgresProvider(
+            f"postgresql://test:test@localhost:{port}/test"
+        )
+        async with (
+            provider,
+            PostgresRateLimiterAdapter(
+                provider=provider, prefix="test:"
+            ) as pg_backend,
+        ):
+            yield pg_backend
     elif backend_name == "memory":
         async with MemoryRateLimiterAdapter() as memory_backend:
             yield memory_backend

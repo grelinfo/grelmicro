@@ -8,6 +8,7 @@ from pytest_mock import MockerFixture
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 from grelmicro.sync.kubernetes import KubernetesSyncAdapter
 from grelmicro.sync.memory import MemorySyncAdapter
@@ -99,4 +100,21 @@ async def test_rate_limiter_redis_async_with(mock_redis: MagicMock) -> None:  # 
     async with RedisRateLimiterAdapter(
         provider=RedisProvider("redis://localhost")
     ):
+        pass
+
+
+async def test_rate_limiter_postgres_async_with(
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Postgres rate limiter adapter opens and closes cleanly."""
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://localhost/db")
+    mock_pool = MagicMock()
+    mock_pool.execute = AsyncMock()
+    mock_pool.close = AsyncMock()
+    mocker.patch(
+        "grelmicro.providers.postgres.create_pool",
+        AsyncMock(return_value=mock_pool),
+    )
+    async with PostgresRateLimiterAdapter():
         pass

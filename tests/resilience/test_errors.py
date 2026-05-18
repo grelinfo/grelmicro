@@ -53,6 +53,7 @@ def test_resilience_module_exports() -> None:
         "MemoryRateLimiterAdapter",
         "MemoryTokenBucket",
         "Outcome",
+        "PostgresRateLimiterAdapter",
         "RandomBackoff",
         "RateLimiters",
         "RateLimitExceededError",

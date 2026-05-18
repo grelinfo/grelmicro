@@ -63,11 +63,16 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 Load a backend before using `RateLimiter`. The same backend serves every algorithm.
 
 !!! tip "Install"
-    The Redis backend needs the `redis` extra: `pip install "grelmicro[redis]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
+    The Redis backend needs the `redis` extra and the Postgres backend needs the `postgres` extra: `pip install "grelmicro[redis]"` or `pip install "grelmicro[postgres]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
 
 === "Redis"
     ```python
     --8<-- "resilience/ratelimiter_redis.py"
+    ```
+
+=== "Postgres"
+    ```python
+    --8<-- "resilience/ratelimiter_postgres.py"
     ```
 
 === "Memory"
@@ -78,11 +83,13 @@ Load a backend before using `RateLimiter`. The same backend serves every algorit
 !!! warning
     Please make sure to use a proper way to store connection URLs, such as environment variables, not hard-coded strings like the example above.
 
-| | Redis | Memory |
-|---|---|---|
-| **Use case** | Production | Testing / single-process |
-| **Multi-node** | Yes | No |
-| **Persistence** | Yes (auto-expiring keys) | No |
+| | Redis | Postgres | Memory |
+|---|---|---|---|
+| **Use case** | Production | Production (when Postgres is already deployed) | Testing / single-process |
+| **Multi-node** | Yes | Yes | No |
+| **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | No |
+
+The Postgres adapter stores state in a single `grelmicro_rate_limiter` table and runs each `acquire`, `peek`, and `reset` as one round-trip to a PL/pgSQL function. Concurrent writers for the same key are serialized with `pg_advisory_xact_lock`. The table and functions are created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema.
 
 The backend compiles the algorithm into a bound strategy at `RateLimiter.__init__` through `backend.bind(config)`. Runtime `acquire`, `peek`, and `reset` calls invoke that strategy directly. **There is no algorithm dispatch on the request path.**
 

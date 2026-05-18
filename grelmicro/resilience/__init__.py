@@ -73,6 +73,9 @@ if TYPE_CHECKING:
         MemoryRateLimiterAdapter,
         MemoryTokenBucket,
     )
+    from grelmicro.resilience.ratelimiter.postgres import (
+        PostgresRateLimiterAdapter,
+    )
     from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
     from grelmicro.resilience.retry import (
         Retry,
@@ -104,6 +107,7 @@ __all__ = [
     "MemoryRateLimiterAdapter",
     "MemoryTokenBucket",
     "Outcome",
+    "PostgresRateLimiterAdapter",
     "RandomBackoff",
     "RateLimitExceededError",
     "RateLimitResult",
@@ -178,6 +182,10 @@ _LAZY: dict[str, tuple[str, str]] = {
     "MemoryTokenBucket": (
         "grelmicro.resilience.ratelimiter.memory",
         "MemoryTokenBucket",
+    ),
+    "PostgresRateLimiterAdapter": (
+        "grelmicro.resilience.ratelimiter.postgres",
+        "PostgresRateLimiterAdapter",
     ),
     "RedisRateLimiterAdapter": (
         "grelmicro.resilience.ratelimiter.redis",

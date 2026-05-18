@@ -5,11 +5,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from grelmicro import Grelmicro
+from grelmicro.providers._base import Provider
 from grelmicro.providers.postgres import (
     PostgresConfig,
     PostgresProvider,
     PostgresProviderConfigError,
 )
+from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.sync.postgres import PostgresSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -196,13 +198,20 @@ class TestBuilders:
         with pytest.raises(NotImplementedError, match="no cache adapter"):
             provider.cache()
 
-    def test_ratelimiter_factory_raises_not_implemented(self) -> None:
-        """`provider.ratelimiter()` raises (no Postgres rate limiter today)."""
+    def test_ratelimiter_factory_builds_postgres_adapter(self) -> None:
+        """`provider.ratelimiter()` builds a `PostgresRateLimiterAdapter`."""
+        provider = PostgresProvider(URL)
+        adapter = provider.ratelimiter()
+        assert isinstance(adapter, PostgresRateLimiterAdapter)
+        assert adapter.provider is provider
+
+    def test_base_ratelimiter_factory_raises_not_implemented(self) -> None:
+        """The base `Provider.ratelimiter` raises for providers that don't override it."""
         provider = PostgresProvider(URL)
         with pytest.raises(
             NotImplementedError, match="no rate limiter adapter"
         ):
-            provider.ratelimiter()
+            Provider.ratelimiter(provider)
 
     def test_breaker_factory_raises_not_implemented(self) -> None:
         """`provider.breaker()` raises (no Postgres circuit breaker today)."""
@@ -220,6 +229,20 @@ class TestRebindProvider:
         """PostgresSyncAdapter rebinds to a new provider."""
         monkeypatch.setenv("POSTGRES_URL", URL)
         adapter = PostgresSyncAdapter()
+        assert adapter._owns_provider is True
+        owned = PostgresProvider(URL)
+
+        adapter._rebind_provider(owned)
+
+        assert adapter.provider is owned
+        assert adapter._owns_provider is False
+
+    def test_ratelimiter_adapter_rebind(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PostgresRateLimiterAdapter rebinds to a new provider."""
+        monkeypatch.setenv("POSTGRES_URL", URL)
+        adapter = PostgresRateLimiterAdapter()
         assert adapter._owns_provider is True
         owned = PostgresProvider(URL)
 
