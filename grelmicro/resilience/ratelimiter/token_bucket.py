@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro.resilience.algorithms._base import _BaseRateLimiterConfig
+from grelmicro.resilience.ratelimiter._base import _BaseRateLimiterConfig
 
 
 class TokenBucketConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):

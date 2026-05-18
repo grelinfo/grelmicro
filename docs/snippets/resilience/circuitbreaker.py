@@ -1,6 +1,6 @@
 from grelmicro.resilience import CircuitBreaker
 
-circuit_breaker = CircuitBreaker(
+circuit_breaker = CircuitBreaker.consecutive_count(
     "system_name", ignore_exceptions=FileNotFoundError
 )
 

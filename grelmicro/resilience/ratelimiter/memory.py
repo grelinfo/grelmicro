@@ -1,29 +1,24 @@
-"""Memory Resilience Backends and standalone primitives."""
+"""Memory rate-limiter adapter and standalone primitives."""
 
-import asyncio
+from __future__ import annotations
+
 import math
 from threading import Lock
 from time import monotonic
-from types import TracebackType
 from typing import TYPE_CHECKING, Annotated, Self, assert_never
-from weakref import WeakSet
 
 from typing_extensions import Doc
 
 from grelmicro.resilience._protocol import (
-    CircuitBreakerBackend,
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import (
-    RateLimiterConfig,
-    SlidingWindowConfig,
-    TokenBucketConfig,
-)
+from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
+from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
 if TYPE_CHECKING:
-    from grelmicro.resilience.circuitbreaker import CircuitBreaker
+    from types import TracebackType
 
 _EVICTION_THRESHOLD = 1000
 
@@ -43,7 +38,7 @@ class MemoryTokenBucket:
 
     Example:
     ```python
-    from grelmicro.resilience.memory import MemoryTokenBucket
+    from grelmicro.resilience.ratelimiter.memory import MemoryTokenBucket
 
     bucket = MemoryTokenBucket(capacity=5, refill_rate=1)
 
@@ -170,23 +165,23 @@ class MemoryRateLimiterAdapter(RateLimiterBackend):
     """In-memory rate limiter adapter.
 
     Supports both
-    [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
-    and [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]
+    [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
+    and [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]
     algorithm configs. State is held in separate per-algorithm
     maps so two rate limiters with the same name but different
     algorithms cannot collide. Thread-safe.
 
     Use it for tests and single-process deployments. For
     distributed coordination, use
-    [`RedisRateLimiterAdapter`][grelmicro.resilience.redis.RedisRateLimiterAdapter].
+    [`RedisRateLimiterAdapter`][grelmicro.resilience.RedisRateLimiterAdapter].
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiter, TokenBucketConfig, use_backend
-    from grelmicro.resilience.memory import MemoryRateLimiterAdapter
+    from grelmicro.resilience import RateLimiters, RateLimiter
+    from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
-    use_backend(MemoryRateLimiterAdapter())
-    rl = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
+    micro = Grelmicro(uses=[RateLimiters(MemoryRateLimiterAdapter())])
+    rl = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
     ```
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
@@ -215,7 +210,10 @@ class MemoryRateLimiterAdapter(RateLimiterBackend):
             self._token_bucket_state.clear()
             self._gcra_state.clear()
 
-    def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
+    def bind(
+        self,
+        config: TokenBucketConfig | SlidingWindowConfig,
+    ) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.
 
         Called once by
@@ -422,44 +420,3 @@ class _MemoryGCRA(RateLimiterStrategy):
         """Async reset (GCRA)."""
         with self._lock:
             self._state.pop(key, None)
-
-
-class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
-    """In-memory circuit breaker adapter.
-
-    State for every breaker bound to this adapter is held in process.
-    Closing the adapter (typically through ``grelmicro.lifespan``)
-    resets every registered breaker so the next start begins on a
-    clean slate and any references the breaker still holds are
-    released.
-
-    Use it for tests and single-process deployments. A future
-    Redis-backed implementation will share state across replicas
-    (see issue #188).
-    """
-
-    def __init__(self) -> None:
-        """Initialize the circuit breaker adapter."""
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._breakers: WeakSet[CircuitBreaker] = WeakSet()
-
-    async def __aenter__(self) -> Self:
-        """Open the adapter and capture the running loop."""
-        self._loop = asyncio.get_running_loop()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        """Close the adapter, clearing every registered breaker."""
-        for breaker in list(self._breakers):
-            breaker._reset_state()  # noqa: SLF001
-        self._breakers.clear()
-        self._loop = None
-
-    def register(self, breaker: "CircuitBreaker") -> None:
-        """Bind a breaker so it is reset on close."""
-        self._breakers.add(breaker)

@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro.resilience.algorithms._base import _BaseRateLimiterConfig
+from grelmicro.resilience.ratelimiter._base import _BaseRateLimiterConfig
 
 
 class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
@@ -17,7 +17,7 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     HTTP API throttling with RFC 9211 `RateLimit-*` headers or
     legacy `X-RateLimit-*` headers. For the pattern "allow a burst
     of N, then 1 per second", use
-    [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+    [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
     instead.
 
     Example:

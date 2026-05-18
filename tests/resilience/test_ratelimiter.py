@@ -10,20 +10,20 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from grelmicro import ComponentNotRegisteredError, Grelmicro
-from grelmicro.resilience import RateLimit
+from grelmicro import Grelmicro
+from grelmicro.resilience import RateLimiters
 from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import (
+from grelmicro.resilience.errors import RateLimitExceededError
+from grelmicro.resilience.ratelimiter import (
+    RateLimiter,
     RateLimiterConfig,
     SlidingWindowConfig,
     TokenBucketConfig,
 )
-from grelmicro.resilience.errors import RateLimitExceededError
-from grelmicro.resilience.memory import MemoryRateLimiterAdapter
-from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 
 async def checkpoint() -> None:
@@ -43,7 +43,7 @@ REFILL_RATE = 1.0
 async def _backend() -> AsyncGenerator[MemoryRateLimiterAdapter]:
     """Open the in-memory backend inside an active `Grelmicro` app."""
     backend = MemoryRateLimiterAdapter()
-    async with Grelmicro(uses=[RateLimit(backend)]):
+    async with Grelmicro(uses=[RateLimiters(backend)]):
         yield backend
 
 
@@ -269,17 +269,18 @@ async def test_acquire_or_raise_with_cost(limiter: RateLimiter) -> None:
         await limiter.acquire_or_raise(key="user:1", cost=1)
 
 
-# --- Backend not loaded ---
+# --- Implicit Memory fallback when no Component is registered ---
 
 
-async def test_acquire_without_backend() -> None:
-    """RateLimiter construction succeeds. The error is deferred to first call."""
+async def test_acquire_falls_back_to_implicit_memory_adapter() -> None:
+    """RateLimiter resolves to a process-global memory adapter when no Component is registered."""
     rl = RateLimiter("test", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
 
-    # No `Grelmicro` app is open: first method call surfaces the missing-backend error
+    # No `Grelmicro` app open and no `RateLimiters` Component registered:
+    # the implicit per-process Memory adapter handles the call.
     async with Grelmicro():
-        with pytest.raises(ComponentNotRegisteredError):
-            await rl.acquire(key="k")
+        result = await rl.acquire(key="k")
+    assert result.allowed is True
 
 
 # --- Validation ---
@@ -334,7 +335,7 @@ async def test_explicit_backend_bypasses_app() -> None:
     registered = MemoryRateLimiterAdapter()
     my = MemoryRateLimiterAdapter()
 
-    async with Grelmicro(uses=[RateLimit(registered)]):
+    async with Grelmicro(uses=[RateLimiters(registered)]):
         rl = RateLimiter(
             "explicit",
             SlidingWindowConfig(limit=LIMIT, window=WINDOW),
@@ -569,7 +570,9 @@ async def test_sliding_window_strategy_evicts_expired_keys(
 ) -> None:
     """Test _MemoryGCRA eviction drops keys whose TAT has passed."""
     # Arrange
-    monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 1)
+    monkeypatch.setattr(
+        "grelmicro.resilience.ratelimiter.memory._EVICTION_THRESHOLD", 1
+    )
     backend = MemoryRateLimiterAdapter()
     limiter = RateLimiter(
         "evict",
@@ -593,7 +596,9 @@ async def test_token_bucket_strategy_evicts_full_keys(
 ) -> None:
     """Test _MemoryTokenBucket eviction drops keys at full capacity."""
     # Arrange
-    monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 2)
+    monkeypatch.setattr(
+        "grelmicro.resilience.ratelimiter.memory._EVICTION_THRESHOLD", 2
+    )
     backend = MemoryRateLimiterAdapter()
     limiter = RateLimiter(
         "evict",

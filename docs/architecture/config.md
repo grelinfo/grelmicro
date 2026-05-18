@@ -101,7 +101,7 @@ We keep `self._config` as the single source of truth. If a future profile shows 
 | `TaskLockConfig` | `grelmicro.sync.tasklock` |
 | `LeaderElectionConfig` | `grelmicro.sync.leaderelection` |
 | `CircuitBreakerConfig` | `grelmicro.resilience.circuitbreaker` |
-| `RateLimiterConfig` (discriminated union) | `grelmicro.resilience.algorithms` |
+| `RateLimiterConfig` (discriminated union) | `grelmicro.resilience.ratelimiter` |
 | `RateLimitFilterConfig` | `grelmicro.log` |
 | `DuplicateFilterConfig` | `grelmicro.log` |
 | `HealthChecksConfig` | `grelmicro.health` |

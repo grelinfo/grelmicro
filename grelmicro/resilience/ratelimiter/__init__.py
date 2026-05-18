@@ -1,11 +1,12 @@
 """Rate Limiter."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Annotated, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Self, assert_never
 
-from pydantic import PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
@@ -15,12 +16,37 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import (
-    RateLimiterConfig,
-    SlidingWindowConfig,
-    TokenBucketConfig,
-)
 from grelmicro.resilience.errors import RateLimitExceededError
+from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
+from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
+
+if TYPE_CHECKING:
+    from pydantic import Discriminator, PositiveFloat, PositiveInt
+
+    RateLimiterConfig = Annotated[
+        TokenBucketConfig | SlidingWindowConfig, Discriminator("kind")
+    ]
+    """Discriminated union of supported rate-limiter algorithm configurations."""
+
+__all__ = [
+    "RateLimiter",
+    "RateLimiterConfig",
+    "SlidingWindowConfig",
+    "TokenBucketConfig",
+]
+
+
+def __getattr__(name: str) -> object:
+    """PEP 562 lazy loader for the discriminated-union alias."""
+    if name == "RateLimiterConfig":
+        from pydantic import Discriminator  # noqa: PLC0415
+
+        return Annotated[
+            TokenBucketConfig | SlidingWindowConfig, Discriminator("kind")
+        ]
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +59,7 @@ class _State:
     strategy: RateLimiterStrategy | None
 
 
-class RateLimiter(Reconfigurable[RateLimiterConfig]):
+class RateLimiter(Reconfigurable["RateLimiterConfig"]):
     """Rate limiter with a pluggable algorithm.
 
     Most Python call sites should use the factory classmethods:
@@ -44,9 +70,9 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
 
     Construct it directly with the instance name and a discriminated
     algorithm configuration when a config object already exists:
-    [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+    [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
     for burst-friendly semantics, or
-    [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig] for
+    [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig] for
     precise sliding-window semantics.
 
     The algorithm is bound to the backend once at construction via
@@ -58,7 +84,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
     Example:
     ```python
     from grelmicro.resilience import RateLimiter
-    from grelmicro.resilience.memory import MemoryRateLimiterAdapter
+    from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
     MemoryRateLimiterAdapter()
     api = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
@@ -101,9 +127,9 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
                 or a `pydantic-settings` tree.
 
                 Pass a
-                [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+                [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
                 or a
-                [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig].
+                [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig].
                 Both carry algorithm parameters plus the shared
                 `fail_open` setting. The classes share a
                 discriminated `kind` field so serialization
@@ -148,17 +174,31 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
     def backend(self) -> RateLimiterBackend:
         """Bound rate-limiter backend, resolved on each call.
 
-        When a backend instance was passed at construction it is
-        always returned. Otherwise the active `Grelmicro` app is
-        consulted via `Grelmicro.current()` on every access so that
-        `micro.override(RateLimit(...))` blocks take effect.
+        Resolution order:
+        1. An explicit `backend=` passed at construction wins.
+        2. The active `Grelmicro` app is consulted via
+           `Grelmicro.current()` so that `micro.override(...)` blocks
+           take effect.
+        3. If no app is active or no `RateLimiters` Component is
+           registered, fall back to a process-global implicit
+           `MemoryRateLimiterAdapter`. For multi-replica production
+           you almost certainly want an explicit `RateLimiters(redis)`
+           Component to share quotas across the fleet.
         """
         if self._backend is not None:
             return self._backend
-        rl = Grelmicro.current().get(
-            "ratelimiter", self._backend_name or "default"
+        from grelmicro._app import (  # noqa: PLC0415
+            ComponentNotRegisteredError,
+            NoActiveAppError,
         )
-        return rl.backend
+
+        try:
+            component = Grelmicro.current().get(
+                "ratelimiter", self._backend_name or "default"
+            )
+        except (NoActiveAppError, ComponentNotRegisteredError):
+            return _implicit_backend()
+        return component.backend
 
     def _resolve_strategy(self, state: _State) -> RateLimiterStrategy:
         """Bind the algorithm config to the backend and republish the snapshot."""
@@ -237,7 +277,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         """Construct a token-bucket rate limiter.
 
         Convenience factory for the common case. Builds a
-        [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
+        [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
         internally and forwards to the constructor.
         """
         config = TokenBucketConfig(
@@ -285,7 +325,7 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
         """Construct a sliding-window rate limiter.
 
         Convenience factory for the common case. Builds a
-        [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]
+        [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]
         internally and forwards to the constructor.
         """
         config = SlidingWindowConfig(
@@ -468,3 +508,24 @@ def _validate_cost(cost: int, limit: int) -> None:
     if cost < 1 or cost > limit:
         msg = f"cost must be between 1 and {limit}, got {cost}"
         raise ValueError(msg)
+
+
+_IMPLICIT_BACKEND: RateLimiterBackend | None = None
+
+
+def _implicit_backend() -> RateLimiterBackend:
+    """Return the process-global implicit memory adapter.
+
+    Built lazily on first access. Used when no `RateLimiters`
+    Component is registered. For multi-replica production, prefer an
+    explicit `RateLimiters(redis)` Component so quotas are enforced
+    across the fleet rather than per-replica.
+    """
+    global _IMPLICIT_BACKEND  # noqa: PLW0603
+    if _IMPLICIT_BACKEND is None:
+        from grelmicro.resilience.ratelimiter.memory import (  # noqa: PLC0415
+            MemoryRateLimiterAdapter,
+        )
+
+        _IMPLICIT_BACKEND = MemoryRateLimiterAdapter()
+    return _IMPLICIT_BACKEND

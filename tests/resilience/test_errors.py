@@ -2,7 +2,11 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 import grelmicro.resilience as resilience_mod
+import grelmicro.resilience.circuitbreaker as cb_mod
+import grelmicro.resilience.ratelimiter as rl_mod
 from grelmicro.resilience.errors import CircuitBreakerError
 
 
@@ -28,13 +32,16 @@ def test_circuit_breaker_error() -> None:
 def test_resilience_module_exports() -> None:
     """Test resilience module __all__ contains expected symbols."""
     expected = {
-        "Breaker",
+        "CircuitBreakers",
         "CircuitBreaker",
         "CircuitBreakerBackend",
         "CircuitBreakerConfig",
         "CircuitBreakerError",
         "CircuitBreakerMetrics",
+        "CircuitBreakerSnapshot",
         "CircuitBreakerState",
+        "CircuitBreakerStrategy",
+        "ConsecutiveCountConfig",
         "ConstantBackoff",
         "ErrorDetails",
         "ExponentialBackoff",
@@ -42,16 +49,20 @@ def test_resilience_module_exports() -> None:
         "LinearBackoff",
         "Match",
         "Matcher",
+        "MemoryCircuitBreakerAdapter",
+        "MemoryRateLimiterAdapter",
         "MemoryTokenBucket",
         "Outcome",
         "RandomBackoff",
-        "RateLimit",
+        "RateLimiters",
         "RateLimitExceededError",
         "RateLimitResult",
         "RateLimiter",
         "RateLimiterBackend",
         "RateLimiterConfig",
         "RateLimiterStrategy",
+        "RedisCircuitBreakerAdapter",
+        "RedisRateLimiterAdapter",
         "ResilienceError",
         "ResilienceSettingsValidationError",
         "Retry",
@@ -65,3 +76,21 @@ def test_resilience_module_exports() -> None:
         "retrying",
     }
     assert set(resilience_mod.__all__) == expected
+
+
+def test_resilience_lazy_loader_unknown_attribute_raises() -> None:
+    """The top-level lazy loader raises `AttributeError` for unknown names."""
+    with pytest.raises(AttributeError, match=r"grelmicro\.resilience"):
+        _ = resilience_mod.NotAThing  # type: ignore[attr-defined]
+
+
+def test_circuitbreaker_lazy_loader_unknown_attribute_raises() -> None:
+    """The circuit-breaker subpackage loader rejects unknown names."""
+    with pytest.raises(AttributeError, match="circuitbreaker"):
+        _ = cb_mod.NotAThing  # type: ignore[attr-defined]
+
+
+def test_ratelimiter_lazy_loader_unknown_attribute_raises() -> None:
+    """The rate-limiter subpackage loader rejects unknown names."""
+    with pytest.raises(AttributeError, match="ratelimiter"):
+        _ = rl_mod.NotAThing  # type: ignore[attr-defined]

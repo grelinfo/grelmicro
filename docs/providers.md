@@ -2,7 +2,7 @@
 
 A **Provider** is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
-of both. Components like `Sync`, `Cache`, and `RateLimit` accept a
+of both. Components like `Sync`, `Cache`, and `RateLimiters` accept a
 Provider directly and use its canonical adapter under the hood.
 
 Two providers ship today: `RedisProvider` and `PostgresProvider`. More
@@ -16,7 +16,7 @@ Pass a Provider to every Component that needs the same connection:
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import RateLimit
+from grelmicro.resilience import RateLimiters
 from grelmicro.sync import Sync
 
 redis = RedisProvider("redis://localhost:6379/0")
@@ -25,7 +25,7 @@ micro = Grelmicro(uses=[
     redis,
     Sync(redis),
     Cache(redis),
-    RateLimit(redis),
+    RateLimiters(redis),
 ])
 
 async with micro:
@@ -136,7 +136,7 @@ Each Provider exposes factory methods that return its canonical adapter:
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Sync(provider)`, `Cache(provider)`,
-`RateLimit(provider)`, and `Breaker(provider)` call these factories.
+`RateLimiters(provider)`, and `CircuitBreakers(provider)` call these factories.
 
 ## Postgres
 
@@ -207,10 +207,10 @@ provider. Pass the adapter directly to its Component:
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.resilience import Breaker
-from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
+from grelmicro.resilience import CircuitBreakers
+from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
 
 micro = Grelmicro(uses=[
-    Breaker(MemoryCircuitBreakerAdapter()),
+    CircuitBreakers(MemoryCircuitBreakerAdapter()),
 ])
 ```

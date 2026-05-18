@@ -19,7 +19,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
 
     A `Provider` owns the native client (e.g. `redis.asyncio.Redis`,
     `asyncpg.Pool`) and the URL or credentials that built it. Components
-    (`Sync`, `Cache`, `RateLimit`, ...) accept a `Provider` and ask it for
+    (`Sync`, `Cache`, `RateLimiters`, ...) accept a `Provider` and ask it for
     the canonical adapter via the factory methods below.
 
     Subclasses implement any subset of the factory methods. Factories that
@@ -66,7 +66,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         """
         msg = (
             f"{type(self).__name__} has no rate limiter adapter. "
-            f"Pass a RateLimiterBackend instance to RateLimit(...) directly."
+            f"Pass a RateLimiterBackend instance to RateLimiters(...) directly."
         )
         raise NotImplementedError(msg)
 
@@ -79,6 +79,6 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         """
         msg = (
             f"{type(self).__name__} has no circuit breaker adapter. "
-            f"Pass a CircuitBreakerBackend instance to Breaker(...) directly."
+            f"Pass a CircuitBreakerBackend instance to CircuitBreakers(...) directly."
         )
         raise NotImplementedError(msg)

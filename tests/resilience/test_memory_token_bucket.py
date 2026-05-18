@@ -5,7 +5,7 @@ from time import monotonic
 
 import pytest
 
-from grelmicro.resilience.memory import MemoryTokenBucket
+from grelmicro.resilience.ratelimiter.memory import MemoryTokenBucket
 
 pytestmark = [pytest.mark.timeout(2)]
 
@@ -216,7 +216,9 @@ def test_eviction_when_threshold_exceeded(
 ) -> None:
     """Test lazy eviction drops full-capacity keys past threshold."""
     # Arrange
-    monkeypatch.setattr("grelmicro.resilience.memory._EVICTION_THRESHOLD", 2)
+    monkeypatch.setattr(
+        "grelmicro.resilience.ratelimiter.memory._EVICTION_THRESHOLD", 2
+    )
     bucket = MemoryTokenBucket(capacity=5, refill_rate=10)
     now = monotonic()
     # Seed two "old" entries whose refill has long reached capacity.

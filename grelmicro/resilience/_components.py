@@ -1,4 +1,4 @@
-"""Components for the Grelmicro app object: `RateLimit`, `Breaker`."""
+"""Components for the Grelmicro app object: `RateLimiters`, `CircuitBreakers`."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ if TYPE_CHECKING:
     )
 
 
-class RateLimit:
+class RateLimiters:
     """`RateLimiterBackend` wrapper exposing `(ratelimiter, name)` registration.
 
-    Registered on a `Grelmicro` app via `Grelmicro(uses=[RateLimit(redis)])`.
+    Registered on a `Grelmicro` app via `Grelmicro(uses=[RateLimiters(redis)])`.
     The active app resolves `RateLimiter` patterns to this Component's backend
     on every call.
 
@@ -31,10 +31,10 @@ class RateLimit:
         ```python
         from grelmicro import Grelmicro
         from grelmicro.providers.redis import RedisProvider
-        from grelmicro.resilience import RateLimit, RateLimiter
+        from grelmicro.resilience import RateLimiter, RateLimiters
 
         redis = RedisProvider("redis://localhost:6379/0")
-        micro = Grelmicro(uses=[redis, RateLimit(redis)])
+        micro = Grelmicro(uses=[redis, RateLimiters(redis)])
         api = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
 
         async with micro:
@@ -61,7 +61,7 @@ class RateLimit:
             str,
             Doc(
                 """
-                Registration name. Multiple `RateLimit` Components may coexist
+                Registration name. Multiple `RateLimiters` Components may coexist
                 on one `Grelmicro` under different names.
                 """,
             ),
@@ -94,25 +94,24 @@ class RateLimit:
         return await self._backend.__aexit__(exc_type, exc, tb)
 
 
-class Breaker:
+class CircuitBreakers:
     """`CircuitBreakerBackend` wrapper exposing `(circuitbreaker, name)` registration.
 
-    Registered on a `Grelmicro` app via `Grelmicro(uses=[Breaker(adapter)])`.
+    Registered on a `Grelmicro` app via `Grelmicro(uses=[CircuitBreakers(redis)])`.
     The active app resolves `CircuitBreaker` patterns to this Component's
     backend on every call.
 
-    Accepts a `Provider` or a `CircuitBreakerBackend`. The circuit breaker is
-    memory-only today, so the common form passes a `MemoryCircuitBreakerAdapter`
-    directly. The `Provider` overload is reserved for future Redis or
-    Postgres-backed circuit breakers.
+    Accepts a `Provider` or a `CircuitBreakerBackend`. When given a Provider,
+    the component calls `provider.breaker()` to build the canonical adapter.
 
     Example:
         ```python
         from grelmicro import Grelmicro
-        from grelmicro.resilience import Breaker, CircuitBreaker
-        from grelmicro.resilience.memory import MemoryCircuitBreakerAdapter
+        from grelmicro.providers.redis import RedisProvider
+        from grelmicro.resilience import CircuitBreaker, CircuitBreakers
 
-        micro = Grelmicro(uses=[Breaker(MemoryCircuitBreakerAdapter())])
+        redis = RedisProvider("redis://localhost:6379/0")
+        micro = Grelmicro(uses=[redis, CircuitBreakers(redis)])
         payment = CircuitBreaker("payment")
 
         async with micro:
@@ -131,8 +130,7 @@ class Breaker:
                 """
                 A `Provider` or a `CircuitBreakerBackend` instance. When a
                 Provider is given, the component calls `provider.breaker()` to
-                build the canonical adapter. First-party providers do not
-                ship a circuit breaker adapter today.
+                build the canonical adapter.
                 """,
             ),
         ],
@@ -141,7 +139,7 @@ class Breaker:
             str,
             Doc(
                 """
-                Registration name. Multiple `Breaker` Components may coexist
+                Registration name. Multiple `CircuitBreakers` Components may coexist
                 on one `Grelmicro` under different names.
                 """,
             ),

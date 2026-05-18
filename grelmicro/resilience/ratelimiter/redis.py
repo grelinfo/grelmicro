@@ -1,9 +1,9 @@
-"""Redis Rate Limiter Adapter."""
+"""Redis rate-limiter adapter."""
 
-from types import TracebackType
-from typing import Annotated, Any, Self, assert_never
+from __future__ import annotations
 
-from redis.asyncio import Redis
+from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
+
 from typing_extensions import Doc
 
 from grelmicro.providers.redis import RedisProvider
@@ -12,36 +12,35 @@ from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
 )
-from grelmicro.resilience.algorithms import (
-    RateLimiterConfig,
-    SlidingWindowConfig,
-    TokenBucketConfig,
-)
+from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
+from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
+
+if TYPE_CHECKING:
+    from types import TracebackType
+
+    from redis.asyncio import Redis
 
 
 class RedisRateLimiterAdapter(RateLimiterBackend):
     """Redis rate limiter adapter.
 
     Wraps a `RedisProvider` and supports both
-    [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]
-    and [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]
+    [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
+    and [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]
     algorithm configs via atomic Lua scripts. Safe across processes
     and machines.
 
     Example:
     ```python
     from grelmicro.providers.redis import RedisProvider
-    from grelmicro.resilience import RateLimiter, TokenBucketConfig
-    from grelmicro.resilience.redis import RedisRateLimiterAdapter
+    from grelmicro.resilience import RateLimiter
+    from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 
 
     async def main() -> None:
         provider = RedisProvider("redis://localhost:6379/0")
         async with RedisRateLimiterAdapter(provider=provider):
-            rl = RateLimiter(
-                "api",
-                TokenBucketConfig(capacity=10, refill_rate=1),
-            )
+            rl = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
             await rl.acquire(key="u1")
     ```
 
@@ -118,7 +117,10 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
-    def bind(self, config: RateLimiterConfig) -> RateLimiterStrategy:
+    def bind(
+        self,
+        config: TokenBucketConfig | SlidingWindowConfig,
+    ) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.
 
         Each strategy has its own Lua scripts. It registers them

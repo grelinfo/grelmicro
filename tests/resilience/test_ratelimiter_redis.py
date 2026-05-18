@@ -3,7 +3,7 @@
 import pytest
 
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience.redis import RedisRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 

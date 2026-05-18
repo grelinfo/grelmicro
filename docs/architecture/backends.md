@@ -11,7 +11,7 @@ Every backend uses **async** methods because it performs network or disk I/O (Re
 | Kind | Examples | Role |
 |---|---|---|
 | **Provider** | `RedisProvider`, `PostgresProvider` | Owns the connection pool and the vendor config. Components attach to it. |
-| **Component** | `Sync`, `Cache`, `RateLimit`, `Breaker` | Registration on a `Grelmicro` app: `(kind, name)` pair plus lifecycle. Accepts a Provider or a Backend. |
+| **Component** | `Sync`, `Cache`, `RateLimiters`, `CircuitBreakers` | Registration on a `Grelmicro` app: `(kind, name)` pair plus lifecycle. Accepts a Provider or a Backend. |
 | **Backend** | `SyncBackend`, `CacheBackend` (Protocol) | Pure interface. Memory backends (`MemorySyncAdapter`) implement it directly. |
 | **Adapter** | `RedisSyncAdapter`, `RedisCacheAdapter` | Internal. Built by `Provider.{kind}()` factory. Public escape hatch for custom Providers. |
 | **Pattern** | `Lock`, `TaskLock`, `LeaderElection`, `TTLCache` | The user-facing primitive. Declared at module load, resolves its backend at use time. |

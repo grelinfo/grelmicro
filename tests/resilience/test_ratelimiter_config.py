@@ -4,12 +4,12 @@ import pytest
 from pydantic import TypeAdapter
 
 from grelmicro.resilience import RateLimiter
-from grelmicro.resilience.algorithms import (
+from grelmicro.resilience.ratelimiter import (
     RateLimiterConfig,
     SlidingWindowConfig,
     TokenBucketConfig,
 )
-from grelmicro.resilience.memory import MemoryRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 LIMIT = 10
 WINDOW = 60.0

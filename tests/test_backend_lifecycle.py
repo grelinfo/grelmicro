@@ -8,7 +8,7 @@ from pytest_mock import MockerFixture
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience.redis import RedisRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 from grelmicro.sync.kubernetes import KubernetesSyncAdapter
 from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync.postgres import PostgresSyncAdapter

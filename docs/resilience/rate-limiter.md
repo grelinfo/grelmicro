@@ -30,10 +30,10 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 
 ### Decision guide
 
-1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]. It matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
-2. **Do you want "allow a burst of N, then 1 per second sustained"?** Use [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]. The `capacity` and `refill_rate` parameters describe exactly that.
-3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucketConfig`][grelmicro.resilience.algorithms.TokenBucketConfig]. The capacity absorbs the spike.
-4. **Did you search for "leaky bucket"?** Use [`SlidingWindowConfig`][grelmicro.resilience.algorithms.SlidingWindowConfig]. It is the leaky-bucket-as-meter formulation.
+1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]. It matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
+2. **Do you want "allow a burst of N, then 1 per second sustained"?** Use [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]. The `capacity` and `refill_rate` parameters describe exactly that.
+3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]. The capacity absorbs the spike.
+4. **Did you search for "leaky bucket"?** Use [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]. It is the leaky-bucket-as-meter formulation.
 
 ### Side-by-side
 

@@ -10,13 +10,13 @@ from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
 )
-from grelmicro.resilience.algorithms import (
+from grelmicro.resilience.ratelimiter import (
     RateLimiterConfig,
     SlidingWindowConfig,
     TokenBucketConfig,
 )
-from grelmicro.resilience.memory import MemoryRateLimiterAdapter
-from grelmicro.resilience.redis import RedisRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 
 pytestmark = [pytest.mark.timeout(30)]
 
