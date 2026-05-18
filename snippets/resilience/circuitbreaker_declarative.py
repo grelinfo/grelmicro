@@ -1,6 +1,6 @@
-from grelmicro.resilience import CircuitBreaker, CircuitBreakerConfig
+from grelmicro.resilience import CircuitBreaker, ConsecutiveCountConfig
 
-config = CircuitBreakerConfig(
+config = ConsecutiveCountConfig(
     error_threshold=10,
     reset_timeout=60.0,
     ignore_exceptions=(ValueError,),

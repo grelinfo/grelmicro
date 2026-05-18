@@ -1896,7 +1896,7 @@
 <h1 id="providers">Providers</h1>
 <p>A <strong>Provider</strong> is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
-of both. Components like <code>Sync</code>, <code>Cache</code>, and <code>RateLimit</code> accept a
+of both. Components like <code>Sync</code>, <code>Cache</code>, and <code>RateLimiters</code> accept a
 Provider directly and use its canonical adapter under the hood.</p>
 <p>Two providers ship today: <code>RedisProvider</code> and <code>PostgresProvider</code>. More
 will follow.</p>
@@ -1905,7 +1905,7 @@ will follow.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiters</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
@@ -1914,7 +1914,7 @@ will follow.</p>
     <span class="n">redis</span><span class="p">,</span>
     <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">RateLimit</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
 <span class="p">])</span>
 
 <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
@@ -2030,7 +2030,7 @@ client when the provider exits, useful in pytest fixtures:</p>
 </table>
 <p>Factories that do not apply raise <code>NotImplementedError</code> with a message
 pointing to the right alternative. <code>Sync(provider)</code>, <code>Cache(provider)</code>,
-<code>RateLimit(provider)</code>, and <code>Breaker(provider)</code> call these factories.</p>
+<code>RateLimiters(provider)</code>, and <code>CircuitBreakers(provider)</code> call these factories.</p>
 <h2 id="postgres">Postgres</h2>
 <p><code>PostgresProvider</code> ships the <code>.sync()</code> factory. The provider wraps an
 <code>asyncpg.Pool</code> and opens it lazily on <code>__aenter__</code>.</p>
@@ -2083,11 +2083,11 @@ the correct fix is to list the Provider first.</p>
 <code>MemoryRateLimiterAdapter</code>, <code>MemoryCircuitBreakerAdapter</code>) have no
 provider. Pass the adapter directly to its Component:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Breaker</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerAdapter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreakers</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerAdapter</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">Breaker</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()),</span>
+    <span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()),</span>
 <span class="p">])</span>
 </code></pre></div>
 

@@ -801,10 +801,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#programmatic" class="md-nav__link">
+  <a href="#factory-classmethod" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Programmatic
+        Factory classmethod
       
     </span>
   </a>
@@ -822,11 +822,28 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#environmental" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Environmental
+        Backend
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-vs-shared" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local vs. shared
       
     </span>
   </a>
@@ -1784,10 +1801,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#programmatic" class="md-nav__link">
+  <a href="#factory-classmethod" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Programmatic
+        Factory classmethod
       
     </span>
   </a>
@@ -1805,11 +1822,28 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#environmental" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Environmental
+        Backend
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-vs-shared" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local vs. shared
       
     </span>
   </a>
@@ -1891,7 +1925,7 @@
 <h2 id="usage">Usage</h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
 
-<span class="n">circuit_breaker</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span>
+<span class="n">circuit_breaker</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="o">.</span><span class="n">consecutive_count</span><span class="p">(</span>
     <span class="s2">&quot;system_name&quot;</span><span class="p">,</span> <span class="n">ignore_exceptions</span><span class="o">=</span><span class="ne">FileNotFoundError</span>
 <span class="p">)</span>
 
@@ -1921,11 +1955,11 @@
 </div>
 <p>See the <a href="../../reference/resilience/#grelmicro.resilience.CircuitBreaker">API reference</a> for every option.</p>
 <h2 id="configuration">Configuration</h2>
-<p><code>CircuitBreaker</code> follows the three-paths configuration contract.</p>
-<h3 id="programmatic">Programmatic</h3>
+<p><code>CircuitBreaker</code> exposes two construction paths.</p>
+<h3 id="factory-classmethod">Factory classmethod</h3>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
 
-<span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span>
+<span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="o">.</span><span class="n">consecutive_count</span><span class="p">(</span>
     <span class="s2">&quot;payments&quot;</span><span class="p">,</span>
     <span class="n">error_threshold</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
     <span class="n">success_threshold</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
@@ -1933,75 +1967,84 @@
 <span class="p">)</span>
 </code></pre></div>
 <h3 id="declarative">Declarative</h3>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">CircuitBreakerConfig</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">ConsecutiveCountConfig</span>
 
-<span class="n">config</span> <span class="o">=</span> <span class="n">CircuitBreakerConfig</span><span class="p">(</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">ConsecutiveCountConfig</span><span class="p">(</span>
     <span class="n">error_threshold</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
     <span class="n">reset_timeout</span><span class="o">=</span><span class="mf">60.0</span><span class="p">,</span>
     <span class="n">ignore_exceptions</span><span class="o">=</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">,),</span>
 <span class="p">)</span>
 <span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="s2">&quot;payments&quot;</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
 </code></pre></div>
-<h3 id="environmental">Environmental</h3>
-<p>Prefix: <code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_</code></p>
+<p>For environment-driven configuration, build a <code>ConsecutiveCountConfig</code> with <code>pydantic-settings</code> and pass it positionally to <code>CircuitBreaker.from_config(name, config)</code>.</p>
+<h2 id="backend">Backend</h2>
+<p>By default each replica keeps its own breaker state. A degraded downstream trips one replica's breaker without telling the others, and <code>error_threshold</code> errors must happen on every replica before the dependency stops being probed.</p>
+<p>Pass a shared <code>CircuitBreakers(redis_provider)</code> to fan that state out. The first replica to trip the breaker opens it for the fleet, the <code>half_open_capacity</code> admission cap is enforced globally so probes never exceed the cap across replicas, and manual <code>transition_to_*</code> calls are visible everywhere.</p>
+<div class="admonition tip">
+<p class="admonition-title">Install</p>
+<p>The Redis backend needs the <code>redis</code> extra: <code>pip install "grelmicro[redis]"</code>. See the <a href="../../installation/">installation guide</a> for <code>uv</code> and <code>poetry</code>.</p>
+</div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Redis (shared)</label><label for="__tabbed_1_2">Memory (per-replica)</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">CircuitBreakers</span>
+
+<span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">,</span> <span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
+
+<span class="n">payments</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;payments&quot;</span><span class="p">)</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>No setup required. When no <code>CircuitBreakers</code> is registered on the <code>Grelmicro</code> app, the breaker uses an in-process adapter and state is local to the replica.</p>
+</div>
+</div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Use environment variables for connection URLs in production, not hard-coded strings like the example above.</p>
+</div>
+<h3 id="local-vs-shared">Local vs. shared</h3>
 <table>
 <thead>
 <tr>
-<th>Env var</th>
-<th>Config field</th>
-<th>Type</th>
-<th>Default</th>
+<th></th>
+<th><strong>Memory (local)</strong></th>
+<th><strong>Redis (shared)</strong></th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_ERROR_THRESHOLD</code></td>
-<td><code>error_threshold</code></td>
-<td><code>int</code> (&gt; 0)</td>
-<td><code>5</code></td>
+<td>State scope</td>
+<td>Per replica</td>
+<td>Fleet-wide</td>
 </tr>
 <tr>
-<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_SUCCESS_THRESHOLD</code></td>
-<td><code>success_threshold</code></td>
-<td><code>int</code> (&gt; 0)</td>
-<td><code>2</code></td>
+<td>Half-open admission cap</td>
+<td>Enforced per replica</td>
+<td>Enforced globally</td>
 </tr>
 <tr>
-<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_RESET_TIMEOUT</code></td>
-<td><code>reset_timeout</code></td>
-<td><code>float</code> (&gt; 0)</td>
-<td><code>30.0</code></td>
+<td>Manual <code>transition_to_*</code></td>
+<td>Visible to one replica</td>
+<td>Visible to every replica</td>
 </tr>
 <tr>
-<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_HALF_OPEN_CAPACITY</code></td>
-<td><code>half_open_capacity</code></td>
-<td><code>int</code> (&gt; 0)</td>
-<td><code>1</code></td>
+<td><code>last_error</code> / <code>last_error_time</code></td>
+<td>Per replica</td>
+<td>Per replica</td>
 </tr>
 <tr>
-<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_LOG_LEVEL</code></td>
-<td><code>log_level</code></td>
-<td><code>str</code></td>
-<td><code>"WARNING"</code></td>
-</tr>
-<tr>
-<td><code>GREL_CIRCUIT_BREAKER_{NAME_UPPER}_IGNORE_EXCEPTIONS</code></td>
-<td><code>ignore_exceptions</code></td>
-<td>CSV or JSON list of FQN strings (e.g. <code>builtins.ValueError,my_app.errors.PaymentError</code> or <code>'["builtins.ValueError"]'</code>)</td>
-<td><code>[]</code></td>
+<td><code>total_error_count</code> / <code>total_success_count</code></td>
+<td>Per replica</td>
+<td>Per replica</td>
 </tr>
 </tbody>
 </table>
-<p>Concrete example for <code>CircuitBreaker("payments")</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">GREL_CIRCUIT_BREAKER_PAYMENTS_ERROR_THRESHOLD</span><span class="o">=</span><span class="m">10</span>
-<span class="nv">GREL_CIRCUIT_BREAKER_PAYMENTS_RESET_TIMEOUT</span><span class="o">=</span><span class="m">60</span>
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
-
-<span class="c1"># GREL_CIRCUIT_BREAKER_PAYMENTS_ERROR_THRESHOLD=10</span>
-<span class="c1"># GREL_CIRCUIT_BREAKER_PAYMENTS_RESET_TIMEOUT=60</span>
-<span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;payments&quot;</span><span class="p">)</span>
-</code></pre></div>
+<p>Use the shared backend when one replica's circuit decision should short-circuit the rest. Use local-only when each replica's downstream is independent (per-shard databases, per-zone caches).</p>
+<p>When Redis is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with <a href="../retry/"><code>Retry</code></a> or a Fallback Pattern if you need a degraded path during a Redis outage.</p>
 
 
 
