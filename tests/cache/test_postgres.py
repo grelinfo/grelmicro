@@ -150,6 +150,15 @@ def test_auto_migrate_flag() -> None:
     assert backend._auto_migrate is False
 
 
+@pytest.mark.parametrize("interval", [0, 0.0, -1, -0.5])
+def test_cleanup_interval_non_positive_raises(interval: float) -> None:
+    """`cleanup_interval` must be positive when set."""
+    with pytest.raises(ValueError, match="cleanup_interval must be positive"):
+        PostgresCacheAdapter(
+            provider=PostgresProvider(URL), cleanup_interval=interval
+        )
+
+
 def test_cleanup_interval_default_off() -> None:
     """The janitor is off by default."""
     backend = PostgresCacheAdapter(provider=PostgresProvider(URL))

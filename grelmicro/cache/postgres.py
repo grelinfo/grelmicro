@@ -137,6 +137,10 @@ class PostgresCacheAdapter:
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise ValueError(msg)
 
+        if cleanup_interval is not None and cleanup_interval <= 0:
+            msg = f"cleanup_interval must be positive, got {cleanup_interval!r}"
+            raise ValueError(msg)
+
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
             self._owns_provider = True
