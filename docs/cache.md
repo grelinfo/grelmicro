@@ -14,7 +14,7 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
 `RedisProvider` directly to `Cache(...)`.
 
 !!! tip "Install"
-    The Redis backend needs the `redis` extra: `pip install "grelmicro[redis]"`. See the [installation guide](installation.md) for `uv` and `poetry`.
+    The Redis backend needs the `redis` extra and the Postgres backend needs the `postgres` extra: `pip install "grelmicro[redis]"` or `pip install "grelmicro[postgres]"`. See the [installation guide](installation.md) for `uv` and `poetry`.
 
 === "Memory"
     ```python
@@ -35,7 +35,25 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
     micro = Grelmicro(uses=[redis, Cache(redis)])
     ```
 
+=== "Postgres"
+    ```python
+    from grelmicro import Grelmicro
+    from grelmicro.cache import Cache
+    from grelmicro.providers.postgres import PostgresProvider
+
+    postgres = PostgresProvider("postgresql://localhost:5432/app")
+    micro = Grelmicro(uses=[postgres, Cache(postgres)])
+    ```
+
 `async with micro:` opens the provider and the cache backend together.
+
+| | Redis | Postgres | Memory |
+|---|---|---|---|
+| **Use case** | Production | Production (when Postgres is already deployed) | Testing / single-process |
+| **Multi-node** | Yes | Yes | No |
+| **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | No |
+
+The Postgres adapter stores entries in a single `grelmicro_cache` table keyed on `key TEXT PRIMARY KEY` with `value BYTEA` and `expires_at TIMESTAMPTZ`. `get` filters expired rows with `WHERE expires_at > NOW()`, `set` is one `INSERT ... ON CONFLICT DO UPDATE`, `delete` and `clear` are single statements. The table is created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema. Set `cleanup_interval=` to enable a background janitor that reclaims rows expired for more than one hour.
 
 ## TTLCache
 

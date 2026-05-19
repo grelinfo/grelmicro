@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from grelmicro import Grelmicro
+from grelmicro.cache.postgres import PostgresCacheAdapter
 from grelmicro.providers._base import Provider
 from grelmicro.providers.postgres import (
     PostgresConfig,
@@ -192,11 +193,12 @@ class TestBuilders:
         assert adapter.provider is provider
         assert adapter._owns_provider is False
 
-    def test_cache_factory_raises_not_implemented(self) -> None:
-        """`provider.cache()` raises (no Postgres cache adapter today)."""
+    def test_cache_factory_builds_postgres_adapter(self) -> None:
+        """`provider.cache()` builds a `PostgresCacheAdapter`."""
         provider = PostgresProvider(URL)
-        with pytest.raises(NotImplementedError, match="no cache adapter"):
-            provider.cache()
+        adapter = provider.cache()
+        assert isinstance(adapter, PostgresCacheAdapter)
+        assert adapter.provider is provider
 
     def test_ratelimiter_factory_builds_postgres_adapter(self) -> None:
         """`provider.ratelimiter()` builds a `PostgresRateLimiterAdapter`."""
@@ -212,6 +214,12 @@ class TestBuilders:
             NotImplementedError, match="no rate limiter adapter"
         ):
             Provider.ratelimiter(provider)
+
+    def test_base_cache_factory_raises_not_implemented(self) -> None:
+        """The base `Provider.cache` raises for providers that don't override it."""
+        provider = PostgresProvider(URL)
+        with pytest.raises(NotImplementedError, match="no cache adapter"):
+            Provider.cache(provider)
 
     def test_breaker_factory_raises_not_implemented(self) -> None:
         """`provider.breaker()` raises (no Postgres circuit breaker today)."""

@@ -4,6 +4,7 @@
 
 ### Features
 
+* ✨ Add `PostgresCacheAdapter` for Postgres-backed cache storage. Register via `Grelmicro(uses=[postgres, Cache(postgres)])`. Entries land in a single `grelmicro_cache` table keyed on `key TEXT PRIMARY KEY` with `value BYTEA` and `expires_at TIMESTAMPTZ`. `get` filters expired rows with `WHERE expires_at > NOW()`, `set` is one `INSERT ... ON CONFLICT DO UPDATE`. Schema auto-migrates on first connect, opt out with `auto_migrate=False`. Optional janitor reclaims storage when `cleanup_interval=` is set (off by default). Issue [#167](https://github.com/grelinfo/grelmicro/issues/167).
 * ✨ Add `PostgresRateLimiterAdapter` for fleet-wide rate limiting on Postgres. Register via `Grelmicro(uses=[postgres, RateLimiters(postgres)])` and `RateLimiter.token_bucket(...)` or `RateLimiter.sliding_window(...)` runs against a single `grelmicro_rate_limiter` table. `acquire` and `peek` each run one round-trip to a PL/pgSQL function. Concurrent writes for the same key are serialized with `pg_advisory_xact_lock`. Schema and functions auto-migrate on first connect, opt out with `auto_migrate=False`. Issue [#164](https://github.com/grelinfo/grelmicro/issues/164).
 
 ## 0.24.0 - 2026-05-18

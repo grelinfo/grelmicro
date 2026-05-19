@@ -24,3 +24,8 @@
     options:
       members:
         - RedisCacheAdapter
+
+::: grelmicro.cache.postgres
+    options:
+      members:
+        - PostgresCacheAdapter
