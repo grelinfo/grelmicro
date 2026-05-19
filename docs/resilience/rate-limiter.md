@@ -89,7 +89,7 @@ Load a backend before using `RateLimiter`. The same backend serves every algorit
 | **Multi-node** | Yes | Yes | No |
 | **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | No |
 
-The Postgres adapter stores state in a single `grelmicro_rate_limiter` table and runs each `acquire`, `peek`, and `reset` as one round-trip to a PL/pgSQL function. Concurrent writers for the same key are serialized with `pg_advisory_xact_lock`. The table and functions are created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema.
+The Postgres adapter stores state in a single `grelmicro_rate_limiter` table. `acquire` and `peek` each run one round-trip to a PL/pgSQL function. Concurrent writes for the same key are serialized with `pg_advisory_xact_lock`. `reset` clears the key with a plain `DELETE`. The table and functions are created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema.
 
 The backend compiles the algorithm into a bound strategy at `RateLimiter.__init__` through `backend.bind(config)`. Runtime `acquire`, `peek`, and `reset` calls invoke that strategy directly. **There is no algorithm dispatch on the request path.**
 

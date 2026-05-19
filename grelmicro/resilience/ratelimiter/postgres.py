@@ -28,8 +28,9 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
     Wraps a `PostgresProvider` and supports both
     [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
     and [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]
-    algorithm configs via PL/pgSQL functions guarded by
-    `pg_advisory_xact_lock`. Safe across processes and machines.
+    algorithm configs via PL/pgSQL functions. Concurrent writes for
+    the same key are serialized with `pg_advisory_xact_lock`. Safe
+    across processes and machines.
 
     Example:
     ```python
@@ -42,7 +43,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
 
     async def main() -> None:
         provider = PostgresProvider("postgresql://localhost:5432/app")
-        async with PostgresRateLimiterAdapter(provider=provider):
+        async with provider, PostgresRateLimiterAdapter(provider=provider):
             rl = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
             await rl.acquire(key="u1")
     ```
@@ -456,13 +457,13 @@ class _PostgresGCRA(RateLimiterStrategy):
 class _PostgresTokenBucket(RateLimiterStrategy):
     """Postgres token-bucket strategy. Private.
 
-    Continuous refill by `refill_rate` (tokens/sec). Each call runs
-    one round-trip to a PL/pgSQL function that holds
-    `pg_advisory_xact_lock(hashtext(key))` while it reads, refills,
-    decrements, and writes the new state. Prepends a per-algorithm
-    discriminator to every key so a token-bucket limiter and a GCRA
-    limiter sharing the same name cannot collide on the shared
-    `{table_name}` table.
+    Continuous refill by `refill_rate` (tokens/sec). `acquire` runs
+    a PL/pgSQL function that holds `pg_advisory_xact_lock(hashtext(key))`
+    while it reads, refills, decrements, and writes the new state.
+    `peek` reads the same state without locking. Prepends a
+    per-algorithm discriminator to every key so a token-bucket
+    limiter and a GCRA limiter sharing the same name cannot collide
+    on the shared `{table_name}` table.
     """
 
     _ALGO_PREFIX = "tb:"
