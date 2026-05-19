@@ -16,6 +16,9 @@ from grelmicro.providers._base import Provider
 if TYPE_CHECKING:
     from types import TracebackType
 
+    from grelmicro.resilience.ratelimiter.postgres import (
+        PostgresRateLimiterAdapter,
+    )
     from grelmicro.sync.postgres import PostgresSyncAdapter
 
 
@@ -223,6 +226,14 @@ class PostgresProvider(Provider):
         from grelmicro.sync.postgres import PostgresSyncAdapter  # noqa: PLC0415
 
         return PostgresSyncAdapter(provider=self, **kwargs)
+
+    def ratelimiter(self, **kwargs: Any) -> PostgresRateLimiterAdapter:  # noqa: ANN401
+        """Build a `PostgresRateLimiterAdapter` bound to this provider."""
+        from grelmicro.resilience.ratelimiter.postgres import (  # noqa: PLC0415
+            PostgresRateLimiterAdapter,
+        )
+
+        return PostgresRateLimiterAdapter(provider=self, **kwargs)
 
     async def __aenter__(self) -> Self:
         """Open the asyncpg pool when the provider owns it."""

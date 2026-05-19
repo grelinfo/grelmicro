@@ -25,6 +25,7 @@
         - MemoryRateLimiterAdapter
         - MemoryTokenBucket
         - Outcome
+        - PostgresRateLimiterAdapter
         - RandomBackoff
         - RateLimiters
         - RateLimiter

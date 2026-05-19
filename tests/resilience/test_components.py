@@ -15,6 +15,7 @@ from grelmicro.resilience.circuitbreaker.redis import (
     RedisCircuitBreakerAdapter,
 )
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 
 
@@ -76,11 +77,12 @@ def test_ratelimit_accepts_redis_provider() -> None:
     assert component.backend.provider is provider
 
 
-def test_ratelimit_with_postgres_provider_raises() -> None:
-    """`RateLimiters(PostgresProvider(...))` raises `NotImplementedError`."""
+def test_ratelimit_accepts_postgres_provider() -> None:
+    """`RateLimiters(PostgresProvider(...))` calls `provider.ratelimiter()` to build the adapter."""
     provider = PostgresProvider("postgresql://localhost:5432/app")
-    with pytest.raises(NotImplementedError, match="no rate limiter adapter"):
-        RateLimiters(provider)
+    component = RateLimiters(provider)
+    assert isinstance(component.backend, PostgresRateLimiterAdapter)
+    assert component.backend.provider is provider
 
 
 def test_breaker_with_postgres_provider_raises() -> None:
