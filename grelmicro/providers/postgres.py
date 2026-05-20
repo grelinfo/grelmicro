@@ -16,6 +16,7 @@ from grelmicro.providers._base import Provider
 if TYPE_CHECKING:
     from types import TracebackType
 
+    from grelmicro.cache.postgres import PostgresCacheAdapter
     from grelmicro.resilience.ratelimiter.postgres import (
         PostgresRateLimiterAdapter,
     )
@@ -226,6 +227,14 @@ class PostgresProvider(Provider):
         from grelmicro.sync.postgres import PostgresSyncAdapter  # noqa: PLC0415
 
         return PostgresSyncAdapter(provider=self, **kwargs)
+
+    def cache(self, **kwargs: Any) -> PostgresCacheAdapter:  # noqa: ANN401
+        """Build a `PostgresCacheAdapter` bound to this provider."""
+        from grelmicro.cache.postgres import (  # noqa: PLC0415
+            PostgresCacheAdapter,
+        )
+
+        return PostgresCacheAdapter(provider=self, **kwargs)
 
     def ratelimiter(self, **kwargs: Any) -> PostgresRateLimiterAdapter:  # noqa: ANN401
         """Build a `PostgresRateLimiterAdapter` bound to this provider."""

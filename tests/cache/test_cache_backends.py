@@ -4,14 +4,18 @@ from asyncio import sleep
 from collections.abc import AsyncGenerator, Generator
 
 import pytest
+from testcontainers.core.container import DockerContainer
+from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.postgres import PostgresCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
+from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 
 pytestmark = [pytest.mark.timeout(30)]
@@ -24,6 +28,7 @@ pytestmark = [pytest.mark.timeout(30)]
     params=[
         "memory",
         pytest.param("redis", marks=[pytest.mark.integration]),
+        pytest.param("postgres", marks=[pytest.mark.integration]),
     ],
     scope="module",
 )
@@ -35,18 +40,21 @@ def backend_name(request: pytest.FixtureRequest) -> str:
 @pytest.fixture(scope="module")
 def container(
     backend_name: str,
-) -> Generator[RedisContainer | None, None, None]:
-    """Docker container (only for Redis)."""
+) -> Generator[DockerContainer | None, None, None]:
+    """Docker container (only for Redis and Postgres)."""
     if backend_name == "redis":
         with RedisContainer() as redis_container:
             yield redis_container
+    elif backend_name == "postgres":
+        with PostgresContainer() as pg_container:
+            yield pg_container
     else:
         yield None
 
 
 @pytest.fixture(scope="module")
 async def backend(
-    backend_name: str, container: RedisContainer | None
+    backend_name: str, container: DockerContainer | None
 ) -> AsyncGenerator[CacheBackend]:
     """Cache backend instance."""
     if backend_name == "redis" and container:
@@ -56,6 +64,18 @@ async def backend(
             prefix="test:",
         ) as redis_backend:
             yield redis_backend
+    elif backend_name == "postgres" and container:
+        port = container.get_exposed_port(5432)
+        provider = PostgresProvider(
+            f"postgresql://test:test@localhost:{port}/test"
+        )
+        async with (
+            provider,
+            PostgresCacheAdapter(
+                provider=provider, prefix="test:"
+            ) as pg_backend,
+        ):
+            yield pg_backend
     elif backend_name == "memory":
         async with MemoryCacheAdapter() as memory_backend:
             yield memory_backend
@@ -154,6 +174,59 @@ async def test_redis_prefix_isolation() -> None:
 
 
 # --- End-to-end: TTLCache + @cached ---
+
+
+@pytest.mark.integration
+async def test_postgres_prefix_isolation() -> None:
+    """Test that clearing one prefix does not affect another."""
+    with PostgresContainer() as pg_container:
+        port = pg_container.get_exposed_port(5432)
+        url = f"postgresql://test:test@localhost:{port}/test"
+        async with (
+            PostgresProvider(url) as provider,
+            PostgresCacheAdapter(provider=provider, prefix="alpha:") as alpha,
+            PostgresCacheAdapter(provider=provider, prefix="beta:") as beta,
+        ):
+            await alpha.set(key="k", value=b"alpha", ttl=60)
+            await beta.set(key="k", value=b"beta", ttl=60)
+
+            await alpha.clear()
+
+            assert await alpha.get(key="k") is None
+            assert await beta.get(key="k") == b"beta"
+
+
+@pytest.mark.integration
+async def test_cached_end_to_end_with_postgres() -> None:
+    """Test @cached with TTLCache backed by Postgres."""
+    with PostgresContainer() as pg_container:
+        port = pg_container.get_exposed_port(5432)
+        url = f"postgresql://test:test@localhost:{port}/test"
+        async with (
+            PostgresProvider(url) as provider,
+            PostgresCacheAdapter(
+                provider=provider, prefix="e2e:"
+            ) as pg_backend,
+        ):
+            cache = TTLCache(
+                ttl=60,
+                backend=pg_backend,
+                serializer=JsonSerializer(),
+            )
+            call_count = 0
+
+            @cached(cache, lock=True)
+            async def fetch_user(user_id: int) -> dict:
+                nonlocal call_count
+                call_count += 1
+                return {"id": user_id}
+
+            first = await fetch_user(1)
+            second = await fetch_user(1)
+
+            assert first == {"id": 1}
+            assert second == {"id": 1}
+            assert call_count == 1
 
 
 @pytest.mark.integration
