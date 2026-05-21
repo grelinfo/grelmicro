@@ -4,6 +4,8 @@
 
 ### Features
 
+* ✨ Add `Timeout` reconfigurable resilience pattern. `Timeout("db", seconds=2.0)` wraps `asyncio.timeout`, usable as an async context manager (`async with db_timeout:`) or decorator on async functions. `TimeoutConfig` is a frozen three-paths Pydantic config with `seconds: PositiveFloat`. Env prefix `GREL_TIMEOUT_{NAME_UPPER}_`. Inherits `Reconfigurable[TimeoutConfig]` for live deadline swaps. Issue [#176](https://github.com/grelinfo/grelmicro/issues/176).
+
 * ✨ Add `Fallback` primitive with decorator, block, and class forms. `@fallback(when=..., default=...)` / `@fallback(when=..., factory=...)` swap a matched exception for a safe value. `async with falling_back(when=..., default=...) as result:` covers inline blocks. `Fallback("name", when=..., default=...)` is the named, reconfigurable class form. `FallbackConfig` is a frozen three-paths Pydantic config with `default` / `factory` mutually exclusive. `when=` matches Retry's keyword so the `Match` DSL stays universal. Composition order documented in [Composing patterns](resilience/composition.md). Issue [#199](https://github.com/grelinfo/grelmicro/issues/199).
 
 * ✨ Add `PostgresCacheAdapter` for Postgres-backed cache storage. Register via `Grelmicro(uses=[postgres, Cache(postgres)])`. Entries land in a single `grelmicro_cache` table keyed on `key TEXT PRIMARY KEY` with `value BYTEA` and `expires_at TIMESTAMPTZ`. `get` filters expired rows with `WHERE expires_at > NOW()`, `set` is one `INSERT ... ON CONFLICT DO UPDATE`. Schema auto-migrates on first connect, opt out with `auto_migrate=False`. Optional janitor reclaims storage when `cleanup_interval=` is set (off by default). Issue [#167](https://github.com/grelinfo/grelmicro/issues/167).

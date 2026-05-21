@@ -96,6 +96,7 @@ if TYPE_CHECKING:
         retry,
         retrying,
     )
+    from grelmicro.resilience.timeout import Timeout, TimeoutConfig
 
 __all__ = [
     "CircuitBreaker",
@@ -141,6 +142,8 @@ __all__ = [
     "RetryConfig",
     "RetryStrategy",
     "SlidingWindowConfig",
+    "Timeout",
+    "TimeoutConfig",
     "TokenBucketConfig",
     "fallback",
     "falling_back",
@@ -216,6 +219,9 @@ _LAZY: dict[str, tuple[str, str]] = {
     "Fallback": ("grelmicro.resilience.fallback", "Fallback"),
     "FallbackConfig": ("grelmicro.resilience.fallback", "FallbackConfig"),
     "FallbackResult": ("grelmicro.resilience.fallback", "FallbackResult"),
+    # Timeout
+    "Timeout": ("grelmicro.resilience.timeout", "Timeout"),
+    "TimeoutConfig": ("grelmicro.resilience.timeout", "TimeoutConfig"),
     # `retry` and `retrying` are imported eagerly above to win the
     # shadow-conflict with the submodule of the same name.
     # Backoff configs (retry-specific)

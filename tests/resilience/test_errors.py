@@ -75,6 +75,8 @@ def test_resilience_module_exports() -> None:
         "RetryConfig",
         "RetryStrategy",
         "SlidingWindowConfig",
+        "Timeout",
+        "TimeoutConfig",
         "TokenBucketConfig",
         "fallback",
         "falling_back",
