@@ -738,6 +738,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -822,6 +828,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../resilience/fallback/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fallback
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../resilience/rate-limiter/" class="md-nav__link">
         
   
@@ -858,6 +892,62 @@
     
   
     Retry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resilience/timeout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timeout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resilience/composition/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composing patterns
   
 
     
@@ -1786,7 +1876,7 @@
 <p>The <a href="https://github.com/grelinfo/grelmicro/issues/124">roadmap</a> and the <a href="https://github.com/grelinfo/grelmicro/milestones">milestones</a> carry the live state. This page is the at-a-glance view.</p>
 <h2 id="vocabulary">Vocabulary</h2>
 <ul>
-<li><strong>Pattern</strong>: user-facing class. <code>Lock</code>, <code>LeaderElection</code>, <code>TaskLock</code>, <code>TTLCache</code>, <code>RateLimiter</code>, <code>CircuitBreaker</code>, <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>.</li>
+<li><strong>Pattern</strong>: user-facing class. <code>Lock</code>, <code>LeaderElection</code>, <code>TaskLock</code>, <code>TTLCache</code>, <code>RateLimiter</code>, <code>CircuitBreaker</code>, <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>, <code>Timeout</code>.</li>
 <li><strong>Adapter</strong>: concrete implementation of a Backend Protocol. <code>RedisSyncAdapter</code>, <code>PostgresSyncAdapter</code>, <code>MemoryCacheAdapter</code>, <code>SQLiteSyncAdapter</code>, <code>KubernetesSyncAdapter</code>, and so on.</li>
 <li><strong>Backend</strong>: the Protocol class an Adapter satisfies. <code>SyncBackend</code>, <code>CacheBackend</code>, <code>RateLimiterBackend</code>, <code>CircuitBreakerBackend</code>.</li>
 <li><strong>Provider</strong>: vendor configuration plus native client, shared by Adapters that talk to the same service. <code>RedisProvider</code>, <code>PostgresProvider</code>. Memory, SQLite, and Kubernetes Adapters do not use a Provider.</li>
@@ -1833,7 +1923,7 @@
 <td><code>TTLCache</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
-<td style="text-align: center;"><a href="https://github.com/grelinfo/grelmicro/issues/167">#167</a></td>
+<td style="text-align: center;">✅</td>
 <td style="text-align: center;">Future</td>
 <td style="text-align: center;">N/A</td>
 </tr>
@@ -1841,7 +1931,7 @@
 <td><code>RateLimiter</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
-<td style="text-align: center;"><a href="https://github.com/grelinfo/grelmicro/issues/164">#164</a></td>
+<td style="text-align: center;">✅</td>
 <td style="text-align: center;"><a href="https://github.com/grelinfo/grelmicro/issues/173">#173</a></td>
 <td style="text-align: center;">N/A</td>
 </tr>
@@ -1871,7 +1961,15 @@
 </tr>
 <tr>
 <td><code>Fallback</code></td>
-<td style="text-align: center;"><a href="https://github.com/grelinfo/grelmicro/issues/199">#199</a></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">N/A</td>
+</tr>
+<tr>
+<td><code>Timeout</code></td>
+<td style="text-align: center;">✅</td>
 <td style="text-align: center;">N/A</td>
 <td style="text-align: center;">N/A</td>
 <td style="text-align: center;">N/A</td>
@@ -1884,13 +1982,13 @@
 <li>✅ ships today.</li>
 <li><code>#N</code> planned for <code>1.0.0</code>, tracked by the linked issue.</li>
 <li><code>Future</code> planned past <code>1.0.0</code>.</li>
-<li><code>N/A</code> does not apply. <code>Retry</code>, <code>Bulkhead</code>, and <code>Fallback</code> are in-process Patterns with no remote state to share.</li>
+<li><code>N/A</code> does not apply. <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>, and <code>Timeout</code> are in-process Patterns with no remote state to share.</li>
 </ul>
 <h2 id="what-100-commits-to">What <code>1.0.0</code> commits to</h2>
 <p>Closing every gap above that links to an issue. Anything marked <code>Future</code> is out of scope for <code>1.0.0</code>.</p>
 <h2 id="picking-an-adapter">Picking an Adapter</h2>
 <ul>
-<li><strong>Memory</strong> for tests, single-process apps, and <code>Retry</code> (the only in-process Pattern that ships today). <code>Bulkhead</code> and <code>Fallback</code> will join this group at <code>1.0.0</code>.</li>
+<li><strong>Memory</strong> for tests, single-process apps, and <code>Retry</code>, <code>Fallback</code>, and <code>Timeout</code> (in-process Patterns that ship today). <code>Bulkhead</code> will join this group at <code>1.0.0</code>.</li>
 <li><strong>Redis</strong> when you already run Redis and want the lowest-latency distributed option.</li>
 <li><strong>Postgres</strong> when Postgres is your only stateful dependency and you want one fewer service to run.</li>
 <li><strong>SQLite</strong> for single-host deployments that still need durability across restarts.</li>

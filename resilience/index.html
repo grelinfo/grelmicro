@@ -651,6 +651,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -735,6 +741,34 @@
   
   
     <li class="md-nav__item">
+      <a href="fallback/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fallback
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="rate-limiter/" class="md-nav__link">
         
   
@@ -771,6 +805,62 @@
     
   
     Retry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="timeout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timeout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="composition/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composing patterns
   
 
     
@@ -1665,9 +1755,12 @@
 <p>The <code>resilience</code> package provides primitives that help your services handle failures in distributed systems. Each pattern is independent. Use the ones you need and skip the rest.</p>
 <ul>
 <li><a href="circuit-breaker/"><strong>Circuit Breaker</strong></a>: detect repeated failures in a downstream call and stop sending requests long enough for it to recover. This prevents cascading failures.</li>
+<li><a href="fallback/"><strong>Fallback</strong></a>: return a safe default value when a call fails. Pluggable filter (any <code>Match</code>), static default or factory callable, decorator and block forms.</li>
 <li><a href="rate-limiter/"><strong>Rate Limiter</strong></a>: cap how many requests a client can make per window. Pluggable algorithm (<code>TokenBucketConfig</code> or <code>SlidingWindowConfig</code>), pluggable backend (<code>Memory</code> or <code>Redis</code>), with a result shape that maps directly to HTTP rate limit headers.</li>
 <li><a href="retry/"><strong>Retry</strong></a>: repeat a failing call with backoff and jitter. Pluggable algorithm (<code>ExponentialBackoff</code>, <code>ConstantBackoff</code>, <code>LinearBackoff</code>, <code>FibonacciBackoff</code>, <code>RandomBackoff</code>), required exception filter, decorator and block forms.</li>
+<li><a href="timeout/"><strong>Timeout</strong></a>: bound how long an async call may run. Reconfigurable deadline, async context manager and decorator forms. Wraps <code>asyncio.timeout</code>.</li>
 </ul>
+<p>See <a href="composition/">Composing patterns</a> for the recommended outside-in order when stacking decorators.</p>
 <h2 id="when-to-use-what">When to use what</h2>
 <table>
 <thead>
@@ -1682,12 +1775,20 @@
 <td>The caller is hitting an external dependency (DB, API, third-party) that can fail or stall.</td>
 </tr>
 <tr>
+<td><strong>Fallback</strong></td>
+<td>A call can fail and you want to degrade gracefully (cached value, empty list, neutral default) instead of propagating the error.</td>
+</tr>
+<tr>
 <td><strong>Rate Limiter</strong></td>
 <td>You need to throttle <em>your own</em> endpoint, worker, or background job to protect the downstream side or enforce fair usage.</td>
 </tr>
 <tr>
 <td><strong>Retry</strong></td>
 <td>A call fails for transient reasons (network blip, brief overload) and is safe to repeat.</td>
+</tr>
+<tr>
+<td><strong>Timeout</strong></td>
+<td>An async call may stall and you need a hard deadline on it.</td>
 </tr>
 </tbody>
 </table>

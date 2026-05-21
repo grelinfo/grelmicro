@@ -793,6 +793,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -877,6 +883,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../resilience/fallback/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fallback
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../resilience/rate-limiter/" class="md-nav__link">
         
   
@@ -913,6 +947,62 @@
     
   
     Retry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resilience/timeout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timeout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resilience/composition/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composing patterns
   
 
     
@@ -1910,7 +2000,7 @@
 <tr>
 <td>Async cache decorator over Redis</td>
 <td><a href="https://github.com/aio-libs/aiocache"><code>aiocache</code></a> or <a href="https://github.com/long2ice/fastapi-cache"><code>fastapi-cache</code></a></td>
-<td>Opt-in per-key stampede protection (<code>lock=True</code>), type-safe <code>TTLCache[T]</code>, Postgres backend (planned, see <a href="https://github.com/grelinfo/grelmicro/issues/167">#167</a>)</td>
+<td>Opt-in per-key stampede protection (<code>lock=True</code>), type-safe <code>TTLCache[T]</code>, Postgres backend</td>
 </tr>
 <tr>
 <td>FastAPI rate limiter</td>
@@ -2034,7 +2124,7 @@
 <td>Backends</td>
 <td>Memory, Redis, Memcached</td>
 <td>Memory, Redis, Memcached, DynamoDB</td>
-<td>Memory, Redis (Postgres at 1.0, see <a href="https://github.com/grelinfo/grelmicro/issues/167">#167</a>)</td>
+<td>Memory, Redis, Postgres</td>
 </tr>
 <tr>
 <td>Decorator</td>

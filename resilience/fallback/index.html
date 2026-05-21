@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/backends/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/resilience/fallback/">
       
       
-        <link rel="prev" href="../asyncio/">
+        <link rel="prev" href="../circuit-breaker/">
       
       
-        <link rel="next" href="../config/">
+        <link rel="next" href="../rate-limiter/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Backends and Adapters - grelmicro</title>
+        <title>Fallback - grelmicro</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#backends-and-adapters" class="md-skip">
+        <a href="#fallback" class="md-skip">
           Skip to content
         </a>
       
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Backends and Adapters
+              Fallback
             
           </span>
         </div>
@@ -367,8 +367,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -396,11 +398,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
@@ -421,7 +423,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -632,6 +634,8 @@
                 
   
   
+    
+  
   
   
     
@@ -657,15 +661,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_8" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../resilience/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -689,7 +693,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_8_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_8_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5_8">
             <span class="md-nav__icon md-icon"></span>
             
@@ -709,7 +713,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../resilience/circuit-breaker/" class="md-nav__link">
+      <a href="../circuit-breaker/" class="md-nav__link">
         
   
   
@@ -734,10 +738,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../resilience/fallback/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fallback
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -753,6 +784,148 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#filtering-exceptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Filtering exceptions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Filtering exceptions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-never-falls-back" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What never falls back
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#programmatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Programmatic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declarative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declarative
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environmental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composition
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-reconfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live reconfiguration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -765,7 +938,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../resilience/rate-limiter/" class="md-nav__link">
+      <a href="../rate-limiter/" class="md-nav__link">
         
   
   
@@ -793,7 +966,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../resilience/retry/" class="md-nav__link">
+      <a href="../retry/" class="md-nav__link">
         
   
   
@@ -821,7 +994,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../resilience/timeout/" class="md-nav__link">
+      <a href="../timeout/" class="md-nav__link">
         
   
   
@@ -849,7 +1022,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../resilience/composition/" class="md-nav__link">
+      <a href="../composition/" class="md-nav__link">
         
   
   
@@ -1241,8 +1414,6 @@
       
   
   
-    
-  
   
   
     
@@ -1278,15 +1449,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../architecture/" class="md-nav__link ">
               
   
   
@@ -1310,7 +1481,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1330,7 +1501,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../asyncio/" class="md-nav__link">
+      <a href="../../architecture/asyncio/" class="md-nav__link">
         
   
   
@@ -1355,37 +1526,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Backends and Adapters
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../architecture/backends/" class="md-nav__link">
         
   
   
@@ -1401,125 +1545,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#why-async" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why async
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-kinds" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The kinds
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#construction-vs-registration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Construction vs registration
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#named-backends-and-per-call-selection" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Named backends and per-call selection
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#test-time-overrides" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Test-time overrides
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#pure-construction-with-explicit-pass-through" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pure construction with explicit pass-through
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#protocol-based-polymorphism" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Protocol-based polymorphism
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#connection-pool-isolation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Connection pool isolation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#error-handling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Error handling
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1532,7 +1557,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/" class="md-nav__link">
+      <a href="../../architecture/config/" class="md-nav__link">
         
   
   
@@ -1560,7 +1585,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reconfigure/" class="md-nav__link">
+      <a href="../../architecture/reconfigure/" class="md-nav__link">
         
   
   
@@ -1588,7 +1613,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../imports/" class="md-nav__link">
+      <a href="../../architecture/imports/" class="md-nav__link">
         
   
   
@@ -1616,7 +1641,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync-from-thread/" class="md-nav__link">
+      <a href="../../architecture/sync-from-thread/" class="md-nav__link">
         
   
   
@@ -1644,7 +1669,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../../architecture/sync/" class="md-nav__link">
         
   
   
@@ -1672,7 +1697,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../kubernetes/" class="md-nav__link">
+      <a href="../../architecture/kubernetes/" class="md-nav__link">
         
   
   
@@ -1700,7 +1725,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sqlite/" class="md-nav__link">
+      <a href="../../architecture/sqlite/" class="md-nav__link">
         
   
   
@@ -1728,7 +1753,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracing/" class="md-nav__link">
+      <a href="../../architecture/tracing/" class="md-nav__link">
         
   
   
@@ -1756,7 +1781,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/" class="md-nav__link">
+      <a href="../../architecture/testing/" class="md-nav__link">
         
   
   
@@ -1865,10 +1890,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-async" class="md-nav__link">
+  <a href="#usage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why async
+        Usage
       
     </span>
   </a>
@@ -1876,10 +1901,88 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-kinds" class="md-nav__link">
+  <a href="#filtering-exceptions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The kinds
+        Filtering exceptions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Filtering exceptions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-never-falls-back" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What never falls back
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#programmatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Programmatic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declarative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declarative
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environmental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composition
       
     </span>
   </a>
@@ -1887,10 +1990,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#construction-vs-registration" class="md-nav__link">
+  <a href="#live-reconfiguration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Construction vs registration
+        Live reconfiguration
       
     </span>
   </a>
@@ -1898,65 +2001,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#named-backends-and-per-call-selection" class="md-nav__link">
+  <a href="#reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Named backends and per-call selection
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#test-time-overrides" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Test-time overrides
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#pure-construction-with-explicit-pass-through" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pure construction with explicit pass-through
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#protocol-based-polymorphism" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Protocol-based polymorphism
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#connection-pool-isolation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Connection pool isolation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#error-handling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Error handling
+        Reference
       
     </span>
   </a>
@@ -1983,134 +2031,166 @@
   
 
 
-<h1 id="backends-and-adapters">Backends and Adapters</h1>
-<p>grelmicro splits infrastructure code into a small set of object kinds so each one stays swappable.</p>
-<h2 id="why-async">Why async</h2>
-<p>Every backend uses <strong>async</strong> methods because it performs network or disk I/O (Redis, PostgreSQL, SQLite, Kubernetes API). Async keeps the event loop free during round-trips, which matters in microservice applications that handle many concurrent requests. Even backends with low-latency I/O (like SQLite) use async so the interface stays uniform and the loop can schedule other work during I/O waits.</p>
-<h2 id="the-kinds">The kinds</h2>
+<h1 id="fallback">Fallback</h1>
+<p>A <strong>Fallback</strong> policy returns a safe value when a call fails. Use it to degrade gracefully: "if the live recommendation service fails, return cached recommendations or an empty list".</p>
+<p><strong>Why</strong></p>
+<ul>
+<li>Keep the user-facing path working when a dependency is down.</li>
+<li>Replace a hard error with a quiet default, without changing every call site.</li>
+<li>Compose with Retry and Circuit Breaker so the fallback only fires after retries are exhausted or the breaker is open.</li>
+</ul>
+<h2 id="usage">Usage</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">fallback</span>
+
+
+<span class="nd">@fallback</span><span class="p">(</span><span class="n">when</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="p">[])</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_recommendations</span><span class="p">(</span>
+    <span class="n">client</span><span class="p">:</span> <span class="n">httpx</span><span class="o">.</span><span class="n">AsyncClient</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/recs/</span><span class="si">{</span><span class="n">user_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</code></pre></div>
+<p>The decorator works on async and sync functions. It auto-detects which kind it wraps.</p>
+<p>Use <code>factory=</code> instead of <code>default=</code> when the fallback value should be computed from the exception or read from a cache:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">fallback</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_cached_recommendations</span><span class="p">(</span><span class="n">exc</span><span class="p">:</span> <span class="ne">BaseException</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="c1"># Read from a local cache shared by the process.</span>
+    <span class="k">return</span> <span class="p">[]</span>
+
+
+<span class="nd">@fallback</span><span class="p">(</span><span class="n">when</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">factory</span><span class="o">=</span><span class="n">_cached_recommendations</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_recommendations</span><span class="p">(</span>
+    <span class="n">client</span><span class="p">:</span> <span class="n">httpx</span><span class="o">.</span><span class="n">AsyncClient</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/recs/</span><span class="si">{</span><span class="n">user_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</code></pre></div>
+<p><code>default=</code> and <code>factory=</code> are mutually exclusive. Exactly one must be set.</p>
+<p>For inline fallback that spans multiple statements, use the block form:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">falling_back</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_recommendations</span><span class="p">(</span>
+    <span class="n">client</span><span class="p">:</span> <span class="n">httpx</span><span class="o">.</span><span class="n">AsyncClient</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">falling_back</span><span class="p">(</span><span class="n">when</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="p">[])</span> <span class="k">as</span> <span class="n">result</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/recs/</span><span class="si">{</span><span class="n">user_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">value</span>
+</code></pre></div>
+<p>The block yields a <code>FallbackResult</code>. Call <code>result.set(value)</code> on success. If a matching exception is raised inside the block, it is suppressed and <code>result.value</code> is the configured default or the factory output.</p>
+<h2 id="filtering-exceptions">Filtering exceptions</h2>
+<p><code>when=</code> accepts the same shorthand as <code>Retry</code>'s <code>when=</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Fallback</span><span class="p">,</span> <span class="n">Match</span>
+
+<span class="n">Fallback</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<span class="n">Fallback</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="p">(</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">),</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<span class="n">Fallback</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="n">e</span><span class="o">.</span><span class="n">status</span> <span class="o">&gt;=</span> <span class="mi">500</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<span class="n">Fallback</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="n">Match</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">),</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+<p>See <a href="../retry/#filtering-outcomes-with-match">Filtering outcomes with <code>Match</code></a> for the full DSL. Only exception-shaped matchers make sense for <code>Fallback</code>: result matching does not apply.</p>
+<h3 id="what-never-falls-back">What never falls back</h3>
+<p><code>asyncio.CancelledError</code>, <code>KeyboardInterrupt</code>, and <code>SystemExit</code> are <code>BaseException</code> subclasses outside <code>Exception</code>. They always propagate, regardless of <code>when=</code>. This is required for correct asyncio shutdown.</p>
+<h2 id="configuration">Configuration</h2>
+<p><code>Fallback</code> follows the three-paths configuration contract.</p>
+<h3 id="programmatic">Programmatic</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Fallback</span>
+
+<span class="n">policy</span> <span class="o">=</span> <span class="n">Fallback</span><span class="p">(</span><span class="s2">&quot;recs&quot;</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="p">[])</span>
+
+
+<span class="nd">@policy</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_recommendations</span><span class="p">(</span>
+    <span class="n">client</span><span class="p">:</span> <span class="n">httpx</span><span class="o">.</span><span class="n">AsyncClient</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/recs/</span><span class="si">{</span><span class="n">user_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="declarative">Declarative</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Fallback</span><span class="p">,</span> <span class="n">FallbackConfig</span><span class="p">,</span> <span class="n">Match</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="n">FallbackConfig</span><span class="p">(</span>
+    <span class="n">when</span><span class="o">=</span><span class="n">Match</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">),</span>
+    <span class="n">default</span><span class="o">=</span><span class="p">[],</span>
+<span class="p">)</span>
+<span class="n">policy</span> <span class="o">=</span> <span class="n">Fallback</span><span class="p">(</span><span class="s2">&quot;recs&quot;</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="environmental">Environmental</h3>
+<p>Prefix: <code>GREL_FALLBACK_{NAME_UPPER}_</code></p>
 <table>
 <thead>
 <tr>
-<th>Kind</th>
-<th>Examples</th>
-<th>Role</th>
+<th>Env var</th>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Provider</strong></td>
-<td><code>RedisProvider</code>, <code>PostgresProvider</code></td>
-<td>Owns the connection pool and the vendor config. Components attach to it.</td>
+<td><code>GREL_FALLBACK_{NAME_UPPER}_WHEN</code></td>
+<td><code>when</code></td>
+<td>CSV or JSON list of FQN strings (e.g. <code>httpx.HTTPError</code>). Coerced to <code>Match.exception(...)</code>. Predicate forms cannot come from env.</td>
+<td>required</td>
 </tr>
 <tr>
-<td><strong>Component</strong></td>
-<td><code>Sync</code>, <code>Cache</code>, <code>RateLimiters</code>, <code>CircuitBreakers</code></td>
-<td>Registration on a <code>Grelmicro</code> app: <code>(kind, name)</code> pair plus lifecycle. Accepts a Provider or a Backend.</td>
-</tr>
-<tr>
-<td><strong>Backend</strong></td>
-<td><code>SyncBackend</code>, <code>CacheBackend</code> (Protocol)</td>
-<td>Pure interface. Memory backends (<code>MemorySyncAdapter</code>) implement it directly.</td>
-</tr>
-<tr>
-<td><strong>Adapter</strong></td>
-<td><code>RedisSyncAdapter</code>, <code>RedisCacheAdapter</code></td>
-<td>Internal. Built by <code>Provider.{kind}()</code> factory. Public escape hatch for custom Providers.</td>
-</tr>
-<tr>
-<td><strong>Pattern</strong></td>
-<td><code>Lock</code>, <code>TaskLock</code>, <code>LeaderElection</code>, <code>TTLCache</code></td>
-<td>The user-facing primitive. Declared at module load, resolves its backend at use time.</td>
+<td><code>GREL_FALLBACK_{NAME_UPPER}_DEFAULT</code></td>
+<td><code>default</code></td>
+<td>JSON value (<code>[]</code>, <code>null</code>, <code>42</code>, ...). Strings that fail to parse are kept verbatim (<code>hello</code> stays <code>"hello"</code>). Mutually exclusive with <code>factory=</code>.</td>
+<td>mutually exclusive with factory</td>
 </tr>
 </tbody>
 </table>
-<p>Users construct <strong>Providers</strong>, attach <strong>Components</strong> that share each Provider, and import <strong>Patterns</strong> at module level. Adapter classes rarely appear in user code.</p>
-<h2 id="construction-vs-registration">Construction vs registration</h2>
-<p>Construction and registration are two distinct steps. <code>__init__</code> validates configuration and binds locals. It performs no registry writes and no I/O. Registration happens when the Component is attached to a <code>Grelmicro</code> app.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
+<p>The JSON parse runs only on env values. A <code>default="[1,2,3]"</code> passed in code stays a string. The <code>factory</code> callable cannot come from env. Use <code>default</code> for env-driven configs, or build the <code>FallbackConfig</code> in code.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Fallback</span>
 
-<span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost&quot;</span><span class="p">)</span>
-
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">redis</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-<span class="p">])</span>
-
-<span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-    <span class="c1"># the provider is open, every component is open</span>
-    <span class="o">...</span>
-<span class="c1"># every item is closed on exit (LIFO)</span>
+<span class="c1"># Reads the config from environment variables. `factory` cannot be set</span>
+<span class="c1"># from env (it is a callable), use `default` or build the config from code.</span>
+<span class="c1">#</span>
+<span class="c1"># - GREL_FALLBACK_RECS_WHEN=httpx.HTTPError</span>
+<span class="c1"># - GREL_FALLBACK_RECS_DEFAULT=[]</span>
+<span class="n">policy</span> <span class="o">=</span> <span class="n">Fallback</span><span class="p">(</span><span class="s2">&quot;recs&quot;</span><span class="p">)</span>
 </code></pre></div>
-<p><code>Sync(provider)</code> calls <code>provider.sync()</code> to obtain the canonical <code>SyncBackend</code>. <code>Cache(provider)</code> calls <code>provider.cache()</code>. Memory backends bypass the Provider step: pass the adapter directly (<code>Sync(MemorySyncAdapter())</code>).</p>
-<h2 id="named-backends-and-per-call-selection">Named backends and per-call selection</h2>
-<p>Register multiple Components under different names and pick one at the call site:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.postgres</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">Sync</span>
+<h2 id="composition">Composition</h2>
+<p>The recommended outside-in order is <strong>Fallback → Retry → CircuitBreaker → Bulkhead → Timeout → call</strong>. Read more in <a href="../composition/">Composing patterns</a>.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
 
-<span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">()</span>
-<span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">()</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">Retry</span><span class="p">,</span> <span class="n">fallback</span>
 
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">redis</span><span class="p">,</span>
-    <span class="n">postgres</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">postgres</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;analytics&quot;</span><span class="p">),</span>
-<span class="p">])</span>
+<span class="n">breaker</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;recs&quot;</span><span class="p">)</span>
+<span class="n">retrier</span> <span class="o">=</span> <span class="n">Retry</span><span class="o">.</span><span class="n">exponential</span><span class="p">(</span><span class="s2">&quot;recs&quot;</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">attempts</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
 
-<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>                       <span class="c1"># → &quot;default&quot; (Redis)</span>
-<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;audit&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;analytics&quot;</span><span class="p">)</span> <span class="c1"># → &quot;analytics&quot; (Postgres)</span>
-<span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">my_adapter</span><span class="p">)</span>   <span class="c1"># → explicit instance, bypasses names</span>
+
+<span class="nd">@fallback</span><span class="p">(</span><span class="n">when</span><span class="o">=</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="p">[])</span>
+<span class="nd">@retrier</span>
+<span class="nd">@breaker</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_recommendations</span><span class="p">(</span>
+    <span class="n">client</span><span class="p">:</span> <span class="n">httpx</span><span class="o">.</span><span class="n">AsyncClient</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/recs/</span><span class="si">{</span><span class="n">user_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
 </code></pre></div>
-<p>Resolution order, in priority:</p>
-<ol>
-<li>Explicit instance (<code>backend=instance</code>).</li>
-<li>The Component registered under <code>("sync", requested_name)</code>.</li>
-<li>When the requested name is <code>"default"</code> and exactly one Component of that kind is registered: that sole entry.</li>
-<li>Otherwise raise <code>ComponentNotRegisteredError</code>.</li>
-</ol>
-<h2 id="test-time-overrides">Test-time overrides</h2>
-<p><code>micro.override(...)</code> installs scoped Component swaps for the duration of a block:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">Sync</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemorySyncAdapter</span>
-
-<span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">()</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">,</span> <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
-<span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>
-
-<span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="o">.</span><span class="n">override</span><span class="p">(</span><span class="n">Sync</span><span class="p">(</span><span class="n">MemorySyncAdapter</span><span class="p">())):</span>
-        <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>  <span class="c1"># routed to MemorySyncAdapter</span>
-            <span class="o">...</span>
-</code></pre></div>
-<p>The override propagates downward through <code>await</code>, <code>asyncio.create_task</code>, and <code>asyncio.to_thread</code> because asyncio copies the calling context at every concurrency boundary.</p>
-<h2 id="pure-construction-with-explicit-pass-through">Pure construction with explicit pass-through</h2>
-<p>Skip the app entirely for one-off usage:</p>
-<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">with</span> <span class="n">RedisProvider</span><span class="p">()</span> <span class="k">as</span> <span class="n">redis</span><span class="p">:</span>
-    <span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-lock&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">redis</span><span class="o">.</span><span class="n">sync</span><span class="p">())</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
-        <span class="o">...</span>
-</code></pre></div>
-<p><code>async with</code> opens the connection only. The adapter is not registered with any app.</p>
-<h2 id="protocol-based-polymorphism">Protocol-based polymorphism</h2>
-<p>Backends are defined by protocols (structural typing), not base classes. Any object implementing the required methods works. This enables:</p>
-<ul>
-<li>Swapping adapters without changing application code.</li>
-<li>Writing test adapters (e.g. <code>MemorySyncAdapter</code>) with no external dependencies.</li>
-<li>Adding new adapters without modifying existing code.</li>
-</ul>
-<h2 id="connection-pool-isolation">Connection pool isolation</h2>
-<p>Components share a connection pool through a <code>Provider</code>: pass the same <code>RedisProvider</code> to two Components (<code>Sync(redis)</code>, <code>Cache(redis)</code>) and they share one pool. To isolate pools, build distinct Providers with different <code>env_prefix=</code> values (<code>CACHE_REDIS_</code>, <code>SESSION_REDIS_</code>) and pass each to the matching Component.</p>
-<p>The default behavior is <strong>share when possible, isolate when asked</strong>. Distinct Providers opt into per-domain isolation.</p>
-<h2 id="error-handling">Error handling</h2>
-<p>Accessing a Component that has not been registered raises <code>ComponentNotRegisteredError</code> with a descriptive message. Resolving a Pattern outside any <code>async with micro:</code> block raises <code>NoActiveAppError</code>.</p>
+<h2 id="live-reconfiguration">Live reconfiguration</h2>
+<p><code>Fallback</code> inherits <code>Reconfigurable[FallbackConfig]</code>. Calling <code>policy.reconfigure(new_config)</code> swaps the snapshot for future calls. See <a href="../../architecture/reconfigure/">Live reconfiguration</a>.</p>
+<h2 id="reference">Reference</h2>
+<p>See the <a href="../../reference/resilience/#grelmicro.resilience.Fallback">API reference</a> for every option.</p>
 
 
 

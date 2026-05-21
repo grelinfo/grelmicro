@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/resilience/timeout/">
       
       
-        <link rel="prev" href="../reference/trace/">
+        <link rel="prev" href="../retry/">
       
       
-        <link rel="next" href="asyncio/">
+        <link rel="next" href="../composition/">
       
       
         
       
       
-      <link rel="icon" href="../img/logo/favicon-192.png">
+      <link rel="icon" href="../../img/logo/favicon-192.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Architecture - grelmicro</title>
+        <title>Timeout - grelmicro</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,11 +53,11 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../css/overrides.css">
+      <link rel="stylesheet" href="../../css/overrides.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#architecture" class="md-skip">
+        <a href="#timeout" class="md-skip">
           Skip to content
         </a>
       
@@ -98,9 +98,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
+    <a href="../.." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  <img src="../img/logo/favicon-48.png" alt="logo">
+  <img src="../../img/logo/favicon-48.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Architecture
+              Timeout
             
           </span>
         </div>
@@ -233,9 +233,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
+    <a href="../.." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  <img src="../img/logo/favicon-48.png" alt="logo">
+  <img src="../../img/logo/favicon-48.png" alt="logo">
 
     </a>
     grelmicro
@@ -262,7 +262,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -289,7 +289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/" class="md-nav__link">
+      <a href="../../installation/" class="md-nav__link">
         
   
   
@@ -316,7 +316,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../comparison/" class="md-nav__link">
+      <a href="../../comparison/" class="md-nav__link">
         
   
   
@@ -343,7 +343,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../capabilities/" class="md-nav__link">
+      <a href="../../capabilities/" class="md-nav__link">
         
   
   
@@ -367,8 +367,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -396,11 +398,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
@@ -421,7 +423,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -439,7 +441,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/" class="md-nav__link">
+      <a href="../../config/" class="md-nav__link">
         
   
   
@@ -467,7 +469,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../cache/" class="md-nav__link">
+      <a href="../../cache/" class="md-nav__link">
         
   
   
@@ -495,7 +497,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../providers/" class="md-nav__link">
+      <a href="../../providers/" class="md-nav__link">
         
   
   
@@ -523,7 +525,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../health/" class="md-nav__link">
+      <a href="../../health/" class="md-nav__link">
         
   
   
@@ -551,7 +553,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
+      <a href="../../json/" class="md-nav__link">
         
   
   
@@ -579,7 +581,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../logging/" class="md-nav__link">
+      <a href="../../logging/" class="md-nav__link">
         
   
   
@@ -607,7 +609,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracing/" class="md-nav__link">
+      <a href="../../tracing/" class="md-nav__link">
         
   
   
@@ -632,6 +634,8 @@
                 
   
   
+    
+  
   
   
     
@@ -657,15 +661,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_8" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../resilience/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -689,7 +693,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_8_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_8_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5_8">
             <span class="md-nav__icon md-icon"></span>
             
@@ -709,7 +713,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/circuit-breaker/" class="md-nav__link">
+      <a href="../circuit-breaker/" class="md-nav__link">
         
   
   
@@ -737,7 +741,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/fallback/" class="md-nav__link">
+      <a href="../fallback/" class="md-nav__link">
         
   
   
@@ -765,7 +769,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/rate-limiter/" class="md-nav__link">
+      <a href="../rate-limiter/" class="md-nav__link">
         
   
   
@@ -793,7 +797,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/retry/" class="md-nav__link">
+      <a href="../retry/" class="md-nav__link">
         
   
   
@@ -818,10 +822,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../resilience/timeout/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timeout
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -837,6 +868,120 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#programmatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Programmatic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declarative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declarative
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environmental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composition
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-reconfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live reconfiguration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -849,7 +994,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/composition/" class="md-nav__link">
+      <a href="../composition/" class="md-nav__link">
         
   
   
@@ -885,7 +1030,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../../sync/" class="md-nav__link">
         
   
   
@@ -913,7 +1058,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../task/" class="md-nav__link">
+      <a href="../../task/" class="md-nav__link">
         
   
   
@@ -1013,7 +1158,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/cache/" class="md-nav__link">
+      <a href="../../reference/cache/" class="md-nav__link">
         
   
   
@@ -1041,7 +1186,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
@@ -1069,7 +1214,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/json/" class="md-nav__link">
+      <a href="../../reference/json/" class="md-nav__link">
         
   
   
@@ -1097,7 +1242,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/logging/" class="md-nav__link">
+      <a href="../../reference/logging/" class="md-nav__link">
         
   
   
@@ -1125,7 +1270,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/resilience/" class="md-nav__link">
+      <a href="../../reference/resilience/" class="md-nav__link">
         
   
   
@@ -1153,7 +1298,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/sync/" class="md-nav__link">
+      <a href="../../reference/sync/" class="md-nav__link">
         
   
   
@@ -1181,7 +1326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/task/" class="md-nav__link">
+      <a href="../../reference/task/" class="md-nav__link">
         
   
   
@@ -1209,7 +1354,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/trace/" class="md-nav__link">
+      <a href="../../reference/trace/" class="md-nav__link">
         
   
   
@@ -1241,8 +1386,6 @@
       
   
   
-    
-  
   
   
     
@@ -1278,15 +1421,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="./" class="md-nav__link md-nav__link--active">
+            <a href="../../architecture/" class="md-nav__link ">
               
   
   
@@ -1304,13 +1447,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_7" id="__nav_7_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1330,7 +1473,7 @@
   
   
     <li class="md-nav__item">
-      <a href="asyncio/" class="md-nav__link">
+      <a href="../../architecture/asyncio/" class="md-nav__link">
         
   
   
@@ -1358,7 +1501,7 @@
   
   
     <li class="md-nav__item">
-      <a href="backends/" class="md-nav__link">
+      <a href="../../architecture/backends/" class="md-nav__link">
         
   
   
@@ -1386,7 +1529,7 @@
   
   
     <li class="md-nav__item">
-      <a href="config/" class="md-nav__link">
+      <a href="../../architecture/config/" class="md-nav__link">
         
   
   
@@ -1414,7 +1557,7 @@
   
   
     <li class="md-nav__item">
-      <a href="reconfigure/" class="md-nav__link">
+      <a href="../../architecture/reconfigure/" class="md-nav__link">
         
   
   
@@ -1442,7 +1585,7 @@
   
   
     <li class="md-nav__item">
-      <a href="imports/" class="md-nav__link">
+      <a href="../../architecture/imports/" class="md-nav__link">
         
   
   
@@ -1470,7 +1613,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sync-from-thread/" class="md-nav__link">
+      <a href="../../architecture/sync-from-thread/" class="md-nav__link">
         
   
   
@@ -1498,7 +1641,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sync/" class="md-nav__link">
+      <a href="../../architecture/sync/" class="md-nav__link">
         
   
   
@@ -1526,7 +1669,7 @@
   
   
     <li class="md-nav__item">
-      <a href="kubernetes/" class="md-nav__link">
+      <a href="../../architecture/kubernetes/" class="md-nav__link">
         
   
   
@@ -1554,7 +1697,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sqlite/" class="md-nav__link">
+      <a href="../../architecture/sqlite/" class="md-nav__link">
         
   
   
@@ -1582,7 +1725,7 @@
   
   
     <li class="md-nav__item">
-      <a href="tracing/" class="md-nav__link">
+      <a href="../../architecture/tracing/" class="md-nav__link">
         
   
   
@@ -1610,7 +1753,7 @@
   
   
     <li class="md-nav__item">
-      <a href="testing/" class="md-nav__link">
+      <a href="../../architecture/testing/" class="md-nav__link">
         
   
   
@@ -1645,7 +1788,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -1672,7 +1815,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../third_party_notices/" class="md-nav__link">
+      <a href="../../third_party_notices/" class="md-nav__link">
         
   
   
@@ -1712,6 +1855,108 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#programmatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Programmatic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declarative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declarative
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environmental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environmental
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composition
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-reconfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live reconfiguration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -1730,20 +1975,102 @@
   
 
 
-<h1 id="architecture">Architecture</h1>
-<p>This section documents the internal design decisions and guarantees of grelmicro.</p>
+<h1 id="timeout">Timeout</h1>
+<p>A <strong>Timeout</strong> policy bounds how long an async call may run. Use it to keep a slow dependency from blocking a request indefinitely.</p>
+<p><strong>Why</strong></p>
 <ul>
-<li><strong><a href="asyncio/">Concurrency runtime</a></strong>: Why grelmicro targets asyncio directly and not Trio or AnyIO.</li>
-<li><strong><a href="backends/">Backend Registry</a></strong>: Shared registry pattern for swappable backends.</li>
-<li><strong><a href="config/">Configuration</a></strong>: Explicit construction paths, <code>from_config(...)</code>, optional env resolution where it fits, and the library-not-app boundary.</li>
-<li><strong><a href="reconfigure/">Live reconfiguration</a></strong>: Atomic config swap on a live component, the <code>Reconfigurable</code> mixin, and reader safety.</li>
-<li><strong><a href="imports/">Import Strategy</a></strong>: Why backends are imported from submodules, not re-exported.</li>
-<li><strong><a href="sync/">Synchronization</a></strong>: Worker identity, token generation, lock design, and cleanup strategy.</li>
-<li><strong><a href="kubernetes/">Kubernetes Backend</a></strong>: Lease resources, optimistic concurrency, and name sanitization.</li>
-<li><strong><a href="sqlite/">SQLite Backend</a></strong>: WAL mode.</li>
-<li><strong><a href="tracing/">Tracing</a></strong>: Context stack, concurrency safety, and decoupled layering.</li>
-<li><strong><a href="testing/">Testing</a></strong>: <code>micro.override(...)</code> block and pytest conftest recipe.</li>
+<li>Cap the worst-case latency of a downstream call.</li>
+<li>Reconfigure the deadline at runtime from a <code>ConfigMap</code> without redeploying.</li>
+<li>Compose with <code>Retry</code>, <code>CircuitBreaker</code>, <code>Bulkhead</code>, and <code>Fallback</code>.</li>
 </ul>
+<p><code>Timeout</code> wraps <code>asyncio.timeout</code>. When the deadline elapses, the inner block is cancelled and <code>TimeoutError</code> is raised.</p>
+<h2 id="usage">Usage</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Timeout</span>
+
+<span class="n">db_timeout</span> <span class="o">=</span> <span class="n">Timeout</span><span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="n">seconds</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">fetch_rows</span><span class="p">(</span><span class="n">db</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">db_timeout</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">db</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="s2">&quot;SELECT * FROM accounts&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>The policy works as an async context manager and as a decorator on async functions. Sync functions are not supported (asyncio cannot cancel sync code).</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Timeout</span>
+
+<span class="n">db_timeout</span> <span class="o">=</span> <span class="n">Timeout</span><span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="n">seconds</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+
+
+<span class="nd">@db_timeout</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">fetch_rows</span><span class="p">(</span><span class="n">db</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">db</span><span class="o">.</span><span class="n">fetch_all</span><span class="p">(</span><span class="s2">&quot;SELECT * FROM accounts&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="configuration">Configuration</h2>
+<p><code>Timeout</code> follows the three-paths configuration contract.</p>
+<h3 id="programmatic">Programmatic</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Timeout</span>
+
+<span class="n">db_timeout</span> <span class="o">=</span> <span class="n">Timeout</span><span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="n">seconds</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="declarative">Declarative</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Timeout</span><span class="p">,</span> <span class="n">TimeoutConfig</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="n">TimeoutConfig</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+<span class="n">db_timeout</span> <span class="o">=</span> <span class="n">Timeout</span><span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="environmental">Environmental</h3>
+<p>Prefix: <code>GREL_TIMEOUT_{NAME_UPPER}_</code></p>
+<table>
+<thead>
+<tr>
+<th>Env var</th>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GREL_TIMEOUT_{NAME_UPPER}_SECONDS</code></td>
+<td><code>seconds</code></td>
+<td><code>PositiveFloat</code></td>
+<td>required</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Timeout</span>
+
+<span class="c1"># Reads the deadline from environment variables.</span>
+<span class="c1">#</span>
+<span class="c1"># - GREL_TIMEOUT_DB_SECONDS=2.0</span>
+<span class="n">db_timeout</span> <span class="o">=</span> <span class="n">Timeout</span><span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="composition">Composition</h2>
+<p>The recommended outside-in order is <strong>Fallback → Retry → CircuitBreaker → Bulkhead → Timeout → call</strong>. Read more in <a href="../composition/">Composing patterns</a>.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">Retry</span><span class="p">,</span> <span class="n">Timeout</span><span class="p">,</span> <span class="n">fallback</span>
+
+<span class="n">breaker</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;recs&quot;</span><span class="p">)</span>
+<span class="n">retrier</span> <span class="o">=</span> <span class="n">Retry</span><span class="o">.</span><span class="n">exponential</span><span class="p">(</span><span class="s2">&quot;recs&quot;</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">attempts</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<span class="n">call_timeout</span> <span class="o">=</span> <span class="n">Timeout</span><span class="p">(</span><span class="s2">&quot;recs&quot;</span><span class="p">,</span> <span class="n">seconds</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+
+
+<span class="nd">@fallback</span><span class="p">(</span><span class="n">when</span><span class="o">=</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="p">[])</span>
+<span class="nd">@retrier</span>
+<span class="nd">@breaker</span>
+<span class="nd">@call_timeout</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_recommendations</span><span class="p">(</span>
+    <span class="n">client</span><span class="p">:</span> <span class="n">httpx</span><span class="o">.</span><span class="n">AsyncClient</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;/recs/</span><span class="si">{</span><span class="n">user_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</code></pre></div>
+<p>A per-attempt <code>Timeout</code> placed under <code>Retry</code> shrinks the deadline of each retry while the retry budget stays the same.</p>
+<h2 id="live-reconfiguration">Live reconfiguration</h2>
+<p><code>Timeout</code> inherits <code>Reconfigurable[TimeoutConfig]</code>. Calling <code>policy.reconfigure(new_config)</code> swaps the deadline for future entries. Scopes already inside <code>async with</code> keep their original deadline. See <a href="../../architecture/reconfigure/">Live reconfiguration</a>.</p>
+<h2 id="reference">Reference</h2>
+<p>See the <a href="../../reference/resilience/#grelmicro.resilience.Timeout">API reference</a> for every option.</p>
 
 
 
@@ -1824,10 +2151,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
