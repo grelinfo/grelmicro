@@ -47,6 +47,8 @@
         - RetryConfig
         - RetryStrategy
         - SlidingWindowConfig
+        - Timeout
+        - TimeoutConfig
         - TokenBucketConfig
         - fallback
         - falling_back

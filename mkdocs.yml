@@ -75,6 +75,7 @@ nav:
         - resilience/fallback.md
         - resilience/rate-limiter.md
         - resilience/retry.md
+        - resilience/timeout.md
         - resilience/composition.md
     - sync.md
     - task.md
