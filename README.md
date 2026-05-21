@@ -38,7 +38,7 @@ Stop reinventing the wheel. grelmicro ships microservice patterns as small, comp
 
 It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve every **distributed system**, whether you call it **microservices**, a **modular monolith**, or a **self-contained system**. A distributed lock is a distributed lock whether your system is one process or fifty. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
 
-- **Micro**: one focused primitive per module, each a canonical microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).
+- **Micro**: one focused primitive per module. Each covers a microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).
 - **Fast**: small footprint by design. We keep the layers thin so your code stays quick.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any asyncio-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.

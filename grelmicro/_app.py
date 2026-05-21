@@ -129,7 +129,7 @@ class Grelmicro:
         1. A `Component` instance: registered with `(kind, name)` lookup and
            exposed on `micro.<kind>`.
         2. A first-party backend (e.g. `RedisSyncAdapter`): auto-wrapped
-           into its canonical `Component` (`Sync` for sync backends, `Cache`
+           into the matching `Component` (`Sync` for sync backends, `Cache`
            for cache backends) before registration.
         3. Any other async context manager: just lifecycled with the app,
            the caller keeps the reference.
@@ -461,7 +461,7 @@ def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
 
 
 def _maybe_wrap_first_party_backend(item: object) -> Component | None:
-    """Wrap a first-party backend in its canonical Component, or return None.
+    """Wrap a first-party backend in the matching Component, or return None.
 
     Imports are lazy so unused submodules stay out of `import grelmicro`.
     The user importing `RedisCacheAdapter` already loads `grelmicro.cache`,

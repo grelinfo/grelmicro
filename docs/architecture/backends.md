@@ -42,7 +42,7 @@ async with micro:
 # every item is closed on exit (LIFO)
 ```
 
-`Sync(provider)` calls `provider.sync()` to obtain the canonical `SyncBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Sync(MemorySyncAdapter())`).
+`Sync(provider)` calls `provider.sync()` to obtain the matching `SyncBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Sync(MemorySyncAdapter())`).
 
 ## Named backends and per-call selection
 

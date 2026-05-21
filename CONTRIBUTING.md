@@ -167,7 +167,7 @@ docstring style.
   shortened to the local name. The target path must be fully
   qualified.
 - **External links** use plain markdown: `[Label](url)`.
-- **RFC and PEP references** link to their canonical page in
+- **RFC and PEP references** link to the official page in
   Markdown files under `docs/`: `[RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html)`
   and `[PEP 702](https://peps.python.org/pep-0702/)`. Inside
   Python docstrings, keep them as plain text (`RFC 9211`,

@@ -15,7 +15,7 @@ class Component(
 ):
     """A grelmicro component attached to a `Grelmicro` app.
 
-    Each grelmicro component ships one canonical microservice pattern
+    Each grelmicro component ships one microservice pattern
     (distributed lock, cache, rate limiter, circuit breaker, task scheduler,
     health check, ...). The user composes components into a `Grelmicro`
     application; the app opens every component in registration order and

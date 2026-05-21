@@ -25,7 +25,7 @@ class RateLimiters:
     on every call.
 
     Accepts a `Provider` or a `RateLimiterBackend`. When given a Provider, the
-    component calls `provider.ratelimiter()` to build the canonical adapter.
+    component calls `provider.ratelimiter()` to build the matching adapter.
 
     Example:
         ```python
@@ -52,7 +52,7 @@ class RateLimiters:
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `RateLimiterBackend`
                 instance. When a Provider is given, the component calls
-                `provider.ratelimiter()` to build the canonical adapter.
+                `provider.ratelimiter()` to build the matching adapter.
                 """,
             ),
         ],
@@ -102,7 +102,7 @@ class CircuitBreakers:
     backend on every call.
 
     Accepts a `Provider` or a `CircuitBreakerBackend`. When given a Provider,
-    the component calls `provider.breaker()` to build the canonical adapter.
+    the component calls `provider.breaker()` to build the matching adapter.
 
     Example:
         ```python
@@ -130,7 +130,7 @@ class CircuitBreakers:
                 """
                 A `Provider` or a `CircuitBreakerBackend` instance. When a
                 Provider is given, the component calls `provider.breaker()` to
-                build the canonical adapter.
+                build the matching adapter.
                 """,
             ),
         ],
