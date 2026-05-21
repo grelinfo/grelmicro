@@ -39,6 +39,8 @@
         - RateLimitResult
         - RedisCircuitBreakerAdapter
         - RedisRateLimiterAdapter
+        - ApiShieldConfig
+        - InternalShieldConfig
         - ResilienceError
         - ResilienceSettingsValidationError
         - Retry
@@ -46,7 +48,10 @@
         - RetryBackoffConfig
         - RetryConfig
         - RetryStrategy
+        - Shield
+        - ShieldConfig
         - SlidingWindowConfig
+        - SlowShieldConfig
         - Timeout
         - TimeoutConfig
         - TokenBucketConfig
@@ -54,3 +59,4 @@
         - falling_back
         - retry
         - retrying
+        - shield

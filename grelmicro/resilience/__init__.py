@@ -45,6 +45,10 @@ from grelmicro.resilience.fallback import fallback, falling_back
 # is needed for `Retry`, `RetryConfig`, every backoff, etc.
 from grelmicro.resilience.retry import retry, retrying
 
+# `shield` follows the same shadow rule as `retry`: it would otherwise
+# collide with the `grelmicro.resilience.shield` subpackage name.
+from grelmicro.resilience.shield import shield
+
 if TYPE_CHECKING:
     from grelmicro.resilience.backoffs import (
         ConstantBackoff,
@@ -96,9 +100,18 @@ if TYPE_CHECKING:
         retry,
         retrying,
     )
+    from grelmicro.resilience.shield import (
+        ApiShieldConfig,
+        InternalShieldConfig,
+        Shield,
+        ShieldConfig,
+        SlowShieldConfig,
+        shield,
+    )
     from grelmicro.resilience.timeout import Timeout, TimeoutConfig
 
 __all__ = [
+    "ApiShieldConfig",
     "CircuitBreaker",
     "CircuitBreakerBackend",
     "CircuitBreakerConfig",
@@ -116,6 +129,7 @@ __all__ = [
     "FallbackConfig",
     "FallbackResult",
     "FibonacciBackoff",
+    "InternalShieldConfig",
     "LinearBackoff",
     "Match",
     "Matcher",
@@ -141,7 +155,10 @@ __all__ = [
     "RetryBackoffConfig",
     "RetryConfig",
     "RetryStrategy",
+    "Shield",
+    "ShieldConfig",
     "SlidingWindowConfig",
+    "SlowShieldConfig",
     "Timeout",
     "TimeoutConfig",
     "TokenBucketConfig",
@@ -149,6 +166,7 @@ __all__ = [
     "falling_back",
     "retry",
     "retrying",
+    "shield",
 ]
 
 # (attribute -> (module, attribute)). The module is loaded lazily on
@@ -219,6 +237,15 @@ _LAZY: dict[str, tuple[str, str]] = {
     "Fallback": ("grelmicro.resilience.fallback", "Fallback"),
     "FallbackConfig": ("grelmicro.resilience.fallback", "FallbackConfig"),
     "FallbackResult": ("grelmicro.resilience.fallback", "FallbackResult"),
+    # Shield
+    "Shield": ("grelmicro.resilience.shield", "Shield"),
+    "ShieldConfig": ("grelmicro.resilience.shield", "ShieldConfig"),
+    "ApiShieldConfig": ("grelmicro.resilience.shield", "ApiShieldConfig"),
+    "InternalShieldConfig": (
+        "grelmicro.resilience.shield",
+        "InternalShieldConfig",
+    ),
+    "SlowShieldConfig": ("grelmicro.resilience.shield", "SlowShieldConfig"),
     # Timeout
     "Timeout": ("grelmicro.resilience.timeout", "Timeout"),
     "TimeoutConfig": ("grelmicro.resilience.timeout", "TimeoutConfig"),

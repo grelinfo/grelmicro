@@ -14,15 +14,7 @@ The adaptive layer uses a CUBIC-style controller from [RFC 9438](https://datatra
 ## Usage
 
 ```python
-import httpx
-from grelmicro.resilience import shield
-
-
-@shield.api(timeout_errors=(httpx.TimeoutException, httpx.ConnectError))
-async def fetch(client: httpx.AsyncClient, url: str) -> bytes:
-    response = await client.get(url)
-    response.raise_for_status()
-    return response.content
+--8<-- "resilience/shield.py"
 ```
 
 Pick a profile factory (`shield.internal`, `shield.api`, `shield.slow`), tell Shield which exceptions mean "the dependency is slow", done. Everything else propagates unchanged.
@@ -30,10 +22,7 @@ Pick a profile factory (`shield.internal`, `shield.api`, `shield.slow`), tell Sh
 The zero-argument form uses the `api` profile with the default `timeout_errors=(TimeoutError,)`:
 
 ```python
-@shield
-async def cheap_call() -> None:
-    async with asyncio.timeout(5):
-        await do_work()
+--8<-- "resilience/shield_zero_args.py"
 ```
 
 Shield is **async-only**. Use it on coroutine functions.
@@ -49,14 +38,7 @@ Shield is **async-only**. Use it on coroutine functions.
 Three profiles cover the common cases. They are mutually exclusive: pick one per `Shield` instance. To pace differently, switch profile, do not tune individual fields. The internal parameters (retry budget capacity, CUBIC curve constants, backoff scale, timeout clamps) are fixed by profile choice.
 
 ```python
-@shield.internal(timeout_errors=(MyRpcTimeout,))
-async def call_internal_rpc(): ...
-
-@shield.api(timeout_errors=(httpx.TimeoutException, httpx.ConnectError))
-async def call_external_api(): ...
-
-@shield.slow(timeout_errors=(MyLLMError,))
-async def call_llm(prompt: str): ...
+--8<-- "resilience/shield_profiles.py"
 ```
 
 If the three profiles do not fit, you have outgrown Shield. Compose `Retry`, `Timeout`, `RateLimiter` and `CircuitBreaker` directly instead.
@@ -83,20 +65,7 @@ The default when the argument is omitted is `(TimeoutError,)`, which covers the 
 Build a `Shield` instance once and decorate multiple functions with it. They share one retry budget and one CUBIC controller, which is the correct topology when several functions hit the same dependency.
 
 ```python
-from grelmicro.resilience import Shield
-
-github = Shield.api(
-    "github",
-    timeout_errors=(httpx.TimeoutException, httpx.ConnectError),
-)
-
-
-@github
-async def list_repos(): ...
-
-
-@github
-async def get_repo(): ...
+--8<-- "resilience/shield_class.py"
 ```
 
 One `Shield` instance per logical dependency. Two functions hitting GitHub share one budget. Two functions hitting GitHub and Stripe get two `Shield` instances.
@@ -108,12 +77,7 @@ The `name=` argument is the registration name used in logs, metrics, and the [PE
 For inline calls that span multiple statements, use `Shield.run`:
 
 ```python
-github = Shield.api("github", timeout_errors=(httpx.TimeoutException,))
-
-async def handler():
-    response = await github.run(client.get, url)
-    body = await github.run(parse_response, response)
-    return body
+--8<-- "resilience/shield_run.py"
 ```
 
 `Shield.run(fn, *args, **kwargs)` calls `fn(*args, **kwargs)` under the same retry-budget and adaptive-bucket state as the decorator form.
@@ -127,15 +91,7 @@ On give-up (retry budget exhausted, attempts cap reached, or non-retryable excep
 Pass a `Cache` instance to `cache=`. Shield writes the return value on every success and reads it on give-up:
 
 ```python
-from grelmicro.cache import TTLCache
-from grelmicro.resilience import shield
-
-@shield.api(
-    "prices",
-    timeout_errors=(httpx.TimeoutException,),
-    cache=TTLCache(ttl=300),
-)
-async def fetch_price(symbol: str) -> Decimal: ...
+--8<-- "resilience/shield_cache.py"
 ```
 
 Behavior:
@@ -145,13 +101,7 @@ Behavior:
 - **Key**: `f"{shield.name}:{stable_hash(args, kwargs)}"` by default. Override with `cache_key=` for control over what the key looks like:
 
 ```python
-@shield.api(
-    "prices",
-    timeout_errors=(httpx.TimeoutException,),
-    cache=TTLCache(ttl=300),
-    cache_key=lambda symbol, *_: f"price:{symbol}",
-)
-async def fetch_price(symbol: str) -> Decimal: ...
+--8<-- "resilience/shield_cache_key.py"
 ```
 
 Non-hashable arguments (Pydantic models, dataclasses, etc.) are hashed via stable `repr()`. Override `cache_key=` for non-default behavior.
@@ -161,17 +111,7 @@ Non-hashable arguments (Pydantic models, dataclasses, etc.) are hashed via stabl
 Pass a callable to `fallback=` for the case where the cache misses (or no cache is set). The callable receives the exception that escaped Shield:
 
 ```python
-async def last_known_price(exc: Exception) -> Decimal:
-    return Decimal("0")
-
-
-@shield.api(
-    "prices",
-    timeout_errors=(httpx.TimeoutException,),
-    cache=TTLCache(ttl=300),
-    fallback=last_known_price,
-)
-async def fetch_price(symbol: str) -> Decimal: ...
+--8<-- "resilience/shield_fallback.py"
 ```
 
 ### Recovery order on give-up
@@ -189,12 +129,7 @@ Use `cache=` alone when stale data is acceptable. Add `fallback=` for a safety n
 If the dependency has a contractual quota (an SLA limit, a third-party rate limit), set `max_rate=` to cap the adaptive bucket's growth:
 
 ```python
-@shield.api(
-    "stripe",
-    timeout_errors=(stripe.error.APIConnectionError,),
-    max_rate=10.0,
-)
-async def charge_card(...): ...
+--8<-- "resilience/shield_max_rate.py"
 ```
 
 CUBIC will still grow the rate after recovery, but `max_rate` clamps the ceiling. Without it, the ceiling grows unbounded as the dependency stays healthy.
@@ -204,11 +139,7 @@ CUBIC will still grow the rate after recovery, but `max_rate` clamps the ceiling
 When Shield gives up (budget exhausted, attempts exhausted, or non-retryable exception) and no recovery path returns a value (see [Recovery order on give-up](#recovery-order-on-give-up)), the underlying exception is re-raised with a [PEP 678](https://peps.python.org/pep-0678/) note attached:
 
 ```python
-try:
-    await fetch(url)
-except httpx.TimeoutException as exc:
-    print(exc.__notes__)
-    # ['shield: budget exhausted after 4/4 attempts in 18.30s (api profile)']
+--8<-- "resilience/shield_giveup.py"
 ```
 
 The note format encodes the give-up reason (`budget exhausted`, `attempts exhausted`, `non-retryable exception`), the attempt count, the total elapsed time, and the profile name.
@@ -222,12 +153,7 @@ Shield is the **outer** layer of resilience. Many client libraries ship their ow
 You do not need to disable the client's retries. Pass the client's terminal exception types via `timeout_errors=`:
 
 ```python
-@shield.api(
-    "github",
-    timeout_errors=(httpx.TimeoutException, httpx.ConnectError),
-)
-async def fetch(url: str) -> httpx.Response:
-    return await retrying_httpx_client.get(url)
+--8<-- "resilience/shield_layered.py"
 ```
 
 When the inner layer exhausts its own attempts and surfaces an exception, Shield sees it. CUBIC engages only when the *outer* exception escapes, never on per-attempt blips the inner layer handled.
@@ -247,25 +173,13 @@ When the inner layer exhausts its own attempts and surfaces an exception, Shield
 ### Programmatic
 
 ```python
-from grelmicro.resilience import Shield
-
-github = Shield.api(
-    "github",
-    timeout_errors=(httpx.TimeoutException, httpx.ConnectError),
-    max_rate=20.0,
-)
+--8<-- "resilience/shield_programmatic.py"
 ```
 
 ### Declarative
 
 ```python
-from grelmicro.resilience import ApiShieldConfig, Shield
-
-config = ApiShieldConfig(
-    timeout_errors=(httpx.TimeoutException, httpx.ConnectError),
-    max_rate=20.0,
-)
-github = Shield("github", config=config)
+--8<-- "resilience/shield_declarative.py"
 ```
 
 `ApiShieldConfig`, `InternalShieldConfig`, and `SlowShieldConfig` form a discriminated union on `kind`. Each subclass freezes its profile parameters. The public fields (`timeout_errors`, `max_rate`, `cache`, `cache_key`, `fallback`) are the only knobs.
@@ -283,7 +197,7 @@ Prefix: `GREL_SHIELD_{NAME_UPPER}_`
 The `cache`, `cache_key`, and `fallback` arguments cannot come from env. Use the programmatic or declarative path for them.
 
 ```python
-github = Shield("github", env_load=True)
+--8<-- "resilience/shield_environmental.py"
 ```
 
 ## Live reconfiguration
