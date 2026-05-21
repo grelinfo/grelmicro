@@ -17,6 +17,9 @@
         - ConstantBackoff
         - ErrorDetails
         - ExponentialBackoff
+        - Fallback
+        - FallbackConfig
+        - FallbackResult
         - FibonacciBackoff
         - LinearBackoff
         - Match
@@ -45,5 +48,7 @@
         - RetryStrategy
         - SlidingWindowConfig
         - TokenBucketConfig
+        - fallback
+        - falling_back
         - retry
         - retrying
