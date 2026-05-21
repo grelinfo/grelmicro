@@ -134,6 +134,22 @@ async def test_context_manager_nested() -> None:
         await asyncio.sleep(0)
 
 
+async def test_child_task_does_not_inherit_parent_scope() -> None:
+    """A task spawned inside a scope does not see the parent's scope state."""
+    policy = Timeout("t", seconds=1.0)
+    spawned_view: list[bool] = []
+
+    async def child() -> None:
+        spawned_view.append(asyncio.current_task() in policy._scopes)
+
+    async with policy:
+        task = asyncio.create_task(child())
+        await task
+
+    assert spawned_view == [False]
+    assert policy._scopes == {}
+
+
 # --- Decorator behavior ---------------------------------------------------
 
 

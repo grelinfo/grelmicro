@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from contextvars import ContextVar
 from dataclasses import dataclass
 from inspect import iscoroutinefunction
 from typing import TYPE_CHECKING, Annotated, Any, Self
@@ -26,6 +25,15 @@ __all__ = [
     "Timeout",
     "TimeoutConfig",
 ]
+
+
+def _current_task() -> asyncio.Task[Any]:
+    """Return the current asyncio task or raise if none is running."""
+    task = asyncio.current_task()
+    if task is None:  # pragma: no cover
+        msg = "Timeout requires a running asyncio task"
+        raise RuntimeError(msg)
+    return task
 
 
 class TimeoutConfig(BaseModel, frozen=True, extra="forbid"):
@@ -107,9 +115,7 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         self._config = resolved
         self._state = _State(config=resolved)
         self._reconfigure_lock = asyncio.Lock()
-        self._scopes: ContextVar[tuple[asyncio.Timeout, ...]] = ContextVar(
-            f"grelmicro.resilience.timeout.{name}", default=()
-        )
+        self._scopes: dict[asyncio.Task[Any], list[asyncio.Timeout]] = {}
 
     @property
     def name(self) -> str:
@@ -130,9 +136,14 @@ class Timeout(Reconfigurable[TimeoutConfig]):
 
     async def __aenter__(self) -> Self:
         """Open a fresh deadline scope for the current task."""
+        task = _current_task()
         scope = asyncio.timeout(self._state.config.seconds)
         await scope.__aenter__()
-        self._scopes.set((*self._scopes.get(), scope))
+        stack = self._scopes.get(task)
+        if stack is None:
+            self._scopes[task] = [scope]
+        else:
+            stack.append(scope)
         return self
 
     async def __aexit__(
@@ -142,9 +153,11 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         tb: TracebackType | None,
     ) -> bool | None:
         """Close the most recently opened scope for the current task."""
-        stack = self._scopes.get()
-        scope = stack[-1]
-        self._scopes.set(stack[:-1])
+        task = _current_task()
+        stack = self._scopes[task]
+        scope = stack.pop()
+        if not stack:
+            del self._scopes[task]
         return await scope.__aexit__(exc_type, exc, tb)
 
     def __call__(
