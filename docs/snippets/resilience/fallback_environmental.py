@@ -1,5 +1,3 @@
-import httpx
-
 from grelmicro.resilience import Fallback
 
 # Reads the config from environment variables. `factory` cannot be set
@@ -7,4 +5,4 @@ from grelmicro.resilience import Fallback
 #
 # - GREL_FALLBACK_RECS_WHEN=httpx.HTTPError
 # - GREL_FALLBACK_RECS_DEFAULT=[]
-policy = Fallback("recs", when=httpx.HTTPError)
+policy = Fallback("recs")

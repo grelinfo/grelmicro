@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import functools
 import os
-from collections.abc import Callable  # noqa: TC003
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from inspect import iscoroutinefunction
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self, TypeVar, overload
 
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Doc
@@ -24,11 +24,11 @@ from grelmicro._config import (
 from grelmicro._json import json_loads
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
+from grelmicro.resilience.retry import WhenInput  # noqa: TC001
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
     from types import TracebackType
-
-    from grelmicro.resilience.retry import WhenInput
 
 __all__ = [
     "Fallback",
@@ -38,6 +38,8 @@ __all__ = [
     "falling_back",
 ]
 
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 # Sentinel used to distinguish "default not provided" from "default is None".
 # ``None`` is a valid fallback value, so we cannot use it as the unset marker.
@@ -424,6 +426,14 @@ class Fallback(Reconfigurable[FallbackConfig]):
         """Construct a `Fallback` from a name and a pre-built `FallbackConfig`."""
         return cls(name, config=config)
 
+    @overload
+    def __call__(
+        self, fn: Callable[..., Awaitable[Any]], /
+    ) -> Callable[..., Awaitable[Any]]: ...
+
+    @overload
+    def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]: ...
+
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
         """Decorate ``fn`` so each call runs through this fallback policy."""
         if iscoroutinefunction(fn):
@@ -469,7 +479,7 @@ def fallback(
         Callable[[BaseException], Any] | None,
         Doc("Callable producing the fallback value from the exception."),
     ] = None,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+) -> Callable[[F], F]:
     """Build an anonymous fallback decorator.
 
     Exactly one of ``default=`` or ``factory=`` must be set.
@@ -480,7 +490,7 @@ def fallback(
     config = FallbackConfig.model_validate(kwargs)
     matcher: Matcher = config.when
 
-    def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
+    def wrap(fn: F) -> F:
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)
@@ -492,7 +502,7 @@ def fallback(
                         raise
                     return _resolve_value(config, exc)
 
-            return async_wrapper
+            return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -503,7 +513,7 @@ def fallback(
                     raise
                 return _resolve_value(config, exc)
 
-        return sync_wrapper
+        return sync_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     return wrap
 
