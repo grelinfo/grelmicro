@@ -31,6 +31,11 @@ from grelmicro.resilience.errors import (
     ResilienceSettingsValidationError,
 )
 
+# Same shadow handling as `retry`/`retrying`: ``fallback`` and
+# ``falling_back`` collide with the ``grelmicro.resilience.fallback``
+# submodule name, so they must be bound eagerly.
+from grelmicro.resilience.fallback import fallback, falling_back
+
 # `retry` and `retrying` shadow the `grelmicro.resilience.retry` submodule
 # name. Python's import system binds submodules as parent-package
 # attributes during import, which would shadow our `__getattr__` lazy
@@ -62,6 +67,13 @@ if TYPE_CHECKING:
     )
     from grelmicro.resilience.circuitbreaker.redis import (
         RedisCircuitBreakerAdapter,
+    )
+    from grelmicro.resilience.fallback import (
+        Fallback,
+        FallbackConfig,
+        FallbackResult,
+        fallback,
+        falling_back,
     )
     from grelmicro.resilience.ratelimiter import (
         RateLimiter,
@@ -99,6 +111,9 @@ __all__ = [
     "ConstantBackoff",
     "ErrorDetails",
     "ExponentialBackoff",
+    "Fallback",
+    "FallbackConfig",
+    "FallbackResult",
     "FibonacciBackoff",
     "LinearBackoff",
     "Match",
@@ -127,6 +142,8 @@ __all__ = [
     "RetryStrategy",
     "SlidingWindowConfig",
     "TokenBucketConfig",
+    "fallback",
+    "falling_back",
     "retry",
     "retrying",
 ]
@@ -195,6 +212,10 @@ _LAZY: dict[str, tuple[str, str]] = {
     "Retry": ("grelmicro.resilience.retry", "Retry"),
     "RetryAttempt": ("grelmicro.resilience.retry", "RetryAttempt"),
     "RetryConfig": ("grelmicro.resilience.retry", "RetryConfig"),
+    # Fallback
+    "Fallback": ("grelmicro.resilience.fallback", "Fallback"),
+    "FallbackConfig": ("grelmicro.resilience.fallback", "FallbackConfig"),
+    "FallbackResult": ("grelmicro.resilience.fallback", "FallbackResult"),
     # `retry` and `retrying` are imported eagerly above to win the
     # shadow-conflict with the submodule of the same name.
     # Backoff configs (retry-specific)

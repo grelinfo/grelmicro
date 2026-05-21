@@ -45,6 +45,9 @@ def test_resilience_module_exports() -> None:
         "ConstantBackoff",
         "ErrorDetails",
         "ExponentialBackoff",
+        "Fallback",
+        "FallbackConfig",
+        "FallbackResult",
         "FibonacciBackoff",
         "LinearBackoff",
         "Match",
@@ -73,6 +76,8 @@ def test_resilience_module_exports() -> None:
         "RetryStrategy",
         "SlidingWindowConfig",
         "TokenBucketConfig",
+        "fallback",
+        "falling_back",
         "retry",
         "retrying",
     }
