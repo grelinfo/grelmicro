@@ -1,8 +1,11 @@
 import httpx
 
+from grelmicro.resilience import shield
 
+
+@shield.api(timeout_errors=(httpx.TimeoutException,))
 async def fetch(url: str) -> bytes:
-    return b""
+    raise httpx.TimeoutException("dependency stalled")
 
 
 async def main(url: str) -> None:

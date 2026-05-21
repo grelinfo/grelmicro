@@ -128,6 +128,39 @@ async def test_resilience_error_propagates_without_retry() -> None:
     assert attempts["count"] == 1
 
 
+async def test_resilience_error_skips_cache_and_fallback() -> None:
+    """`ResilienceError` bypasses every recovery path and carries no note."""
+
+    class _BlowUpError(ResilienceError):
+        pass
+
+    class _StubCache:
+        async def get(self, _key: str) -> str:
+            return "should-not-be-returned"
+
+        async def set(self, _key: str, _value: str) -> None:
+            return None
+
+    async def synth(_exc: BaseException) -> str:
+        return "fallback-value"
+
+    s = Shield.api(
+        "rescue",
+        timeout_errors=(TimeoutError,),
+        cache=_StubCache(),
+        fallback=synth,
+    )
+
+    boom_msg = "nope"
+
+    async def boom() -> None:
+        raise _BlowUpError(boom_msg)
+
+    with pytest.raises(_BlowUpError) as exc_info:
+        await s.run(boom)
+    assert not getattr(exc_info.value, "__notes__", [])
+
+
 async def test_base_exception_propagates_without_retry() -> None:
     """`BaseException` outside `Exception` is never retried."""
     s = _shield()

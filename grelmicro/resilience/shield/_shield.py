@@ -517,15 +517,17 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                 async with asyncio.timeout(timeout):
                     result = await fn(*args, **kwargs)
             except BaseException as exc:
-                last_exc = exc
-                # ResilienceError propagates first, never retried.
+                # ResilienceError propagates immediately. No retry, no
+                # CUBIC update, no cache or fallback recovery, no PEP
+                # 678 note. Matches the BaseException-outside-Exception
+                # treatment in the classification table.
                 if isinstance(exc, ResilienceError):
-                    give_up_reason = _GIVE_UP_NON_RETRY
-                    break
+                    raise
                 # BaseException outside Exception (CancelledError,
                 # KeyboardInterrupt, SystemExit) propagates immediately.
                 if not isinstance(exc, Exception):
                     raise
+                last_exc = exc
                 # Non-retryable Exception: surface unchanged.
                 if not isinstance(exc, state.effective_timeout_errors):
                     give_up_reason = _GIVE_UP_NON_RETRY

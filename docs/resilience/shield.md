@@ -52,7 +52,7 @@ Shield classifies the wrapped call's outcome by exception type only. There is no
 | Any type in `timeout_errors` (or its subclasses) | yes | yes | yes |
 | Any other `Exception` subclass | no, propagates immediately | no | no |
 | Subclass of `ResilienceError` | no, propagates immediately | no | no |
-| `BaseException` outside `Exception` ([PEP 654](https://peps.python.org/pep-0654/) groups, `KeyboardInterrupt`, `CancelledError`, `SystemExit`) | no, propagates immediately | no | no |
+| `BaseException` outside `Exception` (`KeyboardInterrupt`, `CancelledError`, `SystemExit`, `BaseExceptionGroup`) | no, propagates immediately | no | no |
 
 You declare what "transient" means by passing exception types to `timeout_errors=`. Anything else surfaces unchanged.
 
