@@ -210,7 +210,7 @@ class TestBuilders:
         assert adapter._prefix == "rl:"
 
     def test_breaker_factory(self) -> None:
-        """`provider.breaker()` returns the canonical Redis adapter borrowing the provider."""
+        """`provider.breaker()` returns the matching Redis adapter borrowing the provider."""
         provider = RedisProvider(URL)
 
         adapter = provider.breaker(prefix="cb:")

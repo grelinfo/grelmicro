@@ -25,7 +25,7 @@ class Cache:
     users do not need to thread `backend=` on every cache instance.
 
     Accepts a `Provider` or a `CacheBackend`. When given a Provider, the
-    component calls `provider.cache()` to build the canonical adapter.
+    component calls `provider.cache()` to build the matching adapter.
 
     Example:
         ```python
@@ -61,7 +61,7 @@ class Cache:
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `CacheBackend`
                 instance. When a Provider is given, the component calls
-                `provider.cache()` to build the canonical adapter.
+                `provider.cache()` to build the matching adapter.
                 """,
             ),
         ],

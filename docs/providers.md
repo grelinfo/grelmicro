@@ -3,12 +3,12 @@
 A **Provider** is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
 of both. Components like `Sync`, `Cache`, and `RateLimiters` accept a
-Provider directly and use its canonical adapter under the hood.
+Provider directly and use its matching adapter under the hood.
 
 Two providers ship today: `RedisProvider` and `PostgresProvider`. More
 will follow.
 
-## The canonical shape
+## Recommended shape
 
 Pass a Provider to every Component that needs the same connection:
 
@@ -125,7 +125,7 @@ RedisProvider.from_client(client)            # bring-your-own client
 
 ## Factory methods
 
-Each Provider exposes factory methods that return its canonical adapter:
+Each Provider exposes factory methods that return its matching adapter:
 
 | Method                      | Returns                       | RedisProvider | PostgresProvider |
 |----------------------------|-------------------------------|:-------------:|:----------------:|

@@ -93,7 +93,7 @@ def test_breaker_with_postgres_provider_raises() -> None:
 
 
 def test_breaker_with_redis_provider_builds_shared_adapter() -> None:
-    """`CircuitBreakers(RedisProvider(...))` resolves to the canonical Redis adapter."""
+    """`CircuitBreakers(RedisProvider(...))` resolves to the matching Redis adapter."""
     provider = RedisProvider("redis://localhost:6379/0")
     component = CircuitBreakers(provider)
     assert isinstance(component.backend, RedisCircuitBreakerAdapter)

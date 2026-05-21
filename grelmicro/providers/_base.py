@@ -20,7 +20,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
     A `Provider` owns the native client (e.g. `redis.asyncio.Redis`,
     `asyncpg.Pool`) and the URL or credentials that built it. Components
     (`Sync`, `Cache`, `RateLimiters`, ...) accept a `Provider` and ask it for
-    the canonical adapter via the factory methods below.
+    the matching adapter via the factory methods below.
 
     Subclasses implement any subset of the factory methods. Factories that
     do not apply raise `NotImplementedError` with a message pointing to the
@@ -34,7 +34,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
     short_name: ClassVar[str]
 
     def sync(self, **kwargs: Any) -> SyncBackend:  # noqa: ANN401
-        """Return the canonical `SyncBackend` adapter for this Provider.
+        """Return the matching `SyncBackend` adapter for this Provider.
 
         Raises:
             NotImplementedError: If this Provider does not ship a sync adapter.
@@ -46,7 +46,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         raise NotImplementedError(msg)
 
     def cache(self, **kwargs: Any) -> CacheBackend:  # noqa: ANN401
-        """Return the canonical `CacheBackend` adapter for this Provider.
+        """Return the matching `CacheBackend` adapter for this Provider.
 
         Raises:
             NotImplementedError: If this Provider does not ship a cache adapter.
@@ -58,7 +58,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         raise NotImplementedError(msg)
 
     def ratelimiter(self, **kwargs: Any) -> RateLimiterBackend:  # noqa: ANN401
-        """Return the canonical `RateLimiterBackend` adapter for this Provider.
+        """Return the matching `RateLimiterBackend` adapter for this Provider.
 
         Raises:
             NotImplementedError: If this Provider does not ship a rate limiter
@@ -71,7 +71,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         raise NotImplementedError(msg)
 
     def breaker(self, **kwargs: Any) -> CircuitBreakerBackend:  # noqa: ANN401
-        """Return the canonical `CircuitBreakerBackend` adapter for this Provider.
+        """Return the matching `CircuitBreakerBackend` adapter for this Provider.
 
         Raises:
             NotImplementedError: If this Provider does not ship a circuit

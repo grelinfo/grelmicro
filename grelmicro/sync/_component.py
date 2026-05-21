@@ -25,7 +25,7 @@ class Sync:
     users do not need to pass `backend=` on every primitive.
 
     Accepts a `Provider` or a `SyncBackend`. When given a Provider, the
-    component calls `provider.sync()` to build the canonical adapter.
+    component calls `provider.sync()` to build the matching adapter.
 
     Example:
         ```python
@@ -54,7 +54,7 @@ class Sync:
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `SyncBackend`
                 instance. When a Provider is given, the component calls
-                `provider.sync()` to build the canonical adapter.
+                `provider.sync()` to build the matching adapter.
                 """,
             ),
         ],
