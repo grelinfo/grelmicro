@@ -70,6 +70,7 @@ nav:
     - tracing.md
     - Resilience:
         - resilience/index.md
+        - resilience/shield.md
         - resilience/circuit-breaker.md
         - resilience/rate-limiter.md
         - resilience/retry.md
@@ -95,6 +96,7 @@ nav:
     - architecture/kubernetes.md
     - architecture/sqlite.md
     - architecture/tracing.md
+    - architecture/shield-spec.md
 - changelog.md
 - Third-party notices: third_party_notices.md
 
