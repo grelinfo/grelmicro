@@ -118,24 +118,71 @@ async def handler():
 
 `Shield.run(fn, *args, **kwargs)` calls `fn(*args, **kwargs)` under the same retry-budget and adaptive-bucket state as the decorator form.
 
-## Fallback
+## Cache and fallback
 
-Shield composes with the existing `Fallback` contract. Pass a callable that returns a substitute value, called when Shield gives up:
+On give-up (retry budget exhausted, attempts cap reached, or non-retryable exception), Shield tries two recovery paths in order: a cache lookup, then a fallback callable. Either or both can be set.
+
+### Cached fallback
+
+Pass a `Cache` instance to `cache=`. Shield writes the return value on every success and reads it on give-up:
 
 ```python
-async def cached_price(exc: Exception) -> Decimal:
-    return await cache.get("last_price")
+from grelmicro.cache import TTLCache
+from grelmicro.resilience import shield
+
+@shield.api(
+    "prices",
+    timeout_errors=(httpx.TimeoutException,),
+    cache=TTLCache(ttl=300),
+)
+async def fetch_price(symbol: str) -> Decimal: ...
+```
+
+Behavior:
+
+- **On success**: `await cache.set(key, return_value)` runs fire-and-forget. A cache write failure is logged at debug and never propagates.
+- **On give-up**: `value = await cache.get(key)` runs. A cache hit returns the cached value. A cache miss continues to the next recovery path.
+- **Key**: `f"{shield.name}:{stable_hash(args, kwargs)}"` by default. Override with `cache_key=` for control over what the key looks like:
+
+```python
+@shield.api(
+    "prices",
+    timeout_errors=(httpx.TimeoutException,),
+    cache=TTLCache(ttl=300),
+    cache_key=lambda symbol, *_: f"price:{symbol}",
+)
+async def fetch_price(symbol: str) -> Decimal: ...
+```
+
+Non-hashable arguments (Pydantic models, dataclasses, etc.) are hashed via stable `repr()`. Override `cache_key=` for non-default behavior.
+
+### Custom fallback
+
+Pass a callable to `fallback=` for the case where the cache misses (or no cache is set). The callable receives the exception that escaped Shield:
+
+```python
+async def last_known_price(exc: Exception) -> Decimal:
+    return Decimal("0")
 
 
 @shield.api(
     "prices",
     timeout_errors=(httpx.TimeoutException,),
-    fallback=cached_price,
+    cache=TTLCache(ttl=300),
+    fallback=last_known_price,
 )
-async def fetch_price() -> Decimal: ...
+async def fetch_price(symbol: str) -> Decimal: ...
 ```
 
-The fallback fires when: the retry budget is exhausted, the attempts cap is reached, or any non-retryable exception escapes. Its return value replaces the surfaced exception.
+### Recovery order on give-up
+
+| Step | Condition | Outcome |
+|---|---|---|
+| 1 | `cache=` set and cache hit | return the cached value |
+| 2 | `cache=` unset or cache miss, `fallback=` set | call `fallback(exc)`, return its result |
+| 3 | neither path returns a value | re-raise the original exception with a [PEP 678](https://peps.python.org/pep-0678/) note |
+
+Use `cache=` alone when stale data is acceptable. Add `fallback=` for a safety net when the cache is cold. Use `fallback=` alone for purely synthesized defaults.
 
 ## Per-call rate ceiling
 
@@ -154,7 +201,7 @@ CUBIC will still grow the rate after recovery, but `max_rate` clamps the ceiling
 
 ## Behavior on giving up
 
-When Shield gives up (budget exhausted, attempts exhausted, or non-retryable exception), the underlying exception is re-raised with a [PEP 678](https://peps.python.org/pep-0678/) note attached:
+When Shield gives up (budget exhausted, attempts exhausted, or non-retryable exception) and no recovery path returns a value (see [Recovery order on give-up](#recovery-order-on-give-up)), the underlying exception is re-raised with a [PEP 678](https://peps.python.org/pep-0678/) note attached:
 
 ```python
 try:
@@ -221,7 +268,7 @@ config = ApiShieldConfig(
 github = Shield("github", config=config)
 ```
 
-`ApiShieldConfig`, `InternalShieldConfig`, and `SlowShieldConfig` form a discriminated union on `kind`. Each subclass freezes its profile parameters. The three public fields (`timeout_errors`, `max_rate`, `fallback`) are the only knobs.
+`ApiShieldConfig`, `InternalShieldConfig`, and `SlowShieldConfig` form a discriminated union on `kind`. Each subclass freezes its profile parameters. The public fields (`timeout_errors`, `max_rate`, `cache`, `cache_key`, `fallback`) are the only knobs.
 
 ### Environmental
 
@@ -233,7 +280,7 @@ Prefix: `GREL_SHIELD_{NAME_UPPER}_`
 | `GREL_SHIELD_{NAME_UPPER}_TIMEOUT_ERRORS` | `timeout_errors` | CSV of FQN strings (e.g. `httpx.TimeoutException,httpx.ConnectError`) | `builtins.TimeoutError` |
 | `GREL_SHIELD_{NAME_UPPER}_MAX_RATE` | `max_rate` | `float` or empty | unset |
 
-The `fallback` callable cannot come from env. Use the programmatic or declarative path for it.
+The `cache`, `cache_key`, and `fallback` arguments cannot come from env. Use the programmatic or declarative path for them.
 
 ```python
 github = Shield("github", env_load=True)
