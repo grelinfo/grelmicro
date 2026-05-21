@@ -1,11 +1,16 @@
 """Resilience.
 
-Top-level re-exports are PEP 562 lazy: importing this package only
-loads the small `_components`, `_match`, `_outcome`, `_protocol`, and
-`errors` modules. Patterns (`CircuitBreaker`, `RateLimiter`, `Retry`),
-their algorithm configs, and the memory/redis adapters load on first
-attribute access. `from grelmicro.resilience import CircuitBreaker`
-does not import anything related to `RateLimiter`, and vice versa.
+Top-level re-exports are PEP 562 lazy: importing this package loads
+`_components`, `_match`, `_outcome`, `_protocol`, and `errors` plus
+the eager exports listed below. Every other pattern (`CircuitBreaker`,
+`RateLimiter`), its algorithm configs, and the memory/redis adapters
+load on first attribute access. `from grelmicro.resilience import
+CircuitBreaker` does not import anything related to `RateLimiter`.
+
+Eager exports (loaded at package import because the function name
+shadows a submodule of the same name): `retry`, `retrying`,
+`fallback`, `falling_back`, `shield`. The `shield` import pulls the
+full `grelmicro.resilience.shield` subpackage.
 """
 
 from __future__ import annotations

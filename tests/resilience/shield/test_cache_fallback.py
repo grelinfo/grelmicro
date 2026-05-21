@@ -72,7 +72,7 @@ async def test_give_up_returns_cached_value_on_hit() -> None:
     cache = _SpyCache()
     s = _shield(cache=cache)
     # Pre-populate the cache with the key the next call will compute.
-    key = s._compute_key((), {})
+    key = s._compute_key(s._state, (), {})
     cache.data[key] = "from-cache"
 
     async def always_fails() -> None:
@@ -138,7 +138,7 @@ async def test_cache_then_fallback_order() -> None:
     assert await s.run(always_fails) == "synthesized"
 
     # Pre-populate cache, retry: cache hit beats fallback.
-    key = s._compute_key((), {})
+    key = s._compute_key(s._state, (), {})
     cache.data[key] = "cached-wins"
     assert await s.run(always_fails) == "cached-wins"
 

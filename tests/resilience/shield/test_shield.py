@@ -31,23 +31,23 @@ def _shield(**overrides: Any) -> Shield:  # noqa: ANN401
 async def test_success_path_no_retry_refunds_one() -> None:
     """Success without a retry refunds 1 token, clamped at capacity."""
     s = _shield()
-    starting = s._retry_budget.available
+    starting = s._state.retry_budget.available
     # Drain one slot first so a refund has somewhere to go.
-    await s._retry_budget.try_acquire()
-    assert s._retry_budget.available == starting - 1
+    await s._state.retry_budget.try_acquire()
+    assert s._state.retry_budget.available == starting - 1
 
     async def ok() -> str:
         return "ok"
 
     assert await s.run(ok) == "ok"
     # Refund of 1 happened, bringing us back to starting.
-    assert s._retry_budget.available == starting
+    assert s._state.retry_budget.available == starting
 
 
 async def test_single_retry_then_success_net_zero_budget() -> None:
     """One retry consumed and recovered yields net zero budget change."""
     s = _shield()
-    capacity = s._retry_budget.capacity
+    capacity = s._state.retry_budget.capacity
 
     attempts = {"count": 0}
 
@@ -59,7 +59,7 @@ async def test_single_retry_then_success_net_zero_budget() -> None:
 
     assert await s.run(flaky) == "done"
     assert attempts["count"] == 2  # noqa: PLR2004
-    assert s._retry_budget.available == capacity
+    assert s._state.retry_budget.available == capacity
 
 
 async def test_attempts_exhausted_attaches_pep_678_note() -> None:
@@ -83,7 +83,7 @@ async def test_budget_exhausted_stops_loop_silently() -> None:
     """An empty budget surfaces the failure with the budget note."""
     s = _shield()
     # Drain the budget by acquiring every token directly.
-    while await s._retry_budget.try_acquire():
+    while await s._state.retry_budget.try_acquire():
         pass
 
     async def always_fails() -> None:
@@ -185,7 +185,7 @@ async def test_run_rejects_sync_functions() -> None:
 async def test_state_shared_across_calls_through_one_instance() -> None:
     """Two functions wrapped by one Shield share the same budget."""
     s = _shield()
-    capacity = s._retry_budget.capacity
+    capacity = s._state.retry_budget.capacity
 
     @s
     async def fail() -> None:
@@ -194,7 +194,7 @@ async def test_state_shared_across_calls_through_one_instance() -> None:
     with pytest.raises(_SignalError):
         await fail()
     # Three retries got consumed on the failed call (no recovered retries).
-    assert s._retry_budget.available == capacity - 3
+    assert s._state.retry_budget.available == capacity - 3
 
 
 async def test_from_config_constructs_instance() -> None:

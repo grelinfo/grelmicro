@@ -164,10 +164,19 @@ def _build_config(
 
 @dataclass(frozen=True, slots=True)
 class _State:
-    """Read-side snapshot of the published Shield configuration."""
+    """Read-side snapshot of the published Shield configuration and helpers.
+
+    Each in-flight call captures one `_State` reference at the top of
+    `_execute`. A subsequent `reconfigure` swaps `Shield._state` to a
+    fresh instance with new helpers; the in-flight call continues to
+    use its captured snapshot end-to-end.
+    """
 
     config: _BaseShieldConfig
     effective_timeout_errors: tuple[type[BaseException], ...]
+    retry_budget: _RetryBudget
+    adaptive_gate: _AdaptiveGate
+    timeout_estimator: _TimeoutEstimator
 
 
 async def _maybe_await(value: Any) -> Any:  # noqa: ANN401
@@ -312,26 +321,8 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         self._reconfigure_lock = asyncio.Lock()
         self._time = time_source or time.monotonic
         self._random = random_source or random.random
-        self._retry_budget = _RetryBudget(
-            capacity=config.max_consecutive_failures
-        )
-        cap = config.max_rate or config.max_rate_cap_default
-        self._adaptive_gate = _AdaptiveGate(
-            initial_max_rate=config.initial_max_rate,
-            capacity=config.adaptive_burst_capacity,
-            min_rate_floor=config.min_rate_floor,
-            max_rate_cap=cap,
-            time_source=self._time,
-        )
-        self._timeout_estimator = _TimeoutEstimator(
-            initial_timeout=config.initial_timeout,
-            clamp_min=config.timeout_clamp_min,
-            clamp_max=config.timeout_clamp_max,
-        )
-        self._state = _State(
-            config=config,
-            effective_timeout_errors=config.effective_timeout_errors(),
-        )
+        self._pending_tasks: set[asyncio.Task[Any]] = set()
+        self._state = self._build_state(config)
 
     @property
     def name(self) -> str:
@@ -519,8 +510,8 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         give_up_reason = _GIVE_UP_ATTEMPTS
         while attempt < _MAX_ATTEMPTS:
             attempt += 1
-            await self._adaptive_gate.acquire()
-            timeout = self._timeout_estimator.estimate()
+            await state.adaptive_gate.acquire()
+            timeout = state.timeout_estimator.estimate()
             call_started = self._time()
             try:
                 async with asyncio.timeout(timeout):
@@ -540,11 +531,11 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                     give_up_reason = _GIVE_UP_NON_RETRY
                     break
                 # Retryable slow-down: shrink CUBIC, try the budget.
-                self._adaptive_gate.on_slow_down()
+                state.adaptive_gate.on_slow_down()
                 if attempt >= _MAX_ATTEMPTS:
                     give_up_reason = _GIVE_UP_ATTEMPTS
                     break
-                allowed = await self._retry_budget.try_acquire()
+                allowed = await state.retry_budget.try_acquire()
                 if not allowed:
                     logger.debug(
                         "shield %s: retry budget exhausted", self._name
@@ -552,20 +543,20 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                     give_up_reason = _GIVE_UP_BUDGET
                     break
                 retries_consumed += 1
-                delay = self._backoff_for(attempt)
+                delay = self._backoff_for(state, attempt)
                 if delay > 0:
                     await asyncio.sleep(delay)
                 continue
             else:
                 latency = self._time() - call_started
-                self._timeout_estimator.record(latency)
-                self._adaptive_gate.on_success()
+                state.timeout_estimator.record(latency)
+                state.adaptive_gate.on_success()
                 if retries_consumed == 0:
-                    await self._retry_budget.refund(1)
+                    await state.retry_budget.refund(1)
                 else:
-                    await self._retry_budget.refund(retries_consumed)
+                    await state.retry_budget.refund(retries_consumed)
                 if state.config.cache is not None:
-                    self._fire_and_forget_cache_set(args, kwargs, result)
+                    self._fire_and_forget_cache_set(state, args, kwargs, result)
                 return result
         # Give-up path: try cache, then fallback, then re-raise with note.
         elapsed = self._time() - started
@@ -575,12 +566,12 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         )
         return await self._handle_give_up(state, args, kwargs, last_exc, note)
 
-    def _backoff_for(self, attempt_number: int) -> float:
+    def _backoff_for(self, state: _State, attempt_number: int) -> float:
         """Return the sleep delay before retry `attempt_number`."""
         # `attempt_number` is the just-failed attempt index (1..N). The
         # retry index `i` used by the formula starts at 1 for the first
         # retry, which is the same value.
-        config = self._state.config
+        config = state.config
         cap = config.backoff_cap
         scale = config.backoff_scale
         ceiling = min(scale * (2 ** (attempt_number - 1)), cap)
@@ -598,7 +589,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         config = state.config
         cache = config.cache
         if cache is not None:
-            key = self._compute_key(args, kwargs)
+            key = self._compute_key(state, args, kwargs)
             try:
                 value = await cache.get(key)
             except Exception:  # noqa: BLE001
@@ -617,61 +608,66 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         raise exc
 
     def _compute_key(
-        self, args: tuple[Any, ...], kwargs: dict[str, Any]
+        self,
+        state: _State,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
     ) -> str:
         """Compute the cache key for one call."""
-        custom = self._state.config.cache_key
+        custom = state.config.cache_key
         if custom is not None:
             return custom(*args, **kwargs)
         return default_cache_key(self._name, args, kwargs)
 
     def _fire_and_forget_cache_set(
         self,
+        state: _State,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
         value: Any,  # noqa: ANN401
     ) -> None:
-        """Write the successful return value to the cache without awaiting."""
-        cache = self._state.config.cache
+        """Write the successful return value to the cache without awaiting.
+
+        The task is tracked in `self._pending_tasks` so the event loop
+        retains a strong reference and cannot garbage-collect the task
+        mid-execution. The done callback removes the entry.
+        """
+        cache = state.config.cache
         if cache is None:  # pragma: no cover
             return
-        key = self._compute_key(args, kwargs)
+        key = self._compute_key(state, args, kwargs)
         task = asyncio.create_task(_safe_cache_set(cache, key, value))
-        # Hold a strong reference and silence "task was destroyed" warnings.
-        task.add_done_callback(_discard_task)
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
 
     async def _apply_reconfigure(self, new_config: _BaseShieldConfig) -> None:
-        """Rebuild derived state from `new_config`."""
-        # Live reconfigure swaps the snapshot. In-flight `_execute`
-        # loops keep the previous snapshot through `state`.
-        self._retry_budget = _RetryBudget(
-            capacity=new_config.max_consecutive_failures
-        )
-        cap = new_config.max_rate or new_config.max_rate_cap_default
-        self._adaptive_gate = _AdaptiveGate(
-            initial_max_rate=new_config.initial_max_rate,
-            capacity=new_config.adaptive_burst_capacity,
-            min_rate_floor=new_config.min_rate_floor,
-            max_rate_cap=cap,
-            time_source=self._time,
-        )
-        self._timeout_estimator = _TimeoutEstimator(
-            initial_timeout=new_config.initial_timeout,
-            clamp_min=new_config.timeout_clamp_min,
-            clamp_max=new_config.timeout_clamp_max,
-        )
-        self._state = _State(
-            config=new_config,
-            effective_timeout_errors=new_config.effective_timeout_errors(),
-        )
+        """Rebuild derived state from `new_config`.
 
+        Swaps `self._state` to a fresh `_State` carrying new helpers.
+        In-flight calls keep their captured snapshot end-to-end.
+        """
+        self._state = self._build_state(new_config)
 
-def _discard_task(task: asyncio.Task[Any]) -> None:
-    """Swallow the cache-write task result for fire-and-forget semantics."""
-    import contextlib  # noqa: PLC0415
-
-    with contextlib.suppress(Exception):  # pragma: no cover
-        task.result()
+    def _build_state(self, config: _BaseShieldConfig) -> _State:
+        """Build a fresh `_State` with helpers wired to `config`."""
+        cap = config.max_rate or config.max_rate_cap_default
+        return _State(
+            config=config,
+            effective_timeout_errors=config.effective_timeout_errors(),
+            retry_budget=_RetryBudget(capacity=config.max_consecutive_failures),
+            adaptive_gate=_AdaptiveGate(
+                initial_max_rate=config.initial_max_rate,
+                capacity=config.adaptive_burst_capacity,
+                min_rate_floor=config.min_rate_floor,
+                max_rate_cap=cap,
+                time_source=self._time,
+            ),
+            timeout_estimator=_TimeoutEstimator(
+                initial_timeout=config.initial_timeout,
+                clamp_min=config.timeout_clamp_min,
+                clamp_max=config.timeout_clamp_max,
+            ),
+        )
 
 
 def _is_async_callable(fn: object) -> bool:

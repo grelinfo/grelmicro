@@ -51,7 +51,7 @@ def _resolve_fqn(fqn: str) -> type[BaseException]:
             f"no attribute {name!r}"
         )
         raise ValueError(msg) from exc
-    if not (isinstance(cls, type) and issubclass(cls, BaseException)):
+    if not (isinstance(cls, type) and issubclass(cls, Exception)):
         msg = f"timeout_errors entry {fqn!r} is not an Exception subclass"
         raise TypeError(msg)
     return cls
