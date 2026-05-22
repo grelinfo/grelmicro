@@ -144,7 +144,13 @@ class _BaseShieldConfig(BaseModel, frozen=True, extra="forbid"):
         """Accept a class, a tuple, or env CSV/JSON of FQNs."""
         if value is None:
             return value
-        if isinstance(value, type) and issubclass(value, BaseException):
+        if isinstance(value, type):
+            if not issubclass(value, Exception):
+                msg = (
+                    f"timeout_errors entry {value!r} is not an Exception "
+                    f"subclass; BaseException-only types are never retried."
+                )
+                raise TypeError(msg)
             return (value,)
         if isinstance(value, str):
             parsed = parse_csv_or_json(value)

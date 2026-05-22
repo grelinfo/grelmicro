@@ -187,7 +187,12 @@ async def _maybe_await(value: Any) -> Any:  # noqa: ANN401
 
 
 async def _safe_cache_set(cache: Any, key: str, value: Any) -> None:  # noqa: ANN401
-    """Write `value` to `cache` under `key`. Swallow every exception at debug."""
+    """Write `value` to `cache` under `key`.
+
+    Swallow every `Exception` at debug. `BaseException` (notably
+    `asyncio.CancelledError`) propagates so task cancellation during
+    shutdown reaches the asyncio scheduler unchanged.
+    """
     try:
         await cache.set(key, value)
     except Exception:  # noqa: BLE001

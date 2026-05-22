@@ -47,14 +47,14 @@ If the three profiles do not fit, you have outgrown Shield. Compose `Retry`, `Ti
 
 Shield classifies the wrapped call's outcome by exception type only. There is no response envelope, no status code, no `Retry-After` header.
 
-| Raised by the wrapped call | Retried? | Triggers CUBIC shrink? | Consumes retry budget? |
-|---|---|---|---|
-| Any type in `timeout_errors` (or its subclasses) | yes | yes | yes |
-| Any other `Exception` subclass | no, propagates immediately | no | no |
-| Subclass of `ResilienceError` | no, propagates immediately | no | no |
-| `BaseException` outside `Exception` (`KeyboardInterrupt`, `CancelledError`, `SystemExit`, `BaseExceptionGroup`) | no, propagates immediately | no | no |
+| Raised by the wrapped call | Retried? | Triggers CUBIC shrink? | Consumes retry budget? | Cache / fallback recovery? |
+|---|---|---|---|---|
+| Any type in `timeout_errors` (or its subclasses) | yes | yes | yes | yes, on give-up |
+| Any other `Exception` subclass | no | no | no | yes, on give-up |
+| Subclass of `ResilienceError` | no | no | no | no, propagates immediately |
+| `BaseException` outside `Exception` (`KeyboardInterrupt`, `CancelledError`, `SystemExit`, `BaseExceptionGroup`) | no | no | no | no, propagates immediately |
 
-You declare what "transient" means by passing exception types to `timeout_errors=`. Anything else surfaces unchanged.
+You declare what "transient" means by passing exception types to `timeout_errors=`. Any other `Exception` skips the retry loop and goes straight to the [give-up recovery path](#recovery-order-on-give-up): if a cache or fallback returns a value, that value is returned; otherwise the original exception is re-raised with a [PEP 678](https://peps.python.org/pep-0678/) note. `ResilienceError` and `BaseException`-outside-`Exception` always propagate unchanged with no recovery and no note.
 
 The effective tuple is always `user_tuple + (TimeoutError,)`. Shield's own per-attempt timeout raises `TimeoutError`, and the library guarantees that signal is always retryable, regardless of what the user passed.
 

@@ -91,6 +91,12 @@ def test_config_extra_forbidden() -> None:
         ApiShieldConfig(unknown_field="x")  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
 
 
+def test_timeout_errors_rejects_base_exception_class() -> None:
+    """`BaseException`-only types cannot be passed as `timeout_errors`."""
+    with pytest.raises(TypeError, match="not an Exception subclass"):
+        ApiShieldConfig(timeout_errors=KeyboardInterrupt)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
 def test_config_frozen() -> None:
     """Configs are frozen after construction."""
     config = ApiShieldConfig()
