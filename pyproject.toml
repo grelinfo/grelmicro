@@ -206,6 +206,7 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
     "T201",
 ]
 "docs/snippets/logging/basic.py" = ["EM101", "TRY"]
+"docs/snippets/resilience/shield_giveup.py" = ["EM101", "TRY"]
 "docs/snippets/task/router.py" = ["I001", "E402"]
 "tests/*" = [
     "S101",

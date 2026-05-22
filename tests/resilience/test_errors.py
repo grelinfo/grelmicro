@@ -32,6 +32,7 @@ def test_circuit_breaker_error() -> None:
 def test_resilience_module_exports() -> None:
     """Test resilience module __all__ contains expected symbols."""
     expected = {
+        "ApiShieldConfig",
         "CircuitBreakers",
         "CircuitBreaker",
         "CircuitBreakerBackend",
@@ -49,6 +50,7 @@ def test_resilience_module_exports() -> None:
         "FallbackConfig",
         "FallbackResult",
         "FibonacciBackoff",
+        "InternalShieldConfig",
         "LinearBackoff",
         "Match",
         "Matcher",
@@ -74,7 +76,10 @@ def test_resilience_module_exports() -> None:
         "RetryBackoffConfig",
         "RetryConfig",
         "RetryStrategy",
+        "Shield",
+        "ShieldConfig",
         "SlidingWindowConfig",
+        "SlowShieldConfig",
         "Timeout",
         "TimeoutConfig",
         "TokenBucketConfig",
@@ -82,6 +87,7 @@ def test_resilience_module_exports() -> None:
         "falling_back",
         "retry",
         "retrying",
+        "shield",
     }
     assert set(resilience_mod.__all__) == expected
 

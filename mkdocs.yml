@@ -71,6 +71,7 @@ nav:
     - tracing.md
     - Resilience:
         - resilience/index.md
+        - resilience/shield.md
         - resilience/circuit-breaker.md
         - resilience/fallback.md
         - resilience/rate-limiter.md

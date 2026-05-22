@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add `Shield` resilience pattern: per-attempt timeout, retry-budget-gated retries, CUBIC-style adaptive rate limiter, optional cache and fallback recovery paths. Three profiles (`internal`, `api`, `slow`) cover the common cases. Decorator (`@shield`, `@shield.api(...)`), class (`Shield.api("name")`), and imperative (`Shield.api("name").run(fn, ...)`) forms supported. Issue [#249](https://github.com/grelinfo/grelmicro/issues/249).
+
 ## 0.25.0 - 2026-05-21
 
 ### Features

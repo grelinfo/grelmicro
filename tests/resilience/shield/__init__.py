@@ -1,0 +1,1 @@
+"""Shield resilience pattern tests."""
