@@ -6,9 +6,10 @@ from time import monotonic
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
+from grelmicro.cache import Cache, TTLCacheConfig
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import CacheInfo, TTLCache
@@ -56,22 +57,34 @@ class TestInit:
         assert info.currsize == 0
 
     def test_negative_maxsize_raises(self, backend: MemoryCacheAdapter) -> None:
-        """Test that negative maxsize raises ValueError."""
+        """Test that negative maxsize raises a Pydantic validation error."""
         # Act / Assert
-        with pytest.raises(ValueError, match="maxsize must be non-negative"):
+        with pytest.raises(ValidationError, match="maxsize"):
             TTLCache(maxsize=-1, ttl=60, backend=backend)
 
     def test_zero_ttl_raises(self, backend: MemoryCacheAdapter) -> None:
-        """Test that zero ttl raises ValueError."""
+        """Test that zero ttl raises a Pydantic validation error."""
         # Act / Assert
-        with pytest.raises(ValueError, match="ttl must be positive"):
+        with pytest.raises(ValidationError, match="ttl"):
             TTLCache(maxsize=10, ttl=0, backend=backend)
 
     def test_negative_ttl_raises(self, backend: MemoryCacheAdapter) -> None:
-        """Test that negative ttl raises ValueError."""
+        """Test that negative ttl raises a Pydantic validation error."""
         # Act / Assert
-        with pytest.raises(ValueError, match="ttl must be positive"):
+        with pytest.raises(ValidationError, match="ttl"):
             TTLCache(maxsize=10, ttl=-1, backend=backend)
+
+    def test_config_property(self, backend: MemoryCacheAdapter) -> None:
+        """Test that `config` exposes the frozen `TTLCacheConfig`."""
+        # Arrange / Act
+        cache = TTLCache(maxsize=50, ttl=30, backend=backend)
+
+        # Assert
+        assert isinstance(cache.config, TTLCacheConfig)
+        expected_maxsize = 50
+        expected_ttl = 30
+        assert cache.config.maxsize == expected_maxsize
+        assert cache.config.ttl == expected_ttl
 
     def test_default_backend_resolved_lazily(self) -> None:
         """Test that TTLCache created without backend resolves it lazily."""

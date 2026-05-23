@@ -1,7 +1,9 @@
 """Cache Backend Protocol."""
 
 from types import TracebackType
-from typing import Protocol, Self, runtime_checkable
+from typing import Annotated, Protocol, Self, runtime_checkable
+
+from typing_extensions import Doc
 
 
 @runtime_checkable
@@ -30,18 +32,50 @@ class CacheBackend(Protocol):
         """Close the backend connection."""
         ...
 
-    async def get(self, *, key: str) -> bytes | None:
+    async def get(
+        self,
+        *,
+        key: Annotated[
+            str,
+            Doc("Fully qualified cache key, already namespaced by `TTLCache`."),
+        ],
+    ) -> bytes | None:
         """Get raw bytes by key.
 
         Returns None if the key is missing or expired.
         """
         ...
 
-    async def set(self, *, key: str, value: bytes, ttl: float) -> None:
+    async def set(
+        self,
+        *,
+        key: Annotated[
+            str,
+            Doc("Fully qualified cache key, already namespaced by `TTLCache`."),
+        ],
+        value: Annotated[
+            bytes,
+            Doc("Serialized payload to store. Opaque to the backend."),
+        ],
+        ttl: Annotated[
+            float,
+            Doc(
+                "Time-to-live in seconds. The backend must drop the entry once"
+                " this many seconds have elapsed since the write."
+            ),
+        ],
+    ) -> None:
         """Store raw bytes with a TTL in seconds."""
         ...
 
-    async def delete(self, *, key: str) -> None:
+    async def delete(
+        self,
+        *,
+        key: Annotated[
+            str,
+            Doc("Fully qualified cache key. No-op if absent."),
+        ],
+    ) -> None:
         """Delete a key (no-op if absent)."""
         ...
 

@@ -110,9 +110,10 @@ The rules below are the ones the tooling can't check:
 - Every configuration class is
   `BaseModel, frozen=True, extra="forbid"`.
 - Every field is annotated with `Annotated[type, Doc("...")]`.
-- For discriminated unions, include a `type: Literal["..."]`
+- For discriminated unions, include a `kind: Literal["..."]`
   discriminator field and wrap the union with
-  `Annotated[A | B, Discriminator("type")]`.
+  `Annotated[A | B, Discriminator("kind")]`. `kind` avoids
+  shadowing the Python `type` builtin on every config object.
 - Expose the config through a `@property def config(self) -> XConfig`
   on the front-door class.
 

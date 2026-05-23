@@ -6,6 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Generic
 
+from pydantic import BaseModel, NonNegativeInt, PositiveFloat
 from typing_extensions import Doc, TypeVar
 
 from grelmicro._app import Grelmicro
@@ -15,6 +16,36 @@ if TYPE_CHECKING:
     from grelmicro.cache.serializers import CacheSerializer
 
 T = TypeVar("T", default=Any)
+
+
+class TTLCacheConfig(BaseModel, frozen=True, extra="forbid"):
+    """Frozen snapshot of the `TTLCache` declarative settings.
+
+    Carries the settings that round-trip in serialized form. Runtime
+    dependencies (`backend`, `serializer`) stay as constructor kwargs
+    on `TTLCache` since they are object references, not values.
+    """
+
+    maxsize: Annotated[
+        NonNegativeInt,
+        Doc(
+            """
+            Maximum number of entries tracked locally for LRU eviction.
+            `0` disables the cap and the LRU bookkeeping. Only enforced
+            in-process: a shared backend may still hold more entries.
+            """,
+        ),
+    ] = 0
+
+    ttl: Annotated[
+        PositiveFloat,
+        Doc(
+            """
+            Default TTL in seconds applied when `set` is called without
+            a per-entry override.
+            """,
+        ),
+    ] = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +86,9 @@ class TTLCache(Generic[T]):
     for typed caching.
 
     Raises:
-        ValueError: If maxsize is negative or ttl is not positive.
+        pydantic.ValidationError: If `maxsize` is negative or `ttl` is not
+            positive. `ValidationError` is a subclass of `ValueError`, so
+            existing `except ValueError:` blocks still catch it.
     """
 
     def __init__(
@@ -108,15 +141,12 @@ class TTLCache(Generic[T]):
         ] = None,
     ) -> None:
         """Initialize the cache."""
-        if maxsize < 0:
-            msg = "maxsize must be non-negative"
-            raise ValueError(msg)
-        if ttl <= 0:
-            msg = "ttl must be positive"
-            raise ValueError(msg)
-
-        self._maxsize = maxsize
-        self._ttl = ttl
+        self._config = TTLCacheConfig(maxsize=maxsize, ttl=ttl)
+        # Snapshot the validated config to instance attributes so the
+        # hot path (`get`, `set`) reads a single attribute instead of
+        # walking through `self._config.<field>`.
+        self._maxsize = self._config.maxsize
+        self._ttl = self._config.ttl
         self._backend = backend
         self._serializer = serializer
         self._hits = 0
@@ -124,6 +154,11 @@ class TTLCache(Generic[T]):
         self._evictions = 0
         # LRU tracking (OrderedDict for O(1) move_to_end / popitem)
         self._keys: OrderedDict[str, None] = OrderedDict()
+
+    @property
+    def config(self) -> TTLCacheConfig:
+        """Return the frozen config snapshot."""
+        return self._config
 
     def _get_backend(self) -> CacheBackend:
         """Resolve the backend on every call.

@@ -121,7 +121,21 @@ class Grelmicro:
         except LookupError as exc:
             raise NoActiveAppError from exc
 
-    def use(self, item: AbstractAsyncContextManager[object]) -> None:
+    def use(
+        self,
+        item: Annotated[
+            AbstractAsyncContextManager[object],
+            Doc(
+                """
+                The item to register and lifecycle with the app. A `Component`
+                instance is indexed under `(kind, name)` and exposed on
+                `micro.<kind>`. A first-party backend is auto-wrapped into its
+                matching `Component`. Any other async context manager is just
+                lifecycled, and the caller keeps the reference.
+                """,
+            ),
+        ],
+    ) -> None:
         """Register an item to be lifecycled with the app.
 
         Three shapes are accepted:
@@ -188,7 +202,30 @@ class Grelmicro:
             self._by_kind[component.kind] = component
         self._items.append(component)
 
-    def get(self, kind: str, name: str = "default") -> Any:  # noqa: ANN401
+    def get(
+        self,
+        kind: Annotated[
+            str,
+            Doc(
+                """
+                Component category, matching the `kind` class attribute on
+                the registered component (`"sync"`, `"cache"`, `"ratelimiter"`,
+                `"circuitbreaker"`, `"log"`, `"trace"`, `"tasks"`, `"health"`).
+                """,
+            ),
+        ],
+        name: Annotated[
+            str,
+            Doc(
+                """
+                Component instance name. `"default"` matches the entry that
+                also backs `micro.<kind>`. Pass the explicit name to resolve
+                a secondary registration such as
+                `Sync(backend, name="analytics")`.
+                """,
+            ),
+        ] = "default",
+    ) -> Any:  # noqa: ANN401
         """Resolve a registered component by `(kind, name)`.
 
         Returns `Any` for the same reason `micro.<kind>` does: the dynamic

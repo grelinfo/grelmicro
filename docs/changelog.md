@@ -5,6 +5,13 @@
 ### Features
 
 * ✨ Add `Shield` resilience pattern: per-attempt timeout, retry-budget-gated retries, CUBIC-style adaptive rate limiter, optional cache and fallback recovery paths. Three profiles (`internal`, `api`, `slow`) cover the common cases. Decorator (`@shield`, `@shield.api(...)`), class (`Shield.api("name")`), and imperative (`Shield.api("name").run(fn, ...)`) forms supported. Issue [#249](https://github.com/grelinfo/grelmicro/issues/249).
+* ✨ Add `TTLCacheConfig` and expose it via `TTLCache.config`. Matches the frozen-config shape used by every other primitive.
+
+### Docs
+
+* 📝 Lead `README.md` and `docs/index.md` with a one-route, one-primitive FastAPI example before the full composition demo.
+* 📝 Annotate `Grelmicro.use`, `Grelmicro.get`, `instrument`, and `CacheBackend` protocol parameters with `Annotated[..., Doc(...)]`.
+* 📝 Align the `CONTRIBUTING.md` discriminator rule with the code: `kind` (not `type`).
 
 ## 0.25.0 - 2026-05-21
 
