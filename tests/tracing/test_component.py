@@ -150,3 +150,29 @@ async def test_trace_sampler_ratio() -> None:
     )
     async with micro:
         assert micro.trace.config.sample_ratio == 0.25  # noqa: PLR2004
+
+
+async def test_trace_shutdown_timeout_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A slow `TracerProvider.shutdown()` is bounded by `shutdown_timeout`."""
+    import time  # noqa: PLC0415
+
+    micro = Grelmicro(
+        uses=[
+            Trace(
+                exporter=TracingExporterType.NONE,
+                service_name="slow-svc",
+                shutdown_timeout=0.05,
+            )
+        ]
+    )
+    async with micro:
+        provider = micro.trace.provider
+        # Replace shutdown with a slow blocking call so wait_for times out.
+        provider.shutdown = lambda: time.sleep(2.0)  # type: ignore[method-assign]
+
+    assert any(
+        "TracerProvider.shutdown timed out" in record.message
+        for record in caplog.records
+    )

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
@@ -17,6 +19,9 @@ from grelmicro.trace.config import (
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+
+_logger = logging.getLogger(__name__)
 
 
 class Trace:
@@ -94,6 +99,13 @@ class Trace:
         resource_attributes: Annotated[
             dict[str, str] | None, Doc("Extra resource attributes.")
         ] = None,
+        shutdown_timeout: Annotated[
+            float | None,
+            Doc(
+                "Maximum seconds to wait for the `TracerProvider.shutdown()` "
+                "flush before falling back to a no-op."
+            ),
+        ] = None,
         env_load: Annotated[
             bool | None,
             Doc(
@@ -114,6 +126,7 @@ class Trace:
             "sampler": sampler,
             "sample_ratio": sample_ratio,
             "resource_attributes": resource_attributes,
+            "shutdown_timeout": shutdown_timeout,
         }
         self._env_load = env_load
         self._resolved: TracingConfig | None = None
@@ -169,13 +182,34 @@ class Trace:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None:
-        """Shut down the provider and restore the prior global provider."""
+        """Shut down the provider and restore the prior global provider.
+
+        `TracerProvider.shutdown()` blocks while the batch span processor
+        flushes. A slow or broken exporter must not hang application
+        shutdown, so the call runs in a thread executor with the
+        `shutdown_timeout` deadline. On timeout, a warning is logged and
+        the global provider is restored regardless.
+        """
         from opentelemetry import trace  # noqa: PLC0415
 
         try:
             shutdown = getattr(self._provider, "shutdown", None)
             if callable(shutdown):
-                shutdown()
+                timeout = (
+                    self._resolved.shutdown_timeout
+                    if self._resolved is not None
+                    else 5.0
+                )
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(shutdown), timeout=timeout
+                    )
+                except TimeoutError:
+                    _logger.warning(
+                        "TracerProvider.shutdown timed out after %.1fs; "
+                        "spans may be dropped.",
+                        timeout,
+                    )
         finally:
             trace._TRACER_PROVIDER = self._prior_provider  # type: ignore[attr-defined]  # noqa: SLF001
             self._provider = None
