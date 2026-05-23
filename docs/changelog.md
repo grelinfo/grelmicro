@@ -29,6 +29,7 @@
 
 * 🔧 Drop three unused `ty: ignore` directives in `grelmicro/_json.py`.
 * ✅ Add a guard test that every `_LAZY` key in `grelmicro/resilience/__init__.py` is exported in `__all__` and actually resolves at runtime.
+* ✅ Add Hypothesis property tests for token-bucket and sliding-window math and for exponential backoff jitter bounds.
 
 ## 0.25.0 - 2026-05-21
 
