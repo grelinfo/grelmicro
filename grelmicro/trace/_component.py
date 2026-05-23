@@ -104,7 +104,10 @@ class Trace:
             float | None,
             Doc(
                 "Maximum seconds to wait for the `TracerProvider.shutdown()` "
-                "flush before falling back to a no-op."
+                "flush. On timeout the call is abandoned (the daemon "
+                "shutdown thread keeps running but cannot block loop "
+                "teardown), a warning is logged, and the rest of "
+                "`__aexit__` proceeds. Pending spans may be dropped."
             ),
         ] = None,
         env_load: Annotated[

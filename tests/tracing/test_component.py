@@ -163,6 +163,8 @@ async def test_trace_shutdown_timeout_logs_warning(
     """
     import time  # noqa: PLC0415
 
+    caplog.set_level("WARNING", logger="grelmicro.trace._component")
+
     micro = Grelmicro(
         uses=[
             Trace(
@@ -188,6 +190,7 @@ async def test_trace_shutdown_exception_logged_not_propagated(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A raise from `TracerProvider.shutdown` is captured and logged."""
+    caplog.set_level("WARNING", logger="grelmicro.trace._component")
 
     def _raise() -> None:
         msg = "exporter broken"

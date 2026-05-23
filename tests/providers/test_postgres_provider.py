@@ -216,6 +216,15 @@ class TestSafeUrl:
             == "postgresql://u:***@bad host/db"
         )
 
+    def test_safe_url_malformed_multi_host_redacts_every_password(self) -> None:
+        """Every userinfo password in a malformed multi-host DSN is redacted."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://u:p@bad host1,u2:p2@bad host2/db")
+            == "postgresql://u:***@bad host1,u2:***@bad host2/db"
+        )
+
     def test_safe_url_multi_host_redacts_each(self) -> None:
         """Multi-host Postgres DSNs have each password redacted."""
         from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415

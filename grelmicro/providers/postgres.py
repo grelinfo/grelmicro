@@ -357,7 +357,7 @@ def _compose_url(
     ).unicode_string()
 
 
-_USERINFO_RE = re.compile(r"(://[^/?#@]*?:)([^@/?#]+)(@)")
+_USERINFO_RE = re.compile(r"(://|,)([^:@/?#,]*:)([^@/?#,]+)(@)")
 
 
 def _redact_url(url: str) -> str:
@@ -373,7 +373,7 @@ def _redact_url(url: str) -> str:
     try:
         parsed = MultiHostUrl(url)
     except ValueError:
-        return _USERINFO_RE.sub(r"\1***\3", url)
+        return _USERINFO_RE.sub(r"\1\2***\4", url)
     hosts = parsed.hosts()
     if not any(h.get("password") for h in hosts):
         return url
