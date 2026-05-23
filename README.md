@@ -74,7 +74,7 @@ See the [Installation guide](https://grelinfo.github.io/grelmicro/installation/)
 The smallest grelmicro program: a FastAPI route protected by a process-local rate limiter. No `Grelmicro(...)`, no Redis, no lifespan.
 
 ```python
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 
 from grelmicro.resilience import RateLimitExceededError, RateLimiter
 
@@ -83,9 +83,9 @@ api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
 
 @app.get("/ping")
-async def ping(request: Request) -> dict[str, str]:
+async def ping() -> dict[str, str]:
     try:
-        await api_limiter.acquire_or_raise(key=request.client.host)
+        await api_limiter.acquire_or_raise(key="global")
     except RateLimitExceededError:
         return {"status": "throttled"}
     return {"status": "ok"}

@@ -6,6 +6,7 @@ from time import monotonic
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, TTLCacheConfig
@@ -58,19 +59,19 @@ class TestInit:
     def test_negative_maxsize_raises(self, backend: MemoryCacheAdapter) -> None:
         """Test that negative maxsize raises a Pydantic validation error."""
         # Act / Assert
-        with pytest.raises(ValueError, match="maxsize"):
+        with pytest.raises(ValidationError, match="maxsize"):
             TTLCache(maxsize=-1, ttl=60, backend=backend)
 
     def test_zero_ttl_raises(self, backend: MemoryCacheAdapter) -> None:
         """Test that zero ttl raises a Pydantic validation error."""
         # Act / Assert
-        with pytest.raises(ValueError, match="ttl"):
+        with pytest.raises(ValidationError, match="ttl"):
             TTLCache(maxsize=10, ttl=0, backend=backend)
 
     def test_negative_ttl_raises(self, backend: MemoryCacheAdapter) -> None:
         """Test that negative ttl raises a Pydantic validation error."""
         # Act / Assert
-        with pytest.raises(ValueError, match="ttl"):
+        with pytest.raises(ValidationError, match="ttl"):
             TTLCache(maxsize=10, ttl=-1, backend=backend)
 
     def test_config_property(self, backend: MemoryCacheAdapter) -> None:

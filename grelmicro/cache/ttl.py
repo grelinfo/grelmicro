@@ -86,7 +86,9 @@ class TTLCache(Generic[T]):
     for typed caching.
 
     Raises:
-        ValueError: If maxsize is negative or ttl is not positive.
+        pydantic.ValidationError: If `maxsize` is negative or `ttl` is not
+            positive. `ValidationError` is a subclass of `ValueError`, so
+            existing `except ValueError:` blocks still catch it.
     """
 
     def __init__(
