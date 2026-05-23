@@ -117,7 +117,7 @@ api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: FastAPI):
     async with micro:
         yield
 
