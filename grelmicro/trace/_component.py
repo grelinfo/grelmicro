@@ -221,23 +221,33 @@ async def _run_with_timeout(fn: Any, timeout: float) -> bool:  # noqa: ANN401, A
     """Run a blocking `fn()` in a daemon thread, bounded by `timeout`.
 
     Returns `True` when the call completed in time, `False` on timeout.
-    The thread is a daemon so an abandoned-on-timeout shutdown call
-    cannot block the asyncio loop's default-executor teardown or
-    process exit.
+    Exceptions raised by `fn` are captured and logged as a warning so
+    they do not surface through Python's unhandled-exception hook from
+    a background thread. The thread is a daemon so an abandoned-on-
+    timeout shutdown call cannot block the asyncio loop's default-
+    executor teardown or process exit.
     """
     done = threading.Event()
+    captured: list[BaseException] = []
 
     def _runner() -> None:
         try:
             fn()
+        except BaseException as exc:  # noqa: BLE001
+            captured.append(exc)
         finally:
             done.set()
 
     threading.Thread(target=_runner, daemon=True).start()
-    # Wait on the threading.Event from the running loop without blocking
-    # the loop: poll a future driven by `Event.wait` in a short helper.
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, done.wait, timeout)
+    finished = await loop.run_in_executor(None, done.wait, timeout)
+    if finished and captured:
+        _logger.warning(
+            "TracerProvider.shutdown raised %s: %s",
+            type(captured[0]).__name__,
+            captured[0],
+        )
+    return finished
 
 
 def _build_provider(config: TracingConfig) -> Any:  # noqa: ANN401

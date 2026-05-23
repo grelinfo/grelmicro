@@ -182,3 +182,22 @@ async def test_trace_shutdown_timeout_logs_warning(
         "TracerProvider.shutdown timed out" in record.message
         for record in caplog.records
     )
+
+
+async def test_trace_shutdown_exception_logged_not_propagated(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raise from `TracerProvider.shutdown` is captured and logged."""
+
+    def _raise() -> None:
+        msg = "exporter broken"
+        raise RuntimeError(msg)
+
+    micro = Grelmicro(uses=[Trace(exporter=TracingExporterType.NONE)])
+    async with micro:
+        micro.trace.provider.shutdown = _raise  # type: ignore[method-assign]
+
+    assert any(
+        "TracerProvider.shutdown raised RuntimeError" in record.message
+        for record in caplog.records
+    )
