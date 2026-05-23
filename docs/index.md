@@ -34,7 +34,7 @@ ______________________________________________________________________
 
 ## Why grelmicro
 
-Stop reinventing the wheel. grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, and battle-tested in production.
+grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, Pydantic-validated, with 100% pytest coverage on every release.
 
 It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve every **distributed system**, whether you call it **microservices**, a **modular monolith**, or a **self-contained system**. A distributed lock is a distributed lock whether your system is one process or fifty. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
 
@@ -92,6 +92,49 @@ async def ping() -> dict[str, str]:
 ```
 
 That is the whole thing. Pick a primitive, name it, call it. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[redis, RateLimiters(redis)])` as shown below.
+
+### Lifespan with one provider and one component
+
+To make the rate limiter fleet-wide, wrap it in a `Grelmicro` container with one provider and one component, then bind it to FastAPI's lifespan.
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from grelmicro import Grelmicro
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience import (
+    RateLimitExceededError,
+    RateLimiter,
+    RateLimiters,
+)
+
+redis = RedisProvider("redis://localhost:6379/0")
+micro = Grelmicro(uses=[redis, RateLimiters(redis)])
+
+api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    async with micro:
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/ping")
+async def ping() -> dict[str, str]:
+    try:
+        await api_limiter.acquire_or_raise(key="global")
+    except RateLimitExceededError:
+        return {"status": "throttled"}
+    return {"status": "ok"}
+```
+
+Adding more primitives is the same shape: one extra entry in `uses=[...]`. The full demo below shows what that looks like.
 
 ### FastAPI integration
 

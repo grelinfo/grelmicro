@@ -1,5 +1,9 @@
 # Resilience
 
+- **Start here**: [Resilience guide](../resilience/index.md)
+- **Common recipes**: [Rate Limiter](../resilience/rate-limiter.md), [Circuit Breaker](../resilience/circuit-breaker.md), [Retry](../resilience/retry.md), [Fallback](../resilience/fallback.md), [Timeout](../resilience/timeout.md), [Shield](../resilience/shield.md)
+- **Configuration**: [Composing patterns](../resilience/composition.md)
+
 ::: grelmicro.resilience
     options:
       show_submodules: true
