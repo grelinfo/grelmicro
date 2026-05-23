@@ -69,6 +69,30 @@ See the [Installation guide](https://grelinfo.github.io/grelmicro/installation/)
 
 ## Example
 
+### One route, one primitive
+
+The smallest grelmicro program: a FastAPI route protected by a process-local rate limiter. No `Grelmicro(...)`, no Redis, no lifespan.
+
+```python
+from fastapi import FastAPI
+
+from grelmicro.resilience import RateLimitExceededError, RateLimiter
+
+app = FastAPI()
+api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
+
+
+@app.get("/ping")
+async def ping() -> dict[str, str]:
+    try:
+        await api_limiter.acquire()
+    except RateLimitExceededError:
+        return {"status": "throttled"}
+    return {"status": "ok"}
+```
+
+That is the whole thing. Pick a primitive, name it, call it. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[redis, RateLimiters(redis)])` as shown below.
+
 ### FastAPI integration
 
 Create a file `main.py` with:
@@ -86,9 +110,9 @@ from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
-    RateLimit,
     RateLimitExceededError,
     RateLimiter,
+    RateLimiters,
 )
 from grelmicro.sync import LeaderElection, Lock, Sync
 from grelmicro.task import Tasks
@@ -107,7 +131,7 @@ micro = Grelmicro(uses=[
     redis,
     Sync(redis),
     Cache(redis),
-    RateLimit(redis),
+    RateLimiters(redis),
     tasks,
     health,
 ])
@@ -190,7 +214,7 @@ def leader_only_task():
 The key shape:
 
 - **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Provider, Component, and active manager. `async with micro:` opens them all in order, closes in reverse.
-- **One Provider, many Components.** `Sync(redis)`, `Cache(redis)`, `RateLimit(redis)` all share the same `RedisProvider` pool. The Provider holds the connection, the Components attach to it.
+- **One Provider, many Components.** `Sync(redis)`, `Cache(redis)`, `RateLimiters(redis)` all share the same `RedisProvider` pool. The Provider holds the connection, the Components attach to it.
 - **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`. The same `Lock` works in production with Redis and in tests with `MemorySyncAdapter`, no rewiring.
 - **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
 
