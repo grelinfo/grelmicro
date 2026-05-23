@@ -10,7 +10,7 @@ If you only need a single Pattern, a focused library is often the right pick and
 
 Tone: factual. Where the focused alternative is the better fit, this page says so.
 
-## TL;DR
+## Quick comparison
 
 | If you only need this | Use this | Pick grelmicro when you also need |
 |---|---|---|

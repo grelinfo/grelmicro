@@ -21,6 +21,9 @@
 * 📝 Document the per-process scope of `Tasks` and point at `TaskLock` / `LeaderElection` for cluster-wide scheduling.
 * 📝 Add a Kubernetes operational-assumptions section covering RBAC, API server availability, etcd latency, and single-cluster scope to `docs/architecture/kubernetes.md`.
 * 📝 Fix the `sync.md → task.md#tasks` internal anchor so `mkdocs --strict` no longer reports it.
+* 📝 Add a lifespan-only example (one provider, one component) between the minimal example and the full composition demo in `README.md` and `docs/index.md`.
+* 📝 Drop unsupported claims and idioms from the landing copy ("Stop reinventing the wheel", "battle-tested in production", "TL;DR").
+* 📝 Add `Start here` / `Common recipes` lead lines to every page under `docs/reference/`.
 
 ### Internal
 
