@@ -383,16 +383,19 @@ def _redact_query(query: str | None) -> str | None:
     """
     if not query:
         return query
-    from urllib.parse import parse_qsl  # noqa: PLC0415
+    from urllib.parse import parse_qsl, urlencode  # noqa: PLC0415
 
     pairs = parse_qsl(query, keep_blank_values=True)
     if not any(k.lower() in _CREDENTIAL_QUERY_KEYS for k, _ in pairs):
         return query
     redacted = "***"
-    return "&".join(
-        f"{k}={redacted if k.lower() in _CREDENTIAL_QUERY_KEYS else v}"
+    redacted_pairs = [
+        (k, redacted if k.lower() in _CREDENTIAL_QUERY_KEYS else v)
         for k, v in pairs
-    )
+    ]
+    # `safe="*"` keeps the `***` marker readable; other values are
+    # properly escaped by `urlencode`.
+    return urlencode(redacted_pairs, safe="*")
 
 
 def _redact_url(url: str) -> str:

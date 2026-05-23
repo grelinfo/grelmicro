@@ -246,9 +246,8 @@ async def _run_with_timeout(fn: Any, timeout: float) -> bool:  # noqa: ANN401, A
     finished = await loop.run_in_executor(None, done.wait, timeout)
     if finished and captured:
         _logger.warning(
-            "TracerProvider.shutdown raised %s: %s",
-            type(captured[0]).__name__,
-            captured[0],
+            "TracerProvider.shutdown raised an exception; spans may be dropped",
+            exc_info=captured[0],
         )
     return finished
 
