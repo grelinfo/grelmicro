@@ -108,3 +108,19 @@ def test_ratelimiter_lazy_loader_unknown_attribute_raises() -> None:
     """The rate-limiter subpackage loader rejects unknown names."""
     with pytest.raises(AttributeError, match="ratelimiter"):
         _ = rl_mod.NotAThing  # type: ignore[attr-defined]
+
+
+def test_resilience_lazy_table_matches_all_and_is_loadable() -> None:
+    """Every `_LAZY` key resolves to a real attribute and is listed in `__all__`.
+
+    Guards against a stale lazy table: if a Pattern or algorithm config is
+    renamed or removed without updating `_LAZY` or `__all__`, this test
+    fails before the broken state ships.
+    """
+    lazy_keys = set(resilience_mod._LAZY)
+    all_set = set(resilience_mod.__all__)
+    # Every lazy entry must be advertised on `__all__`.
+    assert lazy_keys <= all_set, lazy_keys - all_set
+    # Every lazy entry must actually resolve at runtime.
+    for name in lazy_keys:
+        assert getattr(resilience_mod, name) is not None
