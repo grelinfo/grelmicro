@@ -6,12 +6,26 @@
 
 * ✨ Add `Shield` resilience pattern: per-attempt timeout, retry-budget-gated retries, CUBIC-style adaptive rate limiter, optional cache and fallback recovery paths. Three profiles (`internal`, `api`, `slow`) cover the common cases. Decorator (`@shield`, `@shield.api(...)`), class (`Shield.api("name")`), and imperative (`Shield.api("name").run(fn, ...)`) forms supported. Issue [#249](https://github.com/grelinfo/grelmicro/issues/249).
 * ✨ Add `TTLCacheConfig` and expose it via `TTLCache.config`. Matches the frozen-config shape used by every other primitive.
+* ✨ Add `RedisProvider.safe_url` and `PostgresProvider.safe_url` returning the resolved URL with the password replaced by `***`. The new `__repr__` on both providers uses the safe form so credentials never leak through logs or tracebacks.
+* ✨ Add `TracingConfig.shutdown_timeout` (default `5.0` seconds). `Trace.__aexit__` now runs `TracerProvider.shutdown()` in a thread with this deadline so a slow or broken exporter no longer hangs application shutdown.
+
+### Fixes
+
+* 🔒 `SettingsValidationError` no longer echoes the offending input value. Env-loaded credentials (DSNs, tokens) no longer surface in error messages.
 
 ### Docs
 
 * 📝 Lead `README.md` and `docs/index.md` with a one-route, one-primitive FastAPI example before the full composition demo.
 * 📝 Annotate `Grelmicro.use`, `Grelmicro.get`, `instrument`, and `CacheBackend` protocol parameters with `Annotated[..., Doc(...)]`.
 * 📝 Align the `CONTRIBUTING.md` discriminator rule with the code: `kind` (not `type`).
+* 📝 Document the per-process scope of `Tasks` and point at `TaskLock` / `LeaderElection` for cluster-wide scheduling.
+* 📝 Add a Kubernetes operational-assumptions section covering RBAC, API server availability, etcd latency, and single-cluster scope to `docs/architecture/kubernetes.md`.
+* 📝 Fix the `sync.md → task.md#tasks` internal anchor so `mkdocs --strict` no longer reports it.
+
+### Internal
+
+* 🔧 Drop three unused `ty: ignore` directives in `grelmicro/_json.py`.
+* ✅ Add a guard test that every `_LAZY` key in `grelmicro/resilience/__init__.py` is exported in `__all__` and actually resolves at runtime.
 
 ## 0.25.0 - 2026-05-21
 
