@@ -10,7 +10,7 @@ from grelmicro.cache.serializers import (
     PickleSerializer,
     PydanticSerializer,
 )
-from grelmicro.cache.ttl import CacheInfo, TTLCache
+from grelmicro.cache.ttl import CacheInfo, TTLCache, TTLCacheConfig
 
 __all__ = [
     "Cache",
@@ -23,5 +23,6 @@ __all__ = [
     "PickleSerializer",
     "PydanticSerializer",
     "TTLCache",
+    "TTLCacheConfig",
     "cached",
 ]
