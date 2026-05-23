@@ -201,6 +201,8 @@ async def test_trace_shutdown_exception_logged_not_propagated(
         micro.trace.provider.shutdown = _raise  # type: ignore[method-assign]
 
     assert any(
-        "TracerProvider.shutdown raised RuntimeError" in record.message
+        "TracerProvider.shutdown raised an exception" in record.message
+        and record.exc_info is not None
+        and isinstance(record.exc_info[1], RuntimeError)
         for record in caplog.records
     )
