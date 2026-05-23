@@ -231,12 +231,12 @@ async def _run_with_timeout(fn: Any, timeout: float) -> bool:  # noqa: ANN401, A
     executor teardown or process exit.
     """
     done = threading.Event()
-    captured: list[BaseException] = []
+    captured: list[Exception] = []
 
     def _runner() -> None:
         try:
             fn()
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             captured.append(exc)
         finally:
             done.set()

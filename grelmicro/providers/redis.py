@@ -215,7 +215,7 @@ class RedisProvider(Provider):
     def __repr__(self) -> str:
         """Return a safe representation that never exposes the password."""
         cls = type(self).__name__
-        return f"{cls}(url='{self.safe_url}')"
+        return f"{cls}(url={self.safe_url!r})"
 
     @property
     def env_prefix(self) -> str:

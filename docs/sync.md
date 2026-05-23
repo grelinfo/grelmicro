@@ -94,7 +94,7 @@ Leader election uses a distributed lock to make sure that only one worker in the
 
 The leader election service acquires and renews the distributed lock. It runs as an asyncio task that you can start with the [Tasks](./task.md#tasks). The service runs in the background and renews the lock automatically so other workers cannot acquire it. The lock releases automatically when the task is cancelled or when the application shuts down.
 
-=== "Task Manager (Recommended)"
+=== "Tasks (Recommended)"
     ```python
     --8<-- "sync/leaderelection_task.py"
     ```

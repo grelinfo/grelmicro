@@ -54,6 +54,4 @@ class SettingsValidationError(GrelmicroError, ValueError):
         else:
             details = error
 
-        super().__init__(
-            f"Could not validate environment variables settings:\n{details}"
-        )
+        super().__init__(f"Could not validate settings:\n{details}")
