@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from pydantic import BaseModel, RedisDsn, ValidationError
@@ -328,17 +329,22 @@ def _compose_url(*, host: str, port: int, db: int, password: str | None) -> str:
     ).unicode_string()
 
 
+_USERINFO_RE = re.compile(r"(://[^/?#@]*:)([^@/?#]+)(@)")
+
+
 def _redact_url(url: str) -> str:
     """Return `url` with the userinfo password replaced by `***`.
 
-    Returns the input unchanged when it has no scheme or no password.
+    Tries structured parsing first. Falls back to a conservative regex
+    on any parse failure so a malformed URL still cannot leak the
+    password through `safe_url` / `repr()`.
     """
     if not url:
         return url
     try:
         parsed = Url(url)
     except ValueError:
-        return url
+        return _USERINFO_RE.sub(r"\1***\3", url)
     if parsed.password is None:
         return url
     return Url.build(

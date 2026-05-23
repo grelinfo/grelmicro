@@ -202,10 +202,19 @@ class TestSafeUrl:
         assert _redact_url("") == ""
 
     def test_safe_url_invalid_url_returned_as_is(self) -> None:
-        """A non-URL string falls back to the input."""
+        """A non-URL string with no userinfo falls back to the input."""
         from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
 
         assert _redact_url("not-a-valid-url") == "not-a-valid-url"
+
+    def test_safe_url_malformed_with_password_still_redacted(self) -> None:
+        """A malformed DSN that still contains a password is redacted by regex."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://u:p@bad host/db")
+            == "postgresql://u:***@bad host/db"
+        )
 
     def test_safe_url_multi_host_redacts_each(self) -> None:
         """Multi-host Postgres DSNs have each password redacted."""

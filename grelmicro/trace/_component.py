@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
@@ -186,9 +187,12 @@ class Trace:
 
         `TracerProvider.shutdown()` blocks while the batch span processor
         flushes. A slow or broken exporter must not hang application
-        shutdown, so the call runs in a thread executor with the
-        `shutdown_timeout` deadline. On timeout, a warning is logged and
-        the global provider is restored regardless.
+        shutdown, so the call runs in a daemon thread bounded by
+        `shutdown_timeout`. The daemon thread sidesteps the default
+        executor: if the timeout fires, the abandoned thread does not
+        keep the asyncio loop alive on close, and is reaped at process
+        exit. On timeout a warning is logged and the global provider is
+        restored regardless.
         """
         from opentelemetry import trace  # noqa: PLC0415
 
@@ -200,13 +204,9 @@ class Trace:
                     if self._resolved is not None
                     else 5.0
                 )
-                try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(shutdown), timeout=timeout
-                    )
-                except TimeoutError:
+                if not await _run_with_timeout(shutdown, timeout):
                     _logger.warning(
-                        "TracerProvider.shutdown timed out after %.1fs; "
+                        "TracerProvider.shutdown timed out after %ss; "
                         "spans may be dropped.",
                         timeout,
                     )
@@ -215,6 +215,29 @@ class Trace:
             self._provider = None
             self._prior_provider = None
         return None
+
+
+async def _run_with_timeout(fn: Any, timeout: float) -> bool:  # noqa: ANN401, ASYNC109
+    """Run a blocking `fn()` in a daemon thread, bounded by `timeout`.
+
+    Returns `True` when the call completed in time, `False` on timeout.
+    The thread is a daemon so an abandoned-on-timeout shutdown call
+    cannot block the asyncio loop's default-executor teardown or
+    process exit.
+    """
+    done = threading.Event()
+
+    def _runner() -> None:
+        try:
+            fn()
+        finally:
+            done.set()
+
+    threading.Thread(target=_runner, daemon=True).start()
+    # Wait on the threading.Event from the running loop without blocking
+    # the loop: poll a future driven by `Event.wait` in a short helper.
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, done.wait, timeout)
 
 
 def _build_provider(config: TracingConfig) -> Any:  # noqa: ANN401
