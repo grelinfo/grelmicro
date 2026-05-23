@@ -193,8 +193,28 @@ class RedisProvider(Provider):
 
     @property
     def url(self) -> str:
-        """Resolved Redis URL (empty for `from_client` providers)."""
+        """Resolved Redis URL (empty for `from_client` providers).
+
+        !!! warning
+            The string may contain the password in the userinfo section
+            (`redis://:secret@host`). Treat the result as a credential.
+            Do not log it. Use `safe_url` for any operator-facing output.
+        """
         return self._url
+
+    @property
+    def safe_url(self) -> str:
+        """Resolved Redis URL with the password redacted.
+
+        Safe to log or include in operator-facing diagnostics. The
+        password is replaced with `***` whenever present.
+        """
+        return _redact_url(self._url)
+
+    def __repr__(self) -> str:
+        """Return a safe representation that never exposes the password."""
+        cls = type(self).__name__
+        return f"{cls}(url='{self.safe_url}')"
 
     @property
     def env_prefix(self) -> str:
@@ -305,6 +325,31 @@ def _compose_url(*, host: str, port: int, db: int, password: str | None) -> str:
         port=port,
         path=str(db),
         password=password,
+    ).unicode_string()
+
+
+def _redact_url(url: str) -> str:
+    """Return `url` with the userinfo password replaced by `***`.
+
+    Returns the input unchanged when it has no scheme or no password.
+    """
+    if not url:
+        return url
+    try:
+        parsed = Url(url)
+    except ValueError:
+        return url
+    if parsed.password is None:
+        return url
+    return Url.build(
+        scheme=parsed.scheme,
+        username=parsed.username,
+        password="***",  # noqa: S106
+        host=parsed.host or "",
+        port=parsed.port,
+        path=parsed.path.lstrip("/") if parsed.path else None,
+        query=parsed.query,
+        fragment=parsed.fragment,
     ).unicode_string()
 
 

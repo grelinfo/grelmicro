@@ -203,8 +203,29 @@ class PostgresProvider(Provider):
 
     @property
     def url(self) -> str:
-        """Resolved Postgres URL (empty for `from_client` providers)."""
+        """Resolved Postgres URL (empty for `from_client` providers).
+
+        !!! warning
+            The string may contain the password in the userinfo section
+            (`postgresql://user:secret@host`). Treat the result as a
+            credential. Do not log it. Use `safe_url` for any
+            operator-facing output.
+        """
         return self._url
+
+    @property
+    def safe_url(self) -> str:
+        """Resolved Postgres URL with the password redacted.
+
+        Safe to log or include in operator-facing diagnostics. The
+        password is replaced with `***` whenever present.
+        """
+        return _redact_url(self._url)
+
+    def __repr__(self) -> str:
+        """Return a safe representation that never exposes the password."""
+        cls = type(self).__name__
+        return f"{cls}(url='{self.safe_url}')"
 
     @property
     def env_prefix(self) -> str:
@@ -332,6 +353,42 @@ def _compose_url(
         host=host,
         port=port,
         path=database,
+    ).unicode_string()
+
+
+def _redact_url(url: str) -> str:
+    """Return `url` with the userinfo password replaced by `***`.
+
+    Returns the input unchanged when it has no scheme or no password.
+    Handles both single-host and multi-host Postgres DSNs.
+    """
+    if not url:
+        return url
+    try:
+        parsed = MultiHostUrl(url)
+    except ValueError:
+        return url
+    hosts = parsed.hosts()
+    if not any(h.get("password") for h in hosts):
+        return url
+    redacted_hosts = []
+    redacted = "***"
+    for h in hosts:
+        entry: dict[str, Any] = {
+            "username": h.get("username"),
+            "password": redacted if h.get("password") else None,
+            "host": h.get("host"),
+        }
+        port = h.get("port")
+        if port is not None:
+            entry["port"] = port
+        redacted_hosts.append(entry)
+    return MultiHostUrl.build(
+        scheme=parsed.scheme,
+        hosts=redacted_hosts,
+        path=parsed.path.lstrip("/") if parsed.path else None,
+        query=parsed.query,
+        fragment=parsed.fragment,
     ).unicode_string()
 
 
