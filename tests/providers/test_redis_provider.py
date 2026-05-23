@@ -210,6 +210,25 @@ class TestSafeUrl:
             == "redis://:***@bad host:6379/0"
         )
 
+    def test_safe_url_query_credentials_redacted(self) -> None:
+        """Credential-like query params (password, token, ...) are redacted."""
+        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("redis://host/0?password=secret&db=1")
+            == "redis://host/0?password=***&db=1"
+        )
+        assert (
+            _redact_url("redis://host/0?TOKEN=abc")
+            == "redis://host/0?TOKEN=***"
+        )
+
+    def test_safe_url_query_without_credentials_passthrough(self) -> None:
+        """A URL with a query but no credential keys is returned unchanged."""
+        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+
+        assert _redact_url("redis://host/0?foo=bar") == "redis://host/0?foo=bar"
+
     def test_repr_never_exposes_password(self) -> None:
         """`repr()` uses the redacted URL form."""
         provider = RedisProvider(URL)

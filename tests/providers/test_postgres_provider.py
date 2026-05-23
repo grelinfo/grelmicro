@@ -216,6 +216,24 @@ class TestSafeUrl:
             == "postgresql://u:***@bad host/db"
         )
 
+    def test_safe_url_query_credentials_redacted(self) -> None:
+        """Credential-like query params (password, token, ...) are redacted."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://host/db?password=secret&sslmode=require")
+            == "postgresql://host/db?password=***&sslmode=require"
+        )
+
+    def test_safe_url_query_without_credentials_passthrough(self) -> None:
+        """A DSN with a query but no credential keys is returned unchanged."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://host/db?sslmode=require")
+            == "postgresql://host/db?sslmode=require"
+        )
+
     def test_safe_url_malformed_multi_host_redacts_every_password(self) -> None:
         """Every userinfo password in a malformed multi-host DSN is redacted."""
         from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
