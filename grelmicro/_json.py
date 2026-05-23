@@ -63,15 +63,15 @@ if orjson is not None:
 
     def json_dumps_bytes(obj: JSONEncodable) -> bytes:
         """Serialize object to JSON bytes using orjson."""
-        return orjson.dumps(obj)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+        return orjson.dumps(obj)  # type: ignore[union-attr]
 
     def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using orjson."""
-        return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+        return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]
 
     def json_loads(data: bytes | str) -> JSONDecodable:
         """Deserialize JSON bytes or string using orjson."""
-        return orjson.loads(data)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+        return orjson.loads(data)  # type: ignore[union-attr]
 
 else:
     import json

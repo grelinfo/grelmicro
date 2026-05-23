@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from pydantic import BaseModel, RedisDsn, ValidationError
@@ -193,8 +194,28 @@ class RedisProvider(Provider):
 
     @property
     def url(self) -> str:
-        """Resolved Redis URL (empty for `from_client` providers)."""
+        """Resolved Redis URL (empty for `from_client` providers).
+
+        !!! warning
+            The string may contain the password in the userinfo section
+            (`redis://:secret@host`). Treat the result as a credential.
+            Do not log it. Use `safe_url` for any operator-facing output.
+        """
         return self._url
+
+    @property
+    def safe_url(self) -> str:
+        """Resolved Redis URL with the password redacted.
+
+        Safe to log or include in operator-facing diagnostics. The
+        password is replaced with `***` whenever present.
+        """
+        return _redact_url(self._url)
+
+    def __repr__(self) -> str:
+        """Return a safe representation that never exposes the password."""
+        cls = type(self).__name__
+        return f"{cls}(url={self.safe_url!r})"
 
     @property
     def env_prefix(self) -> str:
@@ -305,6 +326,72 @@ def _compose_url(*, host: str, port: int, db: int, password: str | None) -> str:
         port=port,
         path=str(db),
         password=password,
+    ).unicode_string()
+
+
+_USERINFO_RE = re.compile(r"(://[^/?#@]*:)([^@/?#]+)(@)")
+_CREDENTIAL_QUERY_KEYS = frozenset(
+    {
+        "password",
+        "passwd",
+        "pwd",
+        "token",
+        "access_token",
+        "auth",
+        "secret",
+        "client_secret",
+        "api_key",
+        "apikey",
+        "key",
+    }
+)
+
+
+def _redact_query(query: str | None) -> str | None:
+    """Return `query` with credential-like values replaced by `***`.
+
+    Matches keys case-insensitively against `_CREDENTIAL_QUERY_KEYS`.
+    Returns the input unchanged when no key matches.
+    """
+    if not query:
+        return query
+    from urllib.parse import parse_qsl  # noqa: PLC0415
+
+    pairs = parse_qsl(query, keep_blank_values=True)
+    if not any(k.lower() in _CREDENTIAL_QUERY_KEYS for k, _ in pairs):
+        return query
+    redacted = "***"
+    return "&".join(
+        f"{k}={redacted if k.lower() in _CREDENTIAL_QUERY_KEYS else v}"
+        for k, v in pairs
+    )
+
+
+def _redact_url(url: str) -> str:
+    """Redact userinfo password and credential-like query values with `***`.
+
+    Tries structured parsing first. Falls back to a conservative regex
+    on any parse failure so a malformed URL still cannot leak the
+    password through `safe_url` / `repr()`.
+    """
+    if not url:
+        return url
+    try:
+        parsed = Url(url)
+    except ValueError:
+        return _USERINFO_RE.sub(r"\1***\3", url)
+    redacted_query = _redact_query(parsed.query)
+    if parsed.password is None and redacted_query == parsed.query:
+        return url
+    return Url.build(
+        scheme=parsed.scheme,
+        username=parsed.username,
+        password="***" if parsed.password is not None else None,
+        host=parsed.host or "",
+        port=parsed.port,
+        path=parsed.path.lstrip("/") if parsed.path else None,
+        query=redacted_query,
+        fragment=parsed.fragment,
     ).unicode_string()
 
 

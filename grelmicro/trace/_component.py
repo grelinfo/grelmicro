@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import threading
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
@@ -17,6 +20,9 @@ from grelmicro.trace.config import (
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+
+_logger = logging.getLogger(__name__)
 
 
 class Trace:
@@ -94,6 +100,16 @@ class Trace:
         resource_attributes: Annotated[
             dict[str, str] | None, Doc("Extra resource attributes.")
         ] = None,
+        shutdown_timeout: Annotated[
+            float | None,
+            Doc(
+                "Maximum seconds to wait for the `TracerProvider.shutdown()` "
+                "flush. On timeout the call is abandoned (the daemon "
+                "shutdown thread keeps running but cannot block loop "
+                "teardown), a warning is logged, and the rest of "
+                "`__aexit__` proceeds. Pending spans may be dropped."
+            ),
+        ] = None,
         env_load: Annotated[
             bool | None,
             Doc(
@@ -114,6 +130,7 @@ class Trace:
             "sampler": sampler,
             "sample_ratio": sample_ratio,
             "resource_attributes": resource_attributes,
+            "shutdown_timeout": shutdown_timeout,
         }
         self._env_load = env_load
         self._resolved: TracingConfig | None = None
@@ -169,18 +186,71 @@ class Trace:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None:
-        """Shut down the provider and restore the prior global provider."""
+        """Shut down the provider and restore the prior global provider.
+
+        `TracerProvider.shutdown()` blocks while the batch span processor
+        flushes. A slow or broken exporter must not hang application
+        shutdown, so the call runs in a daemon thread bounded by
+        `shutdown_timeout`. The daemon thread sidesteps the default
+        executor: if the timeout fires, the abandoned thread does not
+        keep the asyncio loop alive on close, and is reaped at process
+        exit. On timeout a warning is logged and the global provider is
+        restored regardless.
+        """
         from opentelemetry import trace  # noqa: PLC0415
 
         try:
             shutdown = getattr(self._provider, "shutdown", None)
             if callable(shutdown):
-                shutdown()
+                timeout = (
+                    self._resolved.shutdown_timeout
+                    if self._resolved is not None
+                    else 5.0
+                )
+                if not await _run_with_timeout(shutdown, timeout):
+                    _logger.warning(
+                        "TracerProvider.shutdown timed out after %ss; "
+                        "spans may be dropped.",
+                        timeout,
+                    )
         finally:
             trace._TRACER_PROVIDER = self._prior_provider  # type: ignore[attr-defined]  # noqa: SLF001
             self._provider = None
             self._prior_provider = None
         return None
+
+
+async def _run_with_timeout(fn: Any, timeout: float) -> bool:  # noqa: ANN401, ASYNC109
+    """Run a blocking `fn()` in a daemon thread, bounded by `timeout`.
+
+    Returns `True` when the call completed in time, `False` on timeout.
+    Exceptions raised by `fn` are captured and logged as a warning so
+    they do not surface through Python's unhandled-exception hook from
+    a background thread. The thread is a daemon so an abandoned-on-
+    timeout shutdown call cannot block the asyncio loop's default-
+    executor teardown or process exit.
+    """
+    done = threading.Event()
+    captured: list[Exception] = []
+
+    def _runner() -> None:
+        try:
+            fn()
+        except Exception as exc:  # noqa: BLE001
+            captured.append(exc)
+        finally:
+            done.set()
+
+    threading.Thread(target=_runner, daemon=True).start()
+    loop = asyncio.get_running_loop()
+    finished = await loop.run_in_executor(None, done.wait, timeout)
+    if finished and captured:
+        _logger.warning(
+            "TracerProvider.shutdown raised %s: %s",
+            type(captured[0]).__name__,
+            captured[0],
+        )
+    return finished
 
 
 def _build_provider(config: TracingConfig) -> Any:  # noqa: ANN401

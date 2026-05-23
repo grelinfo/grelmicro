@@ -120,7 +120,7 @@ def test_kubernetes_env_var_settings_validation_error() -> None:
     # Assert / Act
     with pytest.raises(
         SyncSettingsValidationError,
-        match=(r"Could not validate environment variables settings:\n"),
+        match=(r"Could not validate settings:\n"),
     ):
         KubernetesSyncAdapter()
 

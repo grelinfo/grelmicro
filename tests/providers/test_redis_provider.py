@@ -176,6 +176,66 @@ class TestFromClient:
         client.aclose.assert_awaited_once()
 
 
+class TestSafeUrl:
+    """`safe_url` and `repr` must redact passwords."""
+
+    def test_safe_url_redacts_password(self) -> None:
+        """The password in the URL is replaced with `***`."""
+        provider = RedisProvider(URL)
+        assert provider.safe_url == "redis://:***@test_host:1234/0"
+
+    def test_safe_url_passthrough_when_no_password(self) -> None:
+        """URLs without a password are returned unchanged."""
+        provider = RedisProvider("redis://test_host:6379/0")
+        assert provider.safe_url == "redis://test_host:6379/0"
+
+    def test_safe_url_empty_string_returned_as_is(self) -> None:
+        """An empty URL (e.g. `from_client` providers) is returned unchanged."""
+        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+
+        assert _redact_url("") == ""
+
+    def test_safe_url_invalid_url_returned_as_is(self) -> None:
+        """A non-URL string with no userinfo falls back to the input."""
+        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+
+        assert _redact_url("not-a-valid-url") == "not-a-valid-url"
+
+    def test_safe_url_malformed_with_password_still_redacted(self) -> None:
+        """A malformed URL that still contains a password is redacted by regex."""
+        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("redis://:secret@bad host:6379/0")
+            == "redis://:***@bad host:6379/0"
+        )
+
+    def test_safe_url_query_credentials_redacted(self) -> None:
+        """Credential-like query params (password, token, ...) are redacted."""
+        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("redis://host/0?password=secret&db=1")
+            == "redis://host/0?password=***&db=1"
+        )
+        assert (
+            _redact_url("redis://host/0?TOKEN=abc")
+            == "redis://host/0?TOKEN=***"
+        )
+
+    def test_safe_url_query_without_credentials_passthrough(self) -> None:
+        """A URL with a query but no credential keys is returned unchanged."""
+        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+
+        assert _redact_url("redis://host/0?foo=bar") == "redis://host/0?foo=bar"
+
+    def test_repr_never_exposes_password(self) -> None:
+        """`repr()` uses the redacted URL form."""
+        provider = RedisProvider(URL)
+        assert "test_password" not in repr(provider)
+        assert "***" in repr(provider)
+
+
 class TestBuilders:
     """Pure-sugar `.sync()` / `.cache()` builders."""
 

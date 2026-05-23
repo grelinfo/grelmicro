@@ -1,7 +1,5 @@
 """Errors."""
 
-from typing import assert_never
-
 from pydantic import ValidationError
 
 
@@ -37,20 +35,23 @@ class DependencyNotFoundError(GrelmicroError, ImportError):
 
 
 class SettingsValidationError(GrelmicroError, ValueError):
-    """Settings Validation Error."""
+    """Settings Validation Error.
+
+    Pydantic ValidationError messages already describe the failure shape
+    ("Input should be a valid string", "Input should be greater than 0",
+    ...) so the raw input is intentionally omitted from the rendered
+    error. Settings often originate from environment variables that may
+    carry credentials (DSNs, tokens), and echoing the offending value
+    into a log line would leak them.
+    """
 
     def __init__(self, error: ValidationError | str) -> None:
         """Initialize the error."""
-        if isinstance(error, str):
-            details = error
-        elif isinstance(error, ValidationError):
+        if isinstance(error, ValidationError):
             details = "\n".join(
-                f"- {data['loc'][0]}: {data['msg']} [input={data['input']}]"
-                for data in error.errors()
+                f"- {data['loc'][0]}: {data['msg']}" for data in error.errors()
             )
         else:
-            assert_never(error)
+            details = error
 
-        super().__init__(
-            f"Could not validate environment variables settings:\n{details}"
-        )
+        super().__init__(f"Could not validate settings:\n{details}")

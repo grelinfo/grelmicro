@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Annotated, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PositiveFloat
 from typing_extensions import Doc
 
 
@@ -89,3 +89,11 @@ class TracingConfig(BaseModel, frozen=True, extra="forbid"):
         dict[str, str],
         Doc("Extra resource attributes."),
     ] = Field(default_factory=dict)
+    shutdown_timeout: Annotated[
+        PositiveFloat,
+        Doc(
+            "Maximum seconds to wait for the `TracerProvider.shutdown()` "
+            "flush. A slow or broken exporter no longer hangs application "
+            "shutdown past this deadline."
+        ),
+    ] = 5.0

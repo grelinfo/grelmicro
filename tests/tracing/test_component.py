@@ -150,3 +150,57 @@ async def test_trace_sampler_ratio() -> None:
     )
     async with micro:
         assert micro.trace.config.sample_ratio == 0.25  # noqa: PLR2004
+
+
+async def test_trace_shutdown_timeout_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A slow `TracerProvider.shutdown()` is bounded by `shutdown_timeout`.
+
+    Real path: the daemon thread keeps running past the timeout but does
+    not block the asyncio loop's executor teardown (verified by this
+    test exiting cleanly without the timeout-on-teardown error).
+    """
+    import time  # noqa: PLC0415
+
+    caplog.set_level("WARNING", logger="grelmicro.trace._component")
+
+    micro = Grelmicro(
+        uses=[
+            Trace(
+                exporter=TracingExporterType.NONE,
+                service_name="slow-svc",
+                shutdown_timeout=0.05,
+            )
+        ]
+    )
+    async with micro:
+        provider = micro.trace.provider
+        # Replace shutdown with a sleep that outlives the configured
+        # timeout. The daemon-thread wrapper means this is safe.
+        provider.shutdown = lambda: time.sleep(0.3)  # type: ignore[method-assign]
+
+    assert any(
+        "TracerProvider.shutdown timed out" in record.message
+        for record in caplog.records
+    )
+
+
+async def test_trace_shutdown_exception_logged_not_propagated(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raise from `TracerProvider.shutdown` is captured and logged."""
+    caplog.set_level("WARNING", logger="grelmicro.trace._component")
+
+    def _raise() -> None:
+        msg = "exporter broken"
+        raise RuntimeError(msg)
+
+    micro = Grelmicro(uses=[Trace(exporter=TracingExporterType.NONE)])
+    async with micro:
+        micro.trace.provider.shutdown = _raise  # type: ignore[method-assign]
+
+    assert any(
+        "TracerProvider.shutdown raised RuntimeError" in record.message
+        for record in caplog.records
+    )

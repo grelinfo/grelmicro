@@ -180,6 +180,85 @@ class TestFromClient:
         pool.close.assert_awaited_once()
 
 
+class TestSafeUrl:
+    """`safe_url` and `repr` must redact passwords."""
+
+    def test_safe_url_redacts_password(self) -> None:
+        """The password in the URL is replaced with `***`."""
+        provider = PostgresProvider(URL)
+        assert provider.safe_url == (
+            "postgresql://test_user:***@test_host:1234/test_db"
+        )
+
+    def test_safe_url_passthrough_when_no_password(self) -> None:
+        """URLs without a password are returned unchanged."""
+        provider = PostgresProvider("postgresql://test_host:5432/app")
+        assert provider.safe_url == "postgresql://test_host:5432/app"
+
+    def test_safe_url_empty_string_returned_as_is(self) -> None:
+        """An empty URL (e.g. `from_client` providers) is returned unchanged."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert _redact_url("") == ""
+
+    def test_safe_url_invalid_url_returned_as_is(self) -> None:
+        """A non-URL string with no userinfo falls back to the input."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert _redact_url("not-a-valid-url") == "not-a-valid-url"
+
+    def test_safe_url_malformed_with_password_still_redacted(self) -> None:
+        """A malformed DSN that still contains a password is redacted by regex."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://u:p@bad host/db")
+            == "postgresql://u:***@bad host/db"
+        )
+
+    def test_safe_url_query_credentials_redacted(self) -> None:
+        """Credential-like query params (password, token, ...) are redacted."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://host/db?password=secret&sslmode=require")
+            == "postgresql://host/db?password=***&sslmode=require"
+        )
+
+    def test_safe_url_query_without_credentials_passthrough(self) -> None:
+        """A DSN with a query but no credential keys is returned unchanged."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://host/db?sslmode=require")
+            == "postgresql://host/db?sslmode=require"
+        )
+
+    def test_safe_url_malformed_multi_host_redacts_every_password(self) -> None:
+        """Every userinfo password in a malformed multi-host DSN is redacted."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://u:p@bad host1,u2:p2@bad host2/db")
+            == "postgresql://u:***@bad host1,u2:***@bad host2/db"
+        )
+
+    def test_safe_url_multi_host_redacts_each(self) -> None:
+        """Multi-host Postgres DSNs have each password redacted."""
+        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+
+        assert (
+            _redact_url("postgresql://u:p@h1,u:p@h2/db")
+            == "postgresql://u:***@h1,u:***@h2/db"
+        )
+
+    def test_repr_never_exposes_password(self) -> None:
+        """`repr()` uses the redacted URL form."""
+        provider = PostgresProvider(URL)
+        assert "test_password" not in repr(provider)
+        assert "***" in repr(provider)
+
+
 class TestBuilders:
     """Pure-sugar `.sync()` builders."""
 

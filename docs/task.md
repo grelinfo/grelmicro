@@ -5,6 +5,9 @@ The `task` package provides a simple task scheduler that can be used to run task
 !!! note
     This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
 
+!!! warning "Per-process by default"
+    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](sync.md#task-lock) or [`LeaderElection`](sync.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.interval(...)` three times per tick.
+
 The key features are:
 
 - **Fast and easy**: simple decorators to define and schedule tasks with minimal boilerplate.
