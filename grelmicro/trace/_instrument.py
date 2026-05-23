@@ -5,7 +5,9 @@ from __future__ import annotations
 import functools
 import inspect
 import sys
-from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, overload
+from typing import TYPE_CHECKING, Annotated, Any, ParamSpec, TypeVar, overload
+
+from typing_extensions import Doc
 
 from grelmicro._context import pop_context as _pop_context
 from grelmicro._context import push_context as _push_context
@@ -77,11 +79,46 @@ def instrument(
 
 
 def instrument[**P, R](  # type: ignore[return-value]
-    func: Callable[P, R] | None = None,
+    func: Annotated[
+        Callable[P, R] | None,
+        Doc(
+            """
+            The function to instrument. Bound automatically when `@instrument`
+            is used bare. `None` when called with arguments (`@instrument(...)`)
+            so the inner decorator can wrap the target.
+            """,
+        ),
+    ] = None,
     *,
-    name: str | None = None,
-    skip: AbstractSet[str] | None = None,
-    skip_all: bool = False,
+    name: Annotated[
+        str | None,
+        Doc(
+            """
+            Override the span name. Defaults to the wrapped function's
+            qualified name.
+            """,
+        ),
+    ] = None,
+    skip: Annotated[
+        AbstractSet[str] | None,
+        Doc(
+            """
+            Argument names to exclude from the span attributes and log
+            context. Use this for arguments whose string form may carry
+            sensitive data (tokens, credentials, raw request bodies).
+            """,
+        ),
+    ] = None,
+    skip_all: Annotated[
+        bool,
+        Doc(
+            """
+            If `True`, record no argument values at all. The span is still
+            emitted and the function is still wrapped; only the per-argument
+            attributes are dropped.
+            """,
+        ),
+    ] = False,
 ) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
     """Instrument a function with span context and logging enrichment.
 
