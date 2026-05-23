@@ -34,7 +34,7 @@ ______________________________________________________________________
 
 ## Why grelmicro
 
-grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, Pydantic-validated. The pre-commit hook enforces 100% pytest coverage on every commit.
+grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, Pydantic-validated. A local pre-commit hook gates commits on 100% pytest coverage (`coverage --fail-under=100`).
 
 It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve every **distributed system**, whether you call it **microservices**, a **modular monolith**, or a **self-contained system**. A distributed lock is a distributed lock whether your system is one process or fifty. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
 
