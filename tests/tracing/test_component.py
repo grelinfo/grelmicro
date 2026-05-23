@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import pytest
 from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -13,6 +15,9 @@ from grelmicro.trace import (
     TracingExporterType,
     TracingSamplerType,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
 
 
 def test_tracing_config_accepts_case_insensitive_enums() -> None:
@@ -154,9 +159,23 @@ async def test_trace_sampler_ratio() -> None:
 
 async def test_trace_shutdown_timeout_logs_warning(
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A slow `TracerProvider.shutdown()` is bounded by `shutdown_timeout`."""
-    import time  # noqa: PLC0415
+
+    async def _never_finishes(
+        coro: Coroutine[Any, Any, Any],
+        timeout: float,  # noqa: ASYNC109
+    ) -> None:
+        # Drop the awaitable without scheduling it (avoid coroutine leak), then
+        # surface the same TimeoutError that `asyncio.wait_for` would raise.
+        coro.close()
+        del timeout
+        raise TimeoutError
+
+    monkeypatch.setattr(
+        "grelmicro.trace._component.asyncio.wait_for", _never_finishes
+    )
 
     micro = Grelmicro(
         uses=[
@@ -168,9 +187,7 @@ async def test_trace_shutdown_timeout_logs_warning(
         ]
     )
     async with micro:
-        provider = micro.trace.provider
-        # Replace shutdown with a slow blocking call so wait_for times out.
-        provider.shutdown = lambda: time.sleep(2.0)  # type: ignore[method-assign]
+        pass
 
     assert any(
         "TracerProvider.shutdown timed out" in record.message
