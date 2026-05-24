@@ -45,36 +45,53 @@ A typical first contribution touches three places:
 Example shapes (copy and adapt):
 
 ```python
-# grelmicro/widgets/tally.py
+# grelmicro/<module>/<thing>.py
 from typing import Annotated
 from typing_extensions import Doc
 
 
-class Tally:
-    """Count events in a fixed window."""
+class Counter:
+    """Monotonic event counter."""
 
     def __init__(
         self,
         *,
-        window: Annotated[
-            float,
-            Doc("Window duration in seconds."),
-        ],
+        initial: Annotated[
+            int,
+            Doc("Starting value. Must be `>= 0`."),
+        ] = 0,
     ) -> None:
-        self._window = window
+        self._value = initial
+
+    @property
+    def value(self) -> int:
+        """Current counter value."""
+        return self._value
+
+    def increment(
+        self,
+        amount: Annotated[
+            int,
+            Doc("Increment step. Must be `> 0`."),
+        ] = 1,
+    ) -> None:
+        """Increase the counter by `amount`."""
+        self._value += amount
 ```
 
 ```python
-# tests/widgets/test_tally.py
-from grelmicro.widgets.tally import Tally
+# tests/<module>/test_<thing>.py
+from grelmicro.<module>.<thing> import Counter
 
 
-def test_tally_window_is_exposed() -> None:
-    """Tally exposes the window as `.window`."""
-    # Arrange / Act
-    tally = Tally(window=5.0)
+def test_counter_increment_advances_value() -> None:
+    """`increment` advances the value by the given amount."""
+    # Arrange
+    counter = Counter(initial=10)
+    # Act
+    counter.increment(amount=5)
     # Assert
-    assert tally.window == 5.0
+    assert counter.value == 15
 ```
 
 A `docs/changelog.md` entry under `## Unreleased` is required.
