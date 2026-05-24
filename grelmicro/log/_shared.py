@@ -259,7 +259,7 @@ def _render_pretty_error(
         ),
     ]
     stack = error.get("stack")
-    if stack:
+    if stack:  # pragma: no branch
         stack_lines = stack.rstrip().splitlines()
         if colors:
             lines.append(f"    {dim('error.stack:')}")

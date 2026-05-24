@@ -83,7 +83,7 @@ class _ExponentialStrategy:
             case "equal":
                 half = raw / 2
                 jittered = half + random.uniform(0.0, half)  # noqa: S311
-            case "decorrelated":
+            case "decorrelated":  # pragma: no branch
                 jittered = min(
                     config.max_delay,
                     random.uniform(  # noqa: S311

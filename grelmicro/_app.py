@@ -287,9 +287,9 @@ class Grelmicro:
             for component in components:
                 key = (component.kind, component.name)
                 self._by_key[key] = component
-                if component not in self._items:
+                if component not in self._items:  # pragma: no branch
                     self._items.append(component)
-                if component.name == "default":
+                if component.name == "default":  # pragma: no branch
                     self._by_kind[component.kind] = component
                 await stack.enter_async_context(component)
             try:
@@ -408,7 +408,7 @@ class Grelmicro:
             # that consult it from `__aexit__` still see the active app.
             return await self._exit_stack.__aexit__(exc_type, exc, tb)
         finally:
-            if self._token is not None:
+            if self._token is not None:  # pragma: no branch
                 _current_micro.reset(self._token)
                 self._token = None
             self._exit_stack = None
@@ -435,7 +435,7 @@ class Grelmicro:
             shared = cache.get(key)
             if shared is None:
                 cache[key] = provider
-            elif shared is not provider:
+            elif shared is not provider:  # pragma: no branch
                 target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
 
     def _warn_unlifecycled_providers(self) -> None:

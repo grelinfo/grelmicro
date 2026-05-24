@@ -168,7 +168,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
             state.consecutive_success_count += 1
             state.consecutive_error_count = 0
             if state.state == CircuitBreakerState.HALF_OPEN:
-                if state.half_open_admit > 0:
+                if state.half_open_admit > 0:  # pragma: no branch
                     state.half_open_admit -= 1
                 if state.consecutive_success_count >= self._success_threshold:
                     state.state = CircuitBreakerState.CLOSED

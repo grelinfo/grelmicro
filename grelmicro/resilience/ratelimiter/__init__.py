@@ -522,7 +522,7 @@ def _implicit_backend() -> RateLimiterBackend:
     across the fleet rather than per-replica.
     """
     global _IMPLICIT_BACKEND  # noqa: PLW0603
-    if _IMPLICIT_BACKEND is None:
+    if _IMPLICIT_BACKEND is None:  # pragma: no branch
         from grelmicro.resilience.ratelimiter.memory import (  # noqa: PLC0415
             MemoryRateLimiterAdapter,
         )

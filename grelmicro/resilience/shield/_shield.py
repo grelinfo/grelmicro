@@ -513,7 +513,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         attempt = 0
         last_exc: BaseException | None = None
         give_up_reason = _GIVE_UP_ATTEMPTS
-        while attempt < _MAX_ATTEMPTS:
+        while attempt < _MAX_ATTEMPTS:  # pragma: no branch
             attempt += 1
             await state.adaptive_gate.acquire()
             timeout = state.timeout_estimator.estimate()
@@ -551,7 +551,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                     break
                 retries_consumed += 1
                 delay = self._backoff_for(state, attempt)
-                if delay > 0:
+                if delay > 0:  # pragma: no branch
                     await asyncio.sleep(delay)
                 continue
             else:

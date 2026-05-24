@@ -47,7 +47,7 @@ def add_context(**fields: object) -> None:
     _context_stack.set((*stack[:-1], new_frame))
 
     otel = _get_otel()
-    if otel.trace is not None:
+    if otel.trace is not None:  # pragma: no branch
         span = otel.trace.get_current_span()
         if span.is_recording():
             for k, v in fields.items():

@@ -255,6 +255,7 @@ testpaths = "tests"
 
 [tool.coverage.run]
 source = ["grelmicro"]
+branch = true
 
 [tool.coverage.report]
 sort = "-Cover"

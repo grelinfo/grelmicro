@@ -339,7 +339,7 @@ async def _async_iter(
     loop = _AttemptLoop(_backoff_name(config.backoff))
     started_at = time.monotonic()
     delay_before = 0.0
-    for number in range(1, config.attempts + 1):
+    for number in range(1, config.attempts + 1):  # pragma: no branch
         if delay_before > 0:
             await asyncio.sleep(delay_before)
         yield RetryAttempt(
@@ -364,7 +364,7 @@ def _sync_iter(
     loop = _AttemptLoop(_backoff_name(config.backoff))
     started_at = time.monotonic()
     delay_before = 0.0
-    for number in range(1, config.attempts + 1):
+    for number in range(1, config.attempts + 1):  # pragma: no branch
         if delay_before > 0:
             time.sleep(delay_before)
         yield RetryAttempt(
