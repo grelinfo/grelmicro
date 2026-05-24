@@ -24,6 +24,7 @@
 * 📝 Add a lifespan-only example (one provider, one component) between the minimal example and the full composition demo in `README.md` and `docs/index.md`.
 * 📝 Drop unsupported claims and idioms from the landing copy ("Stop reinventing the wheel", "battle-tested in production", "TL;DR").
 * 📝 Add `Start here` / `Common recipes` lead lines to every page under `docs/reference/`.
+* 📝 Add an explicit `Running tests` section to `CONTRIBUTING.md` with the commands for unit-only, integration-only, and the full local gate.
 
 ### Internal
 
