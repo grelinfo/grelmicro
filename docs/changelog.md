@@ -25,6 +25,7 @@
 * 📝 Drop unsupported claims and idioms from the landing copy ("Stop reinventing the wheel", "battle-tested in production", "TL;DR").
 * 📝 Add `Start here` / `Common recipes` lead lines to every page under `docs/reference/`.
 * 📝 Add an explicit `Running tests` section to `CONTRIBUTING.md` with the commands for unit-only, integration-only, and the full local gate.
+* 📝 Add a `What should I pick?` decision tree to the top of `docs/comparison.md` so readers can map their situation to the right tool (one primitive, two or more, task queue, workflow engine, web framework).
 
 ### Internal
 
