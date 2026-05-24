@@ -41,15 +41,24 @@ _KEYS = st.text(min_size=0, max_size=8)
 # --- MemoryTokenBucket -------------------------------------------------------
 
 
-@given(capacity=_CAPACITIES, refill_rate=_REFILL_RATES)
+@given(
+    capacity=_CAPACITIES,
+    refill_rate=st.floats(
+        min_value=0.001, max_value=1.0, allow_nan=False, allow_infinity=False
+    ),
+)
 @settings(max_examples=200, deadline=None)
 def test_token_bucket_never_grants_more_than_capacity(
     capacity: int, refill_rate: float
 ) -> None:
-    """Tight burst never grants more than capacity tokens."""
+    """Tight burst never grants more than capacity tokens.
+
+    A slow refill (`<= 1 tps`) makes the burst loop short enough that
+    refill cannot grant an extra token even under parallel CPU load.
+    """
     bucket = MemoryTokenBucket(capacity=capacity, refill_rate=refill_rate)
     granted = sum(bucket.try_acquire() for _ in range(capacity + 5))
-    assert capacity <= granted <= capacity + 1
+    assert granted == capacity
 
 
 @given(

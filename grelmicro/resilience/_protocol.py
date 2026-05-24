@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     ClassVar,
     NamedTuple,
     Protocol,
     Self,
     runtime_checkable,
 )
+
+from typing_extensions import Doc
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -30,13 +33,20 @@ class RetryStrategy(Protocol):
     upcoming attempt.
     """
 
-    def delay(self, attempt: int) -> float:
-        """Return the delay in seconds before retry ``attempt``.
+    def delay(
+        self,
+        attempt: Annotated[
+            int,
+            Doc(
+                "Upcoming retry number. `attempt=1` is the delay before"
+                " the first retry, after the initial call failed."
+            ),
+        ],
+    ) -> float:
+        """Return the delay in seconds before retry `attempt`.
 
-        ``attempt`` is the upcoming retry number. ``attempt=1`` is
-        the delay before the first retry (after the initial call
-        failed). The strategy may apply jitter and clamp to its
-        configured maximum.
+        The strategy may apply jitter and clamp to its configured
+        maximum.
         """
         ...
 
@@ -81,46 +91,42 @@ class RateLimiterStrategy(Protocol):
     async def acquire(
         self,
         *,
-        key: str,
-        cost: int,
+        key: Annotated[
+            str,
+            Doc("Rate-limit key (e.g. IP, user ID, session)."),
+        ],
+        cost: Annotated[
+            int,
+            Doc("Number of tokens to consume on this request."),
+        ],
     ) -> RateLimitResult:
-        """Try to acquire rate limit tokens.
+        """Try to acquire rate-limit tokens for `key`.
 
-        Args:
-            key: The rate limit key (e.g. IP, user ID, session).
-            cost: Number of tokens to consume.
-
-        Returns:
-            RateLimitResult with allowed, limit, remaining,
-            retry_after, and reset_after fields.
+        Returns a `RateLimitResult` with `allowed`, `limit`,
+        `remaining`, `retry_after`, and `reset_after`.
         """
         ...
 
     async def peek(
         self,
         *,
-        key: str,
+        key: Annotated[
+            str,
+            Doc("Rate-limit key to inspect."),
+        ],
     ) -> RateLimitResult:
-        """Check rate limit state without consuming tokens.
-
-        Args:
-            key: The rate limit key.
-
-        Returns:
-            RateLimitResult reflecting the current state.
-        """
+        """Return the current state for `key` without consuming tokens."""
         ...
 
     async def reset(
         self,
         *,
-        key: str,
+        key: Annotated[
+            str,
+            Doc("Rate-limit key to reset to full quota."),
+        ],
     ) -> None:
-        """Delete rate limit state for a key, restoring full quota.
-
-        Args:
-            key: The rate limit key to reset.
-        """
+        """Delete rate-limit state for `key`, restoring full quota."""
         ...
 
 
@@ -153,22 +159,21 @@ class RateLimiterBackend(Protocol):
 
     def bind(
         self,
-        config: RateLimiterConfig,
+        config: Annotated[
+            RateLimiterConfig,
+            Doc(
+                "Algorithm configuration."
+                " `TokenBucketConfig` or `SlidingWindowConfig`."
+            ),
+        ],
     ) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config.
 
         Called exactly once per
-        [`RateLimiter`][grelmicro.resilience.RateLimiter] when
-        it is created. The returned strategy shares storage with
-        the backend. Later requests call the strategy methods
-        directly, with no extra algorithm lookup.
-
-        Args:
-            config: The algorithm configuration
-                (`TokenBucketConfig` or `SlidingWindowConfig`).
-
-        Returns:
-            A strategy bound to `config` and this backend's storage.
+        [`RateLimiter`][grelmicro.resilience.RateLimiter] when it is
+        created. The returned strategy shares storage with the
+        backend. Later requests call the strategy methods directly,
+        with no extra algorithm lookup.
         """
         ...
 
@@ -226,35 +231,42 @@ class CircuitBreakerStrategy(Protocol):
     async def record_outcome(
         self,
         *,
-        success: bool,
-        duration: float = 0.0,
+        success: Annotated[
+            bool,
+            Doc(
+                "Whether the call completed without an error that counts"
+                " against the breaker."
+            ),
+        ],
+        duration: Annotated[
+            float,
+            Doc(
+                "Wall-clock seconds the call took. Consumed by algorithms"
+                " that classify slow calls. Ignored by the"
+                " consecutive-count algorithm."
+            ),
+        ] = 0.0,
     ) -> CircuitBreakerSnapshot:
-        """Record a call outcome and return the resulting snapshot.
-
-        Args:
-            success: Whether the call completed without an error that
-                counts against the breaker.
-            duration: Wall-clock seconds the call took. Consumed by
-                algorithms that classify slow calls; ignored by the
-                consecutive-count algorithm.
-        """
+        """Record a call outcome and return the resulting snapshot."""
         ...
 
     async def transition(
         self,
         *,
-        desired: CircuitBreakerState,
-        cool_down: float | None = None,
+        desired: Annotated[
+            CircuitBreakerState,
+            Doc("Target state to force the breaker into."),
+        ],
+        cool_down: Annotated[
+            float | None,
+            Doc(
+                "Seconds the breaker stays OPEN before moving to"
+                " HALF_OPEN. `None` uses the configured `reset_timeout`."
+                " Ignored when `desired` is not OPEN."
+            ),
+        ] = None,
     ) -> None:
-        """Force the breaker into ``desired``.
-
-        Args:
-            desired: Target state.
-            cool_down: Seconds the breaker should stay OPEN before
-                transitioning to HALF_OPEN. When ``None`` the strategy
-                uses its configured ``reset_timeout``. Ignored for
-                non-OPEN targets.
-        """
+        """Force the breaker into `desired`."""
         ...
 
     async def get_snapshot(self) -> CircuitBreakerSnapshot:
@@ -306,8 +318,14 @@ class CircuitBreakerBackend(Protocol):
     def bind(
         self,
         *,
-        name: str,
-        config: CircuitBreakerConfig,
+        name: Annotated[
+            str,
+            Doc("Breaker name, used as the storage key in shared backends."),
+        ],
+        config: Annotated[
+            CircuitBreakerConfig,
+            Doc("Algorithm configuration for the breaker."),
+        ],
     ) -> CircuitBreakerStrategy:
         """Build a strategy for the named breaker and algorithm config.
 
