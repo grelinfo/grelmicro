@@ -262,7 +262,25 @@ class RateLimiter:
 - Prefer fixtures with a `_` prefix for side-effect-only setups
   (consumed via `@pytest.mark.usefixtures`). Fixtures returning a
   value the test uses drop the prefix.
-- **100 % coverage** across unit + integration is enforced.
+- **100 % line + branch coverage** across unit + integration is
+  enforced by the pre-commit `coverage-report` hook
+  (`coverage report --fail-under=100`). CI runs unit, slow, and
+  integration tests on every pull request and push to `main`.
+
+### Running tests
+
+```bash
+# Unit tests only (no Docker required)
+uv run pytest -m "not integration"
+
+# Integration tests (requires Docker for Redis and Postgres containers)
+uv run pytest -m integration
+
+# Full suite with combined coverage (matches the local pre-commit gate)
+uv run pytest -m "not integration" --cov
+uv run pytest -m integration --cov --cov-append
+uv run coverage report --fail-under=100
+```
 
 ## Documentation
 
