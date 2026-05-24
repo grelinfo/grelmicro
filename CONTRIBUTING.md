@@ -26,6 +26,64 @@ The pre-commit configuration (`.pre-commit-config.yaml`) is the
 single source of truth for what "passes CI": ruff, ty, pytest
 (unit and integration), coverage, and file-hygiene hooks.
 
+## Your first contribution
+
+Browse [issues labelled `good first issue`](https://github.com/grelinfo/grelmicro/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22).
+They are scoped so a contributor unfamiliar with the codebase can
+finish them in one sitting.
+
+A typical first contribution touches three places:
+
+- **Code** in `grelmicro/<module>/...`. Public functions and
+  parameters use `Annotated[..., Doc("one-line behavior")]`.
+- **Test** in `tests/<module>/test_<thing>.py`. One docstring per
+  test, Arrange / Act / Assert comments, name describes the
+  scenario and expected outcome.
+- **Docs** in `docs/<module>.md` and a runnable example under
+  `docs/snippets/<module>/`. The snippet must run on its own.
+
+Example shapes (copy and adapt):
+
+```python
+# grelmicro/widgets/tally.py
+from typing import Annotated
+from typing_extensions import Doc
+
+
+class Tally:
+    """Count events in a fixed window."""
+
+    def __init__(
+        self,
+        *,
+        window: Annotated[
+            float,
+            Doc("Window duration in seconds."),
+        ],
+    ) -> None:
+        self._window = window
+```
+
+```python
+# tests/widgets/test_tally.py
+from grelmicro.widgets.tally import Tally
+
+
+def test_tally_window_is_exposed() -> None:
+    """Tally exposes the window as `.window`."""
+    # Arrange / Act
+    tally = Tally(window=5.0)
+    # Assert
+    assert tally.window == 5.0
+```
+
+A `docs/changelog.md` entry under `## Unreleased` is required.
+One short bullet, the PR link at the end. Match the surrounding
+entries.
+
+If anything is unclear, open the PR as a draft and ask. Reviewing
+a partially-correct PR is faster than guessing.
+
 ## Branch and commit conventions
 
 - Work on a branch named for the change, e.g. `feat/<name>` or
