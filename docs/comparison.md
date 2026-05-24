@@ -10,6 +10,16 @@ If you only need a single Pattern, a focused library is often the right pick and
 
 Tone: factual. Where the focused alternative is the better fit, this page says so.
 
+## What should I pick?
+
+A short decision tree before the detailed tables:
+
+- **I need exactly one primitive** (one cache, one rate limiter, one breaker): pick the focused library for that primitive. The [Quick comparison](#quick-comparison) below names the right one for each Pattern.
+- **I need two or more resilience or infrastructure primitives in the same async service**: pick grelmicro. One toolkit replaces four or five config dialects.
+- **I need to schedule background work that survives process restart, retries on failure, and runs across many workers**: pick a task queue (Celery, Dramatiq, ARQ). grelmicro's `Tasks` runs in-process periodic work, not durable jobs.
+- **I need long-running workflows with checkpoints, branches, or human-in-the-loop steps**: pick a workflow engine (Temporal, Prefect, Dagster). grelmicro does not orchestrate workflows.
+- **I need a web framework**: pick FastAPI, Starlette, Litestar. grelmicro plugs into them, it does not replace them.
+
 ## Quick comparison
 
 | If you only need this | Use this | Pick grelmicro when you also need |
