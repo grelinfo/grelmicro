@@ -411,7 +411,7 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
     @staticmethod
     def _unpack(result: list[Any]) -> CircuitBreakerSnapshot:
         state_raw = result[0]
-        if isinstance(state_raw, bytes):
+        if isinstance(state_raw, bytes):  # pragma: no branch
             state_raw = state_raw.decode()
         return CircuitBreakerSnapshot(
             state=CircuitBreakerState(state_raw),

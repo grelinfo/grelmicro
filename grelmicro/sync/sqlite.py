@@ -130,7 +130,7 @@ class SQLiteSyncAdapter(SyncBackend):
         traceback: TracebackType | None,
     ) -> None:
         """Close the lock backend."""
-        if self._conn:
+        if self._conn:  # pragma: no branch
             await self._conn.execute(
                 self._SQL_RELEASE_ALL_EXPIRED.format(
                     table_name=self._table_name

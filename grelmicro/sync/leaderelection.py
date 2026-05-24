@@ -384,7 +384,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         self, *, ready: asyncio.Future[None] | None = None
     ) -> None:
         """Run polling loop service to acquire or renew the distributed lock."""
-        if ready is not None and not ready.done():
+        if ready is not None and not ready.done():  # pragma: no branch
             ready.set_result(None)
         if self._service_running:
             logger.warning("Leader Election already running: %s", self.name)

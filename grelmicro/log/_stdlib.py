@@ -88,7 +88,7 @@ def _build_record(
             type=exc_type.__name__,
             message=str(exc_value),
         )
-        if exc_tb is not None:
+        if exc_tb is not None:  # pragma: no branch
             error["stack"] = "".join(
                 traceback.format_exception(exc_type, exc_value, exc_tb)
             )

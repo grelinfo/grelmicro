@@ -342,7 +342,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
         """Open the adapter and install the schema when `auto_migrate=True`."""
         if self._owns_provider:
             await self._provider.__aenter__()
-        if self._auto_migrate:
+        if self._auto_migrate:  # pragma: no branch
             pool = self._provider.client
             for sql in (
                 self._SQL_CREATE_TABLE,

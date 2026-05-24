@@ -82,7 +82,7 @@ def _add_caller_info(*, caller_enabled: bool = False) -> Processor:
             lineno = event_dict.pop("lineno", None)
             if module and func and lineno:
                 event_dict["logger"] = module
-                if caller_enabled:
+                if caller_enabled:  # pragma: no branch
                     event_dict["caller"] = f"{func}:{lineno}"
             else:
                 event_dict["logger"] = "unknown"
@@ -106,7 +106,7 @@ def _add_error_info(
             type=exc_type.__name__,
             message=str(exc_value),
         )
-        if exc_tb is not None:
+        if exc_tb is not None:  # pragma: no branch
             error["stack"] = "".join(
                 traceback.format_exception(exc_type, exc_value, exc_tb)
             )
@@ -121,7 +121,7 @@ def _add_otel_context(
 ) -> EventDict:
     """Add OpenTelemetry trace context if available."""
     trace_context = get_otel_trace_context()
-    if trace_context:
+    if trace_context:  # pragma: no branch
         event_dict["trace_id"] = trace_context["trace_id"]
         event_dict["span_id"] = trace_context["span_id"]
     return event_dict

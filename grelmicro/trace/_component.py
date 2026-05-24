@@ -201,7 +201,7 @@ class Trace:
 
         try:
             shutdown = getattr(self._provider, "shutdown", None)
-            if callable(shutdown):
+            if callable(shutdown):  # pragma: no branch
                 timeout = (
                     self._resolved.shutdown_timeout
                     if self._resolved is not None

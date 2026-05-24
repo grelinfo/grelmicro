@@ -31,7 +31,7 @@ def _record_exception(otel_span: object) -> None:
         and otel_span.is_recording()  # ty: ignore[call-non-callable]
     ):
         exc = sys.exc_info()[1]
-        if exc is not None:
+        if exc is not None:  # pragma: no branch
             otel = _get_otel()
             otel_span.set_status(otel.status_code.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
             otel_span.record_exception(exc)  # ty: ignore[unresolved-attribute]

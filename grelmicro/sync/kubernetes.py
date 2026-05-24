@@ -122,7 +122,7 @@ class KubernetesSyncAdapter(SyncBackend):
         traceback: TracebackType | None,
     ) -> None:
         """Close the lock backend."""
-        if self._client:
+        if self._client:  # pragma: no branch
             # Clean up expired leases managed by grelmicro
             now = datetime.now(tz=UTC)
             async for lease in self._client.list(

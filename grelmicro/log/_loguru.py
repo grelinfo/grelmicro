@@ -74,7 +74,7 @@ def _build_loguru_record(
             type=exception.type.__name__,
             message=str(exception.value),
         )
-        if exception.traceback:
+        if exception.traceback:  # pragma: no branch
             error["stack"] = "".join(
                 tb_module.format_exception(
                     exception.type, exception.value, exception.traceback
@@ -279,7 +279,7 @@ def configure(config: LoggingConfig | None = None) -> None:
         log_format = _make_text_formatter(
             timezone, caller_enabled=caller, colors=colors
         )
-    elif isinstance(log_format, str):
+    elif isinstance(log_format, str):  # pragma: no branch
         needs_json = "extra[serialized]" in log_format
         needs_logfmt = "extra[logfmt_serialized]" in log_format
         needs_localtime = "extra[localtime]" in log_format

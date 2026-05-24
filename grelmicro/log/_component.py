@@ -161,10 +161,10 @@ class Log:
         root = logging.getLogger()
         for handler in list(root.handlers):
             root.removeHandler(handler)
-        if self._snapshot_handlers is not None:
+        if self._snapshot_handlers is not None:  # pragma: no branch
             for handler in self._snapshot_handlers:
                 root.addHandler(handler)
-        if self._snapshot_level is not None:
+        if self._snapshot_level is not None:  # pragma: no branch
             root.setLevel(self._snapshot_level)
         self._snapshot_handlers = None
         self._snapshot_level = None

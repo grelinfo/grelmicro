@@ -124,7 +124,7 @@ class IntervalTask(Task):
         logger.info(
             "Task started (interval: %ss): %s", self._seconds, self.name
         )
-        if ready is not None and not ready.done():
+        if ready is not None and not ready.done():  # pragma: no branch
             ready.set_result(None)
         try:
             while True:

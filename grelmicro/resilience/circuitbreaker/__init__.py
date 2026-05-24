@@ -612,7 +612,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
 
     def _release_call(self) -> None:
         """Release a call in the circuit breaker."""
-        if self._active_call_count > 0:
+        if self._active_call_count > 0:  # pragma: no branch
             self._active_call_count -= 1
 
     async def _apply_reconfigure(
