@@ -1,4 +1,11 @@
-"""Rate Limiter, Circuit Breaker, and Retry Protocols."""
+"""Rate Limiter, Circuit Breaker, and Retry Protocols.
+
+This module defines `typing.Protocol` types. Methods end with `...`
+because the protocols describe structural contracts, not
+implementations. Concrete strategies and backends (e.g.
+`_MemoryTokenBucket`, `RedisRateLimiterAdapter`,
+`_ExponentialStrategy`) provide the bodies.
+"""
 
 from __future__ import annotations
 
