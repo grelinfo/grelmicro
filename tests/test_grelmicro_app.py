@@ -169,8 +169,22 @@ def test_uses_kwarg_registers_components_in_order() -> None:
 def test_uses_kwarg_accepts_none() -> None:
     """`uses=None` (the default) constructs an empty container."""
     micro = Grelmicro()
-    with pytest.raises(ComponentNotRegisteredError):
+    with pytest.raises(
+        ComponentNotRegisteredError, match="no components are registered"
+    ):
         micro.get("rec")
+
+
+def test_get_missing_component_error_lists_registered_keys() -> None:
+    """The error names every `(kind, name)` pair that is registered."""
+    a = _RecordingComponent(name="a")
+    b = _OtherComponent(name="b")
+    micro = Grelmicro(uses=[a, b])
+    with pytest.raises(ComponentNotRegisteredError) as exc:
+        micro.get("rec", "missing")
+    msg = str(exc.value)
+    assert "('rec', 'a')" in msg
+    assert "('oth', 'b')" in msg
 
 
 # --- Lifespan: enter, LIFO teardown ---

@@ -280,7 +280,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             msg = (
                 f"Invalid health check name {name!r}: must match "
                 f"^[a-z0-9][a-z0-9:_-]*$ and be at most "
-                f"{_NAME_MAX_LEN} chars"
+                f"{_NAME_MAX_LEN} chars. "
+                f"Valid examples: 'redis', 'db-primary', "
+                f"'weather:circuitbreaker'."
             )
             raise ValueError(msg)
         if name in self._entries:

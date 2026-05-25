@@ -360,8 +360,9 @@ async def test_shared_cache_between_readyz_and_healthz_paths() -> None:
 async def test_invalid_name_rejected(name: str) -> None:
     """Names must match ^[a-z0-9][a-z0-9:_-]*$."""
     registry = HealthChecks()
-    with pytest.raises(ValueError, match="Invalid health check name"):
+    with pytest.raises(ValueError, match="Valid examples:") as exc:
         registry.add(name, healthy())
+    assert "Invalid health check name" in str(exc.value)
 
 
 async def test_namespaced_name_accepted() -> None:
