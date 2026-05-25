@@ -1,9 +1,45 @@
 """Resilience.
 
-Top-level re-exports are PEP 562 lazy: importing this package loads
-`_components`, `_match`, `_outcome`, `_protocol`, and `errors` plus
-the eager exports listed below. Every other pattern (`CircuitBreaker`,
-`RateLimiter`), its algorithm configs, and the memory/redis adapters
+Pick the front door first, the algorithm second, the backend third.
+
+**Front doors** (start here):
+
+* `RateLimiter("name", limit=..., window=...)` or
+  `RateLimiter.token_bucket(...)` / `RateLimiter.sliding_window(...)`
+  for rate limiting.
+* `CircuitBreaker("name")` or
+  `CircuitBreaker.consecutive_count(...)` for circuit breaking.
+* `Retry("name", backoff, when=...)` or the `@retry(...)` /
+  `retrying(...)` decorator and block form.
+* `Fallback("name", when=..., default=...)` or the `@fallback(...)`
+  / `falling_back(...)` decorator and block form.
+* `Timeout("name", seconds=...)` for deadlines.
+* `Shield("name")` or the `@shield(...)` decorator for the bundled
+  timeout + retry + adaptive rate-limit + cache + fallback profile.
+
+**Components** (wire the front doors into `Grelmicro(uses=[...])`):
+
+* `RateLimiters(backend)` and `CircuitBreakers(backend)`. They
+  register the shared storage. Without them, primitives fall back
+  to an implicit in-memory backend that is fine for tests and
+  single-replica services.
+
+**Adapters / backends** (one per storage choice, used inside
+`RateLimiters` / `CircuitBreakers`): `MemoryRateLimiterAdapter`,
+`RedisRateLimiterAdapter`, `PostgresRateLimiterAdapter`,
+`MemoryCircuitBreakerAdapter`, `RedisCircuitBreakerAdapter`. End
+users rarely name these directly. The Components do.
+
+**Configs** (frozen Pydantic models, accept env vars):
+`TokenBucketConfig`, `SlidingWindowConfig`,
+`CircuitBreakerConfig`, `RetryConfig`, `FallbackConfig`,
+`TimeoutConfig`, `ShieldConfig`. One per pattern, plus backoff
+configs (`ExponentialBackoff`, `LinearBackoff`, ...).
+
+**Loading**: top-level re-exports are PEP 562 lazy. Importing this
+package loads `_components`, `_match`, `_outcome`, `_protocol`,
+and `errors` plus the eager exports listed below. Every other
+pattern, its algorithm configs, and the memory/redis adapters
 load on first attribute access. `from grelmicro.resilience import
 CircuitBreaker` does not import anything related to `RateLimiter`.
 

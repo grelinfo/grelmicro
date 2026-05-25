@@ -28,6 +28,7 @@
 * 📝 Add a `What should I pick?` decision tree to the top of `docs/comparison.md` so readers can map their situation to the right tool (one primitive, two or more, task queue, workflow engine, web framework).
 * 📝 Add a `Your first contribution` section to `CONTRIBUTING.md` with the expected code, test, and docs shape and a pointer to the `good first issue` label.
 * 📝 Add `Annotated[..., Doc(...)]` to the `SyncBackend`, `RetryStrategy`, `RateLimiterStrategy`, `RateLimiterBackend`, `CircuitBreakerStrategy`, and `CircuitBreakerBackend` protocol parameters so IDE and LLM tools surface the same hints on backends as on user-facing primitives.
+* 📝 Group the `grelmicro.resilience` package docstring into front doors, components, adapters, and configs so import-site hover help guides agents and humans to the preferred entry point.
 
 ### Internal
 
