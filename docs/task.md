@@ -59,6 +59,14 @@ Use the `interval` decorator to run a task at a fixed interval:
 !!! note
     The interval specifies the waiting time between task executions. Ensure that the task execution duration is considered to meet deadlines effectively.
 
+!!! tip "Sensitive workflows: pass an explicit `name=`"
+    When `name=` is omitted, the task reference is derived from the function's
+    `module:qualname`. That reference appears in logs, distributed
+    coordination keys (when `TaskLock` is used), and metric labels.
+    Pass an explicit `name="..."` for tasks that handle credentials,
+    customer data, or other workflows where the internal module path
+    should not leak through operational surfaces.
+
 === "Tasks"
 
     ```python

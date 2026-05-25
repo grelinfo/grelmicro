@@ -1,6 +1,7 @@
 """Lock."""
 
 import asyncio
+import re
 from threading import get_ident
 from types import TracebackType
 from typing import Annotated, Self
@@ -26,6 +27,26 @@ from grelmicro.sync.errors import (
 )
 
 _MIN_RETRY_INTERVAL: float = 0.001
+_NAME_MAX_LEN = 200
+_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\-]*$")
+
+
+def _validate_lock_name(name: str) -> None:
+    """Reject lock names that would land as ugly or ambiguous backend keys.
+
+    The pattern accepts letters, digits, and the separators ``._:/-`` after
+    a leading alphanumeric, up to 200 characters. This blocks whitespace,
+    control characters, and shell metacharacters while staying broad
+    enough for namespaced names like ``users:42`` or ``payments/eu``.
+    """
+    if not name or len(name) > _NAME_MAX_LEN or not _NAME_PATTERN.match(name):
+        msg = (
+            f"Invalid lock name {name!r}: must match "
+            f"^[A-Za-z0-9][A-Za-z0-9._:/-]*$ and be at most "
+            f"{_NAME_MAX_LEN} chars. "
+            f"Valid examples: 'cart', 'users:42', 'payments/eu'."
+        )
+        raise ValueError(msg)
 
 
 class LockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
@@ -227,6 +248,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         backend: SyncBackend | str | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
+        _validate_lock_name(name)
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
