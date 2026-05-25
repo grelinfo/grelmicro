@@ -76,7 +76,13 @@ class RateLimitResult(NamedTuple):
     """Total quota (`capacity` for TokenBucketConfig, `limit` for SlidingWindowConfig)."""
 
     remaining: int
-    """Remaining tokens or requests."""
+    """Remaining tokens or requests.
+
+    For algorithms with continuous state (`SlidingWindowConfig`,
+    GCRA-based strategies) this is an estimate rounded to the nearest
+    whole request. Enforcement still uses the exact internal state, so
+    the next `acquire` may be denied even when `remaining > 0`.
+    """
 
     retry_after: float
     """Seconds until the next request is allowed (0.0 if allowed)."""

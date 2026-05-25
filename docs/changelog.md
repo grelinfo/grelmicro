@@ -35,6 +35,9 @@
 * 📝 Add `Annotated[..., Doc(...)]` to the `SyncBackend`, `RetryStrategy`, `RateLimiterStrategy`, `RateLimiterBackend`, `CircuitBreakerStrategy`, and `CircuitBreakerBackend` protocol parameters so IDE and LLM tools surface the same hints on backends as on user-facing primitives.
 * 📝 Group the `grelmicro.resilience` package docstring into front doors, components, adapters, and configs so import-site hover help guides agents and humans to the preferred entry point.
 * 📝 Document that auto-generated task references (`module:qualname`) surface in logs, distributed lock keys, and metric labels. Suggest passing an explicit `name=` for sensitive workflows in `validate_and_generate_reference` and the `docs/task.md` Interval Task section.
+* 📝 Add a `Why Python 3.12` section to `docs/installation.md` listing the language features (PEP 695, `asyncio.timeout`) that drive the floor, and note that CI runs the matrix on every advertised classifier (3.12, 3.13, 3.14).
+* 📝 Add a `Platforms` column to the Optional extras table in `docs/installation.md` calling out that `uvloop` is skipped on Windows and PyPy.
+* 📝 Document `RateLimitResult.remaining` as an estimate for continuous-state algorithms (GCRA-based sliding window). Enforcement still uses exact state, so the next `acquire` may be denied even when `remaining > 0`.
 
 ### Internal
 
