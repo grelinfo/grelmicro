@@ -45,7 +45,7 @@ async def test_user_timeout_error_is_not_classified_as_registry_timeout() -> (
 
     result = report["checks"]["downstream"]
     assert result["status"] == HealthStatus.ERROR
-    assert result["error"] == "Health check failed"
+    assert result["error"] == "TimeoutError: downstream call timed out"
 
 
 async def test_empty_registry_is_ok() -> None:
@@ -144,7 +144,7 @@ async def test_critical_failure_produces_error() -> None:
     assert report["status"] == HealthStatus.ERROR
     redis = report["checks"]["redis"]
     assert redis["status"] == HealthStatus.ERROR
-    assert redis["error"] == "Health check failed"
+    assert redis["error"] == "ConnectionError: Connection refused"
     assert redis["details"] is None
 
 
@@ -432,13 +432,16 @@ async def test_health_error_exposes_message() -> None:
 
 
 async def test_generic_exception_hides_message() -> None:
-    """Non-HealthError exceptions get a generic message."""
+    """Non-HealthError exceptions surface the type and message."""
     registry = HealthChecks(cache_ttl=0)
     registry.add("redis", unhealthy())
 
     report = await registry.run()
 
-    assert report["checks"]["redis"]["error"] == "Health check failed"
+    assert (
+        report["checks"]["redis"]["error"]
+        == "ConnectionError: Connection refused"
+    )
 
 
 async def test_health_error_logs_warning(
