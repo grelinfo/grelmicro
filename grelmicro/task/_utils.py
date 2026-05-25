@@ -20,6 +20,11 @@ def validate_and_generate_reference(function: Callable[..., Any]) -> str:
     are accepted. Anything whose identity depends on a closure, a bound
     instance, or runtime construction is rejected.
 
+    The returned reference surfaces in logs, distributed coordination
+    keys, and metric labels. For tasks that handle sensitive workflows,
+    pass an explicit ``name=`` to the task decorator or registration
+    call instead of relying on the auto-generated module path.
+
     Raises:
         FunctionTypeError: If ``function`` cannot be referenced by name.
 

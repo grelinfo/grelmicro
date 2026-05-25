@@ -758,3 +758,37 @@ async def test_reconfigure_while_held_keeps_release_working(lock: Lock) -> None:
     await lock.release()
 
     assert await lock.locked() is False
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "has space",
+        "has\ttab",
+        "control\x00char",
+        "-leading-dash",
+        "/leading-slash",
+        ":leading-colon",
+        "a" * 201,
+    ],
+)
+def test_lock_rejects_unsafe_names(name: str) -> None:
+    """Names with whitespace, control chars, or bad leaders are rejected."""
+    with pytest.raises(ValueError, match="Invalid lock name") as exc:
+        Lock(name)
+    assert "Valid examples:" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "cart",
+        "users:42",
+        "payments/eu",
+        "weather.svc",
+        "a-b_c.d:e/f",
+    ],
+)
+def test_lock_accepts_safe_names(name: str) -> None:
+    """Namespaced names with dots, dashes, slashes, and colons are accepted."""
+    Lock(name)

@@ -16,6 +16,7 @@
 * 🚨 `HealthChecks.add` invalid-name errors now include valid examples (`'redis'`, `'db-primary'`, `'weather:circuitbreaker'`) alongside the regex.
 * 🐛 `Log.__aenter__` and `Log.__aexit__` now serialize on a class-level `threading.Lock` so concurrent `Grelmicro` lifecycles in the same process cannot interleave the stdlib root-logger snapshot / restore sequence.
 * 🐛 Unexpected exceptions inside a health check now surface as `"TypeName: message"` in the `CheckResult.error` field instead of the generic `"Health check failed"`. Operators reading only the `/healthz` payload can identify the failing class without grepping logs.
+* 🔒 `Lock("...")` now validates the name against `^[A-Za-z0-9][A-Za-z0-9._:/-]*$` (max 200 chars). Names with whitespace, control characters, or leading separators are rejected with a message that includes valid examples. Existing namespaced names (`users:42`, `payments/eu`, `weather.svc`) keep working.
 
 ### Docs
 
@@ -33,6 +34,7 @@
 * 📝 Add a `Your first contribution` section to `CONTRIBUTING.md` with the expected code, test, and docs shape and a pointer to the `good first issue` label.
 * 📝 Add `Annotated[..., Doc(...)]` to the `SyncBackend`, `RetryStrategy`, `RateLimiterStrategy`, `RateLimiterBackend`, `CircuitBreakerStrategy`, and `CircuitBreakerBackend` protocol parameters so IDE and LLM tools surface the same hints on backends as on user-facing primitives.
 * 📝 Group the `grelmicro.resilience` package docstring into front doors, components, adapters, and configs so import-site hover help guides agents and humans to the preferred entry point.
+* 📝 Document that auto-generated task references (`module:qualname`) surface in logs, distributed lock keys, and metric labels. Suggest passing an explicit `name=` for sensitive workflows in `validate_and_generate_reference` and the `docs/task.md` Interval Task section.
 
 ### Internal
 
