@@ -1,9 +1,10 @@
 """Synchronization Abstract Base Classes and Protocols."""
 
 from types import TracebackType
-from typing import Protocol, Self, runtime_checkable
+from typing import Annotated, Protocol, Self, runtime_checkable
 
 from pydantic import PositiveFloat
+from typing_extensions import Doc
 
 
 @runtime_checkable
@@ -30,64 +31,82 @@ class SyncBackend(Protocol):
         """Close the synchronization backend."""
         ...
 
-    async def acquire(self, *, name: str, token: str, duration: float) -> bool:
+    async def acquire(
+        self,
+        *,
+        name: Annotated[
+            str,
+            Doc("Identifier of the lock to acquire."),
+        ],
+        token: Annotated[
+            str,
+            Doc(
+                "Caller-supplied ownership token. The same token must"
+                " be passed to `release` and `owned`."
+            ),
+        ],
+        duration: Annotated[
+            float,
+            Doc(
+                "Seconds the lock is held before the backend may release"
+                " it automatically. The acquirer should renew before"
+                " this elapses."
+            ),
+        ],
+    ) -> bool:
         """Acquire the lock.
 
-        Args:
-            name: The name of the lock.
-            token: The token to acquire the lock.
-            duration: The duration in seconds to hold the lock.
-
-        Returns:
-            True if the lock is acquired, False if the lock is already acquired by another token.
-
-        Raises:
-            Exception: Any exception can be raised if the lock cannot be acquired.
+        Returns `True` when the lock was granted, `False` when another
+        token already holds it.
         """
         ...
 
-    async def release(self, *, name: str, token: str) -> bool:
-        """Release a lock.
+    async def release(
+        self,
+        *,
+        name: Annotated[
+            str,
+            Doc("Identifier of the lock to release."),
+        ],
+        token: Annotated[
+            str,
+            Doc(
+                "Ownership token previously passed to `acquire`. The"
+                " backend only releases when the token matches."
+            ),
+        ],
+    ) -> bool:
+        """Release the lock.
 
-        Args:
-            name: The name of the lock.
-            token: The token to release the lock.
-
-        Returns:
-            True if the lock was released, False otherwise.
-
-        Raises:
-            Exception: Any exception can be raised if the lock cannot be released.
+        Returns `True` when the lock was released, `False` when the
+        token did not own the lock.
         """
         ...
 
-    async def locked(self, *, name: str) -> bool:
-        """Check if the lock is acquired.
-
-        Args:
-            name: The name of the lock.
-
-        Returns:
-            True if the lock is acquired, False otherwise.
-
-        Raises:
-            Exception: Any exception can be raised if the lock status cannot be checked.
-        """
+    async def locked(
+        self,
+        *,
+        name: Annotated[
+            str,
+            Doc("Identifier of the lock to inspect."),
+        ],
+    ) -> bool:
+        """Return `True` when the lock is currently held by any token."""
         ...
 
-    async def owned(self, *, name: str, token: str) -> bool:
-        """Check if the lock is owned.
-
-        Args:
-            name: The name of the lock.
-            token: The token to check.
-
-        Returns:
-            True if the lock is owned by the token, False otherwise.
-
-        Raises:
-            Exception: Any exception can be raised if the lock status cannot be checked.
-        """
+    async def owned(
+        self,
+        *,
+        name: Annotated[
+            str,
+            Doc("Identifier of the lock to inspect."),
+        ],
+        token: Annotated[
+            str,
+            Doc("Ownership token to compare against the current holder."),
+        ],
+    ) -> bool:
+        """Return `True` when the lock is currently held by `token`."""
         ...
 
 
