@@ -238,7 +238,12 @@ class Grelmicro:
         try:
             return self._by_key[(kind, name)]
         except KeyError as exc:
-            msg = f"no component registered for {(kind, name)!r}."
+            registered = sorted(self._by_key)
+            if registered:
+                hint = "registered: " + ", ".join(repr(k) for k in registered)
+            else:
+                hint = "no components are registered"
+            msg = f"no component registered for {(kind, name)!r}. {hint}."
             raise ComponentNotRegisteredError(msg) from exc
 
     @asynccontextmanager
