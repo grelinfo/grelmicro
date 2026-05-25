@@ -14,6 +14,8 @@
 * 🔒 `SettingsValidationError` no longer echoes the offending input value. Env-loaded credentials (DSNs, tokens) no longer surface in error messages.
 * 🚨 `ComponentNotRegisteredError` from `Grelmicro.get(kind, name)` now lists every registered `(kind, name)` pair (or states that none are registered). Agents and developers see what is available without inspecting the container.
 * 🚨 `HealthChecks.add` invalid-name errors now include valid examples (`'redis'`, `'db-primary'`, `'weather:circuitbreaker'`) alongside the regex.
+* 🐛 `Log.__aenter__` and `Log.__aexit__` now serialize on a class-level `threading.Lock` so concurrent `Grelmicro` lifecycles in the same process cannot interleave the stdlib root-logger snapshot / restore sequence.
+* 🐛 Unexpected exceptions inside a health check now surface as `"TypeName: message"` in the `CheckResult.error` field instead of the generic `"Health check failed"`. Operators reading only the `/healthz` payload can identify the failing class without grepping logs.
 
 ### Docs
 

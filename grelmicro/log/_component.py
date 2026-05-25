@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
@@ -45,14 +46,17 @@ class Log:
     `loguru` and `structlog` backends keep the configuration installed on
     enter (no restore).
 
-    A single process should not run two `Grelmicro` apps with `Log`
-    components concurrently: stdlib's root logger is a single global, so
-    overlapping lifecycles would clobber each other's snapshots.
+    The stdlib root logger is a single global. `Log.__aenter__` and
+    `Log.__aexit__` serialize on a class-level `threading.Lock` so the
+    snapshot/restore sequence cannot interleave across concurrent
+    `Grelmicro` lifecycles in the same process. Run one `Log` at a
+    time per process.
 
     Read more in the [Logging](../logging.md) docs.
     """
 
     kind: ClassVar[str] = "log"
+    _lifecycle_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(
         self,
@@ -138,17 +142,18 @@ class Log:
 
     async def __aenter__(self) -> Self:
         """Snapshot stdlib root logger state, then configure logging."""
-        root = logging.getLogger()
-        self._snapshot_handlers = list(root.handlers)
-        self._snapshot_level = root.level
-        self._resolved = resolve_config(
-            LoggingConfig,
-            explicit=self._explicit_config,
-            kwargs=self._kwargs,
-            env_prefix="GREL_LOG_",
-            env_load=self._env_load,
-        )
-        _apply(self._resolved)
+        with self._lifecycle_lock:
+            root = logging.getLogger()
+            self._snapshot_handlers = list(root.handlers)
+            self._snapshot_level = root.level
+            self._resolved = resolve_config(
+                LoggingConfig,
+                explicit=self._explicit_config,
+                kwargs=self._kwargs,
+                env_prefix="GREL_LOG_",
+                env_load=self._env_load,
+            )
+            _apply(self._resolved)
         return self
 
     async def __aexit__(
@@ -158,14 +163,15 @@ class Log:
         tb: TracebackType | None,
     ) -> bool | None:
         """Restore the snapshotted stdlib root handlers and level."""
-        root = logging.getLogger()
-        for handler in list(root.handlers):
-            root.removeHandler(handler)
-        if self._snapshot_handlers is not None:  # pragma: no branch
-            for handler in self._snapshot_handlers:
-                root.addHandler(handler)
-        if self._snapshot_level is not None:  # pragma: no branch
-            root.setLevel(self._snapshot_level)
-        self._snapshot_handlers = None
-        self._snapshot_level = None
+        with self._lifecycle_lock:
+            root = logging.getLogger()
+            for handler in list(root.handlers):
+                root.removeHandler(handler)
+            if self._snapshot_handlers is not None:  # pragma: no branch
+                for handler in self._snapshot_handlers:
+                    root.addHandler(handler)
+            if self._snapshot_level is not None:  # pragma: no branch
+                root.setLevel(self._snapshot_level)
+            self._snapshot_handlers = None
+            self._snapshot_level = None
         return None

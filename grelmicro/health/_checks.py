@@ -475,7 +475,7 @@ async def _run_check(entry: _Entry) -> CheckResult:
             error=str(exc),
             details=exc.details,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Health check '%s' raised unexpectedly",
             entry.name,
@@ -483,6 +483,6 @@ async def _run_check(entry: _Entry) -> CheckResult:
         return CheckResult(
             status=HealthStatus.ERROR,
             critical=entry.critical,
-            error="Health check failed",
+            error=f"{type(exc).__name__}: {exc}",
             details=None,
         )
