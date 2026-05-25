@@ -1,4 +1,8 @@
-"""Task Utilities."""
+"""Task Utilities.
+
+`validate_and_generate_reference` is adapted from an upstream project.
+See THIRD_PARTY_NOTICES.md for the source, license, and changes.
+"""
 
 from collections.abc import Callable
 from functools import partial

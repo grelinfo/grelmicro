@@ -1,4 +1,10 @@
-"""Cache Backend Protocol."""
+"""Cache Backend Protocol.
+
+This module defines a `typing.Protocol`. Methods end with `...`
+because the protocol describes a structural contract, not an
+implementation. Concrete backends (`RedisCacheAdapter`,
+`MemoryCacheAdapter`, `PostgresCacheAdapter`) provide the bodies.
+"""
 
 from types import TracebackType
 from typing import Annotated, Protocol, Self, runtime_checkable

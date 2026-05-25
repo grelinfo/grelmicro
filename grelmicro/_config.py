@@ -155,6 +155,10 @@ def resolve_config[C: BaseModel](
         return config_cls.model_validate(provided)
 
     settings_cls = _build_settings_cls(config_cls, env_prefix)
+    # The dynamic subclass is built at runtime via `type(...)` below, so
+    # neither mypy nor ty can prove that `settings_cls` accepts the kwargs
+    # declared on `config_cls` or that it returns `C`. Pydantic's runtime
+    # validation enforces the contract.
     return settings_cls(**provided)  # type: ignore[return-value, arg-type]  # ty: ignore[invalid-return-type, invalid-argument-type]
 
 
@@ -174,12 +178,15 @@ def _build_settings_cls[C: BaseModel](
     instance per process); the bound is a safety net for long-
     running processes that derive prefixes from runtime inputs.
     """
-    # `model_config` is a TypedDict (`SettingsConfigDict`/`ConfigDict`);
-    # spreading it into a plain dict so we can add `env_prefix` widens
-    # it to `dict[str, object]`, which the downstream constructors
-    # accept but the type checker can't narrow back.
+    # `model_config` is a TypedDict (`SettingsConfigDict`/`ConfigDict`).
+    # Spreading it into a plain dict to add `env_prefix` widens the value
+    # type to `dict[str, object]`, which downstream constructors accept
+    # at runtime but mypy/ty cannot narrow back to the TypedDict shape.
     merged_config: dict[str, object] = {**(config_cls.model_config or {})}  # type: ignore[dict-item]
     merged_config["env_prefix"] = env_prefix
+    # `SettingsConfigDict(**merged_config)` round-trips a `dict[str, object]`
+    # through a TypedDict constructor. Static checkers reject the widened
+    # value types even though Pydantic's runtime validator accepts them.
     return type(
         f"_{config_cls.__name__}Settings",
         (config_cls, BaseSettings),
@@ -228,6 +235,10 @@ class Reconfigurable[ConfigT: BaseModel]:
         if new_config == current:
             return
         async with self._reconfigure_lock:
+            # Double-checked locking. A concurrent caller can win the lock
+            # first and install the same `new_config`; this re-read avoids
+            # rebinding twice. Not deterministically reachable from a
+            # single-event-loop test, so coverage is excluded by design.
             if new_config == self._config:  # pragma: no cover
                 return
             await self._apply_reconfigure(new_config)

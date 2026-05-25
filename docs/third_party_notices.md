@@ -10,7 +10,7 @@ outlines of the Funnel Display typeface under the SIL Open Font License
 
 ## Upstash Ratelimit
 
-The Redis Lua scripts in `grelmicro/resilience/redis.py` are adapted
+The Redis Lua scripts in `grelmicro/resilience/ratelimiter/redis.py` are adapted
 from [Upstash Ratelimit](https://github.com/upstash/ratelimit):
 
 - `_RedisTokenBucket._LUA_ACQUIRE` and `_LUA_PEEK`: hash-based
