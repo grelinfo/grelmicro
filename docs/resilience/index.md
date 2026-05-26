@@ -23,3 +23,17 @@ See [Composing patterns](composition.md) for the recommended outside-in order wh
 | **Timeout** | An async call may stall and you need a hard deadline on it. |
 
 For synchronous, in-process token-bucket rate limiting on a performance-critical sync path (the main example is the logging pipeline), see [`MemoryTokenBucket`](rate-limiter.md#standalone-memorytokenbucket). It powers `grelmicro.log.RateLimitFilter`.
+
+## With FastStream
+
+The same primitives drop into a FastStream consumer without changes.
+The lifespan opens the shared Redis provider, `Sync`, and
+`RateLimiters` once. A handler can then hold a per-key `Lock` and
+consume rate-limit tokens before the actual work runs.
+
+```python
+--8<-- "resilience/faststream.py"
+```
+
+The lock and limiter are fleet-wide: every consumer replica sees the
+same budget per key.

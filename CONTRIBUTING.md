@@ -326,8 +326,12 @@ class RateLimiter:
 
 ## Testing
 
-- Name tests for the behaviour, not the method
-  (`test_acquire_rejected_when_limit_exceeded`).
+- Name tests with the shape
+  `test_<component>_<scenario>_<expected_outcome>`. For example:
+  `test_ratelimiter_acquire_rejected_when_limit_exceeded`,
+  `test_cache_get_returns_none_when_expired`,
+  `test_lock_release_raises_when_not_owned`.
+  Existing tests that follow an older shape are migrated opportunistically.
 - Every test function has a one-line docstring.
 - Use **Arrange / Act / Assert** comments to separate phases.
 - Parametrize related cases with `pytest.mark.parametrize`.

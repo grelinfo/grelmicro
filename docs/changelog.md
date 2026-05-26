@@ -38,6 +38,8 @@
 * 📝 Add a `Why Python 3.12` section to `docs/installation.md` listing the language features (PEP 695, `asyncio.timeout`) that drive the floor, and note that CI runs the matrix on every advertised classifier (3.12, 3.13, 3.14).
 * 📝 Add a `Platforms` column to the Optional extras table in `docs/installation.md` calling out that `uvloop` is skipped on Windows and PyPy.
 * 📝 Document `RateLimitResult.remaining` as an estimate for continuous-state algorithms (GCRA-based sliding window). Enforcement still uses exact state, so the next `acquire` may be denied even when `remaining > 0`.
+* 📝 Add a FastStream resilience recipe (`docs/snippets/resilience/faststream.py`) that uses a fleet-wide per-key `Lock` and a sliding-window `RateLimiter` inside a Redis-broker subscriber. Linked from `docs/resilience/index.md`.
+* 📝 Formalize the `test_<component>_<scenario>_<expected_outcome>` test-name shape in `CONTRIBUTING.md` with three concrete examples.
 
 ### Internal
 
