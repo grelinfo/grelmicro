@@ -132,9 +132,10 @@ class TTLCache(Generic[T]):
 
                 Built-in options:
 
-                - ``PickleSerializer()``: Any picklable object.
-                - ``JsonSerializer()``: JSON-native types (dict, list, etc.).
                 - ``PydanticSerializer(Model)``: Type-safe Pydantic roundtrips.
+                - ``JsonSerializer()``: JSON-native types (dict, list, etc.).
+                - ``PickleSerializer()``: Any picklable object. Trusted
+                  backends only: deserialization can execute arbitrary code.
                 - ``None``: Raw bytes only (no serialization).
                 """,
             ),

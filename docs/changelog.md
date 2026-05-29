@@ -43,6 +43,9 @@
 
 ### Internal
 
+* 🔒 `PickleSerializer` docs upgraded to a Danger callout. Pickle is now framed as trusted in-process backends only, and the `@cached` decorator example leads with `JsonSerializer`. The `TTLCache` docstring lists Pydantic and JSON before Pickle.
+* 🔧 Comment why `_env_prefix=env_prefix` needs a type-ignore in `RedisProvider` and `PostgresProvider` (pydantic-settings runtime kwarg the stubs do not expose).
+* ⚡ Snapshot hot config fields (`cost`, `allowed_repetitions`, `ttl_seconds`, `cache_size`) onto `RateLimitFilter` and `DuplicateFilter` instances during setup so the per-record `filter()` path reads plain attrs instead of walking the Pydantic config.
 * 🔧 Drop three unused `ty: ignore` directives in `grelmicro/_json.py`.
 * ✅ Add a guard test that every `_LAZY` key in `grelmicro/resilience/__init__.py` is exported in `__all__` and actually resolves at runtime.
 * ✅ Add Hypothesis property tests for token-bucket and sliding-window math and for exponential backoff jitter bounds.

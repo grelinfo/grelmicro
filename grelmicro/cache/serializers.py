@@ -62,13 +62,17 @@ class PickleSerializer(Generic[T]):
     Supports any picklable Python object. Fast and transparent,
     but produces opaque binary data.
 
-    Warning:
-        Pickle can execute arbitrary code during deserialization.
-        Only use with trusted data sources.
+    Danger:
+        Deserialization can execute arbitrary code. A compromised cache
+        backend can run code inside the application process. Use this
+        serializer only when the backend is fully trusted (in-process,
+        single-tenant). For shared backends (Redis, Memcached, any
+        multi-tenant store), use ``JsonSerializer`` or
+        ``PydanticSerializer`` instead.
 
     Args:
-        protocol: Pickle protocol version. Defaults to the highest
-            available protocol.
+        protocol: Serialization protocol version. Defaults to the
+            highest available protocol.
     """
 
     def __init__(self, *, protocol: int = pickle.HIGHEST_PROTOCOL) -> None:

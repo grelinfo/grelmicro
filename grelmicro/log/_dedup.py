@@ -238,6 +238,9 @@ class DuplicateFilter(Filter):
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._config = config
+        self._allowed = config.allowed_repetitions
+        self._ttl = config.ttl_seconds
+        self._cache_size = config.cache_size
         self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
         self._counts: OrderedDict[Hashable, tuple[int, float]] = OrderedDict()
         self._lock = Lock()
@@ -251,15 +254,15 @@ class DuplicateFilter(Filter):
         """Return ``True`` if the record should pass, ``False`` to drop."""
         key = self._key_fn(record)
         counts = self._counts
-        config = self._config
-        allowed = config.allowed_repetitions
-        ttl = config.ttl_seconds
+        allowed = self._allowed
+        ttl = self._ttl
+        cache_size = self._cache_size
         now = monotonic()
         with self._lock:
             entry = counts.get(key)
             if entry is None:
                 counts[key] = (1, now)
-                if len(counts) > config.cache_size:
+                if len(counts) > cache_size:
                     counts.popitem(last=False)
                 return True
             count, last_seen = entry
