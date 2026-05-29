@@ -262,6 +262,7 @@ class RateLimitFilter(Filter):
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._config = config
+        self._cost = config.cost
         self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
         self._bucket = MemoryTokenBucket(
             capacity=config.capacity,
@@ -276,7 +277,7 @@ class RateLimitFilter(Filter):
     def filter(self, record: LogRecord) -> bool:
         """Return `True` to keep the record, `False` to drop it."""
         key = self._key_fn(record)
-        return self._bucket.try_acquire(key, cost=self._config.cost)
+        return self._bucket.try_acquire(key, cost=self._cost)
 
     def reset(
         self,

@@ -298,6 +298,9 @@ def _resolve_url(
         raise RedisProviderConfigError(msg)
 
     try:
+        # `_env_prefix` is a pydantic-settings runtime kwarg that overrides
+        # `model_config["env_prefix"]` per call. The stubs do not expose it,
+        # so static checkers reject it even though the runtime accepts it.
         settings = _RedisEnvSettings(_env_prefix=env_prefix)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
     except ValidationError as error:
         raise RedisProviderConfigError(error) from None

@@ -114,9 +114,13 @@ Backends store raw bytes. To cache Python objects, pass a serializer:
     user = await cache.get("user")  # returns dict
     ```
 
-=== "Pickle"
+=== "Pickle (trusted backends only)"
 
-    For any picklable Python object:
+    For any picklable Python object. **Use only with trusted, in-process
+    backends.** Deserialization can execute arbitrary code, so a shared
+    or compromised backend can run code inside the application. Prefer
+    `JsonSerializer` or `PydanticSerializer` for shared backends like
+    Redis or Memcached.
 
     ```python
     from grelmicro.cache import PickleSerializer, TTLCache
@@ -142,9 +146,9 @@ await cache.set("session", b"token", ttl=3600)  # 1 hour instead of default
 The `@cached` decorator automatically caches function results. It works with both sync and async functions.
 
 ```python
-from grelmicro.cache import TTLCache, cached
+from grelmicro.cache import JsonSerializer, TTLCache, cached
 
-cache = TTLCache(ttl=300, serializer=PickleSerializer())
+cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
 @cached(cache)
 async def get_user(user_id: int) -> dict:
