@@ -199,6 +199,34 @@ class TestInstrument:
         assert log_record["order_id"] == "ORD-1"
         assert "cls" not in log_record
 
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_filters_default_sensitive_names(
+        self,
+        backend: str,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """@instrument drops common sensitive arg names without an explicit `skip`."""
+        _setup_json_logging(monkeypatch, backend)
+
+        @instrument
+        def authenticate(
+            user_id: str,  # noqa: ARG001
+            password: str,  # noqa: ARG001
+            api_key: str,  # noqa: ARG001
+            Authorization: str,  # noqa: ARG001, N803
+        ) -> None:
+            log_message(backend, "auth")
+
+        authenticate("USR-1", "hunter2", "ak-123", "Bearer xyz")
+
+        log_record = parse_json_log(capsys.readouterr().out)
+        assert log_record["user_id"] == "USR-1"
+        assert "password" not in log_record
+        assert "api_key" not in log_record
+        assert "Authorization" not in log_record
+
 
 class TestSpan:
     """Test span() context manager across all backends."""

@@ -15,6 +15,7 @@ from grelmicro import (
     ComponentAlreadyRegisteredError,
     ComponentNotRegisteredError,
     Grelmicro,
+    LifecycleOrderError,
     NoActiveAppError,
 )
 from grelmicro.errors import OutOfContextError
@@ -591,3 +592,38 @@ async def test_warns_when_provider_listed_after_component(
         issubclass(w.category, UserWarning) and "listed after" in str(w.message)
         for w in recwarn
     )
+
+
+async def test_strict_raises_when_provider_missing_from_uses() -> None:
+    """`strict=True` turns the missing-provider warning into an error."""
+    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+    from grelmicro.sync import Sync  # noqa: PLC0415
+
+    redis = RedisProvider("redis://localhost:6379/0")
+    micro = Grelmicro(uses=[Sync(redis)], strict=True)
+    with pytest.raises(LifecycleOrderError, match="not listed in"):
+        async with micro:
+            pass
+
+
+async def test_strict_raises_when_provider_listed_after_component() -> None:
+    """`strict=True` turns the ordering warning into an error."""
+    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+    from grelmicro.sync import Sync  # noqa: PLC0415
+
+    redis = RedisProvider("redis://localhost:6379/0")
+    micro = Grelmicro(uses=[Sync(redis), redis], strict=True)
+    with pytest.raises(LifecycleOrderError, match="listed after"):
+        async with micro:
+            pass
+
+
+async def test_strict_accepts_well_ordered_app() -> None:
+    """`strict=True` is a no-op when provider/component order is correct."""
+    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+    from grelmicro.sync import Sync  # noqa: PLC0415
+
+    redis = RedisProvider("redis://localhost:6379/0")
+    micro = Grelmicro(uses=[redis, Sync(redis)], strict=True)
+    async with micro:
+        pass

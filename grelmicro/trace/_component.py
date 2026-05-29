@@ -17,6 +17,7 @@ from grelmicro.trace.config import (
     TracingProcessorType,
     TracingSamplerType,
 )
+from grelmicro.trace.errors import TracingError
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -175,7 +176,20 @@ class Trace:
             env_prefix="GREL_TRACE_",
             env_load=self._env_load,
         )
-        self._prior_provider = getattr(trace, "_TRACER_PROVIDER", None)
+        # `opentelemetry.trace.set_tracer_provider()` refuses to replace an
+        # already-installed provider, so `Trace` patches the private
+        # `trace._TRACER_PROVIDER` global directly. A future OTel release
+        # can rename or remove this attribute; the guard below turns that
+        # into a clear error rather than a silent no-op patch.
+        if not hasattr(trace, "_TRACER_PROVIDER"):
+            msg = (
+                "opentelemetry.trace no longer exposes `_TRACER_PROVIDER`. "
+                "Trace relies on this private global to override the "
+                "installed provider. Pin a compatible opentelemetry-api "
+                "release or open an issue against grelmicro."
+            )
+            raise TracingError(msg)
+        self._prior_provider = trace._TRACER_PROVIDER  # type: ignore[attr-defined]  # noqa: SLF001
         self._provider = _build_provider(self._resolved)
         trace._TRACER_PROVIDER = self._provider  # type: ignore[attr-defined]  # noqa: SLF001
         return self

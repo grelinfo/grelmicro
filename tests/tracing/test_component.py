@@ -13,6 +13,7 @@ from grelmicro.trace import (
     TracingExporterType,
     TracingSamplerType,
 )
+from grelmicro.trace.errors import TracingError
 
 
 def test_tracing_config_accepts_case_insensitive_enums() -> None:
@@ -206,3 +207,14 @@ async def test_trace_shutdown_exception_logged_not_propagated(
         and isinstance(record.exc_info[1], RuntimeError)
         for record in caplog.records
     )
+
+
+async def test_trace_raises_when_private_otel_global_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A future OTel that drops `_TRACER_PROVIDER` surfaces a clear error."""
+    monkeypatch.delattr(otel_trace, "_TRACER_PROVIDER", raising=False)
+    micro = Grelmicro(uses=[Trace(exporter=TracingExporterType.NONE)])
+    with pytest.raises(TracingError, match="_TRACER_PROVIDER"):
+        async with micro:
+            pass
