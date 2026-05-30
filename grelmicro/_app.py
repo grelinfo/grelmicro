@@ -86,6 +86,18 @@ class Grelmicro:
                 """,
             ),
         ] = None,
+        strict: Annotated[
+            bool,
+            Doc(
+                """
+                Raise `LifecycleOrderError` instead of warning when a
+                Component holds a Provider that is missing from `uses=`
+                or listed after the dependent Component. Default `False`
+                preserves the lenient warn-only behavior so existing
+                apps keep starting.
+                """,
+            ),
+        ] = False,
     ) -> None:
         """Initialize the app and register any items passed at construction."""
         self._items: list[AbstractAsyncContextManager[object]] = []
@@ -93,6 +105,7 @@ class Grelmicro:
         self._by_kind: dict[str, Component] = {}
         self._exit_stack: AsyncExitStack | None = None
         self._token: Any = None
+        self._strict = strict
         if uses is not None:
             for item in uses:
                 self.use(item)
@@ -450,7 +463,7 @@ class Grelmicro:
         but do not lifecycle it. The user must list the provider in `uses=`
         *before* the Component so the provider opens first.
 
-        Two warnings:
+        Two issues are reported:
 
         1. The provider is missing from `uses=`. The provider is never opened
            or closed, so its client leaks on shutdown.
@@ -459,6 +472,9 @@ class Grelmicro:
            order. Providers with lazy resources (`PostgresProvider` builds
            its pool on `__aenter__`) raise `OutOfContextError` when the
            Component opens first.
+
+        Reported as `UserWarning` by default, or as `LifecycleOrderError`
+        when the app was built with `strict=True`.
         """
         import warnings  # noqa: PLC0415
 
@@ -473,26 +489,28 @@ class Grelmicro:
             try:
                 provider_index = self._items.index(provider)
             except ValueError:
-                warnings.warn(
+                msg = (
                     f"{type(target).__name__} holds a "
                     f"{type(provider).__name__} that is not listed in "
                     f"Grelmicro(uses=[...]). The provider will not be "
                     f"lifecycled with the app and its connection will "
                     f"leak. Add the provider to uses= so it is opened "
-                    f"and closed with the components that depend on it.",
-                    UserWarning,
-                    stacklevel=3,
+                    f"and closed with the components that depend on it."
                 )
+                if self._strict:
+                    raise LifecycleOrderError(msg) from None
+                warnings.warn(msg, UserWarning, stacklevel=3)
                 continue
             if provider_index > index:
-                warnings.warn(
+                msg = (
                     f"{type(provider).__name__} is listed after "
                     f"{type(target).__name__} in Grelmicro(uses=[...]). "
                     f"Providers must be listed before the components that "
-                    f"depend on them so they open first.",
-                    UserWarning,
-                    stacklevel=3,
+                    f"depend on them so they open first."
                 )
+                if self._strict:
+                    raise LifecycleOrderError(msg)
+                warnings.warn(msg, UserWarning, stacklevel=3)
 
 
 def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
@@ -543,3 +561,7 @@ class ComponentNotRegisteredError(GrelmicroError, LookupError):
 
 class NoActiveAppError(GrelmicroError, LookupError):
     """Raised by `Grelmicro.current()` when called outside any `async with micro:` block."""
+
+
+class LifecycleOrderError(GrelmicroError, ValueError):
+    """Raised when `Grelmicro(strict=True)` detects misordered provider/component lifecycles."""

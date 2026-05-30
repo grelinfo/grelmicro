@@ -4,6 +4,7 @@
 
 ### Features
 
+* ✨ Add `Grelmicro(strict=True)` to raise `LifecycleOrderError` instead of warning when a Component holds a Provider that is missing from `uses=` or listed after the dependent Component. The default `False` preserves the lenient warn-only behavior. `LifecycleOrderError` is exported from `grelmicro`.
 * ✨ Add `Shield` resilience pattern: per-attempt timeout, retry-budget-gated retries, CUBIC-style adaptive rate limiter, optional cache and fallback recovery paths. Three profiles (`internal`, `api`, `slow`) cover the common cases. Decorator (`@shield`, `@shield.api(...)`), class (`Shield.api("name")`), and imperative (`Shield.api("name").run(fn, ...)`) forms supported. Issue [#249](https://github.com/grelinfo/grelmicro/issues/249).
 * ✨ Add `TTLCacheConfig` and expose it via `TTLCache.config`. Matches the frozen-config shape used by every other primitive.
 * ✨ Add `RedisProvider.safe_url` and `PostgresProvider.safe_url` returning the resolved URL with the password replaced by `***`. The new `__repr__` on both providers uses the safe form so credentials never leak through logs or tracebacks.
@@ -43,6 +44,9 @@
 
 ### Internal
 
+* 🔒 `@instrument` now filters arguments whose names match common secret keywords (`password`, `token`, `secret`, `api_key`, `authorization`, `cookie`, ... matched case-insensitively) from both span attributes and log context. Pass extra names via `skip=` for custom secret-bearing parameters. Unchanged for non-sensitive args.
+* 🔧 Replace the optional `orjson` redef-as-`Any | None` pattern in `grelmicro/_json.py` with try/except branches that define the dumps/loads functions in scope. The per-call `# type: ignore[union-attr]` directives are gone; `orjson` keeps its real type from the stub package in the available branch.
+* 🚨 `Trace.__aenter__` now raises `TracingError` if `opentelemetry.trace._TRACER_PROVIDER` is missing instead of silently no-op patching. A future OTel that drops the private global surfaces a clear error pointing at the workaround. An inline comment near the patch documents why the private attribute is required.
 * 🔒 `PickleSerializer` docs upgraded to a Danger callout. Pickle is now framed as trusted in-process backends only, and the `@cached` decorator example leads with `JsonSerializer`. The `TTLCache` docstring lists Pydantic and JSON before Pickle.
 * 🔧 Comment why `_env_prefix=env_prefix` needs a type-ignore in `RedisProvider` and `PostgresProvider` (pydantic-settings runtime kwarg the stubs do not expose).
 * ⚡ Snapshot hot config fields (`cost`, `allowed_repetitions`, `ttl_seconds`, `cache_size`) onto `RateLimitFilter` and `DuplicateFilter` instances during setup so the per-record `filter()` path reads plain attrs instead of walking the Pydantic config.

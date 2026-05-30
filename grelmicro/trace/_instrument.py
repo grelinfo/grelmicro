@@ -22,6 +22,34 @@ R = TypeVar("R")
 
 _IMPLICIT_PARAMS = frozenset({"self", "cls"})
 
+_DEFAULT_SENSITIVE_NAMES = frozenset(
+    {
+        "password",
+        "passwd",
+        "pwd",
+        "passphrase",
+        "secret",
+        "client_secret",
+        "token",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "apikey",
+        "api_key",
+        "authorization",
+        "auth_header",
+        "bearer",
+        "credential",
+        "credentials",
+        "private_key",
+        "privatekey",
+        "cookie",
+        "cookies",
+        "session_id",
+        "sessionid",
+    }
+)
+
 
 def _record_exception(otel_span: object) -> None:
     """Record the current exception on an OTel span."""
@@ -59,7 +87,9 @@ def _make_extract_fields(
         return {
             k: v
             for k, v in bound.arguments.items()
-            if k not in skip_set and k not in _IMPLICIT_PARAMS
+            if k not in skip_set
+            and k not in _IMPLICIT_PARAMS
+            and k.lower() not in _DEFAULT_SENSITIVE_NAMES
         }
 
     return _extract_fields
@@ -104,8 +134,11 @@ def instrument[**P, R](  # type: ignore[return-value]
         Doc(
             """
             Argument names to exclude from the span attributes and log
-            context. Use this for arguments whose string form may carry
-            sensitive data (tokens, credentials, raw request bodies).
+            context, in addition to the built-in sensitive-name filter
+            (`password`, `token`, `secret`, `authorization`, `cookie`,
+            ... matched case-insensitively). Use this for arguments
+            whose string form may carry sensitive data not covered by
+            the default list (raw request bodies, custom auth headers).
             """,
         ),
     ] = None,
@@ -130,8 +163,11 @@ def instrument[**P, R](  # type: ignore[return-value]
 
     Note:
         Argument values are stringified (``str()``) when sent to OTel.
-        Use ``skip`` for arguments whose string representation may contain
-        sensitive data.
+        Arguments named like common secrets (``password``, ``token``,
+        ``secret``, ``authorization``, ``cookie``, ...) are filtered out
+        by default. Pass extra names via ``skip`` for arguments whose
+        string representation may contain sensitive data outside the
+        default list.
 
     Args:
         func: The function to instrument (set automatically for bare decorator).

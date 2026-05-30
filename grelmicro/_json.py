@@ -36,11 +36,6 @@ JSONDecodable: TypeAlias = (  # noqa: UP040
 )
 """Types returned by ``json_loads``."""
 
-try:
-    import orjson
-except ImportError:
-    orjson: Any = None  # type: ignore[no-redef]
-
 
 def json_default(obj: object) -> str:
     """Handle non-serializable types for stdlib json.
@@ -54,26 +49,23 @@ def json_default(obj: object) -> str:
     raise TypeError(msg)
 
 
-def has_orjson() -> bool:
-    """Check if orjson is available."""
-    return orjson is not None
-
-
-if orjson is not None:
+try:
+    import orjson
 
     def json_dumps_bytes(obj: JSONEncodable) -> bytes:
         """Serialize object to JSON bytes using orjson."""
-        return orjson.dumps(obj)  # type: ignore[union-attr]
+        return orjson.dumps(obj)
 
     def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using orjson."""
-        return orjson.dumps(obj).decode("utf-8")  # type: ignore[union-attr]
+        return orjson.dumps(obj).decode("utf-8")
 
     def json_loads(data: bytes | str) -> JSONDecodable:
         """Deserialize JSON bytes or string using orjson."""
-        return orjson.loads(data)  # type: ignore[union-attr]
+        return orjson.loads(data)
 
-else:
+    _HAS_ORJSON = True
+except ImportError:
     import json
 
     def json_dumps_bytes(obj: JSONEncodable) -> bytes:
@@ -89,3 +81,10 @@ else:
     def json_loads(data: bytes | str) -> JSONDecodable:
         """Deserialize JSON bytes or string using stdlib json."""
         return json.loads(data)  # type: ignore[return-value]
+
+    _HAS_ORJSON = False
+
+
+def has_orjson() -> bool:
+    """Check if orjson is available."""
+    return _HAS_ORJSON

@@ -4,6 +4,7 @@ from grelmicro._app import (
     ComponentAlreadyRegisteredError,
     ComponentNotRegisteredError,
     Grelmicro,
+    LifecycleOrderError,
     NoActiveAppError,
 )
 from grelmicro._component import Component
@@ -13,5 +14,6 @@ __all__ = [
     "ComponentAlreadyRegisteredError",
     "ComponentNotRegisteredError",
     "Grelmicro",
+    "LifecycleOrderError",
     "NoActiveAppError",
 ]
