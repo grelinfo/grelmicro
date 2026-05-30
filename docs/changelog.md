@@ -51,6 +51,7 @@
 * 🔧 Comment why `_env_prefix=env_prefix` needs a type-ignore in `RedisProvider` and `PostgresProvider` (pydantic-settings runtime kwarg the stubs do not expose).
 * ⚡ Snapshot hot config fields (`cost`, `allowed_repetitions`, `ttl_seconds`, `cache_size`) onto `RateLimitFilter` and `DuplicateFilter` instances during setup so the per-record `filter()` path reads plain attrs instead of walking the Pydantic config.
 * 🔧 Drop three unused `ty: ignore` directives in `grelmicro/_json.py`.
+* ✅ Add a `tests/typing/` sample (`test_cache_generics.py`) that uses `typing.assert_type` to lock in `TTLCache[T]`, `PickleSerializer[T]`, and `PydanticSerializer[T]` inference end-to-end. A regression that widens inference back to `Any` fails `uv run ty check`.
 * ✅ Add a guard test that every `_LAZY` key in `grelmicro/resilience/__init__.py` is exported in `__all__` and actually resolves at runtime.
 * ✅ Add Hypothesis property tests for token-bucket and sliding-window math and for exponential backoff jitter bounds.
 * ✅ Enable branch coverage (`--cov-branch`). The 100% gate now covers both lines and branches. Defensive guards against impossible state are marked with `# pragma: no branch`.
