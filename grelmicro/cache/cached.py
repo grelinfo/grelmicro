@@ -3,6 +3,7 @@
 import asyncio
 import functools
 import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from typing import Annotated, Any, ParamSpec, TypeVar
@@ -20,6 +21,47 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 _SENTINEL = object()
+
+_PER_KEY_LOCK_BUDGET = 1024
+
+
+def _evict_idle_locks(
+    locks: OrderedDict[str, asyncio.Lock],
+) -> None:
+    """Drop the oldest unlocked entries while over the per-key budget.
+
+    Caller must hold the per-decorator guard lock. A held lock is kept
+    so a concurrent computation cannot lose its mutual-exclusion barrier
+    even if the dict has grown past the budget.
+    """
+    while len(locks) > _PER_KEY_LOCK_BUDGET:
+        for stale_key, stale_lock in locks.items():
+            if not stale_lock.locked():
+                del locks[stale_key]
+                break
+        else:  # pragma: no cover - every entry currently held
+            return
+
+
+def _evict_idle_locks_sync(
+    locks: OrderedDict[str, threading.Lock],
+) -> None:
+    """Drop the oldest unheld entries while over the per-key budget.
+
+    Caller must hold the per-decorator guard lock. ``threading.Lock``
+    has no public ``locked()`` accessor, so we probe with a non-
+    blocking ``acquire``: success means the lock was idle, and we
+    release immediately so behavior is unchanged.
+    """
+    while len(locks) > _PER_KEY_LOCK_BUDGET:
+        for stale_key, stale_lock in locks.items():
+            if stale_lock.acquire(blocking=False):
+                stale_lock.release()
+                del locks[stale_key]
+                break
+        else:  # pragma: no cover - every entry currently held
+            return
+
 
 # Lock parameter: True auto-creates, or pass your own.
 _LockType = (
@@ -161,7 +203,7 @@ def _build_async_wrapper(
     per_key: bool,
 ) -> Any:  # noqa: ANN401
     """Build async wrapper for cached decorator."""
-    key_locks: dict[str, asyncio.Lock] = {}
+    key_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
     key_locks_guard = asyncio.Lock()
 
     @functools.wraps(func)
@@ -173,7 +215,13 @@ def _build_async_wrapper(
 
         if per_key:
             async with key_locks_guard:
-                the_lock = key_locks.setdefault(key, asyncio.Lock())
+                the_lock = key_locks.get(key)
+                if the_lock is None:
+                    the_lock = asyncio.Lock()
+                    key_locks[key] = the_lock
+                    _evict_idle_locks(key_locks)
+                else:
+                    key_locks.move_to_end(key)
         else:
             the_lock = global_lock
         if the_lock is not None:
@@ -235,7 +283,7 @@ def _build_sync_wrapper(
     (typically inside lifespan startup) before the sync wrapper can
     reach it from a worker thread.
     """
-    key_locks: dict[str, threading.Lock] = {}
+    key_locks: OrderedDict[str, threading.Lock] = OrderedDict()
     key_locks_guard = threading.Lock()
 
     @functools.wraps(func)
@@ -250,7 +298,13 @@ def _build_sync_wrapper(
 
         if per_key:
             with key_locks_guard:
-                the_lock = key_locks.setdefault(key, threading.Lock())
+                the_lock = key_locks.get(key)
+                if the_lock is None:
+                    the_lock = threading.Lock()
+                    key_locks[key] = the_lock
+                    _evict_idle_locks_sync(key_locks)
+                else:
+                    key_locks.move_to_end(key)
         else:
             the_lock = global_lock
 
