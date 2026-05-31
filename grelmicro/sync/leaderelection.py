@@ -308,6 +308,11 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         self._state_change_condition: asyncio.Condition = asyncio.Condition()
         self._is_leader: bool = False
         self._state_updated_at: float = monotonic()
+        # Monotonic timestamp of the last backend response that
+        # confirmed this worker still holds leadership. `None` until
+        # the first acquisition succeeds. Reset to `None` when
+        # leadership is lost. Drives `is_leader_confirmed_within()`.
+        self._last_confirmed_at: float | None = None
         self._error_logged_at: float | None = None
 
     async def __aenter__(self) -> Self:
@@ -350,16 +355,57 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
     def is_leader(self) -> bool:
         """Check if the current worker is the leader.
 
-        To avoid a split-brain scenario, the leader considers itself as no longer leader if the
-        renew deadline is reached.
+        This is an **advisory** local view. The result reflects the
+        last backend response plus the configured `renew_deadline`.
+        During a backend partition the answer can remain ``True``
+        until the renew deadline elapses, even if another worker has
+        already acquired leadership through a reachable backend.
+
+        For work that cannot tolerate stale local leadership, use
+        [`is_leader_confirmed_within`][grelmicro.sync.LeaderElection.is_leader_confirmed_within]
+        with a tighter freshness bound, or fence each backend write
+        with the lock token.
 
         Returns:
-            True if the current worker is the leader, False otherwise.
+            True if the current worker is the leader (subject to the
+            uncertainty window described above), False otherwise.
 
         """
         if not self._is_leader:
             return False
         return not self._is_renew_deadline_reached(self._config)
+
+    def last_confirmation_age(self) -> float | None:
+        """Seconds since the last backend response that confirmed leadership.
+
+        Returns ``None`` until the first acquisition succeeds, and is
+        reset to ``None`` whenever leadership is lost. The value
+        grows during a backend partition because the underlying
+        timestamp is only refreshed when the backend responds with
+        "you still hold the lock".
+        """
+        if self._last_confirmed_at is None:
+            return None
+        return monotonic() - self._last_confirmed_at
+
+    def is_leader_confirmed_within(self, max_age: float) -> bool:
+        """Stricter than `is_leader`: require a recent backend confirmation.
+
+        Returns ``True`` only when the local view says leader AND the
+        last backend response confirming leadership is at most
+        ``max_age`` seconds old. Use this for fan-out work that must
+        not run on a worker whose leadership is uncertain (for
+        example, a global migration step or a single-writer task that
+        is not separately fenced).
+
+        Args:
+            max_age: Maximum acceptable age in seconds since the
+                last backend-confirmed renewal. Typical values are
+                less than `renew_deadline`.
+        """
+        if not self._is_leader or self._last_confirmed_at is None:
+            return False
+        return (monotonic() - self._last_confirmed_at) <= max_age
 
     async def wait_for_leader(self) -> None:
         """Wait until the current worker is the leader."""
@@ -420,7 +466,12 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         self, *, is_leader: bool, reason_if_no_more_leader: str
     ) -> None:
         """Update the state of the leader election."""
-        self._state_updated_at = monotonic()
+        now = monotonic()
+        self._state_updated_at = now
+        if is_leader:
+            self._last_confirmed_at = now
+        else:
+            self._last_confirmed_at = None
         if is_leader is self._is_leader:
             return  # No change
 

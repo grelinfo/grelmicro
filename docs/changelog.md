@@ -4,6 +4,7 @@
 
 ### Features
 
+* ✨ Add `LeaderElection.last_confirmation_age()` (seconds since the last backend response that confirmed local leadership, `None` until first acquisition and after confirmed loss) and `LeaderElection.is_leader_confirmed_within(max_age)` (stricter variant of `is_leader()` that requires a recent backend renewal). The `is_leader()` docstring now spells out the advisory uncertainty window during a backend partition.
 * ✨ Add `Grelmicro(strict=True)` to raise `LifecycleOrderError` instead of warning when a Component holds a Provider that is missing from `uses=` or listed after the dependent Component. The default `False` preserves the lenient warn-only behavior. `LifecycleOrderError` is exported from `grelmicro`.
 * ✨ Add `Shield` resilience pattern: per-attempt timeout, retry-budget-gated retries, CUBIC-style adaptive rate limiter, optional cache and fallback recovery paths. Three profiles (`internal`, `api`, `slow`) cover the common cases. Decorator (`@shield`, `@shield.api(...)`), class (`Shield.api("name")`), and imperative (`Shield.api("name").run(fn, ...)`) forms supported. Issue [#249](https://github.com/grelinfo/grelmicro/issues/249).
 * ✨ Add `TTLCacheConfig` and expose it via `TTLCache.config`. Matches the frozen-config shape used by every other primitive.
@@ -52,6 +53,7 @@
 * ⚡ Snapshot hot config fields (`cost`, `allowed_repetitions`, `ttl_seconds`, `cache_size`) onto `RateLimitFilter` and `DuplicateFilter` instances during setup so the per-record `filter()` path reads plain attrs instead of walking the Pydantic config.
 * 🔧 Drop three unused `ty: ignore` directives in `grelmicro/_json.py`.
 * ⚡ `@cached(lock=True)` per-key lock dictionaries now bound their size with LRU eviction (1024 entries). High-cardinality miss-heavy workloads no longer accumulate `asyncio.Lock` / `threading.Lock` objects indefinitely. Held locks are never evicted, so in-flight stampede protection is preserved.
+* 🔒 `PostgresRateLimiterAdapter` advisory locks now use `pg_advisory_xact_lock(hashtextextended(key, namespace))`. The grelmicro-specific seed gives rate-limiter keys their own 64-bit lock-id space, isolating them from any other advisory lock in the same database and reducing intra-rate-limiter collisions from a 32-bit birthday risk to a 64-bit one.
 * ✅ Add a `tests/typing/` sample (`test_cache_generics.py`) that uses `typing.assert_type` to lock in `TTLCache[T]`, `PickleSerializer[T]`, and `PydanticSerializer[T]` inference end-to-end. A regression that widens inference back to `Any` fails `uv run ty check`.
 * ✅ Add a guard test that every `_LAZY` key in `grelmicro/resilience/__init__.py` is exported in `__all__` and actually resolves at runtime.
 * ✅ Add Hypothesis property tests for token-bucket and sliding-window math and for exponential backoff jitter bounds.
