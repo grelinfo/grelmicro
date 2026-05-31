@@ -63,7 +63,7 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 Load a backend before using `RateLimiter`. The same backend serves every algorithm.
 
 !!! tip "Install"
-    The Redis backend needs the `redis` extra and the Postgres backend needs the `postgres` extra: `pip install "grelmicro[redis]"` or `pip install "grelmicro[postgres]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
+    The Redis backend needs the `redis` extra, the Postgres backend needs the `postgres` extra, and the SQLite backend needs the `sqlite` extra: `pip install "grelmicro[redis]"`, `pip install "grelmicro[postgres]"`, or `pip install "grelmicro[sqlite]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
 
 === "Redis"
     ```python
@@ -75,6 +75,11 @@ Load a backend before using `RateLimiter`. The same backend serves every algorit
     --8<-- "resilience/ratelimiter_postgres.py"
     ```
 
+=== "SQLite"
+    ```python
+    --8<-- "resilience/ratelimiter_sqlite.py"
+    ```
+
 === "Memory"
     ```python
     --8<-- "resilience/ratelimiter_memory.py"
@@ -83,13 +88,19 @@ Load a backend before using `RateLimiter`. The same backend serves every algorit
 !!! warning
     Please make sure to use a proper way to store connection URLs, such as environment variables, not hard-coded strings like the example above.
 
-| | Redis | Postgres | Memory |
-|---|---|---|---|
-| **Use case** | Production | Production (when Postgres is already deployed) | Testing / single-process |
-| **Multi-node** | Yes | Yes | No |
-| **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | No |
+| | Redis | Postgres | SQLite | Memory |
+|---|---|---|---|---|
+| **Use case** | Production | Production (when Postgres is already deployed) | Single host that needs durability | Testing / single-process |
+| **Multi-node** | Yes | Yes | No | No |
+| **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | Yes (file-backed) | No |
 
 The Postgres adapter stores state in a single `grelmicro_rate_limiter` table. `acquire` and `peek` each run one round-trip to a PL/pgSQL function. Concurrent writes for the same key are serialized with `pg_advisory_xact_lock`. `reset` clears the key with a plain `DELETE`. The table and functions are created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema.
+
+SQLite uses a `SQLiteProvider`, the same provider-first shape as Redis and Postgres. Pass the path to the provider or set the `SQLITE_PATH` environment variable. State lives in a single `grelmicro_rate_limiter` table in the file. Each `acquire` runs a read-modify-write inside a `BEGIN IMMEDIATE` transaction. The provider's lock serializes the single connection within the process, and the transaction's write lock serializes across processes sharing the file. Use it for a single host that wants durability without running a separate service.
+
+### Choosing a backend
+
+Use **Redis** in production when you already run Redis and want the lowest-latency distributed limiter. Use **Postgres** when Postgres is your only stateful dependency and you want one fewer service to run. Use **SQLite** for a single host that needs limits to survive restarts. Use **Memory** for tests and single-process apps. Redis and Postgres coordinate across replicas. SQLite and Memory do not.
 
 The backend compiles the algorithm into a bound strategy at `RateLimiter.__init__` through `backend.bind(config)`. Runtime `acquire`, `peek`, and `reset` calls invoke that strategy directly. **There is no algorithm dispatch on the request path.**
 

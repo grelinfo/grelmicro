@@ -10,6 +10,8 @@
 * ✨ Add `TTLCacheConfig` and expose it via `TTLCache.config`. Matches the frozen-config shape used by every other primitive.
 * ✨ Add `RedisProvider.safe_url` and `PostgresProvider.safe_url` returning the resolved URL with the password replaced by `***`. The new `__repr__` on both providers uses the safe form so credentials never leak through logs or tracebacks.
 * ✨ Add `TracingConfig.shutdown_timeout` (default `5.0` seconds). `Trace.__aexit__` now runs `TracerProvider.shutdown()` in a thread with this deadline so a slow or broken exporter no longer hangs application shutdown.
+* ✨ Add `SQLiteProvider` and SQLite rate limiting. Use `RateLimiters(SQLiteProvider("app.db"))` for file-backed limits on a single host. Each acquire runs a read-modify-write inside a `BEGIN IMMEDIATE` transaction. Issue [#173](https://github.com/grelinfo/grelmicro/issues/173).
+* ✨ Add `PostgresCircuitBreakerAdapter` for fleet-wide circuit breaker state on Postgres, plus `PostgresProvider.breaker()` so `CircuitBreakers(postgres)` resolves it. Transitions run in PL/pgSQL functions guarded by `pg_advisory_xact_lock`.
 
 ### Fixes
 
@@ -19,6 +21,7 @@
 * 🐛 `Log.__aenter__` and `Log.__aexit__` now serialize on a class-level `threading.Lock` so concurrent `Grelmicro` lifecycles in the same process cannot interleave the stdlib root-logger snapshot / restore sequence.
 * 🐛 Unexpected exceptions inside a health check now surface as `"TypeName: message"` in the `CheckResult.error` field instead of the generic `"Health check failed"`. Operators reading only the `/healthz` payload can identify the failing class without grepping logs.
 * 🔒 `Lock("...")` now validates the name against `^[A-Za-z0-9][A-Za-z0-9._:/-]*$` (max 200 chars). Names with whitespace, control characters, or leading separators are rejected with a message that includes valid examples. Existing namespaced names (`users:42`, `payments/eu`, `weather.svc`) keep working.
+* ⚡ `DuplicateFilter` now sweeps entries older than `ttl_seconds` once per window, so high-cardinality log floods stop evicting still-active keys by size pressure.
 
 ### Docs
 
@@ -42,6 +45,10 @@
 * 📝 Document `RateLimitResult.remaining` as an estimate for continuous-state algorithms (GCRA-based sliding window). Enforcement still uses exact state, so the next `acquire` may be denied even when `remaining > 0`.
 * 📝 Add a FastStream resilience recipe (`docs/snippets/resilience/faststream.py`) that uses a fleet-wide per-key `Lock` and a sliding-window `RateLimiter` inside a Redis-broker subscriber. Linked from `docs/resilience/index.md`.
 * 📝 Formalize the `test_<component>_<scenario>_<expected_outcome>` test-name shape in `CONTRIBUTING.md` with three concrete examples.
+* 📝 Add `docs/benchmarks.md` with reproducible request-path benchmarks for the rate limiter, circuit breaker, cache, and lock, plus runnable scripts under `benchmarks/`.
+* 📝 Add a `Choosing a backend` guide to the sync, cache, rate limiter, and circuit breaker pages.
+* 📝 Expand `docs/json.md` with supported types, the orjson fallback, and serializer boundaries.
+* 📝 Note that the default OTLP HTTP trace exporter expects a running collector in `docs/tracing.md`, with `CONSOLE` and `NONE` for local development.
 
 ### Internal
 

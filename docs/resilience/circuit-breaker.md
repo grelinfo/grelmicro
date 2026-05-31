@@ -63,14 +63,19 @@ For environment-driven configuration, build a `ConsecutiveCountConfig` with `pyd
 
 By default each replica keeps its own breaker state. A degraded downstream trips one replica's breaker without telling the others, and `error_threshold` errors must happen on every replica before the dependency stops being probed.
 
-Pass a shared `CircuitBreakers(redis_provider)` to fan that state out. The first replica to trip the breaker opens it for the fleet, the `half_open_capacity` admission cap is enforced globally so probes never exceed the cap across replicas, and manual `transition_to_*` calls are visible everywhere.
+Pass a shared `CircuitBreakers(redis_provider)` or `CircuitBreakers(postgres_provider)` to fan that state out. The first replica to trip the breaker opens it for the fleet, the `half_open_capacity` admission cap is enforced globally so probes never exceed the cap across replicas, and manual `transition_to_*` calls are visible everywhere.
 
 !!! tip "Install"
-    The Redis backend needs the `redis` extra: `pip install "grelmicro[redis]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
+    The Redis backend needs the `redis` extra and the Postgres backend needs the `postgres` extra: `pip install "grelmicro[redis]"` or `pip install "grelmicro[postgres]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
 
 === "Redis (shared)"
     ```python
     --8<-- "resilience/circuitbreaker_redis.py"
+    ```
+
+=== "Postgres (shared)"
+    ```python
+    --8<-- "resilience/circuitbreaker_postgres.py"
     ```
 
 === "Memory (per-replica)"
@@ -81,7 +86,7 @@ Pass a shared `CircuitBreakers(redis_provider)` to fan that state out. The first
 
 ### Local vs. shared
 
-| | **Memory (local)** | **Redis (shared)** |
+| | **Memory (local)** | **Redis / Postgres (shared)** |
 |---|---|---|
 | State scope | Per replica | Fleet-wide |
 | Half-open admission cap | Enforced per replica | Enforced globally |
@@ -89,6 +94,10 @@ Pass a shared `CircuitBreakers(redis_provider)` to fan that state out. The first
 | `last_error` / `last_error_time` | Per replica | Per replica |
 | `total_error_count` / `total_success_count` | Per replica | Per replica |
 
-Use the shared backend when one replica's circuit decision should short-circuit the rest. Use local-only when each replica's downstream is independent (per-shard databases, per-zone caches).
+The Postgres adapter stores breaker state in a single `grelmicro_circuit_breaker` table. Every admission and counter update runs inside a PL/pgSQL function that holds `pg_advisory_xact_lock` for the breaker name, so concurrent replicas converge to the same state. The Redis adapter does the same with atomic Lua scripts.
 
-When Redis is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with [`Retry`](retry.md) or a Fallback Pattern if you need a degraded path during a Redis outage.
+### Choosing a backend
+
+Use a **shared** backend (Redis or Postgres) when one replica's circuit decision should short-circuit the rest. Pick Redis for the lowest-latency option when you already run it, or Postgres when it is your only stateful dependency. Use **Memory** (the default) when each replica's downstream is independent (per-shard databases, per-zone caches).
+
+When the shared backend is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with [`Retry`](retry.md) or a Fallback Pattern if you need a degraded path during an outage.

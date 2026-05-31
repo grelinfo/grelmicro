@@ -12,6 +12,9 @@ from grelmicro.providers.postgres import (
     PostgresProvider,
     PostgresProviderConfigError,
 )
+from grelmicro.resilience.circuitbreaker.postgres import (
+    PostgresCircuitBreakerAdapter,
+)
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.sync.postgres import PostgresSyncAdapter
 
@@ -300,13 +303,20 @@ class TestBuilders:
         with pytest.raises(NotImplementedError, match="no cache adapter"):
             Provider.cache(provider)
 
-    def test_breaker_factory_raises_not_implemented(self) -> None:
-        """`provider.breaker()` raises (no Postgres circuit breaker today)."""
+    def test_breaker_factory_builds_postgres_adapter(self) -> None:
+        """`provider.breaker()` builds a `PostgresCircuitBreakerAdapter`."""
+        provider = PostgresProvider(URL)
+        adapter = provider.breaker()
+        assert isinstance(adapter, PostgresCircuitBreakerAdapter)
+        assert adapter.provider is provider
+
+    def test_base_breaker_factory_raises_not_implemented(self) -> None:
+        """The base `Provider.breaker` raises for providers that don't override it."""
         provider = PostgresProvider(URL)
         with pytest.raises(
             NotImplementedError, match="no circuit breaker adapter"
         ):
-            provider.breaker()
+            Provider.breaker(provider)
 
 
 class TestRebindProvider:
@@ -337,6 +347,42 @@ class TestRebindProvider:
 
         assert adapter.provider is owned
         assert adapter._owns_provider is False
+
+    def test_breaker_adapter_rebind(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PostgresCircuitBreakerAdapter rebinds to a new provider."""
+        monkeypatch.setenv("POSTGRES_URL", URL)
+        adapter = PostgresCircuitBreakerAdapter()
+        assert adapter._owns_provider is True
+        owned = PostgresProvider(URL)
+
+        adapter._rebind_provider(owned)
+
+        assert adapter.provider is owned
+        assert adapter._owns_provider is False
+
+
+class TestBreakerOwnedLifecycle:
+    """An owned provider is opened and closed by the breaker adapter."""
+
+    async def test_owned_provider_opened_and_closed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An implicit provider is opened on enter and closed on exit."""
+        monkeypatch.setenv("POSTGRES_URL", URL)
+        adapter = PostgresCircuitBreakerAdapter()
+        assert adapter._owns_provider is True
+
+        pool = MagicMock()
+        pool.execute = AsyncMock()
+        pool.close = AsyncMock()
+        adapter.provider._pool = pool
+
+        async with adapter:
+            assert adapter.provider.client is pool
+
+        pool.close.assert_awaited_once()
 
 
 class TestSharingCache:

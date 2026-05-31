@@ -81,21 +81,6 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
     strategy directly. There is no extra algorithm lookup on each
     call.
 
-    Example:
-    ```python
-    from grelmicro.resilience import RateLimiter
-    from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
-
-    MemoryRateLimiterAdapter()
-    api = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
-
-
-    async def handle(user_id: str) -> None:
-        result = await api.acquire(key=user_id)
-        if not result.allowed:
-            raise RuntimeError("rate limited")
-    ```
-
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 

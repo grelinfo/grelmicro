@@ -1,6 +1,8 @@
 """Tests for Rate Limiter Backends (parametrized across backends x algorithms)."""
 
+import tempfile
 from collections.abc import AsyncGenerator, Generator
+from pathlib import Path
 
 import pytest
 from testcontainers.core.container import DockerContainer
@@ -9,6 +11,7 @@ from testcontainers.redis import RedisContainer
 
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -36,6 +39,7 @@ REFILL_RATE = 0.1  # slow enough to not refill between assertions
 @pytest.fixture(
     params=[
         "memory",
+        "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("postgres", marks=[pytest.mark.integration]),
     ],
@@ -85,6 +89,14 @@ async def backend(
             ) as pg_backend,
         ):
             yield pg_backend
+    elif backend_name == "sqlite":
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = SQLiteProvider(str(Path(tmpdir) / "rate_limit.db"))
+            async with (
+                provider,
+                provider.ratelimiter(prefix="test:") as sqlite_backend,
+            ):
+                yield sqlite_backend
     elif backend_name == "memory":
         async with MemoryRateLimiterAdapter() as memory_backend:
             yield memory_backend

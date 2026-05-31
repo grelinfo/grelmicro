@@ -32,6 +32,7 @@
         - MemoryRateLimiterAdapter
         - MemoryTokenBucket
         - Outcome
+        - PostgresCircuitBreakerAdapter
         - PostgresRateLimiterAdapter
         - RandomBackoff
         - RateLimiters
@@ -43,6 +44,7 @@
         - RateLimitResult
         - RedisCircuitBreakerAdapter
         - RedisRateLimiterAdapter
+        - SQLiteRateLimiterAdapter
         - ApiShieldConfig
         - InternalShieldConfig
         - ResilienceError

@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache.postgres import PostgresCacheAdapter
+    from grelmicro.resilience.circuitbreaker.postgres import (
+        PostgresCircuitBreakerAdapter,
+    )
     from grelmicro.resilience.ratelimiter.postgres import (
         PostgresRateLimiterAdapter,
     )
@@ -265,6 +268,14 @@ class PostgresProvider(Provider):
         )
 
         return PostgresRateLimiterAdapter(provider=self, **kwargs)
+
+    def breaker(self, **kwargs: Any) -> PostgresCircuitBreakerAdapter:  # noqa: ANN401
+        """Build a `PostgresCircuitBreakerAdapter` bound to this provider."""
+        from grelmicro.resilience.circuitbreaker.postgres import (  # noqa: PLC0415
+            PostgresCircuitBreakerAdapter,
+        )
+
+        return PostgresCircuitBreakerAdapter(provider=self, **kwargs)
 
     async def __aenter__(self) -> Self:
         """Open the asyncpg pool when the provider owns it."""

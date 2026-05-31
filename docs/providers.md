@@ -5,8 +5,8 @@ the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
 of both. Components like `Sync`, `Cache`, and `RateLimiters` accept a
 Provider directly and use its matching adapter under the hood.
 
-Two providers ship today: `RedisProvider` and `PostgresProvider`. More
-will follow.
+Three providers ship today: `RedisProvider`, `PostgresProvider`, and
+`SQLiteProvider`. More will follow.
 
 ## Recommended shape
 
@@ -127,12 +127,12 @@ RedisProvider.from_client(client)            # bring-your-own client
 
 Each Provider exposes factory methods that return its matching adapter:
 
-| Method                      | Returns                       | RedisProvider | PostgresProvider |
-|----------------------------|-------------------------------|:-------------:|:----------------:|
-| `.sync(**kwargs)`           | `SyncBackend` implementation  |       ✓        |        ✓         |
-| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        —         |
-| `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        —         |
-| `.breaker(**kwargs)`        | `CircuitBreakerBackend` impl  |       —        |        —         |
+| Method                      | Returns                       | RedisProvider | PostgresProvider | SQLiteProvider |
+|----------------------------|-------------------------------|:-------------:|:----------------:|:--------------:|
+| `.sync(**kwargs)`           | `SyncBackend` implementation  |       ✓        |        ✓         |       ✓        |
+| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        ✓         |       —        |
+| `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        ✓         |       ✓        |
+| `.breaker(**kwargs)`        | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |       —        |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Sync(provider)`, `Cache(provider)`,
@@ -184,6 +184,37 @@ PostgresProvider(env_prefix="WRITE_POSTGRES_")  # custom env prefix
 PostgresProvider(env_load=False)                # kwargs only, no env
 PostgresProvider.from_config(PostgresConfig(...))
 PostgresProvider.from_client(pool)              # bring-your-own pool
+```
+
+## SQLite
+
+`SQLiteProvider` ships the `.sync()` and `.ratelimiter()` factories. The
+provider owns one `aiosqlite` connection (autocommit, WAL) and a shared
+lock that adapters borrow.
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.providers.sqlite import SQLiteProvider
+from grelmicro.resilience import RateLimiters
+
+sqlite = SQLiteProvider("app.db")
+
+micro = Grelmicro(uses=[
+    sqlite,
+    RateLimiters(sqlite),
+])
+```
+
+Set `SQLITE_PATH` for env-driven construction. Construction forms:
+
+```python
+SQLiteProvider("app.db")                  # positional path
+SQLiteProvider(path="app.db")             # keyword path
+SQLiteProvider()                          # env-driven (SQLITE_PATH)
+SQLiteProvider(env_prefix="CACHE_SQLITE_")  # custom env prefix
+SQLiteProvider(env_load=False)            # kwargs only, no env
+SQLiteProvider.from_config(SQLiteConfig(...))
+SQLiteProvider.from_client(connection)    # bring-your-own connection
 ```
 
 ## Lifecycle

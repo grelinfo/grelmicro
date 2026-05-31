@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import pytest
-
 from grelmicro import Grelmicro
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.resilience import CircuitBreakers, RateLimiters
 from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
+)
+from grelmicro.resilience.circuitbreaker.postgres import (
+    PostgresCircuitBreakerAdapter,
 )
 from grelmicro.resilience.circuitbreaker.redis import (
     RedisCircuitBreakerAdapter,
@@ -17,6 +19,7 @@ from grelmicro.resilience.circuitbreaker.redis import (
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
 
 
 def test_ratelimit_exposes_backend() -> None:
@@ -85,11 +88,20 @@ def test_ratelimit_accepts_postgres_provider() -> None:
     assert component.backend.provider is provider
 
 
-def test_breaker_with_postgres_provider_raises() -> None:
-    """`CircuitBreakers(PostgresProvider(...))` raises `NotImplementedError`."""
+def test_ratelimit_accepts_sqlite_provider() -> None:
+    """`RateLimiters(SQLiteProvider(...))` calls `provider.ratelimiter()` to build the adapter."""
+    provider = SQLiteProvider("app.db")
+    component = RateLimiters(provider)
+    assert isinstance(component.backend, SQLiteRateLimiterAdapter)
+    assert component.backend.provider is provider
+
+
+def test_breaker_with_postgres_provider_builds_shared_adapter() -> None:
+    """`CircuitBreakers(PostgresProvider(...))` resolves to the Postgres adapter."""
     provider = PostgresProvider("postgresql://localhost:5432/app")
-    with pytest.raises(NotImplementedError, match="no circuit breaker adapter"):
-        CircuitBreakers(provider)
+    component = CircuitBreakers(provider)
+    assert isinstance(component.backend, PostgresCircuitBreakerAdapter)
+    assert component.backend.provider is provider
 
 
 def test_breaker_with_redis_provider_builds_shared_adapter() -> None:

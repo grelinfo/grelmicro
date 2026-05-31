@@ -367,6 +367,34 @@ def test_ttl_reemits_during_sustained_flood() -> None:
         assert after_window
 
 
+def test_ttl_resets_counter_between_sweeps() -> None:
+    """A key crossing ``ttl_seconds`` between sweeps resets on next sight.
+
+    The once-per-window sweep does not catch a key added after the
+    sweep ran, so the per-record ttl check still has to reset it.
+    """
+    with freeze_time() as frozen:
+        filt = DuplicateFilter(
+            allowed_repetitions=1, cache_size=100, ttl_seconds=10.0
+        )
+        late = _make_record(msg="late")
+
+        # t=0 runs the first sweep (empty) and schedules the next at t=10.
+        filt.filter(_make_record(msg="seed"))
+        frozen.tick(5)
+        # "late" enters at t=5, so the t=10 sweep (cutoff t=0) keeps it.
+        first = filt.filter(late)
+        dropped = filt.filter(late)
+        frozen.tick(5)  # t=10: sweep runs, schedules the next at t=20.
+        filt.filter(_make_record(msg="other"))
+        frozen.tick(9)  # t=19: before the next sweep, but past "late" ttl.
+        reset = filt.filter(late)
+
+        assert first
+        assert not dropped
+        assert reset
+
+
 def test_ttl_none_disables_time_expiry() -> None:
     """With ``ttl_seconds=None``, long silence does not reset the counter."""
     with freeze_time() as frozen:
