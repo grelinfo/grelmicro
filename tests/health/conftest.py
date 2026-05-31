@@ -1,10 +1,45 @@
 """Shared test helpers for health checks."""
 
 import asyncio
-from collections.abc import Awaitable, Callable
+import logging
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
 
+import pytest
+
 from grelmicro.health.errors import HealthError
+
+
+@pytest.fixture(autouse=True)
+def _isolate_health_logger() -> Iterator[None]:
+    """Give each test a pristine ``grelmicro.health`` logger.
+
+    The log-capture tests rely on `caplog` seeing records propagate to
+    the root logger. A co-resident test in the same xdist worker can
+    leave global logging state behind (a raised level, ``propagate``
+    turned off, a leaked filter or handler, or a ``logging.disable``)
+    that silently swallows those records. Reset the logger and the
+    global disable level around every test so capture is deterministic.
+    """
+    logger = logging.getLogger("grelmicro.health")
+    saved_level = logger.level
+    saved_propagate = logger.propagate
+    saved_filters = logger.filters[:]
+    saved_handlers = logger.handlers[:]
+    saved_disable = logging.root.manager.disable
+    logger.setLevel(logging.NOTSET)
+    logger.propagate = True
+    logger.filters.clear()
+    logger.handlers.clear()
+    logging.disable(logging.NOTSET)
+    try:
+        yield
+    finally:
+        logger.setLevel(saved_level)
+        logger.propagate = saved_propagate
+        logger.filters[:] = saved_filters
+        logger.handlers[:] = saved_handlers
+        logging.disable(saved_disable)
 
 
 def healthy() -> Callable[[], Awaitable[dict[str, Any] | None]]:
