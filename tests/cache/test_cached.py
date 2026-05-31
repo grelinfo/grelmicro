@@ -423,6 +423,75 @@ class TestAsyncCachedLock:
         await task_a
         assert "a:end" in order
 
+    async def test_per_key_lock_eviction_bounds_idle_entries(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """`_evict_idle_locks` trims an oversize dict down to the budget."""
+        import sys  # noqa: PLC0415
+        from collections import OrderedDict  # noqa: PLC0415
+
+        import grelmicro.cache.cached  # noqa: F401, PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 4)
+        locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        for i in range(20):
+            locks[f"k{i}"] = asyncio.Lock()
+            cached_mod._evict_idle_locks(locks)
+        assert len(locks) == 4  # noqa: PLR2004
+
+    async def test_per_key_lock_eviction_keeps_held_entries(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Eviction never drops a lock that is currently held."""
+        import sys  # noqa: PLC0415
+        from collections import OrderedDict  # noqa: PLC0415
+
+        import grelmicro.cache.cached  # noqa: F401, PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 2)
+        locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        held = asyncio.Lock()
+        await held.acquire()
+        try:
+            locks["held"] = held
+            for i in range(10):
+                locks[f"idle-{i}"] = asyncio.Lock()
+            cached_mod._evict_idle_locks(locks)
+            assert "held" in locks
+        finally:
+            held.release()
+
+    def test_per_key_lock_eviction_keeps_held_sync_entries(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Sync eviction never drops a threading.Lock that is held."""
+        import sys  # noqa: PLC0415
+        from collections import OrderedDict  # noqa: PLC0415
+
+        import grelmicro.cache.cached  # noqa: F401, PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 2)
+        locks: OrderedDict[str, threading.Lock] = OrderedDict()
+        held = threading.Lock()
+        held.acquire()
+        try:
+            locks["held"] = held
+            for i in range(10):
+                locks[f"idle-{i}"] = threading.Lock()
+            cached_mod._evict_idle_locks_sync(locks)
+            assert "held" in locks
+        finally:
+            held.release()
+
     async def test_custom_asyncio_lock_prevents_duplicate_computation(
         self,
     ) -> None:
@@ -747,6 +816,21 @@ class TestSyncCachedLock:
 
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_lock_true_per_key_promotes_existing_sync_lock(self) -> None:
+        """A repeated miss on the same key promotes its lock in LRU order."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache, lock=True)
+        def compute(x: int) -> int:
+            return x * 2
+
+        # Act: first miss creates the lock, then clear and miss again so the
+        # second call hits the existing-lock branch (move_to_end).
+        await asyncio.to_thread(lambda: compute(7))
+        await cache.clear()
+        await asyncio.to_thread(lambda: compute(7))
 
     async def test_custom_threading_lock_prevents_stampede(self) -> None:
         """A custom threading.Lock provides global stampede protection."""
