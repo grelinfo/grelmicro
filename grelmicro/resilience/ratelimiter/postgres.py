@@ -22,6 +22,14 @@ if TYPE_CHECKING:
     from asyncpg import Pool
 
 
+# Advisory-lock namespace for the rate limiter. `hashtextextended`
+# is PG's 64-bit text hash with a configurable seed; using a distinct
+# seed as the namespace gives rate-limiter keys their own 64-bit lock
+# id space and isolates them from any other advisory lock in the same
+# database. The bigint value spells "grlr-rate-limiter" in ASCII bytes.
+_RATE_LIMITER_ADVISORY_NAMESPACE = 0x67726C72_72746C6D
+
+
 class PostgresRateLimiterAdapter(RateLimiterBackend):
     """Postgres rate limiter adapter.
 
@@ -79,7 +87,9 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             v_last TIMESTAMPTZ;
             v_new DOUBLE PRECISION;
         BEGIN
-            PERFORM pg_advisory_xact_lock(hashtext(p_key));
+            PERFORM pg_advisory_xact_lock(
+                hashtextextended(p_key, {lock_namespace})
+            );
             SELECT tokens, updated_at INTO v_tokens, v_last
                 FROM {table_name} WHERE key = p_key;
             IF v_tokens IS NULL THEN
@@ -181,7 +191,9 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             v_remaining INT;
         BEGIN
             v_increment := v_emission * p_cost;
-            PERFORM pg_advisory_xact_lock(hashtext(p_key));
+            PERFORM pg_advisory_xact_lock(
+                hashtextextended(p_key, {lock_namespace})
+            );
             SELECT tokens INTO v_tat FROM {table_name} WHERE key = p_key;
             IF v_tat IS NULL THEN
                 v_tat := v_now;
@@ -351,7 +363,12 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                 self._SQL_CREATE_FN_GCRA_ACQUIRE,
                 self._SQL_CREATE_FN_GCRA_PEEK,
             ):
-                await pool.execute(sql.format(table_name=self._table_name))
+                await pool.execute(
+                    sql.format(
+                        table_name=self._table_name,
+                        lock_namespace=_RATE_LIMITER_ADVISORY_NAMESPACE,
+                    )
+                )
         return self
 
     async def __aexit__(
@@ -458,8 +475,11 @@ class _PostgresTokenBucket(RateLimiterStrategy):
     """Postgres token-bucket strategy. Private.
 
     Continuous refill by `refill_rate` (tokens/sec). `acquire` runs
-    a PL/pgSQL function that holds `pg_advisory_xact_lock(hashtext(key))`
-    while it reads, refills, decrements, and writes the new state.
+    a PL/pgSQL function that holds `pg_advisory_xact_lock(
+    hashtextextended(key, ns))` while it reads, refills, decrements,
+    and writes the new state. The 64-bit hash and grelmicro-specific
+    seed isolate rate limiter locks from any other advisory lock in
+    the database.
     `peek` reads the same state without locking. Prepends a
     per-algorithm discriminator to every key so a token-bucket
     limiter and a GCRA limiter sharing the same name cannot collide

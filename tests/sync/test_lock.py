@@ -20,6 +20,7 @@ from grelmicro.sync.errors import (
 )
 from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncAdapter
+from tests._faults import cancel_midflight
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -692,6 +693,19 @@ async def test_lock_from_thread_reacquire_after_context_manager(
             assert lock.from_thread.locked() is True
 
     await asyncio.to_thread(sync)
+
+
+async def test_lock_acquire_cancelled_midflight(locks: list[Lock]) -> None:
+    """A cancelled blocked acquire leaves the lock free for the next waiter."""
+    # Arrange: worker 1 holds the lock so worker 2 blocks on acquire.
+    await locks[WORKER_1].acquire()
+
+    # Act: worker 2 starts acquiring, then gets cancelled mid-flight.
+    task = await cancel_midflight(locks[WORKER_2].acquire, after=0)
+
+    # Assert: the cancelled waiter never took ownership.
+    assert task.cancelled() is True
+    assert await locks[WORKER_2].owned() is False
 
 
 async def test_lock_retry_interval_too_small(backend: SyncBackend) -> None:

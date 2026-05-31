@@ -245,6 +245,7 @@ asyncio_default_test_loop_scope = "session"
 markers = """
     integration: mark a test as an integration test (needs Docker or external services)
     slow: mark a test as slow (no external infra, but heavier than the default unit suite)
+    stress: mark a test as a stress or endurance test (heavy load, opt-in via -m stress)
 """
 filterwarnings = [
     # testcontainers' own deprecation banner, not driven by our code.

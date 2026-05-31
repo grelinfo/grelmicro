@@ -170,6 +170,60 @@ async def test_leader_key_prefix(
         cancel_group(tg)
 
 
+async def test_last_confirmation_age_before_start(
+    leader_election: LeaderElection,
+) -> None:
+    """`last_confirmation_age()` is `None` until the first acquisition."""
+    assert leader_election.last_confirmation_age() is None
+    assert leader_election.is_leader_confirmed_within(1.0) is False
+
+
+async def test_last_confirmation_age_after_start(
+    leader_election: LeaderElection,
+) -> None:
+    """`last_confirmation_age()` is small and `is_leader_confirmed_within` holds."""
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, leader_election)
+        await leader_election.wait_for_leader()
+
+        age = leader_election.last_confirmation_age()
+        assert age is not None
+        assert age >= 0
+        # The lease duration is 0.02s, so a 1s window must hold.
+        assert leader_election.is_leader_confirmed_within(1.0) is True
+        # A negative or sub-zero window cannot be satisfied.
+        assert leader_election.is_leader_confirmed_within(-1.0) is False
+        cancel_group(tg)
+
+
+async def test_is_leader_confirmed_within_rejects_stale_age(
+    leader_election: LeaderElection,
+) -> None:
+    """A `max_age` smaller than the confirmation gap fails the check."""
+    # Drive state directly to avoid racing with the renew loop.
+    await leader_election._update_state(
+        is_leader=True, reason_if_no_more_leader=""
+    )
+    assert leader_election.is_leader_confirmed_within(10.0) is True
+    await sleep(0.05)
+    assert leader_election.is_leader_confirmed_within(0.001) is False
+
+
+async def test_last_confirmation_age_resets_on_confirmed_loss(
+    leader_election: LeaderElection,
+) -> None:
+    """When the backend says `is_leader=False`, the age resets to `None`."""
+    await leader_election._update_state(
+        is_leader=True, reason_if_no_more_leader=""
+    )
+    assert leader_election.last_confirmation_age() is not None
+    await leader_election._update_state(
+        is_leader=False, reason_if_no_more_leader="lock not acquired"
+    )
+    assert leader_election.last_confirmation_age() is None
+    assert leader_election.is_leader_confirmed_within(10.0) is False
+
+
 async def test_lifecycle(leader_election: LeaderElection) -> None:
     """Test leader election on worker complete lifecycle."""
     # Act

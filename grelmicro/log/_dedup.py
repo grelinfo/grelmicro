@@ -244,6 +244,7 @@ class DuplicateFilter(Filter):
         self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
         self._counts: OrderedDict[Hashable, tuple[int, float]] = OrderedDict()
         self._lock = Lock()
+        self._next_sweep = 0.0
 
     @property
     def config(self) -> DuplicateFilterConfig:
@@ -259,6 +260,18 @@ class DuplicateFilter(Filter):
         cache_size = self._cache_size
         now = monotonic()
         with self._lock:
+            if ttl is not None and now >= self._next_sweep:
+                # Time-bucketed cleanup. On high-cardinality floods the
+                # map fills with keys that will never repeat. Dropping
+                # entries unseen for longer than ``ttl`` in one pass lets
+                # stale keys leave before they force LRU eviction of keys
+                # that are still active. Bounded to once per ``ttl`` so
+                # the scan cost is amortized off the per-record path.
+                cutoff = now - ttl
+                stale = [k for k, (_, seen) in counts.items() if seen <= cutoff]
+                for stale_key in stale:
+                    del counts[stale_key]
+                self._next_sweep = now + ttl
             entry = counts.get(key)
             if entry is None:
                 counts[key] = (1, now)

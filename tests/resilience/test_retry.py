@@ -16,6 +16,7 @@ from grelmicro.resilience import (
     retry,
     retrying,
 )
+from tests._faults import flaky
 
 _FAST_DELAY = 0.001
 _DEFAULT_ATTEMPTS = 3
@@ -186,6 +187,24 @@ async def test_decorator_retries_until_success(
 
     assert await fn() == "ok"
     assert len(calls) == succeed_after
+
+
+async def test_decorator_retries_flaky_helper(
+    fast_constant: ConstantBackoff,
+) -> None:
+    """The `flaky` fault helper drives the retry-then-succeed path."""
+
+    async def succeed() -> str:
+        return "ok"
+
+    call = flaky(succeed, failures=_TWO, error=ValueError("transient"))
+
+    @retry(when=ValueError, attempts=_FIVE, backoff=fast_constant)
+    async def fn() -> str:
+        return await call()
+
+    assert await fn() == "ok"
+    assert call.calls == _THREE
 
 
 async def test_decorator_raises_after_exhaustion(

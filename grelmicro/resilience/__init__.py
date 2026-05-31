@@ -27,7 +27,8 @@ Pick the front door first, the algorithm second, the backend third.
 **Adapters / backends** (one per storage choice, used inside
 `RateLimiters` / `CircuitBreakers`): `MemoryRateLimiterAdapter`,
 `RedisRateLimiterAdapter`, `PostgresRateLimiterAdapter`,
-`MemoryCircuitBreakerAdapter`, `RedisCircuitBreakerAdapter`. End
+`SQLiteRateLimiterAdapter`, `MemoryCircuitBreakerAdapter`,
+`RedisCircuitBreakerAdapter`, `PostgresCircuitBreakerAdapter`. End
 users rarely name these directly. The Components do.
 
 **Configs** (frozen Pydantic models, accept env vars):
@@ -110,6 +111,9 @@ if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker.memory import (
         MemoryCircuitBreakerAdapter,
     )
+    from grelmicro.resilience.circuitbreaker.postgres import (
+        PostgresCircuitBreakerAdapter,
+    )
     from grelmicro.resilience.circuitbreaker.redis import (
         RedisCircuitBreakerAdapter,
     )
@@ -134,6 +138,9 @@ if TYPE_CHECKING:
         PostgresRateLimiterAdapter,
     )
     from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
+    from grelmicro.resilience.ratelimiter.sqlite import (
+        SQLiteRateLimiterAdapter,
+    )
     from grelmicro.resilience.retry import (
         Retry,
         RetryAttempt,
@@ -178,6 +185,7 @@ __all__ = [
     "MemoryRateLimiterAdapter",
     "MemoryTokenBucket",
     "Outcome",
+    "PostgresCircuitBreakerAdapter",
     "PostgresRateLimiterAdapter",
     "RandomBackoff",
     "RateLimitExceededError",
@@ -196,6 +204,7 @@ __all__ = [
     "RetryBackoffConfig",
     "RetryConfig",
     "RetryStrategy",
+    "SQLiteRateLimiterAdapter",
     "Shield",
     "ShieldConfig",
     "SlidingWindowConfig",
@@ -236,6 +245,10 @@ _LAZY: dict[str, tuple[str, str]] = {
         "grelmicro.resilience.circuitbreaker.memory",
         "MemoryCircuitBreakerAdapter",
     ),
+    "PostgresCircuitBreakerAdapter": (
+        "grelmicro.resilience.circuitbreaker.postgres",
+        "PostgresCircuitBreakerAdapter",
+    ),
     "RedisCircuitBreakerAdapter": (
         "grelmicro.resilience.circuitbreaker.redis",
         "RedisCircuitBreakerAdapter",
@@ -269,6 +282,10 @@ _LAZY: dict[str, tuple[str, str]] = {
     "RedisRateLimiterAdapter": (
         "grelmicro.resilience.ratelimiter.redis",
         "RedisRateLimiterAdapter",
+    ),
+    "SQLiteRateLimiterAdapter": (
+        "grelmicro.resilience.ratelimiter.sqlite",
+        "SQLiteRateLimiterAdapter",
     ),
     # Retry
     "Retry": ("grelmicro.resilience.retry", "Retry"),

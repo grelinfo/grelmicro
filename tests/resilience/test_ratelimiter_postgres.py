@@ -113,3 +113,20 @@ def test_provider_ratelimiter_factory() -> None:
     assert isinstance(backend, PostgresRateLimiterAdapter)
     assert backend.provider is provider
     assert backend._owns_provider is False
+
+
+def test_advisory_lock_uses_namespaced_64bit_hash() -> None:
+    """PL/pgSQL functions take the lock under a grelmicro-seeded 64-bit hash."""
+    from grelmicro.resilience.ratelimiter import (  # noqa: PLC0415
+        postgres as pg_mod,
+    )
+
+    ns = pg_mod._RATE_LIMITER_ADVISORY_NAMESPACE
+    expected = f"hashtextextended(p_key, {ns})"
+    for sql_template in (
+        pg_mod.PostgresRateLimiterAdapter._SQL_CREATE_FN_TB_ACQUIRE,
+        pg_mod.PostgresRateLimiterAdapter._SQL_CREATE_FN_GCRA_ACQUIRE,
+    ):
+        rendered = sql_template.format(table_name="t", lock_namespace=ns)
+        assert "pg_advisory_xact_lock" in rendered
+        assert expected in rendered
