@@ -78,8 +78,10 @@ def test_independent_keys() -> None:
 
 def test_cost() -> None:
     """Test cost consumes multiple tokens."""
-    # Arrange
-    bucket = MemoryTokenBucket(capacity=5, refill_rate=1)
+    # Arrange: a slow refill keeps `remaining` stable across the
+    # acquire/peek gap so the epsilon assertion is not clock-sensitive
+    # (matches test_peek_returns_tokens).
+    bucket = MemoryTokenBucket(capacity=5, refill_rate=0.01)
 
     # Act
     allowed = bucket.try_acquire(cost=3)
