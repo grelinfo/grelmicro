@@ -8,6 +8,7 @@ The `resilience` package provides primitives that help your services handle fail
 - [**Rate Limiter**](rate-limiter.md): cap how many requests a client can make per window. Pluggable algorithm (`TokenBucketConfig` or `SlidingWindowConfig`), pluggable backend (`Memory` or `Redis`), with a result shape that maps directly to HTTP rate limit headers.
 - [**Retry**](retry.md): repeat a failing call with backoff and jitter. Pluggable algorithm (`ExponentialBackoff`, `ConstantBackoff`, `LinearBackoff`, `FibonacciBackoff`, `RandomBackoff`), required exception filter, decorator and block forms.
 - [**Timeout**](timeout.md): bound how long an async call may run. Reconfigurable deadline, async context manager and decorator forms. Wraps `asyncio.timeout`.
+- [**Bulkhead**](bulkhead.md): cap concurrent in-flight calls and fail fast when saturated. Optional bounded wait for a permit and a dedicated thread pool for blocking work. Async context manager and decorator forms.
 
 See [Composing patterns](composition.md) for the recommended outside-in order when stacking decorators.
 
@@ -21,6 +22,7 @@ See [Composing patterns](composition.md) for the recommended outside-in order wh
 | **Rate Limiter** | You need to throttle *your own* endpoint, worker, or background job to protect the downstream side or enforce fair usage. |
 | **Retry** | A call fails for transient reasons (network blip, brief overload) and is safe to repeat. |
 | **Timeout** | An async call may stall and you need a hard deadline on it. |
+| **Bulkhead** | A dependency can saturate your workers and you want to cap concurrent calls and fail fast instead of queueing unboundedly. |
 
 For synchronous, in-process token-bucket rate limiting on a performance-critical sync path (the main example is the logging pipeline), see [`MemoryTokenBucket`](rate-limiter.md#standalone-memorytokenbucket). It powers `grelmicro.log.RateLimitFilter`.
 

@@ -14,6 +14,8 @@ Pick the front door first, the algorithm second, the backend third.
 * `Fallback("name", when=..., default=...)` or the `@fallback(...)`
   / `falling_back(...)` decorator and block form.
 * `Timeout("name", seconds=...)` for deadlines.
+* `Bulkhead("name", max_concurrent=...)` or the `@bulkhead`
+  decorator to cap concurrent in-flight calls.
 * `Shield("name")` or the `@shield(...)` decorator for the bundled
   timeout + retry + adaptive rate-limit + cache + fallback profile.
 
@@ -34,8 +36,8 @@ users rarely name these directly. The Components do.
 **Configs** (frozen Pydantic models, accept env vars):
 `TokenBucketConfig`, `SlidingWindowConfig`,
 `CircuitBreakerConfig`, `RetryConfig`, `FallbackConfig`,
-`TimeoutConfig`, `ShieldConfig`. One per pattern, plus backoff
-configs (`ExponentialBackoff`, `LinearBackoff`, ...).
+`TimeoutConfig`, `BulkheadConfig`, `ShieldConfig`. One per pattern,
+plus backoff configs (`ExponentialBackoff`, `LinearBackoff`, ...).
 
 **Loading**: top-level re-exports are PEP 562 lazy. Importing this
 package loads `_components`, `_match`, `_outcome`, `_protocol`,
@@ -67,6 +69,7 @@ from grelmicro.resilience._protocol import (
     RetryStrategy,
 )
 from grelmicro.resilience.errors import (
+    BulkheadFullError,
     CircuitBreakerError,
     RateLimitExceededError,
     ResilienceError,
@@ -100,6 +103,7 @@ if TYPE_CHECKING:
         RandomBackoff,
         RetryBackoffConfig,
     )
+    from grelmicro.resilience.bulkhead import Bulkhead, BulkheadConfig
     from grelmicro.resilience.circuitbreaker import (
         CircuitBreaker,
         CircuitBreakerConfig,
@@ -160,6 +164,9 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ApiShieldConfig",
+    "Bulkhead",
+    "BulkheadConfig",
+    "BulkheadFullError",
     "CircuitBreaker",
     "CircuitBreakerBackend",
     "CircuitBreakerConfig",
@@ -222,6 +229,9 @@ __all__ = [
 # (attribute -> (module, attribute)). The module is loaded lazily on
 # first access. Adding a new Pattern means adding one row per export.
 _LAZY: dict[str, tuple[str, str]] = {
+    # Bulkhead
+    "Bulkhead": ("grelmicro.resilience.bulkhead", "Bulkhead"),
+    "BulkheadConfig": ("grelmicro.resilience.bulkhead", "BulkheadConfig"),
     # Circuit breaker
     "CircuitBreaker": ("grelmicro.resilience.circuitbreaker", "CircuitBreaker"),
     "CircuitBreakerConfig": (

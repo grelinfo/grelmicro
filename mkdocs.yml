@@ -73,6 +73,7 @@ nav:
     - Resilience:
         - resilience/index.md
         - resilience/shield.md
+        - resilience/bulkhead.md
         - resilience/circuit-breaker.md
         - resilience/fallback.md
         - resilience/rate-limiter.md
