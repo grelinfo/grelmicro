@@ -26,12 +26,14 @@ if TYPE_CHECKING:
     )
 
 
-# Advisory-lock namespace for the circuit breaker. `hashtextextended`
-# is PG's 64-bit text hash with a configurable seed. A distinct seed
-# gives breaker names their own 64-bit lock id space, isolated from
-# the rate limiter and any other advisory lock in the same database.
-# The bigint value spells "grcb-cir" in ASCII bytes.
 _CIRCUIT_BREAKER_ADVISORY_NAMESPACE = 0x67726362_2D636972
+"""Advisory-lock namespace for the circuit breaker.
+
+`hashtextextended` is Postgres's 64-bit text hash with a configurable
+seed. A distinct seed gives breaker names their own 64-bit lock id
+space, isolated from the rate limiter and any other advisory lock in
+the same database.
+"""
 
 
 class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):

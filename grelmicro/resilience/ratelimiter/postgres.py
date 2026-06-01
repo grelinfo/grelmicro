@@ -22,12 +22,13 @@ if TYPE_CHECKING:
     from asyncpg import Pool
 
 
-# Advisory-lock namespace for the rate limiter. `hashtextextended`
-# is PG's 64-bit text hash with a configurable seed; using a distinct
-# seed as the namespace gives rate-limiter keys their own 64-bit lock
-# id space and isolates them from any other advisory lock in the same
-# database. The bigint value spells "grlr-rate-limiter" in ASCII bytes.
 _RATE_LIMITER_ADVISORY_NAMESPACE = 0x67726C72_72746C6D
+"""Advisory-lock namespace for the rate limiter.
+
+`hashtextextended` is Postgres's 64-bit text hash with a configurable
+seed. A distinct seed gives rate-limiter keys their own 64-bit lock id
+space, isolated from any other advisory lock in the same database.
+"""
 
 
 class PostgresRateLimiterAdapter(RateLimiterBackend):
