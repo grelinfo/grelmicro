@@ -33,6 +33,9 @@ def test_resilience_module_exports() -> None:
     """Test resilience module __all__ contains expected symbols."""
     expected = {
         "ApiShieldConfig",
+        "Bulkhead",
+        "BulkheadConfig",
+        "BulkheadFullError",
         "CircuitBreakers",
         "CircuitBreaker",
         "CircuitBreakerBackend",

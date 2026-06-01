@@ -24,7 +24,7 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 | `RateLimiter`       | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
 | `CircuitBreaker`    | ✅                                                             | ✅                                                             | ✅                                                             | Future                                                         | N/A        |
 | `Retry`             | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
-| `Bulkhead`          | [#168](https://github.com/grelinfo/grelmicro/issues/168)       | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
+| `Bulkhead`          | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
 | `Fallback`          | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
 | `Timeout`           | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
 
@@ -41,7 +41,7 @@ Closing every gap above that links to an issue. Anything marked `Future` is out 
 
 ## Picking an Adapter
 
-- **Memory** for tests, single-process apps, and `Retry`, `Fallback`, and `Timeout` (in-process Patterns that ship today). `Bulkhead` will join this group at `1.0.0`.
+- **Memory** for tests, single-process apps, and `Retry`, `Fallback`, `Timeout`, and `Bulkhead` (in-process Patterns).
 - **Redis** when you already run Redis and want the lowest-latency distributed option.
 - **Postgres** when Postgres is your only stateful dependency and you want one fewer service to run.
 - **SQLite** for single-host deployments that still need durability across restarts.

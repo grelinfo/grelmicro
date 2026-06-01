@@ -12,6 +12,7 @@
 * ✨ Add `TracingConfig.shutdown_timeout` (default `5.0` seconds). `Trace.__aexit__` now runs `TracerProvider.shutdown()` in a thread with this deadline so a slow or broken exporter no longer hangs application shutdown.
 * ✨ Add `SQLiteProvider` and SQLite rate limiting. Use `RateLimiters(SQLiteProvider("app.db"))` for file-backed limits on a single host. Each acquire runs a read-modify-write inside a `BEGIN IMMEDIATE` transaction. Issue [#173](https://github.com/grelinfo/grelmicro/issues/173).
 * ✨ Add `PostgresCircuitBreakerAdapter` for fleet-wide circuit breaker state on Postgres, plus `PostgresProvider.breaker()` so `CircuitBreakers(postgres)` resolves it. Transitions run in PL/pgSQL functions guarded by `pg_advisory_xact_lock`.
+* ✨ Add `Bulkhead` resilience pattern to cap concurrent in-flight calls. `max_concurrent` bounds concurrency, `max_wait` lets callers queue briefly before a `BulkheadFullError` (default fails fast), and `max_workers` runs blocking work through `bulkhead.to_thread` on a dedicated pool. Async context manager and decorator forms. Issue [#168](https://github.com/grelinfo/grelmicro/issues/168).
 
 ### Fixes
 

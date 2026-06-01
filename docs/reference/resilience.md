@@ -8,6 +8,9 @@
     options:
       show_submodules: true
       members:
+        - Bulkhead
+        - BulkheadConfig
+        - BulkheadFullError
         - CircuitBreakers
         - CircuitBreaker
         - CircuitBreakerBackend

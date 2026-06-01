@@ -19,6 +19,27 @@ class ResilienceSettingsValidationError(
     """Resilience Settings Validation Error."""
 
 
+class BulkheadFullError(ResilienceError):
+    """Bulkhead full error.
+
+    Raised when a bulkhead has no free permit and the caller's
+    `max_wait` elapsed (or was zero, the fail-fast default).
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        max_concurrent: int,
+    ) -> None:
+        """Initialize the error."""
+        self.name = name
+        self.max_concurrent = max_concurrent
+        super().__init__(
+            f"Bulkhead '{name}' is full ({max_concurrent} concurrent calls)"
+        )
+
+
 class RateLimitExceededError(ResilienceError):
     """Rate limit exceeded error.
 
