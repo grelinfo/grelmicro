@@ -180,6 +180,42 @@ The rules below are the ones the tooling can't check:
 - Keep `__init__` bodies thin. Attribute assignment only. Delegate
   validation to a frozen Pydantic config model.
 
+### Comments
+
+Document what a symbol is and why it exists **on the symbol**, the way
+FastAPI does, not in a block of `#` comments above it. A reader hovering
+the symbol in an IDE, and mkdocstrings, should see the explanation.
+
+- For parameters and fields, use `Annotated[type, Doc("...")]`.
+- For a class or function, use its docstring.
+- For a module constant or class attribute, use a `Doc(...)` annotation
+  on the annotated assignment, or an attribute docstring (a string
+  literal directly under the assignment).
+- Reserve `#` comments for short notes about non-obvious local logic
+  inside a function body. Do not use them to describe a public or
+  module-level symbol.
+
+Avoid (an explanatory `#` block describing a constant):
+
+```python
+# Advisory-lock namespace for the rate limiter. hashtextextended is
+# PG's 64-bit text hash with a configurable seed. A distinct seed
+# isolates rate-limiter keys from any other advisory lock.
+_RATE_LIMITER_ADVISORY_NAMESPACE = 0x67726C72_72746C6D
+```
+
+Prefer (an attribute docstring the symbol carries):
+
+```python
+_RATE_LIMITER_ADVISORY_NAMESPACE = 0x67726C72_72746C6D
+"""Advisory-lock namespace for the rate limiter.
+
+`hashtextextended` is Postgres's 64-bit text hash with a configurable
+seed. A distinct seed isolates rate-limiter keys from any other
+advisory lock in the same database.
+"""
+```
+
 ### Pydantic models
 
 - Every configuration class is
