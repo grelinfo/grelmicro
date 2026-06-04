@@ -16,7 +16,7 @@ from grelmicro._component import Component
 from grelmicro.errors import GrelmicroError, OutOfContextError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterable
+    from collections.abc import AsyncIterator, Iterable, Mapping
     from types import TracebackType
 
     from grelmicro.cache._component import Cache
@@ -34,6 +34,17 @@ else:
     Trace = Any
 
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
+
+_active_bulkhead: ContextVar[Mapping[tuple[str, str], Component]] = ContextVar(
+    "grelmicro_active_bulkhead"
+)
+"""Component overrides installed by the active `Bulkhead` scope, keyed by `(kind, name)`.
+
+`Grelmicro.get` consults this before its own registry so a Pattern resolving
+its default backend inside the scope picks up the bulkhead's `uses=`
+component. A Pattern with an explicit `backend=` never calls `get`, so
+explicit choices always win.
+"""
 
 
 class Grelmicro:
@@ -248,6 +259,11 @@ class Grelmicro:
         Raises:
             ComponentNotRegisteredError: If no component matches.
         """
+        overrides = _active_bulkhead.get(None)
+        if overrides is not None:
+            override = overrides.get((kind, name))
+            if override is not None:
+                return override
         try:
             return self._by_key[(kind, name)]
         except KeyError as exc:

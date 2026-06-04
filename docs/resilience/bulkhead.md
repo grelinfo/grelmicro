@@ -26,6 +26,16 @@ The default fails fast: with no `max_wait`, a full bulkhead rejects immediately.
 --8<-- "resilience/bulkhead_to_thread.py"
 ```
 
+### Failure-domain isolation
+
+`uses=` scopes Providers and Components to the bulkhead, in the same shape as `Grelmicro(uses=[...])`. Inside the scope, a Pattern that resolves its *default* backend (a bare `Lock("k")`, a `cache.get(...)`, ...) picks up the bulkhead's Component instead of the app's. A Pattern with an explicit `backend=` is unaffected, so explicit choices always win. This isolates a business context (checkout, reporting) onto its own connection pool, so one context cannot exhaust another's.
+
+```python
+--8<-- "resilience/bulkhead_uses.py"
+```
+
+The bulkhead opens its `uses=` on first entry and closes them when the app shuts down, so an active `Grelmicro` app is required. List the Provider before the Component that borrows it, exactly as in `Grelmicro(uses=[...])`.
+
 ## Configuration
 
 `Bulkhead` follows the three-paths configuration contract.
