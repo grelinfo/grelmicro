@@ -2,10 +2,18 @@
 
 import asyncio
 import threading
+from typing import Self
 
 import pytest
 
+from grelmicro import (
+    ComponentNotRegisteredError,
+    Grelmicro,
+    NoActiveAppError,
+)
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
+from grelmicro.sync import Sync
+from grelmicro.sync.memory import MemorySyncAdapter
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -269,3 +277,117 @@ async def test_reconfigure_rebuilds_executor() -> None:
     assert bulkhead._executor is None
     await bulkhead.to_thread(lambda: None)  # builds a fresh one
     assert bulkhead._executor is not first
+
+
+# --- uses= overrides ---
+
+
+async def test_uses_overrides_default_backend_in_scope() -> None:
+    """Inside the scope, a default lookup resolves to the bulkhead's component."""
+    default = MemorySyncAdapter()
+    dedicated = MemorySyncAdapter()
+    micro = Grelmicro(uses=[Sync(default)])
+    bulkhead = Bulkhead("checkout", uses=[Sync(dedicated)])
+
+    async with micro:
+        assert micro.get("sync", "default").backend is default
+        async with bulkhead:
+            assert micro.get("sync", "default").backend is dedicated
+        assert micro.get("sync", "default").backend is default
+
+
+async def test_uses_override_only_covers_registered_keys() -> None:
+    """A key the bulkhead does not override falls through to the registry."""
+    default = MemorySyncAdapter()
+    dedicated = MemorySyncAdapter()
+    micro = Grelmicro(uses=[Sync(default)])
+    bulkhead = Bulkhead("checkout", uses=[Sync(dedicated)])
+
+    async with micro, bulkhead:
+        assert micro.get("sync", "default").backend is dedicated
+        with pytest.raises(ComponentNotRegisteredError):
+            micro.get("sync", "analytics")
+
+
+async def test_uses_opens_once_and_closes_at_shutdown() -> None:
+    """`uses=` items open on first entry and close at app shutdown."""
+
+    class Track:
+        def __init__(self) -> None:
+            self.entered = 0
+            self.exited = 0
+
+        async def __aenter__(self) -> Self:
+            self.entered += 1
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            self.exited += 1
+
+    track = Track()
+    bulkhead = Bulkhead("reports", uses=[track])
+    micro = Grelmicro()
+
+    async with micro:
+        assert track.entered == 0
+        async with bulkhead:
+            pass
+        async with bulkhead:
+            pass
+        assert track.entered == 1  # opened once, not per entry
+        assert track.exited == 0
+    assert track.exited == 1  # closed at app shutdown
+
+
+async def test_uses_requires_active_app() -> None:
+    """Entering a `uses=` bulkhead without an app raises."""
+    bulkhead = Bulkhead("checkout", uses=[Sync(MemorySyncAdapter())])
+    with pytest.raises(NoActiveAppError):
+        async with bulkhead:
+            pass
+
+
+async def test_nested_bulkheads_merge_overrides() -> None:
+    """A nested bulkhead's overrides layer over the outer one's."""
+    default = MemorySyncAdapter()
+    outer_adapter = MemorySyncAdapter()
+    inner_adapter = MemorySyncAdapter()
+    micro = Grelmicro(uses=[Sync(default)])
+    outer = Bulkhead("outer", uses=[Sync(outer_adapter)])
+    inner = Bulkhead("inner", uses=[Sync(inner_adapter, name="analytics")])
+
+    async with micro, outer:
+        assert micro.get("sync", "default").backend is outer_adapter
+        async with inner:
+            assert micro.get("sync", "default").backend is outer_adapter
+            assert micro.get("sync", "analytics").backend is inner_adapter
+        assert micro.get("sync", "default").backend is outer_adapter
+    assert micro.get("sync", "default").backend is default
+
+
+async def test_uses_opens_once_under_concurrent_first_entry() -> None:
+    """Concurrent first entries open `uses=` exactly once."""
+
+    class Track:
+        def __init__(self) -> None:
+            self.entered = 0
+
+        async def __aenter__(self) -> Self:
+            await asyncio.sleep(0)  # yield so the second task races in
+            self.entered += 1
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            pass
+
+    track = Track()
+    bulkhead = Bulkhead("reports", uses=[track])
+    micro = Grelmicro()
+
+    async def worker() -> None:
+        async with bulkhead:
+            await asyncio.sleep(0.01)
+
+    async with micro:
+        await asyncio.gather(worker(), worker())
+        assert track.entered == 1

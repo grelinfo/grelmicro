@@ -12,11 +12,15 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 from pydantic import BaseModel, NonNegativeFloat, PositiveInt
 from typing_extensions import Doc
 
+from grelmicro._app import Grelmicro, _active_bulkhead
+from grelmicro._component import Component
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.resilience.errors import BulkheadFullError
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterable
+    from contextlib import AbstractAsyncContextManager
+    from contextvars import Token
     from types import TracebackType
 
 __all__ = [
@@ -120,6 +124,21 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             PositiveInt | None,
             Doc("Private thread-pool size for `to_thread`."),
         ] = None,
+        uses: Annotated[
+            Iterable[AbstractAsyncContextManager[object]],
+            Doc(
+                """
+                Providers and Components, in the same shape as
+                `Grelmicro(uses=[...])`, scoped to this bulkhead. Inside
+                the scope, a Pattern that resolves its default backend
+                (a bare `Lock("k")`, `cache.get(...)`, ...) picks up the
+                matching Component here instead of the app's. A Pattern
+                with an explicit `backend=` is unaffected. The bulkhead
+                opens these on first entry and closes them when the app
+                shuts down, so an active `Grelmicro` app is required.
+                """
+            ),
+        ] = (),
         config: Annotated[
             BulkheadConfig | None,
             Doc(
@@ -154,8 +173,17 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         )
         self._reconfigure_lock = asyncio.Lock()
         self._executor: ThreadPoolExecutor | None = None
-        self._permits: dict[
-            asyncio.Task[Any], list[asyncio.Semaphore | None]
+        self._uses = tuple(uses)
+        self._overrides: dict[tuple[str, str], Component] = {
+            (item.kind, item.name): item
+            for item in self._uses
+            if isinstance(item, Component)
+        }
+        self._opened = False
+        self._open_lock = asyncio.Lock()
+        self._scopes: dict[
+            asyncio.Task[Any],
+            list[tuple[asyncio.Semaphore | None, Token[Any] | None]],
         ] = {}
 
     @property
@@ -191,12 +219,24 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                     name=self._name,
                     max_concurrent=state.config.max_concurrent,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 ) from None
+        if self._uses and not self._opened:
+            await self._open_uses()
+        token: Token[Any] | None = None
+        if self._overrides:
+            current = _active_bulkhead.get(None)
+            merged = (
+                {**current, **self._overrides}
+                if current
+                else dict(self._overrides)
+            )
+            token = _active_bulkhead.set(merged)
         task = _current_task()
-        stack = self._permits.get(task)
+        scope = (semaphore, token)
+        stack = self._scopes.get(task)
         if stack is None:
-            self._permits[task] = [semaphore]
+            self._scopes[task] = [scope]
         else:
-            stack.append(semaphore)
+            stack.append(scope)
         return self
 
     async def __aexit__(
@@ -205,15 +245,35 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None:
-        """Release the permit acquired by the matching `__aenter__`."""
+        """Release the permit and override scope from the matching `__aenter__`."""
         task = _current_task()
-        stack = self._permits[task]
-        semaphore = stack.pop()
+        stack = self._scopes[task]
+        semaphore, token = stack.pop()
         if not stack:
-            del self._permits[task]
+            del self._scopes[task]
+        if token is not None:
+            _active_bulkhead.reset(token)
         if semaphore is not None:
             semaphore.release()
         return None
+
+    async def _open_uses(self) -> None:
+        """Open the `uses=` providers and components once, on the app stack.
+
+        Entered in order so a Component borrows a provider opened just
+        before it. Registered on the active app's exit stack, so they
+        close when the app shuts down rather than per scope.
+        """
+        async with self._open_lock:
+            if self._opened:
+                return
+            exit_stack = Grelmicro.current()._exit_stack  # noqa: SLF001
+            if exit_stack is None:  # pragma: no cover
+                msg = "Bulkhead uses= requires an open Grelmicro app"
+                raise RuntimeError(msg)
+            for item in self._uses:
+                await exit_stack.enter_async_context(item)
+            self._opened = True
 
     def __call__(
         self, fn: Callable[..., Awaitable[Any]], /
