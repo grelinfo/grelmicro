@@ -22,11 +22,17 @@ tasks.add_task(leader_election)
 
 redis = RedisProvider("redis://localhost:6379/0")
 
+# Patterns used inside FastAPI request handlers take an explicit backend:
+# handlers run in their own task, outside the app's ambient scope. Background
+# tasks run inside that scope, so they resolve their backend ambiently.
+sync_backend = redis.sync()
+breaker_backend = MemoryCircuitBreakerAdapter()
+
 micro = Grelmicro(
     uses=[
         redis,
-        Sync(redis),
-        CircuitBreakers(MemoryCircuitBreakerAdapter()),
+        Sync(sync_backend),
+        CircuitBreakers(breaker_backend),
         tasks,
     ]
 )
@@ -44,7 +50,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 # --- Circuit Breaker: protect calls to an unreliable service ---
-cb = CircuitBreaker("my-service")
+cb = CircuitBreaker("my-service", backend=breaker_backend)
 
 
 @app.get("/")
@@ -54,7 +60,7 @@ async def read_root():
 
 
 # --- Distributed Lock: synchronize access to a shared resource ---
-lock = Lock("shared-resource")
+lock = Lock("shared-resource", backend=sync_backend)
 
 
 @app.get("/protected")

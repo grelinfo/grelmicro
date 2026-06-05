@@ -165,10 +165,12 @@ from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
+    CircuitBreakers,
     RateLimitExceededError,
     RateLimiter,
     RateLimiters,
 )
+from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
 from grelmicro.sync import LeaderElection, Lock, Sync
 from grelmicro.task import Tasks
 
@@ -182,20 +184,31 @@ tasks.add_task(leader)
 
 redis = RedisProvider("redis://localhost:6379/0")
 
+# Patterns used inside FastAPI request handlers take an explicit backend:
+# handlers run in their own task, outside the app's ambient scope. Background
+# tasks run inside that scope, so they resolve their backend ambiently.
+sync_backend = redis.sync()
+cache_backend = redis.cache()
+ratelimiter_backend = redis.ratelimiter()
+breaker_backend = MemoryCircuitBreakerAdapter()
+
 micro = Grelmicro(uses=[
     redis,
-    Sync(redis),
-    Cache(redis),
-    RateLimiters(redis),
+    Sync(sync_backend),
+    Cache(cache_backend),
+    RateLimiters(ratelimiter_backend),
+    CircuitBreakers(breaker_backend),
     tasks,
     health,
 ])
 
-# === Patterns declared once at module load, resolved at use time ===
-ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer())
-lock = Lock("shared-resource")
-cb = CircuitBreaker("my-service")
-api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
+# === Patterns declared once at module load ===
+ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer(), backend=cache_backend)
+lock = Lock("shared-resource", backend=sync_backend)
+cb = CircuitBreaker("my-service", backend=breaker_backend)
+api_limiter = RateLimiter.sliding_window(
+    "api", limit=100, window=60, backend=ratelimiter_backend
+)
 
 
 # === FastAPI lifespan ===
