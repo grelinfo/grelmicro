@@ -28,6 +28,7 @@
 
 ### Fixes
 
+* 🐛 The README and `simple_fastapi_app.py` FastAPI examples now pass an explicit `backend=` to patterns used inside request handlers. Request handlers run outside the app's ambient `Grelmicro.current()` scope, so the previous ambient form raised `NoActiveAppError` (locks, cache) or silently fell back to an in-memory backend (rate limiter, circuit breaker) at runtime. Background `Tasks` keep using ambient resolution. Ambient resolution in handlers is tracked in [#328](https://github.com/grelinfo/grelmicro/issues/328).
 * 🔒 `SettingsValidationError` no longer echoes the offending input value. Env-loaded credentials (DSNs, tokens) no longer surface in error messages.
 * 🚨 `ComponentNotRegisteredError` from `Grelmicro.get(kind, name)` now lists every registered `(kind, name)` pair (or states that none are registered). Agents and developers see what is available without inspecting the container.
 * 🚨 `HealthChecks.add` invalid-name errors now include valid examples (`'redis'`, `'db-primary'`, `'weather:circuitbreaker'`) alongside the regex.
