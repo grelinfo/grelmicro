@@ -8,6 +8,7 @@ from grelmicro._app import (
     NoActiveAppError,
 )
 from grelmicro._component import Component
+from grelmicro.errors import MultipleActiveAppsError
 
 __all__ = [
     "Component",
@@ -15,5 +16,6 @@ __all__ = [
     "ComponentNotRegisteredError",
     "Grelmicro",
     "LifecycleOrderError",
+    "MultipleActiveAppsError",
     "NoActiveAppError",
 ]
