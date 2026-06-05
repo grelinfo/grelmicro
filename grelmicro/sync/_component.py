@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._component import instantiate_if_class
 from grelmicro.providers._base import Provider
 from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.lock import Lock
@@ -49,12 +50,13 @@ class Sync:
     def __init__(
         self,
         source: Annotated[
-            Provider | SyncBackend,
+            Provider | SyncBackend | type[Provider | SyncBackend],
             Doc(
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `SyncBackend`
                 instance. When a Provider is given, the component calls
-                `provider.sync()` to build the matching adapter.
+                `provider.sync()` to build the matching adapter. A zero-arg
+                class (e.g. `MemorySyncAdapter`) is instantiated for you.
                 """,
             ),
         ],
@@ -71,6 +73,7 @@ class Sync:
     ) -> None:
         """Initialize the component with the wrapped backend."""
         self.name = name
+        source = instantiate_if_class(source)
         if isinstance(source, Provider):
             self._backend = source.sync()
         else:

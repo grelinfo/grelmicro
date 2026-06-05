@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._component import instantiate_if_class
 from grelmicro.cache.cached import cached
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.providers._base import Provider
@@ -56,12 +57,13 @@ class Cache:
     def __init__(
         self,
         source: Annotated[
-            Provider | CacheBackend,
+            Provider | CacheBackend | type[Provider | CacheBackend],
             Doc(
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `CacheBackend`
                 instance. When a Provider is given, the component calls
-                `provider.cache()` to build the matching adapter.
+                `provider.cache()` to build the matching adapter. A zero-arg
+                class (e.g. `MemoryCacheAdapter`) is instantiated for you.
                 """,
             ),
         ],
@@ -78,6 +80,7 @@ class Cache:
     ) -> None:
         """Initialize the component with the wrapped backend."""
         self.name = name
+        source = instantiate_if_class(source)
         if isinstance(source, Provider):
             self._backend = source.cache()
         else:

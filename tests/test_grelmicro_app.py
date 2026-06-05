@@ -695,3 +695,44 @@ async def test_guard_clears_after_failed_startup() -> None:
         Grelmicro(uses=[_RecordingComponent()]),
     ):
         pass
+
+
+# --- bare-class ergonomics (#263) ---
+
+
+async def test_uses_accepts_bare_component_class() -> None:
+    """A zero-arg Component class in uses= is instantiated for you."""
+
+    class _BareComponent(_RecordingComponent):
+        kind: ClassVar[str] = "bare"
+
+    async with Grelmicro(uses=[_BareComponent]) as micro:
+        assert isinstance(micro.get("bare", "default"), _BareComponent)
+
+
+async def test_use_bare_class_needing_args_raises_clear_error() -> None:
+    """A class needing constructor arguments gives an actionable error."""
+
+    class _NeedsArgs:
+        def __init__(self, required: int) -> None:
+            self.required = required
+
+    with pytest.raises(TypeError, match="needs constructor arguments"):
+        Grelmicro(uses=[_NeedsArgs])
+
+
+async def test_use_bare_plain_context_manager_class() -> None:
+    """A zero-arg plain async context manager class is instantiated and lifecycled."""
+    entered: list[str] = []
+
+    class _PlainCM:
+        async def __aenter__(self) -> Self:
+            entered.append("in")
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            entered.append("out")
+
+    async with Grelmicro(uses=[_PlainCM]):
+        assert entered == ["in"]
+    assert entered == ["in", "out"]

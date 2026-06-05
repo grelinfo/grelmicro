@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from typing_extensions import Doc
 
-from grelmicro._component import Component
+from grelmicro._component import Component, instantiate_if_class
 from grelmicro.errors import (
     GrelmicroError,
     MultipleActiveAppsError,
@@ -106,14 +106,19 @@ class Grelmicro:
         self,
         *,
         uses: Annotated[
-            Iterable[AbstractAsyncContextManager[object]] | None,
+            Iterable[
+                AbstractAsyncContextManager[object]
+                | type[AbstractAsyncContextManager[object]]
+            ]
+            | None,
             Doc(
                 """
                 Items registered at construction time. Equivalent to a
                 sequence of `.use(item)` calls in the same order. Accepts
-                both `Component` instances (registered with `(kind, name)`
-                lookup, exposed on `micro.<kind>`) and plain async context
-                managers (lifecycled only, caller holds the reference).
+                `Component` instances (registered with `(kind, name)`
+                lookup, exposed on `micro.<kind>`), zero-arg classes
+                (instantiated for you), and plain async context managers
+                (lifecycled only, caller holds the reference).
                 """,
             ),
         ] = None,
@@ -182,14 +187,16 @@ class Grelmicro:
     def use(
         self,
         item: Annotated[
-            AbstractAsyncContextManager[object],
+            AbstractAsyncContextManager[object]
+            | type[AbstractAsyncContextManager[object]],
             Doc(
                 """
                 The item to register and lifecycle with the app. A `Component`
                 instance is indexed under `(kind, name)` and exposed on
                 `micro.<kind>`. A first-party backend is auto-wrapped into its
-                matching `Component`. Any other async context manager is just
-                lifecycled, and the caller keeps the reference.
+                matching `Component`. A zero-arg class is instantiated first.
+                Any other async context manager is just lifecycled, and the
+                caller keeps the reference.
                 """,
             ),
         ],
@@ -230,6 +237,10 @@ class Grelmicro:
                 registered under the same `(kind, name)` key. Plain async
                 context managers do not raise; they are appended.
         """
+        # A bare class (no parens) is instantiated with no arguments, in the
+        # spirit of FastAPI's `Depends(dep)`: pass the reference, the framework
+        # calls it. Useful for zero-arg adapters like `MemorySyncAdapter`.
+        item = instantiate_if_class(item)
         # Resolve the item to a Component if possible: pass-through for Component
         # instances, auto-wrap for first-party backends, None for plain CMs.
         component: Component | None = (

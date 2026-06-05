@@ -167,3 +167,9 @@ def test_sync_accepts_postgres_provider() -> None:
     sync = Sync(provider)
     assert isinstance(sync.backend, PostgresSyncAdapter)
     assert sync.backend.provider is provider
+
+
+async def test_sync_accepts_bare_backend_class() -> None:
+    """`Sync(MemorySyncAdapter)` instantiates the zero-arg backend class."""
+    component = Sync(MemorySyncAdapter)
+    assert isinstance(component.backend, MemorySyncAdapter)
