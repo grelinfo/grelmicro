@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache.postgres import PostgresCacheAdapter
+    from grelmicro.coordination.postgres import PostgresLeaderElectionBackend
     from grelmicro.resilience.circuitbreaker.postgres import (
         PostgresCircuitBreakerAdapter,
     )
@@ -252,6 +253,17 @@ class PostgresProvider(Provider):
         from grelmicro.sync.postgres import PostgresSyncAdapter  # noqa: PLC0415
 
         return PostgresSyncAdapter(provider=self, **kwargs)
+
+    def leader_election(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> PostgresLeaderElectionBackend:
+        """Build a `PostgresLeaderElectionBackend` bound to this provider."""
+        from grelmicro.coordination.postgres import (  # noqa: PLC0415
+            PostgresLeaderElectionBackend,
+        )
+
+        return PostgresLeaderElectionBackend(provider=self, **kwargs)
 
     def cache(self, **kwargs: Any) -> PostgresCacheAdapter:  # noqa: ANN401
         """Build a `PostgresCacheAdapter` bound to this provider."""

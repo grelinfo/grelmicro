@@ -8,10 +8,13 @@ import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
+from grelmicro.coordination.abc import LeaderElectionBackend
+from grelmicro.coordination.leaderelection import (
+    LeaderElection,
+    LeaderElectionConfig,
+)
+from grelmicro.coordination.memory import MemoryLeaderElectionBackend
 from grelmicro.errors import WouldBlockError as WouldBlock
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
-from grelmicro.sync.memory import MemorySyncAdapter
 from tests.task._helpers import cancel_group, start_task
 
 LEADER_NAME = "test_leader_election"
@@ -25,9 +28,9 @@ pytestmark = [pytest.mark.timeout(TEST_TIMEOUT)]
 
 
 @pytest.fixture
-def backend() -> SyncBackend:
+def backend() -> LeaderElectionBackend:
     """Return Memory Synchronization Backend."""
-    return MemorySyncAdapter()
+    return MemoryLeaderElectionBackend()
 
 
 @pytest.fixture
@@ -48,7 +51,7 @@ def configs() -> list[LeaderElectionConfig]:
 
 @pytest.fixture
 def leader_elections(
-    backend: SyncBackend, configs: list[LeaderElectionConfig]
+    backend: LeaderElectionBackend, configs: list[LeaderElectionConfig]
 ) -> list[LeaderElection]:
     """Leader elections."""
     return [
@@ -59,7 +62,7 @@ def leader_elections(
 
 @pytest.fixture
 def leader_election(
-    backend: SyncBackend, configs: list[LeaderElectionConfig]
+    backend: LeaderElectionBackend, configs: list[LeaderElectionConfig]
 ) -> LeaderElection:
     """Leader election."""
     return LeaderElection.from_config(
@@ -155,7 +158,7 @@ def test_leader_election_config_validation_errors() -> None:
 
 
 async def test_leader_key_prefix(
-    backend: SyncBackend, leader_election: LeaderElection
+    backend: LeaderElectionBackend, leader_election: LeaderElection
 ) -> None:
     """Test LeaderElection uses prefixed key on the backend."""
     # Act
@@ -163,10 +166,14 @@ async def test_leader_key_prefix(
         await start_task(tg, leader_election)
         await leader_election.wait_for_leader()
 
-        # Assert - backend key should be prefixed
-        assert await backend.locked(name=BACKEND_LOCK_NAME) is True
-        # Raw name should NOT be locked
-        assert await backend.locked(name=LEADER_NAME) is False
+        # Assert - backend record should be stored under the prefixed key
+        assert await backend.get(name=BACKEND_LOCK_NAME) is not None
+        # Raw name should NOT hold a record
+        assert await backend.get(name=LEADER_NAME) is None
+        # The election exposes the live record of the current leader.
+        record = leader_election.record
+        assert record is not None
+        assert record.holder == str(leader_election.config.worker)
         cancel_group(tg)
 
 
@@ -339,7 +346,7 @@ async def test_leadership_abandon_on_backend_error(
         is_leader_after_start = leader_election.is_leader()
         mocker.patch.object(
             leader_election.backend,
-            "acquire",
+            "acquire_or_renew",
             side_effect=Exception("Backend Unreachable"),
         )
         await leader_election.wait_lose_leader()
@@ -379,7 +386,9 @@ async def test_unepexpected_stop(
 
 
 async def test_release_on_cancel(
-    backend: SyncBackend, leader_election: LeaderElection, mocker: MockerFixture
+    backend: LeaderElectionBackend,
+    leader_election: LeaderElection,
+    mocker: MockerFixture,
 ) -> None:
     """Test leader election on worker that releases the lock on cancel."""
     # Arrange
@@ -397,7 +406,7 @@ async def test_release_on_cancel(
 
 
 async def test_release_error_ignored(
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
     leader_election: LeaderElection,
     mocker: MockerFixture,
 ) -> None:
@@ -497,7 +506,7 @@ async def test_leader_transition(
 
 
 async def test_error_interval(
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
     caplog: pytest.LogCaptureFixture,
     mocker: MockerFixture,
 ) -> None:
@@ -530,7 +539,9 @@ async def test_error_interval(
         backend=backend,
     )
     mocker.patch.object(
-        backend, "acquire", side_effect=Exception("Backend Unreachable")
+        backend,
+        "acquire_or_renew",
+        side_effect=Exception("Backend Unreachable"),
     )
 
     # Act
@@ -673,7 +684,7 @@ async def test_leader_reconfigure_takes_effect_on_next_iteration(
 
 async def test_leader_election_stops_gracefully_on_stop_event(
     leader_election: LeaderElection,
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
 ) -> None:
     """Setting the stop event breaks the loop and releases leadership."""
     stop = Event()
@@ -686,11 +697,9 @@ async def test_leader_election_stops_gracefully_on_stop_event(
     assert handle.done()
     assert not handle.cancelled()
     # Leadership was released on the backend, so another worker can take it.
-    assert (
-        await backend.acquire(
-            name=leader_election._lock_name,
-            token="other",  # noqa: S106
-            duration=1,
-        )
-        is True
+    record = await backend.acquire_or_renew(
+        name=leader_election._lock_name,
+        token="other",  # noqa: S106
+        duration=1,
     )
+    assert record.holder == "other"

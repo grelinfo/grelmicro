@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache.redis import RedisCacheAdapter
+    from grelmicro.coordination.redis import RedisLeaderElectionBackend
     from grelmicro.resilience.circuitbreaker.redis import (
         RedisCircuitBreakerAdapter,
     )
@@ -232,6 +233,17 @@ class RedisProvider(Provider):
         from grelmicro.sync.redis import RedisSyncAdapter  # noqa: PLC0415
 
         return RedisSyncAdapter(provider=self, **kwargs)
+
+    def leader_election(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> RedisLeaderElectionBackend:
+        """Build a `RedisLeaderElectionBackend` bound to this provider."""
+        from grelmicro.coordination.redis import (  # noqa: PLC0415
+            RedisLeaderElectionBackend,
+        )
+
+        return RedisLeaderElectionBackend(provider=self, **kwargs)
 
     def cache(self, **kwargs: Any) -> RedisCacheAdapter:  # noqa: ANN401
         """Build a `RedisCacheAdapter` bound to this provider."""

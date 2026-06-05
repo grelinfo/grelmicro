@@ -7,13 +7,15 @@ The primitives are technology agnostic, supporting multiple backends (see more i
 The available primitives are:
 
 - **[Task Lock](#task-lock)**: A distributed lock for scheduled tasks with minimum and maximum hold times.
-- **[Leader Election](#leader-election)**: A single worker is elected as the leader for performing tasks only once in a cluster.
 - **[Lock](#lock)**: A distributed lock that can be used to synchronize access to shared resources.
+
+!!! tip "Looking for leader election?"
+    Leader election now lives in [Coordination](coordination.md).
 
 The synchronization primitives can be used in combination with the `Tasks` and `TaskRouter` to control task execution in a distributed system (see more in [Task Scheduler](task.md)).
 
 !!! warning "Thread Safety"
-    All synchronization primitives (`Lock`, `TaskLock`, `LeaderElection`) are designed for use within a single async event loop and are **not thread-safe**. Sync access from worker threads is supported via `from_thread` adapters, which dispatch operations to the event loop. Do not share instances across multiple event loops or threads without the adapter.
+    All synchronization primitives (`Lock`, `TaskLock`) are designed for use within a single async event loop and are **not thread-safe**. Sync access from worker threads is supported via `from_thread` adapters, which dispatch operations to the event loop. Do not share instances across multiple event loops or threads without the adapter.
 
 ## Backend
 
@@ -95,22 +97,6 @@ There is no background task that maintains the lock active during execution. The
 !!! warning
     When the lock expires before the task completes (`max_lock_seconds` exceeded), another node may acquire the lock and execute concurrently. A warning is logged in this case.
 
-
-## Leader Election
-
-Leader election uses a distributed lock to make sure that only one worker in the cluster acts as the leader at any given time.
-
-The leader election service acquires and renews the distributed lock. It runs as an asyncio task that you can start with the [Tasks](./task.md#tasks). The service runs in the background and renews the lock automatically so other workers cannot acquire it. The lock releases automatically when the task is cancelled or when the application shuts down.
-
-=== "Tasks (Recommended)"
-    ```python
-    --8<-- "sync/leaderelection_task.py"
-    ```
-
-=== "asyncio Task Group (Advanced)"
-    ```python
-    --8<-- "sync/leaderelection_asyncio.py"
-    ```
 
 ## Lock
 

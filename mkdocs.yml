@@ -82,6 +82,7 @@ nav:
         - resilience/timeout.md
         - resilience/composition.md
     - sync.md
+    - coordination.md
     - task.md
 - API Reference:
     - reference/cache.md
@@ -90,6 +91,7 @@ nav:
     - reference/logging.md
     - reference/resilience.md
     - reference/sync.md
+    - reference/coordination.md
     - reference/task.md
     - reference/trace.md
 - Architecture:

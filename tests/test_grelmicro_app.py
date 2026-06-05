@@ -540,6 +540,29 @@ async def test_provider_base_sync_raises_not_implemented() -> None:
         bare.sync()
 
 
+async def test_provider_base_leader_election_raises_not_implemented() -> None:
+    """`Provider.leader_election()` raises when a subclass does not override it."""
+    from grelmicro.providers import Provider  # noqa: PLC0415
+
+    class _BareProvider(Provider):
+        short_name = "bare"
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            return None
+
+    bare = _BareProvider()
+    with pytest.raises(NotImplementedError, match="no leader election adapter"):
+        bare.leader_election()
+
+
 async def test_warns_when_component_provider_not_in_uses(
     recwarn: pytest.WarningsRecorder,
 ) -> None:

@@ -6,6 +6,8 @@ from collections.abc import AsyncGenerator, Callable
 
 import pytest
 
+from grelmicro.coordination.abc import LeaderElectionBackend
+from grelmicro.coordination.memory import MemoryLeaderElectionBackend
 from grelmicro.sync.abc import SyncBackend
 from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync.tasklock import TaskLock
@@ -79,6 +81,13 @@ def task_factory(request: pytest.FixtureRequest) -> TaskFactory:
 async def backend() -> AsyncGenerator[SyncBackend]:
     """Return Memory Synchronization Backend."""
     async with MemorySyncAdapter() as backend:
+        yield backend
+
+
+@pytest.fixture
+async def leader_backend() -> AsyncGenerator[LeaderElectionBackend]:
+    """Return Memory Leader Election Backend."""
+    async with MemoryLeaderElectionBackend() as backend:
         yield backend
 
 

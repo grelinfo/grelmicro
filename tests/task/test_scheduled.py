@@ -6,8 +6,10 @@ from asyncio import sleep
 import pytest
 from pytest_mock import MockFixture
 
+from grelmicro.coordination.abc import LeaderElectionBackend
+from grelmicro.coordination.leaderelection import LeaderElection
+from grelmicro.coordination.memory import MemoryLeaderElectionBackend
 from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.lock import Lock
 from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.task._interval import IntervalTask
@@ -74,7 +76,9 @@ def test_interval_task_with_lock_default_max_lock_seconds() -> None:
     """Test IntervalTask with leader uses default max_lock_seconds."""
     # Arrange
     backend = MemorySyncAdapter()
-    leader = LeaderElection("test-leader", backend=backend)
+    leader = LeaderElection(
+        "test-leader", backend=MemoryLeaderElectionBackend()
+    )
     # Act - leader implies lock, max_lock_seconds defaults to interval * 5
     task = IntervalTask(
         seconds=10, function=test1, leader=leader, backend=backend
@@ -286,10 +290,13 @@ async def test_interval_task_with_lock_stop(
 
 async def test_interval_task_with_leader_executes(
     backend: SyncBackend,
+    leader_backend: LeaderElectionBackend,
 ) -> None:
     """Test IntervalTask executes when worker is leader."""
     # Arrange
-    leader = LeaderElection("test-leader", backend=backend, worker="worker_1")
+    leader = LeaderElection(
+        "test-leader", backend=leader_backend, worker="worker_1"
+    )
     task = IntervalTask(
         seconds=SECONDS,
         function=samples.set_event_1,
@@ -309,13 +316,18 @@ async def test_interval_task_with_leader_executes(
 
 async def test_interval_task_with_leader_skips_when_not_leader(
     backend: SyncBackend,
+    leader_backend: LeaderElectionBackend,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test IntervalTask skips when worker is not leader."""
     # Arrange
     caplog.set_level("DEBUG")
-    leader_1 = LeaderElection("test-leader", backend=backend, worker="worker_1")
-    leader_2 = LeaderElection("test-leader", backend=backend, worker="worker_2")
+    leader_1 = LeaderElection(
+        "test-leader", backend=leader_backend, worker="worker_1"
+    )
+    leader_2 = LeaderElection(
+        "test-leader", backend=leader_backend, worker="worker_2"
+    )
     task = IntervalTask(
         seconds=SECONDS,
         function=samples.set_event_1,

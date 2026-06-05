@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from grelmicro.cache._protocol import CacheBackend
+    from grelmicro.coordination.abc import LeaderElectionBackend
     from grelmicro.resilience._protocol import (
         CircuitBreakerBackend,
         RateLimiterBackend,
@@ -42,6 +43,26 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         msg = (
             f"{type(self).__name__} has no sync adapter. "
             f"Pass a SyncBackend instance to Sync(...) directly."
+        )
+        raise NotImplementedError(msg)
+
+    def leader_election(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> LeaderElectionBackend:
+        """Return the matching `LeaderElectionBackend` for this Provider.
+
+        Leader election stores a `LeaderRecord` (holder, lease times, metadata),
+        so it needs a backend that can hold that record, not a plain lock.
+
+        Raises:
+            NotImplementedError: If this Provider does not ship a leader
+                election adapter.
+        """
+        msg = (
+            f"{type(self).__name__} has no leader election adapter. "
+            f"Pass a LeaderElectionBackend instance to Coordination(...) "
+            f"directly."
         )
         raise NotImplementedError(msg)
 

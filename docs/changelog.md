@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Move `LeaderElection` out of `grelmicro.sync` into a new `grelmicro.coordination` package. Import it from `grelmicro.coordination`. `Sync.leader_election()` is removed: register a `Coordination` component and call `micro.coordination.leader_election(...)`. Leader election now runs on a dedicated `LeaderElectionBackend`, not the lock `SyncBackend`, so it can use a different vendor than `Lock` (Redis for `Lock`, a Kubernetes Lease for leader election). Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+
+### Features
+
+* ✨ Leader election leases carry a Kubernetes-style `LeaderRecord` (holder, lease duration, acquire and renew times, leadership transitions, and free-form metadata). Read it from `LeaderElection.record`, set the metadata via `LeaderElection(metadata=...)`. Metadata-storing backends ship for memory, Redis, Postgres, and Kubernetes Lease, resolved through `provider.leader_election()` or passed to `Coordination(...)` directly. Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+
 ## 0.26.0 - 2026-06-05
 
 ### Breaking

@@ -1,6 +1,7 @@
 """Leader Election."""
 
 import asyncio
+from collections.abc import Mapping
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
@@ -13,9 +14,10 @@ from typing_extensions import Doc
 from grelmicro._app import Grelmicro
 from grelmicro._async import sleep_or_stop
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
+from grelmicro.coordination.abc import LeaderElectionBackend, LeaderRecord
 from grelmicro.errors import WouldBlockError
 from grelmicro.sync._base import BaseLockConfig
-from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
+from grelmicro.sync.abc import Seconds, SyncPrimitive
 from grelmicro.task.abc import Task
 
 logger = getLogger("grelmicro.leader_election")
@@ -97,7 +99,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
 
     _LOCK_PREFIX = "leader"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         name: Annotated[
             str,
@@ -112,12 +114,12 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         ],
         *,
         backend: Annotated[
-            SyncBackend | str | None,
+            LeaderElectionBackend | str | None,
             Doc(
                 """
-                The distributed lock backend used to acquire and release the lock.
+                The leader election backend used to acquire and renew leadership.
 
-                By default, it will use the lock backend registry to get the default lock backend.
+                By default, it resolves the `Coordination` component from the active app.
                 """,
             ),
         ] = None,
@@ -224,6 +226,16 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
                 """,
             ),
         ] = None,
+        metadata: Annotated[
+            Mapping[str, str] | None,
+            Doc(
+                """
+                Free-form key/value pairs stored on the lease while this worker
+                leads, for observability (pod name, version, region). Other
+                workers read them via `LeaderElection.record`.
+                """,
+            ),
+        ] = None,
     ) -> None:
         """Initialize the leader election."""
         config = resolve_config(
@@ -241,7 +253,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
             or f"GREL_LEADER_ELECTION_{env_segment(name)}_",
             env_load=env_load,
         )
-        self._setup(name, config, backend)
+        self._setup(name, config, backend, metadata)
 
     @classmethod
     def from_config(
@@ -272,33 +284,45 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         ],
         *,
         backend: Annotated[
-            SyncBackend | str | None,
+            LeaderElectionBackend | str | None,
             Doc(
                 """
-                The distributed lock backend used to acquire and release the lock.
+                The leader election backend used to acquire and renew leadership.
 
-                By default, it will use the lock backend registry to get the default lock backend.
+                By default, it resolves the `Coordination` component from the active app.
+                """,
+            ),
+        ] = None,
+        metadata: Annotated[
+            Mapping[str, str] | None,
+            Doc(
+                """
+                Free-form key/value pairs stored on the lease while this worker
+                leads, for observability.
                 """,
             ),
         ] = None,
     ) -> Self:
         """Construct a `LeaderElection` from a name and a pre-built `LeaderElectionConfig`."""
         instance = cls.__new__(cls)
-        instance._setup(name, config, backend)  # noqa: SLF001
+        instance._setup(name, config, backend, metadata)  # noqa: SLF001
         return instance
 
     def _setup(
         self,
         name: str,
         config: LeaderElectionConfig,
-        backend: SyncBackend | str | None,
+        backend: LeaderElectionBackend | str | None,
+        metadata: Mapping[str, str] | None = None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
+        self._metadata: dict[str, str] = dict(metadata or {})
+        self._record: LeaderRecord | None = None
         self._reconfigure_lock = asyncio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
-        self._backend: SyncBackend | None = (
+        self._backend: LeaderElectionBackend | None = (
             backend if not isinstance(backend, str) else None
         )
         self._backend_name: str | None = (
@@ -336,18 +360,33 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         return self._name
 
     @property
-    def backend(self) -> SyncBackend:
-        """Bound sync backend, resolved on each call.
+    def record(self) -> LeaderRecord | None:
+        """The most recent `LeaderRecord` seen from the backend.
+
+        `None` until the first acquire/renew attempt completes. Reflects the
+        current leader (`record.holder`), when they acquired and renewed the
+        lease, how many times leadership has changed, and the holder's
+        metadata. Updated on every renew loop iteration.
+        """
+        return self._record
+
+    @property
+    def backend(self) -> LeaderElectionBackend:
+        """Bound coordination backend, resolved on each call.
 
         When a backend instance was passed at construction it is
         always returned. Otherwise the active `Grelmicro` app is
         consulted via `Grelmicro.current()` on every access so that
-        `micro.override(Sync(...))` blocks take effect.
+        `micro.override(Coordination(...))` blocks take effect. The
+        backend comes from the `Coordination` component, which can point
+        at a different vendor than the `Sync` component used for `Lock`.
         """
         if self._backend is not None:
             return self._backend
-        sync = Grelmicro.current().get("sync", self._backend_name or "default")
-        return sync.backend
+        coordination = Grelmicro.current().get(
+            "coordination", self._backend_name or "default"
+        )
+        return coordination.backend
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""
@@ -363,7 +402,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         already acquired leadership through a reachable backend.
 
         For work that cannot tolerate stale local leadership, use
-        [`is_leader_confirmed_within`][grelmicro.sync.LeaderElection.is_leader_confirmed_within]
+        [`is_leader_confirmed_within`][grelmicro.coordination.LeaderElection.is_leader_confirmed_within]
         with a tighter freshness bound, or fence each backend write
         with the lock token.
 
@@ -501,10 +540,11 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         backend = self.backend
         try:
             async with asyncio.timeout(config.backend_timeout):
-                is_leader = await backend.acquire(
+                record = await backend.acquire_or_renew(
                     name=self._lock_name,
                     token=str(config.worker),
                     duration=config.lease_duration,
+                    metadata=self._metadata,
                 )
         except Exception:
             if self._check_error_interval(config):
@@ -517,8 +557,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
                     reason_if_no_more_leader="renew deadline reached",
                 )
         else:
+            self._record = record
             await self._update_state(
-                is_leader=is_leader,
+                is_leader=record.holder == str(config.worker),
                 reason_if_no_more_leader="lock not acquired",
             )
 
