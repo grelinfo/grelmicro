@@ -64,6 +64,7 @@ nav:
 - benchmarks.md
 - User Guide:
     - config.md
+    - configuration/reconfigure-from-configmap.md
     - cache.md
     - providers.md
     - health.md

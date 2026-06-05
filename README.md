@@ -69,6 +69,18 @@ See the [Installation guide](https://grelinfo.github.io/grelmicro/installation/)
 
 ## Example
 
+### Run the demo
+
+Want to see every Pattern running against real Redis and Postgres? The [FastAPI demo](https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo) starts in three commands:
+
+```bash
+cd examples/fastapi-demo
+docker compose up --wait
+open http://localhost:8000/docs
+```
+
+It wires a cached endpoint, a rate-limited endpoint, a circuit-breaker-protected endpoint, a distributed lock, a leader-gated task, and `/healthz` / `/readyz` probes. Read [`app.py`](https://github.com/grelinfo/grelmicro/blob/main/examples/fastapi-demo/app.py) to see each one.
+
 ### One route, one primitive
 
 The smallest grelmicro program: a FastAPI route protected by a process-local rate limiter. No `Grelmicro(...)`, no Redis, no lifespan.

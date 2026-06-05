@@ -176,6 +176,13 @@ select = ["ALL"]
 ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 
 [tool.ruff.lint.extend-per-file-ignores]
+"examples/*" = [
+    "ARG001",  # FastAPI lifespan signature requires the `app` argument
+    "D103",    # demo endpoints document their Pattern in a one-line comment
+    "FBT001",  # bool query parameters are idiomatic in FastAPI
+    "FBT002",  # same: `fail: bool = False` is a query flag
+    "INP001",  # standalone example app, not an importable package
+]
 "docs/img/logo/build_logo.py" = [
     "ANN",     # internal build script, type stubs add noise
     "D",       # no docstring-per-function enforcement

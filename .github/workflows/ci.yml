@@ -114,3 +114,27 @@ jobs:
         with:
           flags: "integration,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  demo:
+    name: Demo Smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Start the demo stack
+        run: docker compose -f examples/fastapi-demo/compose.yml up --build --wait --wait-timeout 240
+      - name: Probe the health endpoints
+        run: |
+          curl -fsS http://localhost:8000/livez
+          curl -fsS http://localhost:8000/readyz
+          curl -fsS http://localhost:8000/healthz
+      - name: Dump app logs on failure
+        if: failure()
+        run: docker compose -f examples/fastapi-demo/compose.yml logs app
+      - name: Tear down
+        if: always()
+        run: docker compose -f examples/fastapi-demo/compose.yml down -v
