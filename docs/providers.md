@@ -37,6 +37,22 @@ Components dispatch to the Provider's factory methods (`provider.sync()`,
 (`RedisSyncAdapter`, `RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay
 public as escape hatches but rarely appear in user code.
 
+!!! tip "Listing the Provider is optional"
+    A Provider held by a Component is discovered and lifecycled for you, so
+    you can drop the top-level entry and let the Components carry it:
+
+    ```python
+    micro = Grelmicro(uses=[
+        Sync(redis),
+        Cache(redis),
+        RateLimiters(redis),
+    ])
+    ```
+
+    The shared `redis` opens once, before the Components that hold it.
+    Listing it explicitly (as above) is still valid and lets you control
+    where it sits in the lifecycle order.
+
 ## Recipe 1: env-driven
 
 Construct the Provider without arguments and let it read `REDIS_*` from

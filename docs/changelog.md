@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+* ✨ Auto-discover shared Providers in `Grelmicro(uses=[...])`. A Provider held by a Component (`Sync(redis)`, `Cache(redis)`) no longer has to be listed separately: it is adopted and lifecycled exactly once, opened before the Components that hold it. Listing it explicitly stays valid and keeps control over lifecycle order. Issue [#263](https://github.com/grelinfo/grelmicro/issues/263).
+
 ## 0.26.0 - 2026-06-05
 
 ### Breaking

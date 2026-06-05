@@ -20,6 +20,8 @@ from grelmicro import (
     NoActiveAppError,
 )
 from grelmicro.errors import OutOfContextError
+from grelmicro.providers import Provider
+from grelmicro.sync import Sync
 
 _BOOM = "boom"
 _RAISED = "raised"
@@ -66,6 +68,66 @@ class _RaisingComponent(_RecordingComponent):
     async def __aenter__(self) -> Self:
         self.log.append(f"enter:{self.name}")
         raise RuntimeError(_BOOM)
+
+
+class _RecordingSyncAdapter:
+    """A `SyncBackend` that borrows a provider it does not own.
+
+    Only the lifecycle hooks run in these tests; the lock methods are
+    stubs present to satisfy the `SyncBackend` protocol.
+    """
+
+    def __init__(self, provider: _RecordingProvider) -> None:
+        self._provider = provider
+        self._owns_provider = False
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    async def acquire(self, *, name: str, token: str, duration: float) -> bool:
+        raise NotImplementedError
+
+    async def release(self, *, name: str, token: str) -> bool:
+        raise NotImplementedError
+
+    async def locked(self, *, name: str) -> bool:
+        raise NotImplementedError
+
+    async def owned(self, *, name: str, token: str) -> bool:
+        raise NotImplementedError
+
+
+class _RecordingProvider(Provider):
+    """A Provider that records its enter/exit lifecycle for discovery tests."""
+
+    short_name: ClassVar[str] = "rec"
+
+    def __init__(self) -> None:
+        self.entered = 0
+        self.exited = 0
+
+    def sync(self, **kwargs: object) -> _RecordingSyncAdapter:  # noqa: ARG002
+        return _RecordingSyncAdapter(self)
+
+    async def __aenter__(self) -> Self:
+        self.entered += 1
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.exited += 1
 
 
 # --- Component protocol ---
@@ -540,42 +602,43 @@ async def test_provider_base_sync_raises_not_implemented() -> None:
         bare.sync()
 
 
-async def test_warns_when_component_provider_not_in_uses(
+async def test_discovers_provider_not_in_uses(
     recwarn: pytest.WarningsRecorder,
 ) -> None:
-    """`Sync(redis)` without `redis` in `uses=` warns at startup."""
-    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
-
-    redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[Sync(redis)])
+    """`Sync(provider)` without the provider in `uses=` adopts and lifecycles it."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(uses=[Sync(provider)])
     async with micro:
         pass
 
-    assert any(
-        issubclass(w.category, UserWarning)
-        and "not listed in" in str(w.message)
-        for w in recwarn
-    )
-
-
-async def test_no_warning_when_provider_in_uses(
-    recwarn: pytest.WarningsRecorder,
-) -> None:
-    """`Sync(redis)` with `redis` in `uses=` does not warn."""
-    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
-
-    redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[redis, Sync(redis)])
-    async with micro:
-        pass
-
+    assert provider.entered == 1
+    assert provider.exited == 1
     assert not any(
-        issubclass(w.category, UserWarning)
-        and "not listed in" in str(w.message)
+        issubclass(w.category, UserWarning) and "listed" in str(w.message)
         for w in recwarn
     )
+
+
+async def test_discovers_shared_provider_only_once() -> None:
+    """A provider held by several components is lifecycled exactly once."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(uses=[Sync(provider, name="a"), Sync(provider, name="b")])
+    async with micro:
+        pass
+
+    assert provider.entered == 1
+    assert provider.exited == 1
+
+
+async def test_explicit_provider_takes_precedence_over_discovery() -> None:
+    """A provider listed in `uses=` is lifecycled once, not adopted again."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(uses=[provider, Sync(provider)])
+    async with micro:
+        pass
+
+    assert provider.entered == 1
+    assert provider.exited == 1
 
 
 async def test_warns_when_provider_listed_after_component(
@@ -596,16 +659,15 @@ async def test_warns_when_provider_listed_after_component(
     )
 
 
-async def test_strict_raises_when_provider_missing_from_uses() -> None:
-    """`strict=True` turns the missing-provider warning into an error."""
-    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
+async def test_strict_adopts_provider_missing_from_uses() -> None:
+    """`strict=True` adopts a provider absent from `uses=` without erroring."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(uses=[Sync(provider)], strict=True)
+    async with micro:
+        pass
 
-    redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[Sync(redis)], strict=True)
-    with pytest.raises(LifecycleOrderError, match="not listed in"):
-        async with micro:
-            pass
+    assert provider.entered == 1
+    assert provider.exited == 1
 
 
 async def test_strict_raises_when_provider_listed_after_component() -> None:
