@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Replace the `@cached(lock=...)` parameter with `@cached(stampede="local" | "distributed" | None)`. `lock=True` becomes `stampede="local"` (now the default), `lock=False` becomes `stampede=None`, and the custom-context-manager form is dropped in favor of the `"distributed"` cross-replica mode. Issue [#235](https://github.com/grelinfo/grelmicro/issues/235).
+
 ### Features
 
+* ✨ Add a three-layer cache stampede menu to `@cached`. `stampede="local"` (default) folds concurrent same-key misses to one in-process run, `stampede="distributed"` coordinates across replicas through the `Sync` component, and `early=` (XFetch) refreshes the hottest keys in the background before they expire so no caller blocks. Issue [#235](https://github.com/grelinfo/grelmicro/issues/235).
 * ✨ Add `LeaderElection.last_confirmation_age()` (seconds since the last backend response that confirmed local leadership, `None` until first acquisition and after confirmed loss) and `LeaderElection.is_leader_confirmed_within(max_age)` (stricter variant of `is_leader()` that requires a recent backend renewal). The `is_leader()` docstring now spells out the advisory uncertainty window during a backend partition.
 * ✨ Add `Grelmicro(strict=True)` to raise `LifecycleOrderError` instead of warning when a Component holds a Provider that is missing from `uses=` or listed after the dependent Component. The default `False` preserves the lenient warn-only behavior. `LifecycleOrderError` is exported from `grelmicro`.
 * ✨ Add `Shield` resilience pattern: per-attempt timeout, retry-budget-gated retries, CUBIC-style adaptive rate limiter, optional cache and fallback recovery paths. Three profiles (`internal`, `api`, `slow`) cover the common cases. Decorator (`@shield`, `@shield.api(...)`), class (`Shield.api("name")`), and imperative (`Shield.api("name").run(fn, ...)`) forms supported. Issue [#249](https://github.com/grelinfo/grelmicro/issues/249).

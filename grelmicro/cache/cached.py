@@ -2,16 +2,21 @@
 
 import asyncio
 import functools
+import hashlib
+import json
+import math
+import random
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager, AbstractContextManager
-from typing import Annotated, Any, ParamSpec, TypeVar
+from typing import Annotated, Any, Literal, ParamSpec, TypeVar
 
 from typing_extensions import Doc
 
 from grelmicro.cache._key import make_cache_key
-from grelmicro.cache.ttl import TTLCache
+from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
+from grelmicro.sync.lock import Lock
 
 # Decorator factories cannot use PEP 695 cleanly: the inner
 # ``decorator`` would inherit ``cached``'s type parameters instead
@@ -23,6 +28,15 @@ R = TypeVar("R")
 _SENTINEL = object()
 
 _PER_KEY_LOCK_BUDGET = 1024
+
+_XFETCH_SUFFIX = "\x00xf"
+
+Stampede = Literal["local", "distributed"]
+
+# Seams rebound by tests for deterministic ``early`` behavior. ``_random``
+# rolls the XFetch die; ``_now`` is the wall clock that ages entries.
+_random = random.random
+_now = time.time
 
 
 def _evict_idle_locks(
@@ -63,12 +77,6 @@ def _evict_idle_locks_sync(
             return
 
 
-# Lock parameter: True auto-creates, or pass your own.
-_LockType = (
-    bool | AbstractContextManager[Any] | AbstractAsyncContextManager[Any] | None
-)
-
-
 def cached(
     cache: Annotated[
         TTLCache,
@@ -107,24 +115,39 @@ def cached(
             """,
         ),
     ] = False,
-    lock: Annotated[
-        _LockType,
+    stampede: Annotated[
+        Stampede | None,
         Doc(
             """
-            Protect against duplicate work on a cache miss. When
-            the cache does not have the value, only one caller
-            runs the function. The other callers wait for the
-            result.
+            Protect against duplicate work when many callers miss the
+            same key at once (the "dog-pile" effect).
 
-            Set to ``True`` for **per-key** locking. Misses on
-            different keys run in parallel. Misses on the same
-            key run one at a time. The right lock type is
-            created automatically (``asyncio.Lock`` for async,
-            ``threading.Lock`` for sync).
+            - ``"local"`` (default): per-key in-process lock. Misses on
+              the same key fold to one execution; the others wait and
+              reuse the result. Free, no I/O.
+            - ``"distributed"``: cross-replica lock via the `Sync`
+              component, resolved from the active `Grelmicro` app. One
+              short-lived backend acquire per cold miss folds misses
+              across replicas. Implies ``"local"`` (in-process dedup is
+              free). Requires an active app with a `Sync` backend.
+            - ``None``: no protection. Every concurrent miss runs the
+              function.
+            """,
+        ),
+    ] = "local",
+    early: Annotated[
+        float | None,
+        Doc(
+            """
+            Probabilistic early refresh (XFetch). A float in ``[0, 1)``.
+            When a cached entry is read inside the last ``early``
+            fraction of its TTL, the call may roll a die and, on success,
+            schedule a background recompute while still returning the
+            cached value. The hottest keys then refresh before they
+            expire, so no caller ever blocks on a cold miss.
 
-            You can also pass a custom context manager for
-            **global** locking. This uses a single lock shared
-            by all keys.
+            Costs one extra recompute per refresh. Leave ``None`` to
+            disable.
             """,
         ),
     ] = None,
@@ -138,16 +161,31 @@ def cached(
     ``cache_clear()`` helpers (matching ``functools.lru_cache``).
     ``cache_clear()`` is always a coroutine (must be awaited).
 
+    Raises:
+        ValueError: If ``stampede`` is not ``"local"``, ``"distributed"``,
+            or ``None``, if ``early`` is outside ``[0, 1)``, or if
+            ``stampede="distributed"`` is used on a sync function without
+            an active app.
+
     Returns:
         A decorator that caches function results.
     """
+    if stampede not in ("local", "distributed", None):
+        msg = (
+            f"Invalid stampede {stampede!r}: "
+            f"use 'local', 'distributed', or None."
+        )
+        raise ValueError(msg)
+    if early is not None and not 0 <= early < 1:
+        msg = f"Invalid early {early!r}: must be a float in [0, 1)."
+        raise ValueError(msg)
 
     def decorator(
         func: Callable[P, R],
     ) -> Callable[P, R]:
         is_async_func = asyncio.iscoroutinefunction(func)
-        per_key = lock is True
-        global_lock = _resolve_global_lock(lock)
+        per_key = stampede in ("local", "distributed")
+        distributed = stampede == "distributed"
 
         if is_async_func:
             wrapper = _build_async_wrapper(
@@ -156,8 +194,9 @@ def cached(
                 key_maker,
                 skip,
                 typed=typed,
-                global_lock=global_lock,
                 per_key=per_key,
+                distributed=distributed,
+                early=early,
             )
         else:
             wrapper = _build_sync_wrapper(
@@ -166,8 +205,9 @@ def cached(
                 key_maker,
                 skip,
                 typed=typed,
-                global_lock=global_lock,
                 per_key=per_key,
+                distributed=distributed,
+                early=early,
             )
         wrapper.cache_info = cache.cache_info
         wrapper.cache_clear = cache.clear
@@ -176,17 +216,69 @@ def cached(
     return decorator
 
 
-def _resolve_global_lock(
-    lock: _LockType,
-) -> AbstractContextManager[Any] | AbstractAsyncContextManager[Any] | None:
-    """Resolve the lock parameter to a global lock instance.
+# --- Stampede helpers ---
 
-    Returns None for ``True`` (per-key locks are handled in wrappers),
-    ``False``, and ``None``. Returns the custom instance as-is.
+
+def _stampede_lock_name(key: str) -> str:
+    """Build a backend-safe distributed lock name from a cache key.
+
+    Cache keys embed a function qualname that may contain characters
+    (``<locals>``, spaces) that the `Lock` name validator rejects, so we
+    hash the key into a fixed, always-valid name.
     """
-    if lock is True or lock is False or lock is None:
+    digest = hashlib.sha256(key.encode()).hexdigest()[:32]
+    return f"cache.stampede.{digest}"
+
+
+def _xfetch_should_refresh(remaining: float, delta: float) -> bool:
+    """Roll the Vattani XFetch die for an entry in its early window.
+
+    ``remaining`` is the seconds left before expiry and ``delta`` is the
+    last recompute duration. The entry refreshes when
+    ``delta * -ln(rand) >= remaining``, so a key whose recompute is
+    expensive relative to its remaining life refreshes sooner.
+    """
+    return delta * -math.log(_random()) >= remaining
+
+
+async def _read_meta(cache: TTLCache, key: str) -> tuple[float, float] | None:
+    """Return ``(written_epoch, delta)`` for an XFetch entry, or None."""
+    raw = await cache._get_backend().get(  # noqa: SLF001
+        key=f"{_CACHE_PREFIX}:{key}{_XFETCH_SUFFIX}"
+    )
+    if raw is None:
         return None
-    return lock
+    try:
+        data = json.loads(raw)
+        return float(data["w"]), float(data["d"])
+    except (ValueError, KeyError, TypeError):  # pragma: no cover - corrupt
+        return None
+
+
+async def _write_meta(
+    cache: TTLCache, key: str, written: float, delta: float
+) -> None:
+    """Store the XFetch ``(written, delta)`` sidecar next to a value."""
+    raw = json.dumps({"w": written, "d": delta}).encode()
+    await cache._get_backend().set(  # noqa: SLF001
+        key=f"{_CACHE_PREFIX}:{key}{_XFETCH_SUFFIX}",
+        value=raw,
+        ttl=cache.config.ttl,
+    )
+
+
+def _due_for_early_refresh(
+    meta: tuple[float, float] | None, ttl: float, early: float
+) -> bool:
+    """Decide whether a read should trigger a background refresh."""
+    if meta is None:
+        return False
+    written, delta = meta
+    remaining = written + ttl - _now()
+    if remaining <= 0 or remaining > early * ttl:
+        # Outside the early window (or already expired and refetched).
+        return False
+    return _xfetch_should_refresh(remaining, delta)
 
 
 # --- Async function ---
@@ -199,54 +291,108 @@ def _build_async_wrapper(
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    global_lock: Any,  # noqa: ANN401
     per_key: bool,
+    distributed: bool,
+    early: float | None,
 ) -> Any:  # noqa: ANN401
     """Build async wrapper for cached decorator."""
     key_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
     key_locks_guard = asyncio.Lock()
+
+    async def get_key_lock(key: str) -> asyncio.Lock:
+        async with key_locks_guard:
+            the_lock = key_locks.get(key)
+            if the_lock is None:
+                the_lock = asyncio.Lock()
+                key_locks[key] = the_lock
+                _evict_idle_locks(key_locks)
+            else:
+                key_locks.move_to_end(key)
+            return the_lock
 
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         key = _make_key(func, args, kwargs, key_maker, typed=typed)
         result = await cache.get(key, _SENTINEL)
         if result is not _SENTINEL:
+            if early is not None:
+                await _maybe_refresh_async(
+                    func, args, kwargs, cache, key, skip, early, get_key_lock
+                )
             return result
 
-        if per_key:
-            async with key_locks_guard:
-                the_lock = key_locks.get(key)
-                if the_lock is None:
-                    the_lock = asyncio.Lock()
-                    key_locks[key] = the_lock
-                    _evict_idle_locks(key_locks)
-                else:
-                    key_locks.move_to_end(key)
-        else:
-            the_lock = global_lock
-        if the_lock is not None:
-            async with the_lock:
-                result = await cache.get(key, _SENTINEL)
-                if result is not _SENTINEL:
-                    return result
-                return await _compute_and_cache(
-                    func,
-                    args,
-                    kwargs,
-                    cache,
-                    key,
-                    skip,
+        if not per_key:
+            return await _compute_and_cache(
+                func, args, kwargs, cache, key, skip, early=early
+            )
+
+        the_lock = await get_key_lock(key)
+        async with the_lock:
+            result = await cache._peek(key, _SENTINEL)  # noqa: SLF001
+            if result is not _SENTINEL:
+                return result
+            if distributed:
+                return await _compute_distributed(
+                    func, args, kwargs, cache, key, skip, early=early
                 )
-        return await _compute_and_cache(
-            func,
-            args,
-            kwargs,
-            cache,
-            key,
-            skip,
-        )
+            return await _compute_and_cache(
+                func, args, kwargs, cache, key, skip, early=early
+            )
 
     return async_wrapper
+
+
+async def _compute_distributed(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    cache: TTLCache,
+    key: str,
+    skip: Callable[[Any], bool] | None,
+    *,
+    early: float | None,
+) -> Any:  # noqa: ANN401
+    """Compute under a cross-replica `Sync` lock, re-checking inside it."""
+    async with Lock(_stampede_lock_name(key)):
+        result = await cache._peek(key, _SENTINEL)  # noqa: SLF001
+        if result is not _SENTINEL:
+            return result
+        return await _compute_and_cache(
+            func, args, kwargs, cache, key, skip, early=early
+        )
+
+
+async def _maybe_refresh_async(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    cache: TTLCache,
+    key: str,
+    skip: Callable[[Any], bool] | None,
+    early: float,
+    get_key_lock: Callable[[str], Any],
+) -> None:
+    """Schedule a background recompute when an entry is due for refresh."""
+    meta = await _read_meta(cache, key)
+    if not _due_for_early_refresh(meta, cache.config.ttl, early):
+        return
+    the_lock = await get_key_lock(key)
+    if the_lock.locked():
+        # A refresh or cold miss is already computing this key.
+        return
+
+    async def refresh() -> None:
+        if the_lock.locked():  # pragma: no cover - raced lock
+            return
+        async with the_lock:
+            await _compute_and_cache(
+                func, args, kwargs, cache, key, skip, early=early
+            )
+
+    task = asyncio.create_task(refresh())
+    # Drop the lookup table reference once done; surfacing failures is
+    # the caller's job via the cache, not this best-effort refresh.
+    task.add_done_callback(lambda _: None)
 
 
 async def _compute_and_cache(
@@ -256,11 +402,17 @@ async def _compute_and_cache(
     cache: TTLCache,
     key: str,
     skip: Callable[[Any], bool] | None,
+    *,
+    early: float | None,
 ) -> Any:  # noqa: ANN401
     """Execute async function and store result in cache."""
+    started = time.perf_counter()
     result = await func(*args, **kwargs)
+    delta = time.perf_counter() - started
     if skip is None or not skip(result):
         await cache.set(key, result)
+        if early is not None:
+            await _write_meta(cache, key, _now(), delta)
     return result
 
 
@@ -274,8 +426,9 @@ def _build_sync_wrapper(
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    global_lock: Any,  # noqa: ANN401
     per_key: bool,
+    distributed: bool,
+    early: float | None,
 ) -> Any:  # noqa: ANN401
     """Build sync wrapper for cached decorator.
 
@@ -286,53 +439,125 @@ def _build_sync_wrapper(
     key_locks: OrderedDict[str, threading.Lock] = OrderedDict()
     key_locks_guard = threading.Lock()
 
+    def get_key_lock(key: str) -> threading.Lock:
+        with key_locks_guard:
+            the_lock = key_locks.get(key)
+            if the_lock is None:
+                the_lock = threading.Lock()
+                key_locks[key] = the_lock
+                _evict_idle_locks_sync(key_locks)
+            else:
+                key_locks.move_to_end(key)
+            return the_lock
+
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         key = _make_key(func, args, kwargs, key_maker, typed=typed)
         loop = cache._get_backend()._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
-        result = asyncio.run_coroutine_threadsafe(
-            cache.get(key, _SENTINEL), loop
-        ).result()
+        result = _run(cache.get(key, _SENTINEL), loop)
         if result is not _SENTINEL:
-            return result
-
-        if per_key:
-            with key_locks_guard:
-                the_lock = key_locks.get(key)
-                if the_lock is None:
-                    the_lock = threading.Lock()
-                    key_locks[key] = the_lock
-                    _evict_idle_locks_sync(key_locks)
-                else:
-                    key_locks.move_to_end(key)
-        else:
-            the_lock = global_lock
-
-        if the_lock is not None:
-            with the_lock:
-                result = asyncio.run_coroutine_threadsafe(
-                    cache.get(key, _SENTINEL), loop
-                ).result()
-                if result is not _SENTINEL:
-                    return result
-                return _compute_and_cache_sync(
+            if early is not None:
+                _maybe_refresh_sync(
                     func,
                     args,
                     kwargs,
                     cache,
                     key,
                     skip,
+                    early,
+                    loop,
+                    get_key_lock,
                 )
-        return _compute_and_cache_sync(
-            func,
-            args,
-            kwargs,
-            cache,
-            key,
-            skip,
-        )
+            return result
+
+        if not per_key:
+            return _compute_and_cache_sync(
+                func, args, kwargs, cache, key, skip, loop, early=early
+            )
+
+        the_lock = get_key_lock(key)
+        with the_lock:
+            result = _run(cache._peek(key, _SENTINEL), loop)  # noqa: SLF001
+            if result is not _SENTINEL:
+                return result
+            if distributed:
+                return _run(
+                    _distributed_orchestrate(
+                        func, args, kwargs, cache, key, skip, loop, early=early
+                    ),
+                    loop,
+                )
+            return _compute_and_cache_sync(
+                func, args, kwargs, cache, key, skip, loop, early=early
+            )
 
     return sync_wrapper
+
+
+def _run(coro: Any, loop: Any) -> Any:  # noqa: ANN401
+    """Run a coroutine on the cache's event loop from a worker thread."""
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
+
+
+async def _distributed_orchestrate(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    cache: TTLCache,
+    key: str,
+    skip: Callable[[Any], bool] | None,
+    loop: Any,  # noqa: ANN401
+    *,
+    early: float | None,
+) -> Any:  # noqa: ANN401
+    """Hold the cross-replica lock and recompute, all in one loop task.
+
+    The blocking function runs in an executor so it does not stall the
+    loop, while the `Lock` acquire and release stay on the same task so
+    ownership holds.
+    """
+    async with Lock(_stampede_lock_name(key)):
+        result = await cache._peek(key, _SENTINEL)  # noqa: SLF001
+        if result is not _SENTINEL:
+            return result
+        started = time.perf_counter()
+        result = await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+        delta = time.perf_counter() - started
+        if skip is None or not skip(result):
+            await cache.set(key, result)
+            if early is not None:
+                await _write_meta(cache, key, _now(), delta)
+        return result
+
+
+def _maybe_refresh_sync(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    cache: TTLCache,
+    key: str,
+    skip: Callable[[Any], bool] | None,
+    early: float,
+    loop: Any,  # noqa: ANN401
+    get_key_lock: Callable[[str], threading.Lock],
+) -> None:
+    """Schedule a background recompute for a sync entry due for refresh."""
+    meta = _run(_read_meta(cache, key), loop)
+    if not _due_for_early_refresh(meta, cache.config.ttl, early):
+        return
+    the_lock = get_key_lock(key)
+    if not the_lock.acquire(blocking=False):
+        return
+
+    def refresh() -> None:
+        try:
+            _compute_and_cache_sync(
+                func, args, kwargs, cache, key, skip, loop, early=early
+            )
+        finally:
+            the_lock.release()
+
+    threading.Thread(target=refresh, daemon=True).start()
 
 
 def _compute_and_cache_sync(
@@ -342,14 +567,18 @@ def _compute_and_cache_sync(
     cache: TTLCache,
     key: str,
     skip: Callable[[Any], bool] | None,
+    loop: Any,  # noqa: ANN401
+    *,
+    early: float | None,
 ) -> Any:  # noqa: ANN401
     """Execute sync function and store result in async cache."""
+    started = time.perf_counter()
     result = func(*args, **kwargs)
+    delta = time.perf_counter() - started
     if skip is None or not skip(result):
-        asyncio.run_coroutine_threadsafe(
-            cache.set(key, result),
-            cache._get_backend()._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
-        ).result()
+        _run(cache.set(key, result), loop)
+        if early is not None:
+            _run(_write_meta(cache, key, _now(), delta), loop)
     return result
 
 
