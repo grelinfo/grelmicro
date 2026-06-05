@@ -7,10 +7,13 @@ from contextlib import suppress
 
 import pytest
 
+from grelmicro import Grelmicro
 from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
+from grelmicro.sync import Sync
+from grelmicro.sync.memory import MemorySyncAdapter
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -350,17 +353,17 @@ class TestAsyncCachedKeyMaker:
         assert call_count == EXPECTED_CALL_COUNT_1
 
 
-class TestAsyncCachedLock:
-    """Test @cached with lock-based stampede protection on async functions."""
+class TestAsyncCachedStampede:
+    """Test @cached stampede protection on async functions."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
-        """lock=True ensures only one coroutine computes on concurrent miss."""
+        """stampede='local' ensures only one coroutine computes on concurrent miss."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
-        @cached(cache, lock=True)
+        @cached(cache, stampede="local")
         async def slow_fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -383,14 +386,14 @@ class TestAsyncCachedLock:
     async def test_lock_true_per_key_allows_parallel_different_keys(
         self,
     ) -> None:
-        """lock=True uses per-key locks: different keys run in parallel."""
+        """stampede='local' uses per-key locks: different keys run in parallel."""
         # Arrange
         cache = _make_cache()
         order: list[str] = []
         barrier_a = asyncio.Event()
         barrier_b = asyncio.Event()
 
-        @cached(cache, lock=True)
+        @cached(cache, stampede="local")
         async def fetch(key: str) -> str:
             if key == "a":
                 order.append("a:start")
@@ -492,16 +495,14 @@ class TestAsyncCachedLock:
         finally:
             held.release()
 
-    async def test_custom_asyncio_lock_prevents_duplicate_computation(
-        self,
-    ) -> None:
-        """A custom asyncio.Lock provides global stampede protection."""
+    async def test_stampede_none_allows_duplicate_computation(self) -> None:
+        """stampede=None runs the function for every concurrent miss."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
-        @cached(cache, lock=asyncio.Lock())
+        @cached(cache, stampede=None)
         async def slow_fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -516,15 +517,15 @@ class TestAsyncCachedLock:
         await task1
         await task2
 
-        # Assert: global lock serializes concurrent same-key misses
-        assert call_count == EXPECTED_CALL_COUNT_1
+        # Assert: no dedup, both concurrent misses computed
+        assert call_count == EXPECTED_CALL_COUNT_2
 
     async def test_lock_true_cache_hit_does_not_acquire_lock(self) -> None:
-        """A cache hit returns immediately without touching the lock."""
+        """A cache hit returns immediately without acquiring the per-key lock."""
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, lock=True)
+        @cached(cache, stampede="local")
         async def fetch(x: int) -> int:
             return x
 
@@ -539,12 +540,12 @@ class TestAsyncCachedLock:
         assert cache.cache_info().hits == EXPECTED_HITS_1
 
     async def test_lock_false_disables_protection(self) -> None:
-        """lock=False behaves like lock=None (no protection but still caches)."""
+        """stampede=None disables protection but still caches."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock=False)
+        @cached(cache, stampede=None)
         async def fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -795,16 +796,16 @@ class TestSyncCachedKeyMaker:
         assert call_count == EXPECTED_CALL_COUNT_1
 
 
-class TestSyncCachedLock:
-    """Test @cached with lock-based stampede protection on sync functions."""
+class TestSyncCachedStampede:
+    """Test @cached stampede protection on sync functions."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
-        """lock=True with threading.Lock prevents redundant computation."""
+        """stampede='local' with threading.Lock prevents redundant computation."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock=True)
+        @cached(cache, stampede="local")
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -822,7 +823,7 @@ class TestSyncCachedLock:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, lock=True)
+        @cached(cache, stampede="local")
         def compute(x: int) -> int:
             return x * 2
 
@@ -832,15 +833,15 @@ class TestSyncCachedLock:
         await cache.clear()
         await asyncio.to_thread(lambda: compute(7))
 
-    async def test_custom_threading_lock_prevents_stampede(self) -> None:
-        """A custom threading.Lock provides global stampede protection."""
+    async def test_local_prevents_stampede_under_concurrency(self) -> None:
+        """stampede='local' folds concurrent same-key sync misses to one run."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         # started is set the first time slow_compute begins executing
         started = threading.Event()
 
-        @cached(cache, lock=threading.Lock())
+        @cached(cache, stampede="local")
         def slow_compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -868,12 +869,12 @@ class TestSyncCachedLock:
         assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
 
     async def test_lock_true_per_key_sync(self) -> None:
-        """lock=True uses per-key threading.Lock: same key serialized, different keys not."""
+        """stampede='local' uses per-key threading.Lock: same key serialized, different keys not."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock=True)
+        @cached(cache, stampede="local")
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -890,12 +891,12 @@ class TestSyncCachedLock:
         assert call_count == EXPECTED_CALL_COUNT_2  # 5 once, 6 once
 
     async def test_lock_false_still_caches(self) -> None:
-        """lock=False behaves like lock=None (no protection but still caches)."""
+        """stampede=None disables protection but still caches."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, lock=False)
+        @cached(cache, stampede=None)
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -908,3 +909,407 @@ class TestSyncCachedLock:
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_1
         assert cache.cache_info().hits == EXPECTED_HITS_1
+
+
+# ---------------------------------------------------------------------------
+# Distributed stampede tests
+# ---------------------------------------------------------------------------
+# A distributed miss serializes through the Sync component's lock. Two
+# separate decorations of the SAME function share the cache key and the
+# distributed lock but keep independent in-process locks, so they model
+# two replicas folding onto one execution.
+
+
+def _shared_cache(loop: asyncio.AbstractEventLoop) -> TTLCache:
+    backend = MemoryCacheAdapter()
+    backend._loop = loop
+    return TTLCache(backend=backend, serializer=PickleSerializer())
+
+
+class TestDistributedStampede:
+    """Test @cached(stampede="distributed") across simulated replicas."""
+
+    async def test_two_replicas_fold_to_one_execution(self) -> None:
+        """Concurrent distributed misses on the same key run once."""
+        loop = asyncio.get_running_loop()
+        cache = _shared_cache(loop)
+        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        call_count = 0
+        barrier = asyncio.Event()
+
+        def impl_factory():  # noqa: ANN202
+            async def impl(x: int) -> int:
+                nonlocal call_count
+                call_count += 1
+                await barrier.wait()
+                return x * 2
+
+            return impl
+
+        impl = impl_factory()
+        replica_a = cached(cache, stampede="distributed")(impl)
+        replica_b = cached(cache, stampede="distributed")(impl)
+
+        async with micro:
+            task_a = asyncio.create_task(replica_a(5))
+            task_b = asyncio.create_task(replica_b(5))
+            await asyncio.sleep(0.02)  # let the first acquire the lock
+            barrier.set()
+            result_a = await task_a
+            result_b = await task_b
+
+        assert result_a == EXPECTED_DOUBLE_5
+        assert result_b == EXPECTED_DOUBLE_5
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_distributed_sync_function_folds(self) -> None:
+        """Distributed protection drives the lock from a sync worker thread."""
+        loop = asyncio.get_running_loop()
+        cache = _shared_cache(loop)
+        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        call_count = 0
+
+        def impl(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.03)
+            return x * 2
+
+        replica_a = cached(cache, stampede="distributed")(impl)
+        replica_b = cached(cache, stampede="distributed")(impl)
+
+        async with micro:
+            results: list[int] = []
+
+            async def run(fn) -> None:  # noqa: ANN001
+                results.append(await asyncio.to_thread(lambda: fn(5)))
+
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(run(replica_a))
+                await asyncio.sleep(0.01)
+                tg.create_task(run(replica_b))
+
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
+
+
+# ---------------------------------------------------------------------------
+# Early (XFetch) refresh tests
+# ---------------------------------------------------------------------------
+
+
+class _Clock:
+    """Mutable wall clock standing in for ``cached._now``."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.t = start
+
+    def __call__(self) -> float:
+        return self.t
+
+
+class TestEarlyRefresh:
+    """Test @cached(early=...) probabilistic XFetch refresh."""
+
+    async def test_invalid_early_rejected(self) -> None:
+        """Early outside [0, 1) raises at decoration time."""
+        cache = _make_cache()
+        with pytest.raises(ValueError, match="early"):
+            cached(cache, early=1.0)
+        with pytest.raises(ValueError, match="early"):
+            cached(cache, early=-0.1)
+
+    async def test_invalid_stampede_rejected(self) -> None:
+        """An unknown stampede value raises at decoration time."""
+        cache = _make_cache()
+        with pytest.raises(ValueError, match="stampede"):
+            cached(cache, stampede="global")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    async def test_early_outside_window_does_not_refresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fresh entry read early in its TTL is not refreshed."""
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: True
+        )
+        cache = _make_cache(ttl=60)
+        call_count = 0
+
+        @cached(cache, early=0.5)
+        async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        await fetch(5)  # miss, writes meta at t=1000
+        clock.t = 1010  # remaining 50s > 30s window
+        await fetch(5)  # hit, not due
+        await asyncio.sleep(0.02)
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_early_in_window_schedules_refresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An entry inside the early window refreshes when the die rolls true."""
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: True
+        )
+        cache = _make_cache(ttl=60)
+        call_count = 0
+
+        @cached(cache, early=0.5)
+        async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        await fetch(5)  # miss at t=1000
+        clock.t = 1040  # remaining 20s <= 30s window
+        result = await fetch(5)  # hit, schedules background refresh
+        assert result == EXPECTED_DOUBLE_5
+        # Wait for the background refresh task to recompute.
+        for _ in range(50):
+            await asyncio.sleep(0.005)
+            if call_count == EXPECTED_CALL_COUNT_2:
+                break
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    async def test_early_die_rolls_false_no_refresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """In the window but the die rolls false: no refresh."""
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: False
+        )
+        cache = _make_cache(ttl=60)
+        call_count = 0
+
+        @cached(cache, early=0.5)
+        async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        await fetch(5)
+        clock.t = 1040
+        await fetch(5)
+        await asyncio.sleep(0.02)
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_early_no_meta_no_refresh(self) -> None:
+        """Early hit with no stored metadata falls through to normal expiry."""
+        cache = _make_cache(ttl=60)
+        call_count = 0
+
+        from grelmicro.cache.cached import _make_key  # noqa: PLC0415
+
+        async def impl(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        fetch = cached(cache, early=0.5)(impl)
+        # Seed the value directly so no XFetch meta exists for the key.
+        key = _make_key(impl, (5,), {}, None, typed=False)
+        await cache.set(key, 10)
+        await fetch(5)  # hit, meta is None
+        await asyncio.sleep(0.02)
+        assert call_count == 0
+
+    async def test_early_sync_refresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A sync entry in the early window refreshes on a daemon thread."""
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: True
+        )
+        cache = _make_cache(ttl=60)
+        call_count = 0
+
+        @cached(cache, early=0.5)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        await asyncio.to_thread(lambda: compute(5))  # miss at t=1000
+        clock.t = 1040
+        await asyncio.to_thread(lambda: compute(5))  # hit, schedules refresh
+        for _ in range(50):
+            await asyncio.sleep(0.005)
+            if call_count == EXPECTED_CALL_COUNT_2:
+                break
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    async def test_xfetch_formula(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The Vattani die fires once delta*-ln(rand) crosses remaining."""
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        # -ln(rand) ~ 0 -> never refresh, even with a costly delta.
+        monkeypatch.setattr(cached_mod, "_random", lambda: 1.0)
+        assert (
+            cached_mod._xfetch_should_refresh(remaining=1.0, delta=10.0)
+            is False
+        )
+        # A large -ln(rand) and a costly delta clear a small remaining.
+        monkeypatch.setattr(cached_mod, "_random", lambda: 0.01)  # -ln ~ 4.6
+        assert (
+            cached_mod._xfetch_should_refresh(remaining=1.0, delta=10.0) is True
+        )
+
+    async def test_early_refresh_skipped_when_lock_held(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A read does not start a second refresh while one is in flight."""
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: True
+        )
+        cache = _make_cache(ttl=60)
+        gate = asyncio.Event()
+        call_count = 0
+
+        @cached(cache, early=0.5)
+        async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= EXPECTED_CALL_COUNT_2:  # the refresh recompute
+                await gate.wait()
+            return x * 2
+
+        await fetch(5)  # miss at t=1000
+        clock.t = 1040  # in window
+        await fetch(5)  # hit -> schedules refresh that holds the lock
+        await asyncio.sleep(0.02)  # let the refresh task acquire the lock
+        await fetch(5)  # hit -> refresh skipped, lock already held
+        gate.set()
+        await asyncio.sleep(0.02)
+        assert call_count == EXPECTED_CALL_COUNT_2  # only one refresh ran
+
+    async def test_early_sync_outside_window(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A sync hit early in the TTL is not refreshed."""
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        cache = _make_cache(ttl=60)
+        call_count = 0
+
+        @cached(cache, early=0.5)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        await asyncio.to_thread(lambda: compute(5))  # miss at t=1000
+        clock.t = 1010  # remaining 50s > 30s window
+        await asyncio.to_thread(lambda: compute(5))  # hit, not due
+        await asyncio.sleep(0.02)
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_distributed_sync_early_writes_meta(self) -> None:
+        """A sync distributed cold miss with early= stores XFetch metadata."""
+        from grelmicro.cache.cached import (  # noqa: PLC0415
+            _make_key,
+            _read_meta,
+        )
+
+        loop = asyncio.get_running_loop()
+        cache = _shared_cache(loop)
+        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+
+        def impl(x: int) -> int:
+            return x * 2
+
+        fetch = cached(cache, stampede="distributed", early=0.5)(impl)
+        async with micro:
+            await asyncio.to_thread(lambda: fetch(5))
+            key = _make_key(impl, (5,), {}, None, typed=False)
+            meta = await _read_meta(cache, key)
+        assert meta is not None
+
+    async def test_distributed_sync_skip_not_cached(self) -> None:
+        """A sync distributed miss whose result is skipped is not cached."""
+        loop = asyncio.get_running_loop()
+        cache = _shared_cache(loop)
+        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        call_count = 0
+
+        def impl(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        fetch = cached(cache, stampede="distributed", skip=lambda _: True)(impl)
+        async with micro:
+            await asyncio.to_thread(lambda: fetch(5))
+            await asyncio.to_thread(lambda: fetch(5))
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    async def test_early_sync_refresh_skipped_when_lock_held(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A sync read does not start a second refresh while one is in flight."""
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: True
+        )
+        cache = _make_cache(ttl=60)
+        gate = threading.Event()
+        call_count = 0
+
+        @cached(cache, early=0.5)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= EXPECTED_CALL_COUNT_2:  # the refresh recompute
+                gate.wait()
+            return x * 2
+
+        await asyncio.to_thread(lambda: compute(5))  # miss at t=1000
+        clock.t = 1040  # in window
+        await asyncio.to_thread(lambda: compute(5))  # hit -> refresh holds lock
+        await asyncio.sleep(0.05)  # let the refresh thread acquire the lock
+        await asyncio.to_thread(lambda: compute(5))  # hit -> refresh skipped
+        gate.set()
+        await asyncio.sleep(0.05)
+        assert call_count == EXPECTED_CALL_COUNT_2  # only one refresh ran

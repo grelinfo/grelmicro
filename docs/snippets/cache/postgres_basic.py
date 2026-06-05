@@ -17,7 +17,7 @@ micro = Grelmicro(uses=[postgres, cache])
 ttl_cache = cache.ttl(ttl=300, serializer=PydanticSerializer(User))
 
 
-@cached(ttl_cache, lock=True)
+@cached(ttl_cache, stampede="local")
 async def get_user(user_id: int) -> User:
     return User(id=user_id, name="Alice")
 

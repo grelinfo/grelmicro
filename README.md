@@ -50,7 +50,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 
 | Module | Summary |
 |---|---|
-| [**Cache**](docs/cache.md) | `@cached` decorator with per-key stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
+| [**Cache**](docs/cache.md) | `@cached` decorator with local, distributed, and early (XFetch) stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
 | [**Synchronization**](docs/sync.md) | Distributed `Lock`, `TaskLock`, `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Task Scheduler**](docs/task.md) | Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement. |
 | [**Resilience**](docs/resilience/index.md) | [Circuit Breaker](docs/resilience/circuit-breaker.md) and [Rate Limiter](docs/resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |

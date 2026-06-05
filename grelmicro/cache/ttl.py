@@ -214,6 +214,17 @@ class TTLCache(Generic[T]):
             self._promote(key)
         return self._deserialize(raw)
 
+    async def _peek(self, key: str, default: T | None = None) -> T | None:
+        """Read a key without recording hit/miss stats or LRU promotion.
+
+        Used for the double-checked recheck inside stampede locks, where
+        the lookup is part of an in-flight miss rather than a new access.
+        """
+        raw = await self._get_backend().get(key=f"{_CACHE_PREFIX}:{key}")
+        if raw is None:
+            return default
+        return self._deserialize(raw)
+
     async def set(
         self,
         key: Annotated[str, Doc("The cache key.")],

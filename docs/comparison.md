@@ -24,7 +24,7 @@ A short decision tree before the detailed tables:
 
 | If you only need this | Use this | Pick grelmicro when you also need |
 |---|---|---|
-| Async cache decorator over Redis | [`aiocache`](https://github.com/aio-libs/aiocache) or [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | Opt-in per-key stampede protection (`lock=True`), type-safe `TTLCache[T]`, Postgres backend |
+| Async cache decorator over Redis | [`aiocache`](https://github.com/aio-libs/aiocache) or [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | Three-layer stampede menu (`stampede="local"`/`"distributed"`, `early=`), type-safe `TTLCache[T]`, Postgres backend |
 | FastAPI rate limiter | [`slowapi`](https://github.com/laurentS/slowapi) or [`fastapi-limiter`](https://github.com/long2ice/fastapi-limiter) | Sliding-window algorithm, structured `RateLimitResult` for retry-after headers, swap Memory and Redis with the same API |
 | Async circuit breaker | [`pybreaker`](https://github.com/danielfm/pybreaker) or [`aiobreaker`](https://github.com/arlyon/aiobreaker) | Reconfigurable thresholds, frozen Pydantic config, structured logging context, distributed backend (planned, see [#163](https://github.com/grelinfo/grelmicro/issues/163)) |
 | Retry with `@retry(stop=, wait=)` | [`tenacity`](https://github.com/jd/tenacity) | A `Retry` that shares the same config + reconfigure shape as the rest of grelmicro |
@@ -72,7 +72,7 @@ If you build microservices on FastAPI today, grelmicro is the missing batteries.
 | Backends | Memory, Redis, Memcached | Memory, Redis, Memcached, DynamoDB | Memory, Redis, Postgres |
 | Decorator | `@cached` | `@cache` | `@cached` |
 | Type-safe `Cache[T]` | no | no | yes (`TTLCache[T]` plus `PydanticSerializer(T)`) |
-| Per-key stampede protection | local lock via `lock_value` | none | opt-in via `lock=True` (off by default). Distributed lock planned (see [#235](https://github.com/grelinfo/grelmicro/issues/235)) |
+| Stampede protection | local lock via `lock_value` | none | three-layer menu: `stampede="local"` (default), `stampede="distributed"` (cross-replica), `early=` (XFetch refresh) |
 | Serializers | several built-in | json, binary | `JsonSerializer`, `PydanticSerializer`, `PickleSerializer` |
 | FastAPI integration | manual | first-class | works with any async framework, no FastAPI coupling |
 
