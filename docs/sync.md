@@ -12,6 +12,25 @@ The available primitives are:
 
 The synchronization primitives can be used in combination with the `Tasks` and `TaskRouter` to control task execution in a distributed system (see more in [Task Scheduler](task.md)).
 
+## Quick start
+
+Guard a shared resource with a distributed `Lock`. The Memory backend needs no extra service, so this runs as-is. Swap in Redis, Postgres, or Kubernetes for production:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.sync import Lock, Sync
+from grelmicro.sync.memory import MemorySyncAdapter
+
+micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+
+lock = Lock("cart")
+
+
+async def checkout():
+    async with lock:
+        ...
+```
+
 !!! warning "Thread Safety"
     All synchronization primitives (`Lock`, `TaskLock`, `LeaderElection`) are designed for use within a single async event loop and are **not thread-safe**. Sync access from worker threads is supported via `from_thread` adapters, which dispatch operations to the event loop. Do not share instances across multiple event loops or threads without the adapter.
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Docs
+
+* 📝 Rewrite `docs/resilience/shield.md` example-first: lead with the simplest decorator, move the CUBIC / RFC 9438 internals into a collapsible "How the adaptive layer works" section.
+* 📝 Add a Quick start to `docs/cache.md` and `docs/sync.md` so the headline `@cached` and `Lock` usage appears before the backend wiring.
+
 ## 0.26.0 - 2026-06-05
 
 ### Breaking

@@ -139,6 +139,7 @@ extra_css:
 
 markdown_extensions:
   - admonition
+  - pymdownx.details
   - pymdownx.highlight
   - pymdownx.superfences:
       custom_fences:
