@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+* ✨ Discover Providers and Adapters through entry-point groups. Third-party packages register under `grelmicro.providers` and `grelmicro.{kind}.adapters` (`sync`, `cache`, `ratelimiter`, `circuitbreaker`) and resolve by short name, the same path first-party backends use. Unknown names raise `ProviderNotRegisteredError` or `AdapterNotRegisteredError` listing the installed names. New `docs/architecture/plugins.md` and an `examples/third-party-adapter/` skeleton. Issue [#234](https://github.com/grelinfo/grelmicro/issues/234).
+
 ## 0.26.0 - 2026-06-05
 
 ### Breaking

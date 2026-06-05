@@ -74,6 +74,31 @@ Issues = "https://github.com/grelinfo/grelmicro/issues"
 
 [project.entry-points."grelmicro.providers"]
 redis = "grelmicro.providers.redis:RedisProvider"
+postgres = "grelmicro.providers.postgres:PostgresProvider"
+sqlite = "grelmicro.providers.sqlite:SQLiteProvider"
+
+[project.entry-points."grelmicro.sync.adapters"]
+memory = "grelmicro.sync.memory:MemorySyncAdapter"
+redis = "grelmicro.sync.redis:RedisSyncAdapter"
+postgres = "grelmicro.sync.postgres:PostgresSyncAdapter"
+sqlite = "grelmicro.sync.sqlite:SQLiteSyncAdapter"
+kubernetes = "grelmicro.sync.kubernetes:KubernetesSyncAdapter"
+
+[project.entry-points."grelmicro.cache.adapters"]
+memory = "grelmicro.cache.memory:MemoryCacheAdapter"
+redis = "grelmicro.cache.redis:RedisCacheAdapter"
+postgres = "grelmicro.cache.postgres:PostgresCacheAdapter"
+
+[project.entry-points."grelmicro.ratelimiter.adapters"]
+memory = "grelmicro.resilience.ratelimiter.memory:MemoryRateLimiterAdapter"
+redis = "grelmicro.resilience.ratelimiter.redis:RedisRateLimiterAdapter"
+postgres = "grelmicro.resilience.ratelimiter.postgres:PostgresRateLimiterAdapter"
+sqlite = "grelmicro.resilience.ratelimiter.sqlite:SQLiteRateLimiterAdapter"
+
+[project.entry-points."grelmicro.circuitbreaker.adapters"]
+memory = "grelmicro.resilience.circuitbreaker.memory:MemoryCircuitBreakerAdapter"
+redis = "grelmicro.resilience.circuitbreaker.redis:RedisCircuitBreakerAdapter"
+postgres = "grelmicro.resilience.circuitbreaker.postgres:PostgresCircuitBreakerAdapter"
 
 [project.optional-dependencies]
 standard = [

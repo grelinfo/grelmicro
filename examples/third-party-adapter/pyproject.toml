@@ -1,0 +1,19 @@
+[project]
+name = "grelmicro-mongo"
+version = "0.1.0"
+description = "Example third-party grelmicro adapter for MongoDB."
+requires-python = ">=3.12"
+dependencies = ["grelmicro"]
+
+# These entry points are what make `mongo` resolvable by grelmicro. Once this
+# package is installed alongside grelmicro, `load_provider("mongo")` and
+# `load_adapter("sync", "mongo")` find the classes below.
+[project.entry-points."grelmicro.providers"]
+mongo = "grelmicro_mongo:MongoProvider"
+
+[project.entry-points."grelmicro.sync.adapters"]
+mongo = "grelmicro_mongo:MongoSyncAdapter"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
