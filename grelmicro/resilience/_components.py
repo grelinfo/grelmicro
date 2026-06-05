@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._component import instantiate_if_class
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
@@ -47,7 +48,7 @@ class RateLimiters:
     def __init__(
         self,
         source: Annotated[
-            Provider | RateLimiterBackend,
+            Provider | RateLimiterBackend | type[Provider | RateLimiterBackend],
             Doc(
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `RateLimiterBackend`
@@ -69,6 +70,7 @@ class RateLimiters:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self.name = name
+        source = instantiate_if_class(source)
         if isinstance(source, Provider):
             self._backend = source.ratelimiter()
         else:
@@ -125,7 +127,9 @@ class CircuitBreakers:
     def __init__(
         self,
         source: Annotated[
-            Provider | CircuitBreakerBackend,
+            Provider
+            | CircuitBreakerBackend
+            | type[Provider | CircuitBreakerBackend],
             Doc(
                 """
                 A `Provider` or a `CircuitBreakerBackend` instance. When a
@@ -147,6 +151,7 @@ class CircuitBreakers:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self.name = name
+        source = instantiate_if_class(source)
         if isinstance(source, Provider):
             self._backend = source.breaker()
         else:

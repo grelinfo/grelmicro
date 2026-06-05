@@ -9,6 +9,27 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 
+def instantiate_if_class[T](source: T | type[T]) -> T:
+    """Instantiate `source` if it is a bare class, else return it unchanged.
+
+    Lets `Grelmicro(uses=[...])` and Component constructors accept either an
+    instance or a zero-arg class, in the spirit of FastAPI's `Depends(dep)`:
+    pass the reference, the framework calls it. A class that needs
+    constructor arguments raises a clear error pointing at the fix.
+    """
+    if not isinstance(source, type):
+        return source
+    try:
+        return source()
+    except TypeError as exc:
+        msg = (
+            f"{source.__name__} needs constructor arguments, so it cannot be "
+            f"passed as a bare class. Instantiate it first, for example "
+            f"{source.__name__}(...)."
+        )
+        raise TypeError(msg) from exc
+
+
 @runtime_checkable
 class Component(
     AbstractAsyncContextManager["Component", bool | None], Protocol
