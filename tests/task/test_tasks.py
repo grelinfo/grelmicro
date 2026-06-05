@@ -11,6 +11,27 @@ from tests.task.samples import EventTask
 
 pytestmark = [pytest.mark.timeout(10)]
 
+# Module-level interval task functions (the interval decorator rejects
+# nested functions). `_drain_events` records whether the running
+# iteration was interrupted by a cancellation.
+_drain_events: list[str] = []
+
+
+async def _drain_work() -> None:
+    """Append a marker, yielding once to model in-flight work."""
+    import asyncio  # noqa: PLC0415
+
+    try:
+        _drain_events.append("run")
+        await asyncio.sleep(0)
+    except asyncio.CancelledError:  # pragma: no cover - drain should avoid this
+        _drain_events.append("cancelled")
+        raise
+
+
+async def _noop_work() -> None:
+    """Do nothing; used to exercise the interruptible interval sleep."""
+
 
 def test_tasks_init() -> None:
     """Test Tasks Initialization."""
@@ -79,9 +100,12 @@ async def test_tasks_start_surfaces_early_task_failure() -> None:
             return "boom"
 
         async def __call__(
-            self, *, ready: asyncio.Future[None] | None = None
+            self,
+            *,
+            ready: asyncio.Future[None] | None = None,
+            stop: asyncio.Event | None = None,
         ) -> None:
-            del ready
+            del ready, stop
             msg = "early failure"
             raise RuntimeError(msg)
 
@@ -107,9 +131,12 @@ async def test_tasks_start_surfaces_early_clean_exit() -> None:
             return "silent"
 
         async def __call__(
-            self, *, ready: asyncio.Future[None] | None = None
+            self,
+            *,
+            ready: asyncio.Future[None] | None = None,
+            stop: asyncio.Event | None = None,
         ) -> None:
-            del ready
+            del ready, stop
 
     app = Tasks(auto_start=False, tasks=[SilentTask()])
 
@@ -130,13 +157,19 @@ async def test_tasks_cancels_running_tasks_on_exit() -> None:
     cancelled = asyncio.Event()
 
     class LongRunningTask:
+        """A task that ignores the stop signal, so it must be force-cancelled."""
+
         @property
         def name(self) -> str:
             return "long"
 
         async def __call__(
-            self, *, ready: asyncio.Future[None] | None = None
+            self,
+            *,
+            ready: asyncio.Future[None] | None = None,
+            stop: asyncio.Event | None = None,
         ) -> None:
+            del stop
             if ready is not None:
                 ready.set_result(None)
             try:
@@ -145,7 +178,9 @@ async def test_tasks_cancels_running_tasks_on_exit() -> None:
                 cancelled.set()
                 raise
 
-    async with Tasks(tasks=[LongRunningTask()]):
+    # The task never observes the stop signal, so it is force-cancelled
+    # once the short drain window elapses.
+    async with Tasks(tasks=[LongRunningTask()], shutdown_timeout=0.05):
         pass
 
     assert cancelled.is_set()
@@ -162,3 +197,42 @@ async def test_tasks_out_of_context_errors() -> None:
 
     with pytest.raises(OutOfContextError):
         await app.__aexit__(None, None, None)
+
+
+async def test_tasks_shutdown_timeout_negative_rejected() -> None:
+    """A negative shutdown_timeout is rejected at construction."""
+    with pytest.raises(ValueError, match="shutdown_timeout"):
+        Tasks(shutdown_timeout=-1)
+
+
+async def test_tasks_drains_cooperative_task_without_cancel() -> None:
+    """An interval task finishes its iteration on stop and is not cancelled."""
+    import asyncio  # noqa: PLC0415
+
+    _drain_events.clear()
+    tasks = Tasks(auto_start=False, shutdown_timeout=5)
+    tasks.interval(seconds=0.01)(_drain_work)
+
+    async with tasks:
+        await tasks.start()
+        await asyncio.sleep(0.05)  # let it run a few iterations
+
+    # Exited well under shutdown_timeout, and the running iteration was
+    # never interrupted by a cancellation.
+    assert "run" in _drain_events
+    assert "cancelled" not in _drain_events
+
+
+async def test_tasks_interval_wakes_promptly_on_stop() -> None:
+    """A task sleeping on a long interval breaks immediately on shutdown."""
+    import asyncio  # noqa: PLC0415
+
+    tasks = Tasks(auto_start=False, shutdown_timeout=5)
+    tasks.interval(seconds=3600)(_noop_work)  # would otherwise sleep an hour
+
+    async with asyncio.timeout(
+        2
+    ):  # fails loudly if the sleep is not interruptible
+        async with tasks:
+            await tasks.start()
+            await asyncio.sleep(0.02)

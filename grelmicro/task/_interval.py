@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fast_depends import inject
 
-from grelmicro._async import is_async_callable
+from grelmicro._async import is_async_callable, sleep_or_stop
 from grelmicro.errors import WouldBlockError
 from grelmicro.sync.abc import SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import LockNotOwnedError
@@ -118,7 +118,10 @@ class IntervalTask(Task):
         return self._name
 
     async def __call__(
-        self, *, ready: asyncio.Future[None] | None = None
+        self,
+        *,
+        ready: asyncio.Future[None] | None = None,
+        stop: asyncio.Event | None = None,
     ) -> None:
         """Run the repeated task loop."""
         logger.info(
@@ -150,7 +153,11 @@ class IntervalTask(Task):
                 if task is not None and task.cancelling():
                     task.uncancel()
                     raise asyncio.CancelledError
-                await asyncio.sleep(self._seconds)
+                # The current iteration finished. Break here on a graceful
+                # stop so in-flight work is never interrupted; otherwise
+                # sleep until the next interval (waking early on stop).
+                if await sleep_or_stop(self._seconds, stop):
+                    break
         finally:
             logger.info("Task stopped: %s", self.name)
 

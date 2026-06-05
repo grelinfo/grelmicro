@@ -669,3 +669,28 @@ async def test_leader_reconfigure_takes_effect_on_next_iteration(
         assert leader_election.config.error_interval == new_error_interval
 
         cancel_group(tg)
+
+
+async def test_leader_election_stops_gracefully_on_stop_event(
+    leader_election: LeaderElection,
+    backend: SyncBackend,
+) -> None:
+    """Setting the stop event breaks the loop and releases leadership."""
+    stop = Event()
+    async with asyncio.TaskGroup() as tg:
+        handle = await start_task(tg, leader_election, stop=stop)
+        await leader_election.wait_for_leader()
+        assert leader_election.is_leader() is True
+        stop.set()  # request graceful shutdown
+    # The loop broke on its own, without a cancellation.
+    assert handle.done()
+    assert not handle.cancelled()
+    # Leadership was released on the backend, so another worker can take it.
+    assert (
+        await backend.acquire(
+            name=leader_election._lock_name,
+            token="other",  # noqa: S106
+            duration=1,
+        )
+        is True
+    )

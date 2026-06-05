@@ -102,9 +102,13 @@ class EventTask(Task):
         return "event_task"
 
     async def __call__(
-        self, *, ready: asyncio.Future[None] | None = None
+        self,
+        *,
+        ready: asyncio.Future[None] | None = None,
+        stop: asyncio.Event | None = None,
     ) -> None:
         """Run the task that sets the event."""
+        del stop
         if ready is not None and not ready.done():
             ready.set_result(None)
         self._event.set()
