@@ -11,6 +11,7 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
+from grelmicro._async import sleep_or_stop
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.errors import WouldBlockError
 from grelmicro.sync._base import BaseLockConfig
@@ -427,7 +428,10 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
                 pass
 
     async def __call__(
-        self, *, ready: asyncio.Future[None] | None = None
+        self,
+        *,
+        ready: asyncio.Future[None] | None = None,
+        stop: asyncio.Event | None = None,
     ) -> None:
         """Run polling loop service to acquire or renew the distributed lock."""
         if ready is not None and not ready.done():  # pragma: no branch
@@ -441,7 +445,10 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
             while True:
                 config = self._config
                 await self._try_acquire_or_renew(config)
-                await asyncio.sleep(config.retry_interval)
+                # On a graceful stop, break and let the finally block
+                # release leadership on the backend before unwinding.
+                if await sleep_or_stop(config.retry_interval, stop):
+                    break
         except asyncio.CancelledError:
             logger.info("Leader Election stopped: %s", self.name)
             raise

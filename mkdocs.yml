@@ -100,6 +100,7 @@ nav:
     - architecture/imports.md
     - architecture/sync-from-thread.md
     - architecture/sync.md
+    - architecture/graceful-shutdown.md
     - architecture/kubernetes.md
     - architecture/sqlite.md
     - architecture/tracing.md
