@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.26.0 - 2026-06-05
+
 ### Breaking
 
 * 💥 The `Task` protocol's `__call__` now takes a `stop: asyncio.Event | None = None` keyword used for graceful shutdown. Custom `Task` implementations must accept it. The built-in `interval` tasks and `LeaderElection` are unaffected. Issue [#187](https://github.com/grelinfo/grelmicro/issues/187).
