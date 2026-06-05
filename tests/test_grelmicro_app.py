@@ -16,6 +16,7 @@ from grelmicro import (
     ComponentNotRegisteredError,
     Grelmicro,
     LifecycleOrderError,
+    MultipleActiveAppsError,
     NoActiveAppError,
 )
 from grelmicro.errors import OutOfContextError
@@ -251,6 +252,7 @@ async def test_current_micro_raises_outside_block() -> None:
 
 async def test_current_micro_is_per_task() -> None:
     """Two concurrent tasks each see their own Grelmicro."""
+    # Neither app configures process-global state, so they overlap freely.
     micro_a = Grelmicro()
     micro_b = Grelmicro()
     seen: dict[str, Grelmicro] = {}
@@ -626,4 +628,70 @@ async def test_strict_accepts_well_ordered_app() -> None:
     redis = RedisProvider("redis://localhost:6379/0")
     micro = Grelmicro(uses=[redis, Sync(redis)], strict=True)
     async with micro:
+        pass
+
+
+# --- single-active-app guard (#266) ---
+
+
+class _GlobalComponent(_RecordingComponent):
+    """Stands in for a process-global component such as Log or Trace."""
+
+    kind: ClassVar[str] = "log"
+
+
+async def test_second_global_app_is_blocked() -> None:
+    """A second app owning global state, while one is active, is blocked."""
+    async with Grelmicro(uses=[_GlobalComponent()]):
+        with pytest.raises(MultipleActiveAppsError):
+            async with Grelmicro(uses=[_GlobalComponent()]):
+                pass
+
+
+async def test_apps_without_global_state_overlap_freely() -> None:
+    """Apps that do not configure global state can overlap."""
+    async with (
+        Grelmicro(uses=[_RecordingComponent()]),
+        Grelmicro(uses=[_OtherComponent()]),
+    ):
+        pass  # no error: neither owns process-global state
+
+
+async def test_global_app_overlaps_plain_app() -> None:
+    """A global-state app overlaps a plain app (only one owns global state)."""
+    async with (
+        Grelmicro(uses=[_GlobalComponent()]),
+        Grelmicro(uses=[_RecordingComponent()]),
+    ):
+        pass
+
+
+async def test_sequential_global_apps_are_allowed() -> None:
+    """Two global-state apps opened one after another are fine."""
+    async with Grelmicro(uses=[_GlobalComponent()]):
+        pass
+    async with Grelmicro(uses=[_GlobalComponent()]):  # first already exited
+        pass
+
+
+async def test_allow_multiple_opts_out_of_guard() -> None:
+    """allow_multiple=True lets a second global-state app overlap the first."""
+    async with (
+        Grelmicro(uses=[_GlobalComponent()]),
+        Grelmicro(uses=[_GlobalComponent()], allow_multiple=True),
+    ):
+        pass
+
+
+async def test_guard_clears_after_failed_startup() -> None:
+    """A partial-startup failure removes the app from the active set."""
+    log: list[str] = []
+    with pytest.raises(RuntimeError, match=_BOOM):
+        async with Grelmicro(uses=[_RaisingComponent(log=log)]):
+            pass
+    # The failed app released its slot, so a fresh global-state app can open.
+    async with (
+        Grelmicro(uses=[_GlobalComponent()]),
+        Grelmicro(uses=[_RecordingComponent()]),
+    ):
         pass

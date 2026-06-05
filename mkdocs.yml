@@ -98,6 +98,7 @@ nav:
     - architecture/config.md
     - architecture/reconfigure.md
     - architecture/imports.md
+    - architecture/multiple-apps.md
     - architecture/sync-from-thread.md
     - architecture/sync.md
     - architecture/graceful-shutdown.md

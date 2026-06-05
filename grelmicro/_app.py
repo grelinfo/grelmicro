@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 from typing_extensions import Doc
 
 from grelmicro._component import Component
-from grelmicro.errors import GrelmicroError, OutOfContextError
+from grelmicro.errors import (
+    GrelmicroError,
+    MultipleActiveAppsError,
+    OutOfContextError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable, Mapping
@@ -34,6 +38,22 @@ else:
     Trace = Any
 
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
+
+_active_apps: list[Grelmicro] = []
+"""Apps currently inside their `async with` block, process-wide.
+
+Unlike `_current_micro` (per asyncio task), this is a single process-global
+list so `Grelmicro.__aenter__` can refuse to open a second overlapping app
+whose `Log`/`Trace` would clobber the active app's global-state snapshots.
+"""
+
+_GLOBAL_STATE_KINDS = frozenset({"log", "trace"})
+"""Component kinds that own process-global state (root logger, tracer).
+
+Two overlapping apps that each register one of these would restore the
+shared global out of order, so the second is blocked. Apps without them
+overlap freely, matching how web frameworks treat multiple app objects.
+"""
 
 _active_bulkhead: ContextVar[Mapping[tuple[str, str], Component]] = ContextVar(
     "grelmicro_active_bulkhead"
@@ -109,6 +129,19 @@ class Grelmicro:
                 """,
             ),
         ] = False,
+        allow_multiple: Annotated[
+            bool,
+            Doc(
+                """
+                Allow this app to run while another `Grelmicro` app is
+                active in the same process. Off by default: components like
+                `Log` and `Trace` own process-global state that two
+                overlapping app lifecycles would restore out of order.
+                Setting `True` opts out of the guard when you are sure no
+                two active apps configure the same global state.
+                """,
+            ),
+        ] = False,
     ) -> None:
         """Initialize the app and register any items passed at construction."""
         self._items: list[AbstractAsyncContextManager[object]] = []
@@ -117,6 +150,7 @@ class Grelmicro:
         self._exit_stack: AsyncExitStack | None = None
         self._token: Any = None
         self._strict = strict
+        self._allow_multiple = allow_multiple
         if uses is not None:
             for item in uses:
                 self.use(item)
@@ -403,6 +437,13 @@ class Grelmicro:
         """
         return self._resolve_kind(name)
 
+    def _owns_global_state(self) -> bool:
+        """Return True if any registered item configures process-global state."""
+        return any(
+            getattr(item, "kind", None) in _GLOBAL_STATE_KINDS
+            for item in self._items
+        )
+
     async def __aenter__(self) -> Self:
         """Open every registered item in registration order.
 
@@ -412,15 +453,23 @@ class Grelmicro:
         """
         if self._exit_stack is not None:
             raise OutOfContextError(self, "__aenter__")
+        if (
+            not self._allow_multiple
+            and self._owns_global_state()
+            and any(app._owns_global_state() for app in _active_apps)  # noqa: SLF001
+        ):
+            raise MultipleActiveAppsError
         self._warn_unlifecycled_providers()
         self._resolve_provider_sharing()
         self._exit_stack = AsyncExitStack()
         await self._exit_stack.__aenter__()
         self._token = _current_micro.set(self)
+        _active_apps.append(self)
         try:
             for item in self._items:
                 await self._exit_stack.enter_async_context(item)
         except BaseException:
+            _active_apps.remove(self)
             _current_micro.reset(self._token)
             self._token = None
             await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
@@ -445,6 +494,8 @@ class Grelmicro:
             if self._token is not None:  # pragma: no branch
                 _current_micro.reset(self._token)
                 self._token = None
+            if self in _active_apps:  # pragma: no branch
+                _active_apps.remove(self)
             self._exit_stack = None
 
     def _resolve_provider_sharing(self) -> None:
