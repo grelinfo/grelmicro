@@ -21,7 +21,7 @@ from grelmicro.errors import OutOfContextError
 
 pytestmark = [pytest.mark.timeout(1)]
 
-TOKEN = "test-token"  # noqa: S105
+TOKEN = "test-token"
 
 
 def _make_api_error(code: int) -> ApiError:
@@ -245,6 +245,7 @@ async def test_acquire_creates_when_not_found() -> None:
 
     # Assert
     assert result == 1
+    assert create.await_args is not None
     created = create.await_args.args[0]
     assert created.spec.leaseTransitions == 1
     assert created.spec.holderIdentity == TOKEN
@@ -268,6 +269,7 @@ async def test_acquire_replaces_expired_lease_bumps_transitions() -> None:
 
     # Assert
     assert result == 5  # noqa: PLR2004
+    assert replace.await_args is not None
     written = replace.await_args.args[0]
     assert written.spec.leaseTransitions == 5  # noqa: PLR2004
     assert written.spec.holderIdentity == TOKEN
@@ -287,6 +289,7 @@ async def test_acquire_extend_same_holder_keeps_transitions() -> None:
 
     # Assert
     assert result == 3  # noqa: PLR2004
+    assert replace.await_args is not None
     written = replace.await_args.args[0]
     assert written.spec.leaseTransitions == 3  # noqa: PLR2004
 
@@ -311,6 +314,7 @@ async def test_acquire_takeover_vacated_lease_bumps_transitions() -> None:
 
     # Assert
     assert result == 3  # noqa: PLR2004
+    assert replace.await_args is not None
     written = replace.await_args.args[0]
     assert written.spec.leaseTransitions == 3  # noqa: PLR2004
     assert written.spec.holderIdentity == TOKEN
@@ -319,7 +323,7 @@ async def test_acquire_takeover_vacated_lease_bumps_transitions() -> None:
 async def test_acquire_returns_none_when_held_by_other() -> None:
     """Test acquire returns None when held by another token."""
     # Arrange
-    other_token = "other-token"  # noqa: S105
+    other_token = "other-token"
     backend = _make_mocked_backend(
         get=AsyncMock(return_value=_make_lease(holder=other_token)),
     )
@@ -349,6 +353,7 @@ async def test_release_vacates_in_place_keeping_transitions() -> None:
     assert result is True
     delete.assert_not_called()
     replace.assert_awaited_once()
+    assert replace.await_args is not None
     written = replace.await_args.args[0]
     assert written.spec.holderIdentity is None
     assert written.spec.renewTime is None
@@ -373,7 +378,7 @@ async def test_release_not_found() -> None:
 async def test_release_wrong_token() -> None:
     """Test release returns False when token doesn't match."""
     # Arrange
-    other_token = "other-token"  # noqa: S105
+    other_token = "other-token"
     backend = _make_mocked_backend(
         get=AsyncMock(return_value=_make_lease(holder=other_token)),
     )
@@ -444,7 +449,7 @@ async def test_owned_active() -> None:
 async def test_owned_wrong_token() -> None:
     """Test owned returns False when lease is held by another."""
     # Arrange
-    other_token = "other-token"  # noqa: S105
+    other_token = "other-token"
     backend = _make_mocked_backend(
         get=AsyncMock(return_value=_make_lease(holder=other_token)),
     )
@@ -591,6 +596,7 @@ async def test_aexit_vacates_expired_lease_keeping_transitions() -> None:
     # Assert
     delete.assert_not_called()
     replace.assert_awaited_once()
+    assert replace.await_args is not None
     written = replace.await_args.args[0]
     assert written.spec.holderIdentity is None
     assert written.spec.leaseTransitions == 6  # noqa: PLR2004

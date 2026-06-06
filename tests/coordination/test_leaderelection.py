@@ -699,7 +699,7 @@ async def test_leader_election_stops_gracefully_on_stop_event(
     # Leadership was released on the backend, so another worker can take it.
     record = await backend.acquire_or_renew(
         name=leader_election._lock_name,
-        token="other",  # noqa: S106
+        token="other",
         duration=1,
     )
     assert record.holder == "other"

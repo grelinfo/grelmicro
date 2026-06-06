@@ -23,7 +23,7 @@ def test_handle_is_frozen() -> None:
     handle = LockHandle(name="cart", token="worker-1", fencing_token=1)
 
     with pytest.raises(dataclasses.FrozenInstanceError):
-        handle.fencing_token = 2  # type: ignore[misc]
+        handle.fencing_token = 2  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
 
 def test_handle_uses_slots() -> None:

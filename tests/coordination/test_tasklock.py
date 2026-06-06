@@ -397,7 +397,7 @@ async def test_tasklock_reacquire_backend_error(
 
     async def fail_on_reacquire(
         *, name: str, token: str, duration: float
-    ) -> bool:
+    ) -> int | None:
         # Let initial acquire succeed, fail on re-acquire (shorter duration)
         if duration < max_lock_seconds:
             msg = "Backend Error"
@@ -435,7 +435,7 @@ async def test_tasklock_state_cleaned_up_after_failed_reacquire(
 
     async def fail_on_reacquire(
         *, name: str, token: str, duration: float
-    ) -> bool:
+    ) -> int | None:
         # Let initial acquire succeed, fail on re-acquire (shorter duration)
         if duration < max_lock_seconds:
             msg = "Transient backend error"
@@ -631,7 +631,7 @@ async def test_tasklock_from_thread_reacquire_backend_error(
 
     async def fail_on_reacquire(
         *, name: str, token: str, duration: float
-    ) -> bool:
+    ) -> int | None:
         if duration < max_lock_seconds:
             msg = "Backend Error"
             raise Exception(msg)  # noqa: TRY002

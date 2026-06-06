@@ -47,7 +47,7 @@ async def test_out_of_context_errors() -> None:
     """Backend methods raise when called outside the context manager."""
     backend = PostgresLeaderElectionBackend(provider=PostgresProvider(URL))
     name = "election"
-    token = "token"  # noqa: S105
+    token = "token"
 
     with pytest.raises(OutOfContextError):
         await backend.acquire_or_renew(name=name, token=token, duration=1)

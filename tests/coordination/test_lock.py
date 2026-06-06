@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 import pytest
 from pytest_mock import MockerFixture
 
+from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination.abc import LockBackend
 from grelmicro.coordination.errors import (
     LockAcquireError,
@@ -17,7 +18,6 @@ from grelmicro.coordination.errors import (
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import WouldBlockError as WouldBlock

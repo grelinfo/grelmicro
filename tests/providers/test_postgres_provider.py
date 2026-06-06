@@ -43,7 +43,7 @@ class TestConstruction:
             port=1234,
             database="test_db",
             user="test_user",
-            password="test_password",  # noqa: S106
+            password="test_password",
         )
         assert provider.url == URL
 
@@ -138,7 +138,7 @@ class TestFromConfig:
             port=4321,
             database="cfg_db",
             user="cfg_user",
-            password="cfg_pw",  # noqa: S106
+            password="cfg_pw",
         )
 
         provider = PostgresProvider.from_config(cfg)

@@ -26,7 +26,7 @@ from grelmicro.coordination.kubernetes import (
 )
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 
-TOKEN = "test-token"  # noqa: S105
+TOKEN = "test-token"
 OTHER = "other-token"
 
 # Named values keep ruff's magic-value rule quiet in assertions.
