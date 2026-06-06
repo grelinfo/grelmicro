@@ -33,10 +33,11 @@ def _make_api_error(code: int) -> ApiError:
 
 def _make_lease(
     name: str = "test",
-    holder: str = TOKEN,
+    holder: str | None = TOKEN,
     *,
     expired: bool = False,
     resource_version: str = "1",
+    transitions: int = 1,
 ) -> Lease:
     """Create a Lease for testing."""
     if expired:
@@ -55,6 +56,7 @@ def _make_lease(
             holderIdentity=holder,
             leaseDurationSeconds=duration_seconds,
             renewTime=renew_time,
+            leaseTransitions=transitions,
         ),
     )
 
@@ -230,37 +232,92 @@ async def test_aenter_sets_client(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_acquire_creates_when_not_found() -> None:
-    """Test acquire creates a new lease when none exists."""
+    """Test acquire creates a new lease when none exists, fence starts at 1."""
     # Arrange
+    create = AsyncMock()
     backend = _make_mocked_backend(
         get=AsyncMock(side_effect=_make_api_error(404)),
-        create=AsyncMock(),
+        create=create,
     )
 
     # Act
     result = await backend.acquire(name="lock", token=TOKEN, duration=1)
 
     # Assert
-    assert result is True
+    assert result == 1
+    created = create.await_args.args[0]
+    assert created.spec.leaseTransitions == 1
+    assert created.spec.holderIdentity == TOKEN
 
 
-async def test_acquire_replaces_expired_lease() -> None:
-    """Test acquire replaces an expired lease."""
+async def test_acquire_replaces_expired_lease_bumps_transitions() -> None:
+    """Test acquire takes over an expired lease and bumps transitions."""
     # Arrange
+    replace = AsyncMock()
     backend = _make_mocked_backend(
-        get=AsyncMock(return_value=_make_lease(expired=True)),
-        replace=AsyncMock(),
+        get=AsyncMock(
+            return_value=_make_lease(
+                holder="other-token", expired=True, transitions=4
+            )
+        ),
+        replace=replace,
     )
 
     # Act
     result = await backend.acquire(name="lock", token=TOKEN, duration=1)
 
     # Assert
-    assert result is True
+    assert result == 5  # noqa: PLR2004
+    written = replace.await_args.args[0]
+    assert written.spec.leaseTransitions == 5  # noqa: PLR2004
+    assert written.spec.holderIdentity == TOKEN
 
 
-async def test_acquire_returns_false_when_held_by_other() -> None:
-    """Test acquire returns False when held by another token."""
+async def test_acquire_extend_same_holder_keeps_transitions() -> None:
+    """Test a same-holder live extend keeps the fencing token."""
+    # Arrange
+    replace = AsyncMock()
+    backend = _make_mocked_backend(
+        get=AsyncMock(return_value=_make_lease(holder=TOKEN, transitions=3)),
+        replace=replace,
+    )
+
+    # Act
+    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+
+    # Assert
+    assert result == 3  # noqa: PLR2004
+    written = replace.await_args.args[0]
+    assert written.spec.leaseTransitions == 3  # noqa: PLR2004
+
+
+async def test_acquire_takeover_vacated_lease_bumps_transitions() -> None:
+    """Test acquire takes over a vacated (released) lease and bumps the fence."""
+    # Arrange
+    vacated = Lease(
+        metadata=ObjectMeta(
+            name="lock", namespace="default", resourceVersion="9"
+        ),
+        spec=LeaseSpec(leaseTransitions=2),
+    )
+    replace = AsyncMock()
+    backend = _make_mocked_backend(
+        get=AsyncMock(return_value=vacated),
+        replace=replace,
+    )
+
+    # Act
+    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+
+    # Assert
+    assert result == 3  # noqa: PLR2004
+    written = replace.await_args.args[0]
+    assert written.spec.leaseTransitions == 3  # noqa: PLR2004
+    assert written.spec.holderIdentity == TOKEN
+
+
+async def test_acquire_returns_none_when_held_by_other() -> None:
+    """Test acquire returns None when held by another token."""
     # Arrange
     other_token = "other-token"  # noqa: S105
     backend = _make_mocked_backend(
@@ -271,15 +328,18 @@ async def test_acquire_returns_false_when_held_by_other() -> None:
     result = await backend.acquire(name="lock", token=TOKEN, duration=1)
 
     # Assert
-    assert result is False
+    assert result is None
 
 
-async def test_release_succeeds() -> None:
-    """Test release succeeds when token matches and not expired."""
+async def test_release_vacates_in_place_keeping_transitions() -> None:
+    """Test release clears the holder in place and keeps leaseTransitions."""
     # Arrange
+    replace = AsyncMock()
+    delete = AsyncMock()
     backend = _make_mocked_backend(
-        get=AsyncMock(return_value=_make_lease(holder=TOKEN)),
-        delete=AsyncMock(),
+        get=AsyncMock(return_value=_make_lease(holder=TOKEN, transitions=7)),
+        replace=replace,
+        delete=delete,
     )
 
     # Act
@@ -287,6 +347,13 @@ async def test_release_succeeds() -> None:
 
     # Assert
     assert result is True
+    delete.assert_not_called()
+    replace.assert_awaited_once()
+    written = replace.await_args.args[0]
+    assert written.spec.holderIdentity is None
+    assert written.spec.renewTime is None
+    assert written.spec.acquireTime is None
+    assert written.spec.leaseTransitions == 7  # noqa: PLR2004
 
 
 async def test_release_not_found() -> None:
@@ -417,7 +484,7 @@ async def test_raises_on_non_404_get_error(
 
 
 async def test_acquire_conflict_on_create() -> None:
-    """Test acquire returns False on 409 Conflict during CREATE."""
+    """Test acquire returns None on 409 Conflict during CREATE."""
     # Arrange
     backend = _make_mocked_backend(
         get=AsyncMock(side_effect=_make_api_error(404)),
@@ -428,7 +495,7 @@ async def test_acquire_conflict_on_create() -> None:
     result = await backend.acquire(name="lock", token=TOKEN, duration=1)
 
     # Assert
-    assert result is False
+    assert result is None
 
 
 async def test_acquire_raises_on_create_non_409() -> None:
@@ -445,7 +512,7 @@ async def test_acquire_raises_on_create_non_409() -> None:
 
 
 async def test_acquire_conflict_on_replace() -> None:
-    """Test acquire returns False on 409 Conflict during REPLACE."""
+    """Test acquire returns None on 409 Conflict during REPLACE."""
     # Arrange
     backend = _make_mocked_backend(
         get=AsyncMock(return_value=_make_lease(expired=True)),
@@ -456,7 +523,7 @@ async def test_acquire_conflict_on_replace() -> None:
     result = await backend.acquire(name="lock", token=TOKEN, duration=1)
 
     # Assert
-    assert result is False
+    assert result is None
 
 
 async def test_acquire_raises_on_replace_non_409() -> None:
@@ -472,12 +539,13 @@ async def test_acquire_raises_on_replace_non_409() -> None:
         await backend.acquire(name="lock", token=TOKEN, duration=1)
 
 
-async def test_release_delete_404_race() -> None:
-    """Test release returns False when DELETE gets 404 (race)."""
+@pytest.mark.parametrize("code", [404, 409])
+async def test_release_vacate_conflict_returns_false(code: int) -> None:
+    """Test release returns False when the vacate write loses the race."""
     # Arrange
     backend = _make_mocked_backend(
         get=AsyncMock(return_value=_make_lease(holder=TOKEN)),
-        delete=AsyncMock(side_effect=_make_api_error(404)),
+        replace=AsyncMock(side_effect=_make_api_error(code)),
     )
 
     # Act
@@ -487,12 +555,12 @@ async def test_release_delete_404_race() -> None:
     assert result is False
 
 
-async def test_release_raises_on_delete_non_404() -> None:
-    """Test release re-raises non-404 API errors on DELETE."""
+async def test_release_raises_on_vacate_non_conflict() -> None:
+    """Test release re-raises non-conflict API errors on the vacate write."""
     # Arrange
     backend = _make_mocked_backend(
         get=AsyncMock(return_value=_make_lease(holder=TOKEN)),
-        delete=AsyncMock(side_effect=_make_api_error(500)),
+        replace=AsyncMock(side_effect=_make_api_error(500)),
     )
 
     # Act / Assert
@@ -503,26 +571,53 @@ async def test_release_raises_on_delete_non_404() -> None:
 # --- __aexit__ cleanup ---
 
 
+async def test_aexit_vacates_expired_lease_keeping_transitions() -> None:
+    """Cleanup vacates an expired lease in place and keeps its transitions."""
+    # Arrange
+    backend = KubernetesLockAdapter(namespace="default")
+    expired_lease = _make_lease(holder=TOKEN, expired=True, transitions=6)
+    replace = AsyncMock()
+    delete = AsyncMock()
+    mock_client = AsyncMock()
+    mock_client.list = MagicMock(return_value=_async_iter([expired_lease]))
+    mock_client.replace = replace
+    mock_client.delete = delete
+    mock_client.close = AsyncMock()
+    backend._client = mock_client
+
+    # Act
+    await backend.__aexit__(None, None, None)
+
+    # Assert
+    delete.assert_not_called()
+    replace.assert_awaited_once()
+    written = replace.await_args.args[0]
+    assert written.spec.holderIdentity is None
+    assert written.spec.leaseTransitions == 6  # noqa: PLR2004
+    assert backend._client is None
+
+
 @pytest.mark.parametrize(
-    ("delete_side_effect", "should_raise"),
+    ("replace_side_effect", "should_raise"),
     [
         (_make_api_error(404), False),
+        (_make_api_error(409), False),
         (_make_api_error(500), True),
     ],
-    ids=["404-ignored", "500-raises"],
+    ids=["404-ignored", "409-ignored", "500-raises"],
 )
-async def test_aexit_cleanup_delete_errors(
-    delete_side_effect: ApiError,
+async def test_aexit_cleanup_vacate_errors(
+    replace_side_effect: ApiError,
     *,
     should_raise: bool,
 ) -> None:
-    """Test __aexit__ error handling during cleanup delete."""
+    """Test __aexit__ error handling during the cleanup vacate write."""
     # Arrange
     backend = KubernetesLockAdapter(namespace="default")
-    expired_lease = _make_lease(expired=True)
+    expired_lease = _make_lease(holder=TOKEN, expired=True)
     mock_client = AsyncMock()
     mock_client.list = MagicMock(return_value=_async_iter([expired_lease]))
-    mock_client.delete = AsyncMock(side_effect=delete_side_effect)
+    mock_client.replace = AsyncMock(side_effect=replace_side_effect)
     mock_client.close = AsyncMock()
     backend._client = mock_client
 
@@ -536,13 +631,13 @@ async def test_aexit_cleanup_delete_errors(
 
 
 async def test_aexit_skips_live_lease() -> None:
-    """Cleanup leaves a still-live lease in place and does not delete it."""
+    """Cleanup leaves a still-live lease in place and does not vacate it."""
     # Arrange
     backend = KubernetesLockAdapter(namespace="default")
-    live_lease = _make_lease(expired=False)
+    live_lease = _make_lease(holder=TOKEN, expired=False)
     mock_client = AsyncMock()
     mock_client.list = MagicMock(return_value=_async_iter([live_lease]))
-    mock_client.delete = AsyncMock()
+    mock_client.replace = AsyncMock()
     mock_client.close = AsyncMock()
     backend._client = mock_client
 
@@ -550,5 +645,27 @@ async def test_aexit_skips_live_lease() -> None:
     await backend.__aexit__(None, None, None)
 
     # Assert
-    mock_client.delete.assert_not_called()
+    mock_client.replace.assert_not_called()
+    assert backend._client is None
+
+
+async def test_aexit_skips_already_vacated_lease() -> None:
+    """Cleanup leaves an already-vacated (no holder) lease untouched."""
+    # Arrange
+    backend = KubernetesLockAdapter(namespace="default")
+    vacated = Lease(
+        metadata=ObjectMeta(name="test", namespace="default"),
+        spec=LeaseSpec(leaseTransitions=2),
+    )
+    mock_client = AsyncMock()
+    mock_client.list = MagicMock(return_value=_async_iter([vacated]))
+    mock_client.replace = AsyncMock()
+    mock_client.close = AsyncMock()
+    backend._client = mock_client
+
+    # Act
+    await backend.__aexit__(None, None, None)
+
+    # Assert
+    mock_client.replace.assert_not_called()
     assert backend._client is None

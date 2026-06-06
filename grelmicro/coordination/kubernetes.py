@@ -105,6 +105,15 @@ class KubernetesLockAdapter(LockBackend):
     from Kubernetes optimistic concurrency: a Lease is read with its
     `resourceVersion` and written back with it, so a concurrent writer loses
     the race with a 409 Conflict.
+
+    Fencing tokens use the Lease `spec.leaseTransitions` counter. It is
+    incremented by one on every free-to-held transition (a fresh acquire or a
+    takeover of a vacated or expired Lease) and kept on a same-holder extend.
+    Release vacates the holder in place (clearing `holderIdentity`,
+    `acquireTime`, and `renewTime`) but keeps the Lease object and its
+    transitions counter, so fencing tokens are strictly monotonic per name
+    across release and re-acquire cycles. The Lease is never deleted while the
+    backend is open.
     """
 
     def __init__(
@@ -155,7 +164,12 @@ class KubernetesLockAdapter(LockBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the lock backend."""
+        """Close the lock backend.
+
+        Vacates the holder of any expired Lease in place rather than deleting
+        it, so the `leaseTransitions` fence counter survives for the next
+        acquire. A still-live Lease is left untouched.
+        """
         if self._client:  # pragma: no branch
             now = datetime.now(tz=UTC)
             async for lease in self._client.list(
@@ -164,23 +178,20 @@ class KubernetesLockAdapter(LockBackend):
                 labels={_LABEL_MANAGED_BY: _LABEL_MANAGED_BY_VALUE},
             ):
                 expire_at = _get_expire_at(lease)
-                if expire_at is not None and expire_at < now:
-                    assert lease.metadata  # noqa: S101
-                    assert lease.metadata.name  # noqa: S101
-                    try:
-                        await self._client.delete(
-                            Lease,
-                            name=lease.metadata.name,
-                            namespace=self._namespace,
-                        )
-                    except ApiError as e:
-                        if e.status.code != HTTPStatus.NOT_FOUND:
-                            raise
+                holder = lease.spec.holderIdentity if lease.spec else None
+                if (
+                    holder is not None
+                    and expire_at is not None
+                    and expire_at < now
+                ):
+                    await self._vacate_lease(lease)
             await self._client.close()
             self._client = None
 
-    async def acquire(self, *, name: str, token: str, duration: float) -> bool:
-        """Acquire a lock."""
+    async def acquire(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire a lock, returning the fencing token or `None`."""
         if not self._client:
             raise OutOfContextError(self, "acquire")
 
@@ -198,18 +209,23 @@ class KubernetesLockAdapter(LockBackend):
 
         current_expire_at = _get_expire_at(lease)
         current_holder = lease.spec.holderIdentity if lease.spec else None
+        live = current_expire_at is not None and current_expire_at >= now
 
-        if (
-            current_expire_at is not None
-            and current_expire_at >= now
-            and current_holder != token
-        ):
-            return False
+        if live and current_holder != token:
+            return None
 
-        return await self._replace_lease(lease, token, duration)
+        return await self._replace_lease(
+            lease, token, duration, live=live, holder=current_holder
+        )
 
     async def release(self, *, name: str, token: str) -> bool:
-        """Release the lock."""
+        """Release the lock by vacating the holder in place.
+
+        Clears `holderIdentity`, `acquireTime`, and `renewTime` so the Lease
+        reads as free, while keeping the Lease object and its
+        `leaseTransitions` counter so fencing tokens keep climbing on the next
+        acquire.
+        """
         if not self._client:
             raise OutOfContextError(self, "release")
 
@@ -235,16 +251,7 @@ class KubernetesLockAdapter(LockBackend):
         ):
             return False
 
-        try:
-            await self._client.delete(
-                Lease, name=lease_name, namespace=self._namespace
-            )
-        except ApiError as e:
-            if e.status.code == HTTPStatus.NOT_FOUND:
-                return False
-            raise
-
-        return True
+        return await self._vacate_lease(lease)
 
     async def locked(self, *, name: str) -> bool:
         """Check if the lock is acquired."""
@@ -294,11 +301,12 @@ class KubernetesLockAdapter(LockBackend):
         lease_name: str,
         token: str,
         duration: float,
-    ) -> bool:
-        """Create a new Lease resource."""
+    ) -> int | None:
+        """Create a new Lease resource, returning fencing token `1`."""
         assert self._client  # noqa: S101
 
         now_dt = datetime.now(tz=UTC)
+        fence = 1
         lease = Lease(
             metadata=ObjectMeta(
                 name=lease_name,
@@ -312,6 +320,7 @@ class KubernetesLockAdapter(LockBackend):
                 leaseDurationSeconds=ceil(duration),
                 acquireTime=now_dt,
                 renewTime=now_dt,
+                leaseTransitions=fence,
             ),
         )
 
@@ -319,22 +328,41 @@ class KubernetesLockAdapter(LockBackend):
             await self._client.create(lease)
         except ApiError as e:
             if e.status.code == HTTPStatus.CONFLICT:
-                return False
+                return None
             raise
 
-        return True
+        return fence
 
     async def _replace_lease(
         self,
         existing_lease: Lease,
         token: str,
         duration: float,
-    ) -> bool:
-        """Replace an existing Lease resource using optimistic concurrency."""
+        *,
+        live: bool,
+        holder: str | None,
+    ) -> int | None:
+        """Replace an existing Lease using optimistic concurrency.
+
+        A live same-holder extend keeps `leaseTransitions`. A takeover of a
+        vacated or expired Lease bumps it by one. The new value is the fencing
+        token, written back under the read `resourceVersion`.
+        """
         assert self._client  # noqa: S101
         assert existing_lease.metadata  # noqa: S101
 
         now_dt = datetime.now(tz=UTC)
+        current_transitions = (
+            existing_lease.spec.leaseTransitions
+            if existing_lease.spec and existing_lease.spec.leaseTransitions
+            else 0
+        )
+        fence = (
+            current_transitions
+            if live and holder == token
+            else current_transitions + 1
+        )
+
         updated_lease = Lease(
             metadata=ObjectMeta(
                 name=existing_lease.metadata.name,
@@ -349,6 +377,7 @@ class KubernetesLockAdapter(LockBackend):
                 leaseDurationSeconds=ceil(duration),
                 acquireTime=now_dt,
                 renewTime=now_dt,
+                leaseTransitions=fence,
             ),
         )
 
@@ -356,6 +385,48 @@ class KubernetesLockAdapter(LockBackend):
             await self._client.replace(updated_lease)
         except ApiError as e:
             if e.status.code == HTTPStatus.CONFLICT:
+                return None
+            raise
+
+        return fence
+
+    async def _vacate_lease(self, existing_lease: Lease) -> bool:
+        """Clear the holder of a Lease in place, keeping its transitions.
+
+        Writes back under the read `resourceVersion`. Returns False on a 409
+        Conflict (a concurrent writer changed the Lease first) so the caller
+        sees the release as not applied.
+        """
+        assert self._client  # noqa: S101
+        assert existing_lease.metadata  # noqa: S101
+
+        transitions = (
+            existing_lease.spec.leaseTransitions
+            if existing_lease.spec and existing_lease.spec.leaseTransitions
+            else 0
+        )
+        vacated = Lease(
+            metadata=ObjectMeta(
+                name=existing_lease.metadata.name,
+                namespace=self._namespace,
+                resourceVersion=existing_lease.metadata.resourceVersion,
+                labels={
+                    _LABEL_MANAGED_BY: _LABEL_MANAGED_BY_VALUE,
+                },
+            ),
+            spec=LeaseSpec(
+                holderIdentity=None,
+                leaseDurationSeconds=None,
+                acquireTime=None,
+                renewTime=None,
+                leaseTransitions=transitions,
+            ),
+        )
+
+        try:
+            await self._client.replace(vacated)
+        except ApiError as e:
+            if e.status.code in (HTTPStatus.NOT_FOUND, HTTPStatus.CONFLICT):
                 return False
             raise
 
