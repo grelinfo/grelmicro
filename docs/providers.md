@@ -130,9 +130,9 @@ Each Provider exposes factory methods that return its matching adapter:
 | Method                      | Returns                       | RedisProvider | PostgresProvider | SQLiteProvider |
 |----------------------------|-------------------------------|:-------------:|:----------------:|:--------------:|
 | `.sync(**kwargs)`           | `SyncBackend` implementation  |       ✓        |        ✓         |       ✓        |
-| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        ✓         |       —        |
+| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        ✓         |      N/A       |
 | `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        ✓         |       ✓        |
-| `.breaker(**kwargs)`        | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |       —        |
+| `.breaker(**kwargs)`        | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |      N/A       |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Sync(provider)`, `Cache(provider)`,

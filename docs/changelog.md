@@ -9,6 +9,10 @@
 ### Features
 
 * ✨ Leader election leases carry a Kubernetes-style `LeaderRecord` (holder, lease duration, acquire and renew times, leadership transitions, and free-form metadata). Read it from `LeaderElection.record`, set the metadata via `LeaderElection(metadata=...)`. Metadata-storing backends ship for memory, Redis, Postgres, and Kubernetes Lease, resolved through `provider.leader_election()` or passed to `Coordination(...)` directly. Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+* ✨ Add `grelmicro.testing.record(backend)` for protocol-level call assertions. It instruments a backend's public async methods in place and returns a `CallLog`, so the backend keeps its type and behavior while every call is recorded. Assert with `log.count(method, **kwargs)`, inspect `log.methods()`, or read the raw `log.calls`. Works like `pytest-mock`'s `mocker.spy`. Issue [#271](https://github.com/grelinfo/grelmicro/issues/271).
+* 📝 Correct the comparison page and capability matrix to show the Postgres and SQLite cache, rate limiter, and circuit breaker backends as shipped (they were stale-labeled "planned").
+* 📝 Add a "what grelmicro is not" line to the README and docs landing for sharper first-read positioning.
+* 🔧 Set the PyPI `Development Status` classifier to `4 - Beta`.
 
 ## 0.26.0 - 2026-06-05
 
@@ -77,7 +81,7 @@
 ### Internal
 
 * 🔒 `@instrument` now filters arguments whose names match common secret keywords (`password`, `token`, `secret`, `api_key`, `authorization`, `cookie`, ... matched case-insensitively) from both span attributes and log context. Pass extra names via `skip=` for custom secret-bearing parameters. Unchanged for non-sensitive args.
-* 🔧 Replace the optional `orjson` redef-as-`Any | None` pattern in `grelmicro/_json.py` with try/except branches that define the dumps/loads functions in scope. The per-call `# type: ignore[union-attr]` directives are gone; `orjson` keeps its real type from the stub package in the available branch.
+* 🔧 Replace the optional `orjson` redef-as-`Any | None` pattern in `grelmicro/_json.py` with try/except branches that define the dumps/loads functions in scope. The per-call `# type: ignore[union-attr]` directives are gone, and `orjson` keeps its real type from the stub package in the available branch.
 * 🚨 `Trace.__aenter__` now raises `TracingError` if `opentelemetry.trace._TRACER_PROVIDER` is missing instead of silently no-op patching. A future OTel that drops the private global surfaces a clear error pointing at the workaround. An inline comment near the patch documents why the private attribute is required.
 * 🔒 `PickleSerializer` docs upgraded to a Danger callout. Pickle is now framed as trusted in-process backends only, and the `@cached` decorator example leads with `JsonSerializer`. The `TTLCache` docstring lists Pydantic and JSON before Pickle.
 * 🔧 Comment why `_env_prefix=env_prefix` needs a type-ignore in `RedisProvider` and `PostgresProvider` (pydantic-settings runtime kwarg the stubs do not expose).
@@ -242,7 +246,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 * 💥 `BackendRegistry.set` is renamed `register` and `BackendRegistry.unregister` is added with an identity check. `reset` remains for test fixtures. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
 * 💥 `async with backend` opens the connection but no longer registers. Call `register(backend)` (or `use_backend(backend)`) to register, or open everything at once with `grelmicro.lifespan()`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
 * 💥 `BackendRegistry` is now multi-name: `register(backend, name="default")`, `unregister(name, backend=None)`, `get(name="default")`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
-* 💥 The sync registry name changed from `"lock"` to `"sync"` (used in error messages and `lifespan()` exclude keys); the rate limiter registry from `"rate_limiter"` to `"resilience"`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* 💥 The sync registry name changed from `"lock"` to `"sync"` (used in error messages and `lifespan()` exclude keys). The rate limiter registry changed from `"rate_limiter"` to `"resilience"`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
 * 💥 Overwriting a registered name with a different instance now raises `BackendAlreadyRegisteredError` (was: warning + replace). Re-registering the same instance stays a no-op. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
 
 ### Features

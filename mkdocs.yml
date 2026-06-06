@@ -93,6 +93,7 @@ nav:
     - reference/sync.md
     - reference/coordination.md
     - reference/task.md
+    - reference/testing.md
     - reference/trace.md
 - Architecture:
     - architecture/index.md
