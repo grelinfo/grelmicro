@@ -47,7 +47,14 @@ async def test_retry_emits_error_on_exhaustion(
     metrics_reader: MetricsHarness,
 ) -> None:
     """Exhausting retries emits attempts(outcome=error)."""
-    policy = Retry("always", when=ValueError, attempts=2, backoff=_no_backoff())
+    from grelmicro.resilience import ConstantBackoff  # noqa: PLC0415
+
+    policy = Retry(
+        "always",
+        when=ValueError,
+        attempts=2,
+        backoff=ConstantBackoff(delay=0.001),
+    )
 
     @policy
     async def boom() -> None:
@@ -166,10 +173,3 @@ async def test_timeout_no_emit_when_within_deadline(
     async with timeout:
         pass
     assert metrics_reader.points("grelmicro.timeout.exceeded") == []
-
-
-def _no_backoff() -> object:
-    """Build a near-zero-delay backoff for fast retry tests."""
-    from grelmicro.resilience import ConstantBackoff  # noqa: PLC0415
-
-    return ConstantBackoff(delay=0.001)
