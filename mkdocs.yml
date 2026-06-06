@@ -91,6 +91,7 @@ nav:
     - reference/resilience.md
     - reference/sync.md
     - reference/task.md
+    - reference/testing.md
     - reference/trace.md
 - Architecture:
     - architecture/index.md

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+* ✨ Add `grelmicro.testing.record(backend)` for protocol-level call assertions. It instruments a backend's public async methods in place and returns a `CallLog`, so the backend keeps its type and behavior while every call is recorded. Assert with `log.count(method, **kwargs)`, inspect `log.methods()`, or read the raw `log.calls`. Works like `pytest-mock`'s `mocker.spy`. Issue [#271](https://github.com/grelinfo/grelmicro/issues/271).
+
 ## 0.26.0 - 2026-06-05
 
 ### Breaking
