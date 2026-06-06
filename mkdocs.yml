@@ -71,6 +71,7 @@ nav:
     - json.md
     - logging.md
     - tracing.md
+    - metrics.md
     - Resilience:
         - resilience/index.md
         - resilience/shield.md
@@ -88,6 +89,7 @@ nav:
     - reference/health.md
     - reference/json.md
     - reference/logging.md
+    - reference/metrics.md
     - reference/resilience.md
     - reference/coordination.md
     - reference/task.md

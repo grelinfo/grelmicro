@@ -323,7 +323,7 @@ def _build_exporter(config: TracingConfig) -> Any:  # noqa: ANN401
 
     if config.exporter == TracingExporterType.OTLP_HTTP:  # pragma: no cover
         try:
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415  # ty: ignore[unresolved-import]
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
                 OTLPSpanExporter,
             )
         except ImportError as exc:
@@ -338,7 +338,7 @@ def _build_exporter(config: TracingConfig) -> Any:  # noqa: ANN401
         return OTLPSpanExporter(**kwargs)
 
     try:  # pragma: no cover
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415  # ty: ignore[unresolved-import]
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
             OTLPSpanExporter,
         )
     except ImportError as exc:  # pragma: no cover

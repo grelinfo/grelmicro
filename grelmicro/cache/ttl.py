@@ -10,6 +10,7 @@ from pydantic import BaseModel, NonNegativeInt, PositiveFloat
 from typing_extensions import Doc, TypeVar
 
 from grelmicro._app import Grelmicro
+from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
     from grelmicro.cache._protocol import CacheBackend
@@ -208,8 +209,10 @@ class TTLCache(Generic[T]):
         raw = await self._get_backend().get(key=f"{_CACHE_PREFIX}:{key}")
         if raw is None:
             self._misses += 1
+            _emit.incr("grelmicro.cache.operations", result="miss")
             return default
         self._hits += 1
+        _emit.incr("grelmicro.cache.operations", result="hit")
         if self._maxsize > 0:
             self._promote(key)
         return self._deserialize(raw)

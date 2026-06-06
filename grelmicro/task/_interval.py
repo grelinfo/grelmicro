@@ -1,6 +1,7 @@
 """Interval Task."""
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from functools import partial
 from logging import getLogger
@@ -15,6 +16,7 @@ from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError
+from grelmicro.metrics import _emit
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.abc import Task
 
@@ -170,10 +172,35 @@ class IntervalTask(Task):
         overhead on every iteration.
         """
         if index >= len(primitives):
+            _emit.add_up_down(
+                "grelmicro.task.active", 1, **{"task.name": self.name}
+            )
+            start = time.perf_counter()
             try:
                 await self._async_function()
-            except Exception:
+                _emit.incr(
+                    "grelmicro.task.runs",
+                    **{"task.name": self.name, "outcome": "success"},
+                )
+            except Exception as exc:
                 logger.exception("Task execution error: %s", self.name)
+                _emit.incr(
+                    "grelmicro.task.runs",
+                    **{
+                        "task.name": self.name,
+                        "outcome": "error",
+                        "error.type": type(exc).__name__,
+                    },
+                )
+            finally:
+                _emit.record_duration(
+                    "grelmicro.task.duration",
+                    time.perf_counter() - start,
+                    **{"task.name": self.name},
+                )
+                _emit.add_up_down(
+                    "grelmicro.task.active", -1, **{"task.name": self.name}
+                )
             return
 
         async with primitives[index]:
