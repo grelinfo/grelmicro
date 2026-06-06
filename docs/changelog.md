@@ -6,6 +6,7 @@
 
 * 💥 Replace `@cached(stampede="local" | "distributed" | None)` with `@cached(lock=False | True | "local")`. `lock=True` folds concurrent misses and picks the cross-replica path automatically when the active app has a `Sync` backend (in-process otherwise), `lock="local"` forces the in-process path, and the default is now `lock=False` (no protection, opt in explicitly). Migrate `stampede="local"` to `lock="local"`, `stampede="distributed"` to `lock=True`, and `stampede=None` to `lock=False`. Issue [#235](https://github.com/grelinfo/grelmicro/issues/235).
 * 💥 Move `LeaderElection` out of `grelmicro.sync` into a new `grelmicro.coordination` package. Import it from `grelmicro.coordination`. `Sync.leader_election()` is removed: register a `Coordination` component and call `micro.coordination.leader_election(...)`. Leader election now runs on a dedicated `LeaderElectionBackend`, not the lock `SyncBackend`, so it can use a different vendor than `Lock` (Redis for `Lock`, a Kubernetes Lease for leader election). Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+* 💥 Unify `grelmicro.sync` into `grelmicro.coordination` and delete `grelmicro.sync`. Import `Lock`, `TaskLock`, `LeaderElection`, and `Coordination` from `grelmicro.coordination`. The `Sync` component is gone: use one `Coordination` component, which exposes `.lock(...)`, `.task_lock(...)`, and `.leader_election(...)`, and reach it on `micro.coordination`. The `SyncBackend` protocol is now `LockBackend`, the `*SyncAdapter` backends are now `*LockAdapter`, and the provider factory `.sync()` is renamed to `.lock()`. Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
 
 ### Features
 
@@ -561,7 +562,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 * 📝 Add [cache module](cache.md) documentation with usage guide and API reference.
 * 📝 Add [Kubernetes Backend Architecture](architecture/kubernetes.md) page.
 * 📝 Add [SQLite Backend Architecture](architecture/sqlite.md) page.
-* 📝 Add backend comparison matrix to [Synchronization](sync.md#backend) guide.
+* 📝 Add backend comparison matrix to [Coordination](coordination.md#backends) guide.
 * 📝 Rewrite README with project vision.
 
 ## 0.5.0 - 2026-03-17
@@ -581,7 +582,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 
 ### Docs
 
-* 📝 Add [Synchronization Architecture](architecture/sync.md) page. PR [#57](https://github.com/grelinfo/grelmicro/pull/57).
+* 📝 Add [Coordination Architecture](architecture/coordination.md) page. PR [#57](https://github.com/grelinfo/grelmicro/pull/57).
 
 ### Internal
 
