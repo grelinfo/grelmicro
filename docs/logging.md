@@ -1,8 +1,10 @@
 # Logging
 
-The `logging` package provides a simple, zero-config logging system following the **12-factor app** methodology.
+Zero-config logging that follows the **12-factor app** methodology. Use it to get structured, environment-aware logs without wiring handlers by hand.
 
-Logs go to stdout. Format is selected automatically. Configuration is done via environment variables.
+- **Zero-config**: logs go to stdout, the format is picked automatically.
+- **Structured**: extra fields become flat top-level keys, exceptions become structured error data.
+- **Environment-driven**: every knob is a `GREL_LOG_*` environment variable.
 
 ## Quick Start
 
@@ -16,20 +18,18 @@ Or attach it to a `Grelmicro` app via `uses=`:
 --8<-- "log/component.py"
 ```
 
-`Log()` accepts the same knobs as `configure()` and resolves `GREL_LOG_*`
-environment variables. On exit, the previous stdlib root handlers are
-restored.
+`Log()` accepts the same knobs as `configure()` and resolves `GREL_LOG_*` environment variables. On exit, the previous stdlib root handlers are restored.
 
 With no environment variables set, `configure()` detects your terminal:
 
 - **Terminal (TTY)**: human-readable colored text
 - **Piped / CI / container**: structured JSON
 
-This is the `AUTO` format (the default).
+This is the `AUTO` format (the default). Most users never need to set `GREL_LOG_FORMAT`.
 
-## Backend Selection
+## Backends
 
-grelmicro supports three logging backends. All backends produce **identical output** for each format, making it easy to switch.
+grelmicro supports three logging backends. All backends produce **identical output** for each format, so switching is easy. Select one with the `GREL_LOG_BACKEND` environment variable, then use the matching logger.
 
 | Backend | Dependencies | Best for |
 |---------|-------------|----------|
@@ -37,31 +37,14 @@ grelmicro supports three logging backends. All backends produce **identical outp
 | **[Loguru](https://loguru.readthedocs.io/)** | `loguru` | Developer ergonomics |
 | **[structlog](https://www.structlog.org/)** | `structlog` | High-throughput services |
 
-### Installation
+=== "stdlib"
+    ```python
+    import logging
 
-=== "stdlib (no dependencies)"
-    No additional dependencies required. Uses Python's built-in `logging` module.
-
-=== "Loguru"
-    ```bash
-    pip install grelmicro[standard]
+    configure()
+    logger = logging.getLogger(__name__)
+    logger.info("Hello, World!", extra={"user_id": 123})
     ```
-
-=== "structlog"
-    ```bash
-    pip install grelmicro[structlog]
-    ```
-
-=== "With OpenTelemetry"
-    ```bash
-    pip install grelmicro[standard,opentelemetry]
-    # or
-    pip install grelmicro[structlog,opentelemetry]
-    ```
-
-### Usage
-
-Select the backend with the `GREL_LOG_BACKEND` environment variable, then use the corresponding logger:
 
 === "Loguru"
     ```python
@@ -80,13 +63,70 @@ Select the backend with the `GREL_LOG_BACKEND` environment variable, then use th
     log.info("Hello, World!", user_id=123)
     ```
 
-=== "stdlib"
-    ```python
-    import logging
+??? note "Installation"
+    === "stdlib (no dependencies)"
+        No additional dependencies required. Uses Python's built-in `logging` module.
 
-    configure()
-    logger = logging.getLogger(__name__)
-    logger.info("Hello, World!", extra={"user_id": 123})
+    === "Loguru"
+        ```bash
+        pip install grelmicro[standard]
+        ```
+
+    === "structlog"
+        ```bash
+        pip install grelmicro[structlog]
+        ```
+
+    === "With OpenTelemetry"
+        ```bash
+        pip install grelmicro[standard,opentelemetry]
+        # or
+        pip install grelmicro[structlog,opentelemetry]
+        ```
+
+## Structured Logging
+
+Extra context fields are passed as keyword arguments and appear as flat top-level fields:
+
+```python
+--8<-- "log/structured_logging.py"
+```
+
+Output:
+```json
+{"time":"...","level":"INFO","msg":"User logged in","logger":"...","user_id":123,"ip_address":"192.168.1.1"}
+```
+
+## Exception Handling
+
+Exceptions are automatically captured as structured `ErrorDict`:
+
+```python
+--8<-- "log/exception_logging.py"
+```
+
+JSON output:
+```json
+{"time":"...","level":"ERROR","msg":"Operation failed","logger":"...","operation":"divide","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
+```
+
+??? note "LOGFMT and PRETTY output"
+    LOGFMT output:
+    ```
+    time=... level=ERROR msg="Operation failed" logger=... error.type=ZeroDivisionError error.message="division by zero" error.stack="Traceback..."
+    ```
+
+    PRETTY output:
+    ```
+      ... ERROR Operation failed
+        at ...
+        operation: divide
+        error.type: ZeroDivisionError
+        error.message: division by zero
+        error.stack:
+          Traceback (most recent call last):
+            ...
+          ZeroDivisionError: division by zero
     ```
 
 ## Log Formats
@@ -126,181 +166,96 @@ In a container or CI:
 {"time":"2026-04-01T08:30:00.123456+00:00","level":"INFO","msg":"Application started","logger":"__main__","version":"1.0.0"}
 ```
 
-!!! tip "Zero Config"
-    `AUTO` is the default. Most users never need to set `GREL_LOG_FORMAT`.
+??? note "JSON, LOGFMT, TEXT, and PRETTY formats"
+    #### JSON
 
-### JSON
+    Structured newline-delimited JSON. Ideal for production, log aggregation (Datadog, Loki, ELK).
 
-Structured newline-delimited JSON. Ideal for production, log aggregation (Datadog, Loki, ELK).
+    ```
+    GREL_LOG_FORMAT=JSON
+    ```
 
-```
-GREL_LOG_FORMAT=JSON
-```
+    ```python
+    --8<-- "log/json_format.py"
+    ```
 
-```python
---8<-- "log/json_format.py"
-```
+    Output:
+    ```json
+    {"time":"2026-04-01T10:30:00.123456+02:00","level":"INFO","msg":"Application started","logger":"__main__","version":"1.0.0","environment":"production"}
+    ```
 
-Output:
-```json
-{"time":"2026-04-01T10:30:00.123456+02:00","level":"INFO","msg":"Application started","logger":"__main__","version":"1.0.0","environment":"production"}
-```
+    #### LOGFMT
 
-### LOGFMT
+    Key-value pairs following the [logfmt](https://brandur.org/logfmt) convention. 30-40% smaller than JSON, grep-friendly, parseable by Grafana Loki and most log tools.
 
-Key-value pairs following the [logfmt](https://brandur.org/logfmt) convention. 30-40% smaller than JSON, grep-friendly, parseable by Grafana Loki and most log tools.
+    ```
+    GREL_LOG_FORMAT=LOGFMT
+    ```
 
-```
-GREL_LOG_FORMAT=LOGFMT
-```
+    ```python
+    --8<-- "log/logfmt_format.py"
+    ```
 
-```python
---8<-- "log/logfmt_format.py"
-```
+    Output:
+    ```
+    time=2026-04-01T10:30:00.123456+00:00 level=INFO msg="Request handled" logger=__main__ method=GET path=/health status=200
+    ```
 
-Output:
-```
-time=2026-04-01T10:30:00.123456+00:00 level=INFO msg="Request handled" logger=__main__ method=GET path=/health status=200
-```
+    Nested dicts use dot notation:
+    ```
+    error.type=ValueError error.message="invalid input"
+    ```
 
-Nested dicts use dot notation:
-```
-error.type=ValueError error.message="invalid input"
-```
+    #### TEXT
 
-### TEXT
+    Single-line, human-readable output. Includes extra fields as `key=value` pairs. Colors are enabled when output is a TTY.
 
-Single-line, human-readable output. Includes extra fields as `key=value` pairs. Colors are enabled when output is a TTY.
+    ```
+    GREL_LOG_FORMAT=TEXT
+    ```
 
-```
-GREL_LOG_FORMAT=TEXT
-```
+    ```python
+    --8<-- "log/text_format.py"
+    ```
 
-```python
---8<-- "log/text_format.py"
-```
+    Output:
+    ```
+    2026-04-01 10:30:00.123 INFO     __main__:<module>:12 - Application started version=1.0.0
+    ```
 
-Output:
-```
-2026-04-01 10:30:00.123 INFO     __main__:<module>:12 - Application started version=1.0.0
-```
+    #### PRETTY
 
-### PRETTY
+    Multi-line format with indented fields. Best for debugging with low log volume.
 
-Multi-line format with indented fields. Best for debugging with low log volume.
+    ```
+    GREL_LOG_FORMAT=PRETTY
+    ```
 
-```
-GREL_LOG_FORMAT=PRETTY
-```
+    ```python
+    --8<-- "log/pretty_format.py"
+    ```
 
-```python
---8<-- "log/pretty_format.py"
-```
+    Output:
+    ```
+      2026-04-01 10:30:00.123 INFO Request handled
+        at __main__:<module>:10
+        method: GET
+        path: /health
+        status: 200
+    ```
 
-Output:
-```
-  2026-04-01 10:30:00.123 INFO Request handled
-    at __main__:<module>:10
-    method: GET
-    path: /health
-    status: 200
-```
-
-With exceptions:
-```
-  2026-04-01 10:30:01.456 ERROR Operation failed
-    at myapp.service:process:78
-    error.type: ZeroDivisionError
-    error.message: division by zero
-    error.stack:
-      Traceback (most recent call last):
-        File "service.py", line 78, in process
-          result = 1 / 0
-      ZeroDivisionError: division by zero
-```
-
-## Settings
-
-All configuration is done via environment variables:
-
-| Variable | Values | Default |
-|----------|--------|---------|
-| `GREL_LOG_BACKEND` | `stdlib`, `loguru`, `structlog` | `stdlib` |
-| `GREL_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
-| `GREL_LOG_FORMAT` | `AUTO`, `JSON`, `LOGFMT`, `TEXT`, `PRETTY` | `AUTO` |
-| `GREL_LOG_TIMEZONE` | IANA timezone (e.g., `UTC`, `Europe/Zurich`) | `UTC` |
-| `GREL_LOG_JSON_SERIALIZER` | `stdlib`, `orjson` | `stdlib` |
-| `GREL_LOG_CALLER_ENABLED` | `true`, `false` | `false` |
-| `GREL_LOG_OTEL_ENABLED` | `true`, `false` | auto-detected |
-| `NO_COLOR` | any value | (unset) |
-| `FORCE_COLOR` | any value | (unset) |
-
-!!! note "Color Support"
-    Colors follow the [NO_COLOR](https://no-color.org) and [FORCE_COLOR](https://force-color.org) standards.
-    When `NO_COLOR` is set, `AUTO` resolves to `JSON` and colors are disabled.
-    `FORCE_COLOR` takes precedence over `NO_COLOR`.
-
-### Timezone
-
-The `GREL_LOG_TIMEZONE` setting controls timestamps in all formats:
-
-```
-GREL_LOG_TIMEZONE=Europe/Zurich
-```
-
-**JSON / LOGFMT**: ISO 8601 with timezone offset
-```
-"time":"2026-04-01T15:56:36.066922+01:00"
-```
-
-**TEXT / PRETTY**: Localized time
-```
-2026-04-01 15:56:36.066
-```
-
-## Structured Logging
-
-Extra context fields are passed as keyword arguments and appear as flat top-level fields:
-
-```python
---8<-- "log/structured_logging.py"
-```
-
-Output:
-```json
-{"time":"...","level":"INFO","msg":"User logged in","logger":"...","user_id":123,"ip_address":"192.168.1.1"}
-```
-
-## Exception Handling
-
-Exceptions are automatically captured as structured `ErrorDict`:
-
-```python
---8<-- "log/exception_logging.py"
-```
-
-JSON output:
-```json
-{"time":"...","level":"ERROR","msg":"Operation failed","logger":"...","operation":"divide","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
-```
-
-LOGFMT output:
-```
-time=... level=ERROR msg="Operation failed" logger=... error.type=ZeroDivisionError error.message="division by zero" error.stack="Traceback..."
-```
-
-PRETTY output:
-```
-  ... ERROR Operation failed
-    at ...
-    operation: divide
-    error.type: ZeroDivisionError
-    error.message: division by zero
-    error.stack:
-      Traceback (most recent call last):
-        ...
-      ZeroDivisionError: division by zero
-```
+    With exceptions:
+    ```
+      2026-04-01 10:30:01.456 ERROR Operation failed
+        at myapp.service:process:78
+        error.type: ZeroDivisionError
+        error.message: division by zero
+        error.stack:
+          Traceback (most recent call last):
+            File "service.py", line 78, in process
+              result = 1 / 0
+          ZeroDivisionError: division by zero
+    ```
 
 ## OpenTelemetry Integration
 
@@ -353,64 +308,6 @@ uvicorn app:app --log-config uvicorn_log_config.json
 `UvicornFormatter` and `UvicornAccessFormatter` read `GREL_LOG_FORMAT` at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.
 
 `UvicornAccessFormatter` additionally parses uvicorn's access log arguments into structured fields: `client_addr`, `method`, `full_path`, `http_version`, `status_code`.
-
-## Custom Format (Loguru only)
-
-You can provide a custom [loguru format template](https://loguru.readthedocs.io/en/stable/api/logger.html#message):
-
-```
-GREL_LOG_FORMAT="{level} | {message}"
-```
-
-```python
---8<-- "log/custom_format.py"
-```
-
-Output:
-```
-INFO | Custom format example
-```
-
-!!! note
-    Custom format strings only work with the loguru backend.
-
-## JSON Record Structure
-
-All JSON log records follow this schema. Required fields are always present, optional fields may be absent. Extra context fields are merged flat at the top level:
-
-```python
-class JSONRecordDict:
-    # Required
-    time: str              # ISO 8601 timestamp with timezone
-    level: str             # DEBUG, INFO, WARNING, ERROR, CRITICAL
-    msg: str               # Log message
-    logger: str            # Logger name (e.g., "myapp.api")
-    # Optional (opt-in via GREL_LOG_CALLER_ENABLED=true)
-    caller: str            # function:line (e.g., "handle:45")
-    # Optional
-    trace_id: str          # OpenTelemetry trace ID (32 hex chars)
-    span_id: str           # OpenTelemetry span ID (16 hex chars)
-    error: ErrorDict       # Structured error info
-```
-
-The `ErrorDict` structure:
-
-```python
-class ErrorDict:
-    type: str              # Exception class name (e.g., "ValueError")
-    message: str           # Exception message
-    stack: str             # Optional: full traceback string
-```
-
-### Design Decisions
-
-**Level casing**: UPPERCASE (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`), following common structured-logging conventions.
-
-**Field naming**: Core field names (`time`, `level`, `msg`, `logger`, `caller`, `error`) follow common structured-logging conventions. `logger` is the logger name, `caller` is the call site (`function:line`).
-
-**Caller opt-in**: `caller` is disabled by default, as in many structured-logging libraries. Enable with `GREL_LOG_CALLER_ENABLED=true`. Uvicorn formatters never include `caller` (points to uvicorn internals, not application code).
-
-**Collision protection**: Core fields cannot be overwritten by user-supplied extra context.
 
 ## Deduplicating Noisy Logs
 
@@ -484,6 +381,102 @@ State is in-process only, backed by [`MemoryTokenBucket`][grelmicro.resilience.M
 
 !!! tip
     `RateLimitFilter` and `DuplicateFilter` compose well: attach the dedup filter first to collapse true duplicates, then the rate-limit filter to cap the sustained flow.
+
+## Settings
+
+All configuration is done via environment variables:
+
+| Variable | Values | Default |
+|----------|--------|---------|
+| `GREL_LOG_BACKEND` | `stdlib`, `loguru`, `structlog` | `stdlib` |
+| `GREL_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
+| `GREL_LOG_FORMAT` | `AUTO`, `JSON`, `LOGFMT`, `TEXT`, `PRETTY` | `AUTO` |
+| `GREL_LOG_TIMEZONE` | IANA timezone (e.g., `UTC`, `Europe/Zurich`) | `UTC` |
+| `GREL_LOG_JSON_SERIALIZER` | `stdlib`, `orjson` | `stdlib` |
+| `GREL_LOG_CALLER_ENABLED` | `true`, `false` | `false` |
+| `GREL_LOG_OTEL_ENABLED` | `true`, `false` | auto-detected |
+| `NO_COLOR` | any value | (unset) |
+| `FORCE_COLOR` | any value | (unset) |
+
+!!! note "Color Support"
+    Colors follow the [NO_COLOR](https://no-color.org) and [FORCE_COLOR](https://force-color.org) standards.
+    When `NO_COLOR` is set, `AUTO` resolves to `JSON` and colors are disabled.
+    `FORCE_COLOR` takes precedence over `NO_COLOR`.
+
+### Timezone
+
+The `GREL_LOG_TIMEZONE` setting controls timestamps in all formats:
+
+```
+GREL_LOG_TIMEZONE=Europe/Zurich
+```
+
+**JSON / LOGFMT**: ISO 8601 with timezone offset
+```
+"time":"2026-04-01T15:56:36.066922+01:00"
+```
+
+**TEXT / PRETTY**: Localized time
+```
+2026-04-01 15:56:36.066
+```
+
+## Custom Format (Loguru only)
+
+You can provide a custom [loguru format template](https://loguru.readthedocs.io/en/stable/api/logger.html#message):
+
+```
+GREL_LOG_FORMAT="{level} | {message}"
+```
+
+```python
+--8<-- "log/custom_format.py"
+```
+
+Output:
+```
+INFO | Custom format example
+```
+
+!!! note
+    Custom format strings only work with the loguru backend.
+
+## JSON Record Structure
+
+All JSON log records follow this schema. Required fields are always present, optional fields may be absent. Extra context fields are merged flat at the top level:
+
+```python
+class JSONRecordDict:
+    # Required
+    time: str              # ISO 8601 timestamp with timezone
+    level: str             # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    msg: str               # Log message
+    logger: str            # Logger name (e.g., "myapp.api")
+    # Optional (opt-in via GREL_LOG_CALLER_ENABLED=true)
+    caller: str            # function:line (e.g., "handle:45")
+    # Optional
+    trace_id: str          # OpenTelemetry trace ID (32 hex chars)
+    span_id: str           # OpenTelemetry span ID (16 hex chars)
+    error: ErrorDict       # Structured error info
+```
+
+The `ErrorDict` structure:
+
+```python
+class ErrorDict:
+    type: str              # Exception class name (e.g., "ValueError")
+    message: str           # Exception message
+    stack: str             # Optional: full traceback string
+```
+
+??? note "Design decisions"
+    **Level casing**: UPPERCASE (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`), following common structured-logging conventions.
+
+    **Field naming**: Core field names (`time`, `level`, `msg`, `logger`, `caller`, `error`) follow common structured-logging conventions. `logger` is the logger name, `caller` is the call site (`function:line`).
+
+    **Caller opt-in**: `caller` is disabled by default, as in many structured-logging libraries. Enable with `GREL_LOG_CALLER_ENABLED=true`. Uvicorn formatters never include `caller` (points to uvicorn internals, not application code).
+
+    **Collision protection**: Core fields cannot be overwritten by user-supplied extra context.
 
 ## Production Deployment
 

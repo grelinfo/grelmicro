@@ -34,7 +34,7 @@ The block yields a `FallbackResult`. Call `result.set(value)` on success. If a m
 
 ## Filtering exceptions
 
-`when=` accepts the same shorthand as `Retry`'s `when=`:
+`when=` accepts the same shorthand as `Retry`'s `when=`: an exception class, a tuple of classes, a predicate, or a `Match` instance.
 
 ```python
 from grelmicro.resilience import Fallback, Match

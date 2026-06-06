@@ -4,8 +4,7 @@
 
 ### Docs
 
-* 📝 Rewrite `docs/resilience/shield.md` example-first: lead with the simplest decorator, move the CUBIC / RFC 9438 internals into a collapsible "How the adaptive layer works" section.
-* 📝 Add a Quick start to `docs/cache.md` and `docs/sync.md` so the headline `@cached` and `Lock` usage appears before the backend wiring.
+* 📝 Simplify the feature docs to a consistent example-first style: every page leads with the simplest runnable example, and deep theory (algorithm internals, RFC citations, format catalogs, backend internals) moves into collapsible sections. Covers `shield`, `retry`, `rate-limiter`, `circuit-breaker`, `fallback` (resilience), and `cache`, `sync`, `logging`, `health`, `tracing`, `task`, `json` (user guide).
 
 ## 0.26.0 - 2026-06-05
 

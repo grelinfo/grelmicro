@@ -1,6 +1,6 @@
 # Circuit Breaker
 
-A **Circuit Breaker** prevents repeated failures when calling an unreliable downstream. It watches call outcomes and, after too many consecutive failures, **opens** to block further calls for a cool-down period so the dependency can recover.
+A **Circuit Breaker** prevents repeated failures when calling an unreliable downstream. After too many consecutive failures it **opens** to block further calls for a cool-down period, so the dependency can recover.
 
 **Why**
 
@@ -8,9 +8,20 @@ A **Circuit Breaker** prevents repeated failures when calling an unreliable down
 - Stop a failing dependency from exhausting every thread or connection in your pool.
 - Expose the health of a dependency at the breaker boundary, so each caller does not have to track it.
 
+## Usage
+
+Wrap the protected call with `async with cb:` or decorate an async function with `@cb`:
+
+```python
+--8<-- "resilience/circuitbreaker.py"
+```
+
+!!! warning "Thread safety"
+    The Circuit Breaker is not thread-safe. The async API (`async with cb:` or `@cb` on `async def`) is the default. From a synchronous handler running in a worker thread (for example a sync route in your web framework), use `with cb.from_thread:` or apply `@cb` to a sync function. The adapter dispatches state changes onto the parent event loop captured by the backend, so calls stay serialized. See [Sync from thread](../architecture/sync-from-thread.md).
+
 ## State machine
 
-Three normal states (`CLOSED`, `OPEN`, `HALF_OPEN`) plus two manual overrides (`FORCED_OPEN`, `FORCED_CLOSED`).
+The breaker watches call outcomes and moves between three normal states. After `reset_timeout`, it lets a few probe calls test whether the dependency is back.
 
 ```mermaid
 stateDiagram-v2
@@ -22,42 +33,17 @@ stateDiagram-v2
     HALF_OPEN --> OPEN: probe fails
 ```
 
-| State         | Description                                                        |
-|---------------|--------------------------------------------------------------------|
-| **CLOSED**        | Normal operation. Calls are allowed.                               |
-| **OPEN**          | Calls are blocked to let the dependency recover.                   |
-| **HALF_OPEN**     | A limited number of probe calls test whether the dependency is back. |
-| **FORCED_OPEN**   | Manual override that blocks every call.                            |
-| **FORCED_CLOSED** | Manual override that allows every call.                            |
+??? note "All five states"
 
-## Usage
+    Three normal states (`CLOSED`, `OPEN`, `HALF_OPEN`) plus two manual overrides (`FORCED_OPEN`, `FORCED_CLOSED`).
 
-```python
---8<-- "resilience/circuitbreaker.py"
-```
-
-!!! warning "Thread safety"
-    The Circuit Breaker is not thread-safe. The async API (`async with cb:` or `@cb` on `async def`) is the default. From a synchronous handler running in a worker thread (for example a sync route in your web framework), use `with cb.from_thread:` or apply `@cb` to a sync function. The adapter dispatches state changes onto the parent event loop captured by the backend, so calls stay serialized. See [Sync from thread](../architecture/sync-from-thread.md).
-
-See the [API reference](../reference/resilience.md#grelmicro.resilience.CircuitBreaker) for every option.
-
-## Configuration
-
-`CircuitBreaker` exposes two construction paths.
-
-### Factory classmethod
-
-```python
---8<-- "resilience/circuitbreaker_programmatic.py"
-```
-
-### Declarative
-
-```python
---8<-- "resilience/circuitbreaker_declarative.py"
-```
-
-For environment-driven configuration, build a `ConsecutiveCountConfig` with `pydantic-settings` and pass it positionally to `CircuitBreaker.from_config(name, config)`.
+    | State         | Description                                                        |
+    |---------------|--------------------------------------------------------------------|
+    | **CLOSED**        | Normal operation. Calls are allowed.                               |
+    | **OPEN**          | Calls are blocked to let the dependency recover.                   |
+    | **HALF_OPEN**     | A limited number of probe calls test whether the dependency is back. |
+    | **FORCED_OPEN**   | Manual override that blocks every call.                            |
+    | **FORCED_CLOSED** | Manual override that allows every call.                            |
 
 ## Backend
 
@@ -84,20 +70,42 @@ Pass a shared `CircuitBreakers(redis_provider)` or `CircuitBreakers(postgres_pro
 !!! warning
     Use environment variables for connection URLs in production, not hard-coded strings like the example above.
 
-### Local vs. shared
-
-| | **Memory (local)** | **Redis / Postgres (shared)** |
-|---|---|---|
-| State scope | Per replica | Fleet-wide |
-| Half-open admission cap | Enforced per replica | Enforced globally |
-| Manual `transition_to_*` | Visible to one replica | Visible to every replica |
-| `last_error` / `last_error_time` | Per replica | Per replica |
-| `total_error_count` / `total_success_count` | Per replica | Per replica |
-
-The Postgres adapter stores breaker state in a single `grelmicro_circuit_breaker` table. Every admission and counter update runs inside a PL/pgSQL function that holds `pg_advisory_xact_lock` for the breaker name, so concurrent replicas converge to the same state. The Redis adapter does the same with atomic Lua scripts.
-
 ### Choosing a backend
 
 Use a **shared** backend (Redis or Postgres) when one replica's circuit decision should short-circuit the rest. Pick Redis for the lowest-latency option when you already run it, or Postgres when it is your only stateful dependency. Use **Memory** (the default) when each replica's downstream is independent (per-shard databases, per-zone caches).
 
 When the shared backend is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with [`Retry`](retry.md) or a Fallback Pattern if you need a degraded path during an outage.
+
+??? note "Local vs. shared, and how shared state is stored"
+
+    | | **Memory (local)** | **Redis / Postgres (shared)** |
+    |---|---|---|
+    | State scope | Per replica | Fleet-wide |
+    | Half-open admission cap | Enforced per replica | Enforced globally |
+    | Manual `transition_to_*` | Visible to one replica | Visible to every replica |
+    | `last_error` / `last_error_time` | Per replica | Per replica |
+    | `total_error_count` / `total_success_count` | Per replica | Per replica |
+
+    The Postgres adapter stores breaker state in a single `grelmicro_circuit_breaker` table. Every admission and counter update runs inside a PL/pgSQL function that holds `pg_advisory_xact_lock` for the breaker name, so concurrent replicas converge to the same state. The Redis adapter does the same with atomic Lua scripts.
+
+## Configuration
+
+`CircuitBreaker` exposes two construction paths.
+
+### Factory classmethod
+
+```python
+--8<-- "resilience/circuitbreaker_programmatic.py"
+```
+
+### Declarative
+
+```python
+--8<-- "resilience/circuitbreaker_declarative.py"
+```
+
+For environment-driven configuration, build a `ConsecutiveCountConfig` with `pydantic-settings` and pass it positionally to `CircuitBreaker.from_config(name, config)`.
+
+## Reference
+
+See the [API reference](../reference/resilience.md#grelmicro.resilience.CircuitBreaker) for every option.

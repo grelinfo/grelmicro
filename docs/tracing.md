@@ -1,6 +1,10 @@
 # Tracing
 
-The `tracing` module provides unified instrumentation. A single `@instrument` decorator creates OTel spans and enriches log records with structured context automatically.
+Unified instrumentation. Use it to enrich logs with structured context and create distributed traces from one decorator.
+
+- **One decorator**: `@instrument` captures function arguments as context.
+- **Logs always enriched**: context flows into every log record, no OpenTelemetry needed.
+- **Traces when installed**: with OpenTelemetry present, the same fields become OTel span attributes.
 
 ## Quick Start
 
@@ -105,10 +109,7 @@ configure()
 
 ### Via Grelmicro app
 
-`Trace()` owns the `TracerProvider` lifecycle when registered on a
-`Grelmicro` app. The provider is installed on enter and restored to the
-prior global on exit, so sequential apps in tests do not stack
-providers.
+`Trace()` owns the `TracerProvider` lifecycle when registered on a `Grelmicro` app:
 
 ```python
 --8<-- "trace/component.py"
@@ -119,31 +120,28 @@ providers.
 
     For local development with no collector, set `exporter=TracingExporterType.CONSOLE` to print spans to the console instead. Use `TracingExporterType.NONE` to disable export entirely.
 
-`Trace()` reads `GREL_TRACE_*` environment variables (see `TracingConfig`
-for the full field set) or accepts the same fields as keyword arguments.
-The OTLP HTTP and gRPC exporters require their own packages
-(`opentelemetry-exporter-otlp-proto-http` or
-`opentelemetry-exporter-otlp-proto-grpc`) and are imported only when
-selected.
+??? note "Provider lifecycle and exporters"
+    The provider is installed on enter and restored to the prior global on exit, so sequential apps in tests do not stack providers.
 
-## Works With All Backends
+    `Trace()` reads `GREL_TRACE_*` environment variables (see `TracingConfig` for the full field set) or accepts the same fields as keyword arguments. The OTLP HTTP and gRPC exporters require their own packages (`opentelemetry-exporter-otlp-proto-http` or `opentelemetry-exporter-otlp-proto-grpc`) and are imported only when selected.
 
-The tracing context is injected into all three logging backends (stdlib, loguru, structlog). Use whichever logger you prefer:
+??? note "Works with all logging backends"
+    The tracing context is injected into all three logging backends (stdlib, loguru, structlog). Use whichever logger you prefer:
 
-```python
-# stdlib
-import logging
-logger = logging.getLogger(__name__)
-logger.info("message", extra={"key": "value"})
+    ```python
+    # stdlib
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("message", extra={"key": "value"})
 
-# loguru
-from loguru import logger
-logger.info("message", key="value")
+    # loguru
+    from loguru import logger
+    logger.info("message", key="value")
 
-# structlog
-import structlog
-log = structlog.get_logger()
-log.info("message", key="value")
-```
+    # structlog
+    import structlog
+    log = structlog.get_logger()
+    log.info("message", key="value")
+    ```
 
-All produce the same JSON output with tracing context included.
+    All produce the same JSON output with tracing context included.

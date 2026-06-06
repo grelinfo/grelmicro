@@ -1,32 +1,26 @@
 # JSON
 
-The `json` module provides fast JSON serialization and deserialization using [orjson](https://github.com/ijl/orjson) when available, with automatic fallback to the standard library `json` module.
+Fast JSON serialization and deserialization. Use it whenever you encode or decode JSON on a hot path.
 
-The JSON backend is selected once at import time, so there is no per-call overhead.
+- **Fast**: prefers [orjson](https://github.com/ijl/orjson) when installed, about 7 times faster than stdlib `json`.
+- **Zero-config**: falls back to the standard library `json` module transparently.
+- **No per-call overhead**: the backend is selected once at import time.
 
-## Installation
-
-`orjson` is included in the `standard` extra:
-
-```bash
-pip install grelmicro[standard]
-```
-
-Without the extra, the module falls back to stdlib `json` transparently.
-
-## Usage
+## Quick start
 
 ```python
 --8<-- "json/basic.py"
 ```
 
-### Cache Integration
+`orjson` is included in the `standard` extra. Without it, the module falls back to stdlib `json`:
 
-For caching, use the built-in serializer classes instead of the low-level functions. See the [cache serialization docs](cache.md#serialization) for `JsonSerializer`, `PydanticSerializer`, and `PickleSerializer`.
+```bash
+pip install grelmicro[standard]
+```
 
-### Datetime Handling
+## Datetime handling
 
-`datetime` objects are automatically serialized to ISO 8601 strings. Note that deserialization returns a string, not a `datetime` object:
+`datetime` objects are automatically serialized to ISO 8601 strings. Deserialization returns a string, not a `datetime` object:
 
 ```python
 --8<-- "json/datetime_handling.py"
@@ -43,28 +37,7 @@ For caching, use the built-in serializer classes instead of the low-level functi
 
 `json_loads` accepts `bytes` or `str` and returns the matching Python value: `dict`, `list`, `str`, `int`, `float`, `bool`, or `None`. JSON arrays always decode to `list`, so a `tuple` does not round-trip back to a `tuple`.
 
-## Fallback behavior
-
-The module prefers [orjson](https://github.com/ijl/orjson) and falls back to the standard library `json` module when orjson is not installed. The choice happens once at import time, so there is no per-call branching.
-
-The fallback triggers only on a missing orjson import, not at runtime per value. Install the `standard` extra to get orjson:
-
-```bash
-pip install grelmicro[standard]
-```
-
-Both backends produce compact output with no extra whitespace and apply the same `datetime` handling. Call `has_orjson()` to check which backend is active:
-
-```python
-from grelmicro.json import has_orjson
-
-if has_orjson():
-    print("Using orjson")
-else:
-    print("Using stdlib json")
-```
-
-## Serializer boundaries
+### Serializer boundaries
 
 These functions cover JSON-native values only. Unsupported types raise `TypeError`. This includes `set`, `frozenset`, `bytes`, `Decimal`, and arbitrary objects without a JSON-encodable form:
 
@@ -73,6 +46,29 @@ These functions cover JSON-native values only. Unsupported types raise `TypeErro
 ```
 
 This is the boundary against the cache serializers. The low-level `json` functions never run user code on a value: a non-encodable type raises rather than guessing. When you need richer types or model round-trips, use the cache serializers instead. `PydanticSerializer` handles validated models, and `PickleSerializer` handles arbitrary picklable objects on trusted backends. See the [cache serialization docs](cache.md#serialization) for the trade-offs.
+
+??? note "Cache integration"
+    For caching, use the built-in serializer classes instead of the low-level functions. See the [cache serialization docs](cache.md#serialization) for `JsonSerializer`, `PydanticSerializer`, and `PickleSerializer`.
+
+??? note "Fallback behavior"
+    The module prefers [orjson](https://github.com/ijl/orjson) and falls back to the standard library `json` module when orjson is not installed. The choice happens once at import time, so there is no per-call branching.
+
+    The fallback triggers only on a missing orjson import, not at runtime per value. Install the `standard` extra to get orjson:
+
+    ```bash
+    pip install grelmicro[standard]
+    ```
+
+    Both backends produce compact output with no extra whitespace and apply the same `datetime` handling. Call `has_orjson()` to check which backend is active:
+
+    ```python
+    from grelmicro.json import has_orjson
+
+    if has_orjson():
+        print("Using orjson")
+    else:
+        print("Using stdlib json")
+    ```
 
 ## Performance
 
