@@ -16,6 +16,7 @@ from grelmicro._config import (
     env_segment,
     resolve_config,
 )
+from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -158,7 +159,14 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         scope = stack.pop()
         if not stack:
             del self._scopes[task]
-        return await scope.__aexit__(exc_type, exc, tb)
+        try:
+            return await scope.__aexit__(exc_type, exc, tb)
+        finally:
+            if scope.expired():
+                _emit.incr(
+                    "grelmicro.timeout.exceeded",
+                    **{"timeout.name": self._name},
+                )
 
     def __call__(
         self, fn: Callable[..., Awaitable[Any]], /

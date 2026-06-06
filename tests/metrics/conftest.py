@@ -33,23 +33,31 @@ class MetricsHarness:
         """Wire the component and reader."""
         self.component = component
         self.reader = reader
+        self._latest: dict[str, list[tuple[float, dict[str, Any]]]] = {}
 
     def collect(self) -> dict[str, list[tuple[float, dict[str, Any]]]]:
-        """Collect current metrics into a name -> data points mapping."""
+        """Collect current metrics into a name -> data points mapping.
+
+        Drains the reader and merges with prior collections. A synchronous
+        gauge reports its value only once per `get_metrics_data()`, so
+        merging keeps the latest reading visible across repeated reads.
+        """
         data = self.reader.get_metrics_data()
-        result: dict[str, list[tuple[float, dict[str, Any]]]] = {}
         if data is None:  # pragma: no cover
-            return result
+            return self._latest
         for resource_metric in data.resource_metrics:
             for scope_metric in resource_metric.scope_metrics:
                 for metric in scope_metric.metrics:
-                    points = result.setdefault(metric.name, [])
+                    if metric.name.startswith("otel."):
+                        continue
+                    points: list[tuple[float, dict[str, Any]]] = []
                     for point in metric.data.data_points:
                         value = getattr(point, "value", None)
                         if value is None:  # histogram
                             value = getattr(point, "sum", 0.0)
                         points.append((value, dict(point.attributes or {})))
-        return result
+                    self._latest[metric.name] = points
+        return self._latest
 
     def points(self, name: str) -> list[tuple[float, dict[str, Any]]]:
         """Return recorded data points for `name`, or an empty list."""

@@ -19,7 +19,17 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable
+from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import CircuitBreakerError
+
+_STATE_CODE = {
+    "CLOSED": 0,
+    "OPEN": 1,
+    "HALF_OPEN": 2,
+    "FORCED_OPEN": 3,
+    "FORCED_CLOSED": 4,
+}
+"""Numeric codes for the `grelmicro.circuit_breaker.state` gauge."""
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -454,6 +464,10 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         state = self._state
         strategy = state.strategy or self._resolve_strategy(state)
         if not await strategy.try_acquire():
+            _emit.incr(
+                "grelmicro.circuit_breaker.calls",
+                **{"circuit_breaker.name": self._name, "result": "rejected"},
+            )
             self._apply_snapshot(await strategy.get_snapshot())
             raise CircuitBreakerError(
                 name=self.name,
@@ -484,13 +498,19 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         if not exc_type or issubclass(exc_type, config.ignore_exceptions):
             snapshot = await strategy.record_outcome(success=True)
             self._total_success_count += 1
+            result = "success"
         elif isinstance(exc_value, Exception):
             snapshot = await strategy.record_outcome(success=False)
             self._total_error_count += 1
             self._last_error = exc_value
             self._last_error_time = datetime.now(UTC)
+            result = "error"
         else:  # pragma: no cover
             return None
+        _emit.incr(
+            "grelmicro.circuit_breaker.calls",
+            **{"circuit_breaker.name": self._name, "result": result},
+        )
         self._apply_snapshot(snapshot)
         return None
 
@@ -501,7 +521,20 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         self._cached_state = new
         self._consecutive_error_count = snapshot.consecutive_error_count
         self._consecutive_success_count = snapshot.consecutive_success_count
+        _emit.observe(
+            "grelmicro.circuit_breaker.state",
+            _STATE_CODE.get(new, -1),
+            **{"circuit_breaker.name": self._name},
+        )
         if previous != new:
+            _emit.incr(
+                "grelmicro.circuit_breaker.transitions",
+                **{
+                    "circuit_breaker.name": self._name,
+                    "from": str(previous),
+                    "to": str(new),
+                },
+            )
             self._log_transition(new, _derive_cause(previous, new))
 
     def _log_transition(
