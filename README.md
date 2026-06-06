@@ -36,13 +36,15 @@ ______________________________________________________________________
 
 grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, Pydantic-validated. A local pre-commit hook gates commits on 100% pytest coverage (`coverage --fail-under=100`).
 
-It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve every **distributed system**, whether you call it **microservices**, a **modular monolith**, or a **self-contained system**. A distributed lock is a distributed lock whether your system is one process or fifty. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
+It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve microservices, a modular monolith, or a self-contained system, and fit naturally into containerized and Kubernetes deployments.
 
 - **Micro**: one focused primitive per module. Each covers a microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).
 - **Fast**: small footprint by design. We keep the layers thin so your code stays quick.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any asyncio-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
 - **Railguarded**: 100% pytest coverage, ty-checked, ruff-linted, Pydantic-validated. Pre-1.0 API may shift on minor bumps. `1.x` commits to standard semver.
+
+grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq), **not** a web framework (it plugs into FastAPI, Starlette, or Litestar), and **not** a multi-node lock service (reach for ZooKeeper or etcd). It fills the gap between the web framework you picked and the infrastructure you run.
 
 Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](docs/comparison.md) for a per-domain breakdown.
 
