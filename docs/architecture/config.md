@@ -97,8 +97,8 @@ We keep `self._config` as the single source of truth. If a future profile shows 
 
 | Class | Module |
 |---|---|
-| `LockConfig` | `grelmicro.sync.lock` |
-| `TaskLockConfig` | `grelmicro.sync.tasklock` |
+| `LockConfig` | `grelmicro.coordination.lock` |
+| `TaskLockConfig` | `grelmicro.coordination.tasklock` |
 | `LeaderElectionConfig` | `grelmicro.coordination.leaderelection` |
 | `CircuitBreakerConfig` | `grelmicro.resilience.circuitbreaker` |
 | `RateLimiterConfig` (discriminated union) | `grelmicro.resilience.ratelimiter` |

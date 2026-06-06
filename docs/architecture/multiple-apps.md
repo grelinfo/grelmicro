@@ -12,7 +12,7 @@ So grelmicro blocks the narrow case that is actually unsafe: opening a second ap
 
 ```python
 # Fine: neither app owns process-global state.
-async with Grelmicro(uses=[Sync(redis)]):
+async with Grelmicro(uses=[Coordination(redis)]):
     async with Grelmicro(uses=[Cache(redis)]):
         ...
 

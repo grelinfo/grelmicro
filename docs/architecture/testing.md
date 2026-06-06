@@ -8,15 +8,15 @@ Swaps components inside an active `async with micro:` block.
 from unittest.mock import AsyncMock
 
 from grelmicro import Grelmicro
-from grelmicro.sync import Sync
-from grelmicro.sync.abc import SyncBackend
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.abc import LockBackend
 
 
 async def test_swap_for_block(micro: Grelmicro) -> None:
-    fake_backend = AsyncMock(spec=SyncBackend)
+    fake_backend = AsyncMock(spec=LockBackend)
     async with micro:
-        async with micro.override(Sync(fake_backend)):
-            await do_something_that_uses_sync()
+        async with micro.override(Coordination(lock=fake_backend)):
+            await do_something_that_uses_lock()
             fake_backend.acquire.assert_awaited()
 ```
 
@@ -33,15 +33,15 @@ Override components are entered when the block opens and exited in reverse order
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.sync import Sync
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.testing import record
 
 
 async def test_login_takes_the_lock() -> None:
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     log = record(backend)
-    micro = Grelmicro(uses=[Sync(backend)])
+    micro = Grelmicro(uses=[Coordination(lock=backend)])
 
     async with micro:
         await login("u1")
@@ -63,14 +63,14 @@ import pytest
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.sync import Sync
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.memory import MemoryLockAdapter
 
 
 @pytest.fixture
 async def micro() -> AsyncIterator[Grelmicro]:
     app = Grelmicro(uses=[
-        Sync(MemorySyncAdapter()),
+        Coordination(lock=MemoryLockAdapter()),
         Cache(MemoryCacheAdapter()),
     ])
     async with app:
@@ -83,12 +83,12 @@ Tests then read `micro` as a fixture and apply per-case overrides:
 from unittest.mock import AsyncMock
 
 from grelmicro import Grelmicro
-from grelmicro.sync import Sync
-from grelmicro.sync.abc import SyncBackend
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.abc import LockBackend
 
 
 async def test_login(micro: Grelmicro) -> None:
-    fake_backend = AsyncMock(spec=SyncBackend)
-    async with micro.override(Sync(fake_backend)):
+    fake_backend = AsyncMock(spec=LockBackend)
+    async with micro.override(Coordination(lock=fake_backend)):
         await do_login("u1")
 ```

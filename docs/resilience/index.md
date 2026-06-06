@@ -29,7 +29,7 @@ For synchronous, in-process token-bucket rate limiting on a performance-critical
 ## With FastStream
 
 The same primitives drop into a FastStream consumer without changes.
-The lifespan opens the shared Redis provider, `Sync`, and
+The lifespan opens the shared Redis provider, `Coordination`, and
 `RateLimiters` once. A handler can then hold a per-key `Lock` and
 consume rate-limit tokens before the actual work runs.
 

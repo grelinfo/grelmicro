@@ -11,9 +11,9 @@ Every backend uses **async** methods because it performs network or disk I/O (Re
 | Kind | Examples | Role |
 |---|---|---|
 | **Provider** | `RedisProvider`, `PostgresProvider` | Owns the connection pool and the vendor config. Components attach to it. |
-| **Component** | `Sync`, `Cache`, `RateLimiters`, `CircuitBreakers` | Registration on a `Grelmicro` app: `(kind, name)` pair plus lifecycle. Accepts a Provider or a Backend. |
-| **Backend** | `SyncBackend`, `CacheBackend` (Protocol) | Pure interface. Memory backends (`MemorySyncAdapter`) implement it directly. |
-| **Adapter** | `RedisSyncAdapter`, `RedisCacheAdapter` | Internal. Built by `Provider.{kind}()` factory. Public escape hatch for custom Providers. |
+| **Component** | `Coordination`, `Cache`, `RateLimiters`, `CircuitBreakers` | Registration on a `Grelmicro` app: `(kind, name)` pair plus lifecycle. Accepts a Provider or a Backend. |
+| **Backend** | `LockBackend`, `CacheBackend` (Protocol) | Pure interface. Memory backends (`MemoryLockAdapter`) implement it directly. |
+| **Adapter** | `RedisLockAdapter`, `RedisCacheAdapter` | Internal. Built by `Provider.{kind}()` factory. Public escape hatch for custom Providers. |
 | **Pattern** | `Lock`, `TaskLock`, `LeaderElection`, `TTLCache` | The user-facing primitive. Declared at module load, resolves its backend at use time. |
 
 Users construct **Providers**, attach **Components** that share each Provider, and import **Patterns** at module level. Adapter classes rarely appear in user code.
@@ -25,14 +25,14 @@ Construction and registration are two distinct steps. `__init__` validates confi
 ```python
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
+from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync import Sync
 
 redis = RedisProvider("redis://localhost")
 
 micro = Grelmicro(uses=[
     redis,
-    Sync(redis),
+    Coordination(redis),
     Cache(redis),
 ])
 
@@ -42,7 +42,7 @@ async with micro:
 # every item is closed on exit (LIFO)
 ```
 
-`Sync(provider)` calls `provider.sync()` to obtain the matching `SyncBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Sync(MemorySyncAdapter())`).
+`Coordination(provider)` calls `provider.lock()` to obtain the matching `LockBackend` and `provider.leader_election()` for the `LeaderElectionBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Coordination(lock=MemoryLockAdapter())`).
 
 ## Named backends and per-call selection
 
@@ -50,9 +50,9 @@ Register multiple Components under different names and pick one at the call site
 
 ```python
 from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination, Lock
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync import Lock, Sync
 
 redis = RedisProvider()
 postgres = PostgresProvider()
@@ -60,8 +60,8 @@ postgres = PostgresProvider()
 micro = Grelmicro(uses=[
     redis,
     postgres,
-    Sync(redis),
-    Sync(postgres, name="analytics"),
+    Coordination(redis),
+    Coordination(postgres, name="analytics"),
 ])
 
 Lock("cart")                       # → "default" (Redis)
@@ -72,7 +72,7 @@ Lock("cart", backend=my_adapter)   # → explicit instance, bypasses names
 Resolution order, in priority:
 
 1. Explicit instance (`backend=instance`).
-2. The Component registered under `("sync", requested_name)`.
+2. The Component registered under `("coordination", requested_name)`.
 3. When the requested name is `"default"` and exactly one Component of that kind is registered: that sole entry.
 4. Otherwise raise `ComponentNotRegisteredError`.
 
@@ -82,17 +82,17 @@ Resolution order, in priority:
 
 ```python
 from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination, Lock
+from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync import Lock, Sync
-from grelmicro.sync.memory import MemorySyncAdapter
 
 redis = RedisProvider()
-micro = Grelmicro(uses=[redis, Sync(redis)])
+micro = Grelmicro(uses=[redis, Coordination(redis)])
 lock = Lock("cart")
 
 async with micro:
-    async with micro.override(Sync(MemorySyncAdapter())):
-        async with lock:  # routed to MemorySyncAdapter
+    async with micro.override(Coordination(lock=MemoryLockAdapter())):
+        async with lock:  # routed to MemoryLockAdapter
             ...
 ```
 
@@ -104,7 +104,7 @@ Skip the app entirely for one-off usage:
 
 ```python
 async with RedisProvider() as redis:
-    lock = Lock(name="my-lock", backend=redis.sync())
+    lock = Lock(name="my-lock", backend=redis.lock())
     async with lock:
         ...
 ```
@@ -116,12 +116,12 @@ async with RedisProvider() as redis:
 Backends are defined by protocols (structural typing), not base classes. Any object implementing the required methods works. This enables:
 
 - Swapping adapters without changing application code.
-- Writing test adapters (e.g. `MemorySyncAdapter`) with no external dependencies.
+- Writing test adapters (e.g. `MemoryLockAdapter`) with no external dependencies.
 - Adding new adapters without modifying existing code.
 
 ## Connection pool isolation
 
-Components share a connection pool through a `Provider`: pass the same `RedisProvider` to two Components (`Sync(redis)`, `Cache(redis)`) and they share one pool. To isolate pools, build distinct Providers with different `env_prefix=` values (`CACHE_REDIS_`, `SESSION_REDIS_`) and pass each to the matching Component.
+Components share a connection pool through a `Provider`: pass the same `RedisProvider` to two Components (`Coordination(redis)`, `Cache(redis)`) and they share one pool. To isolate pools, build distinct Providers with different `env_prefix=` values (`CACHE_REDIS_`, `SESSION_REDIS_`) and pass each to the matching Component.
 
 The default behavior is **share when possible, isolate when asked**. Distinct Providers opt into per-domain isolation.
 
