@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -176,7 +176,9 @@ def test_lock_keyword_accepts_bare_backend_class() -> None:
 
 def test_election_keyword_accepts_bare_backend_class() -> None:
     """`election=MemoryLeaderElectionBackend` instantiates the class."""
-    coordination = Coordination(election=MemoryLeaderElectionBackend)
+    coordination = Coordination(
+        election=MemoryLeaderElectionBackend,  # ty: ignore[invalid-argument-type]
+    )
     assert isinstance(
         coordination.election_backend, MemoryLeaderElectionBackend
     )
@@ -322,9 +324,9 @@ async def test_aexit_closes_both_when_lock_close_raises() -> None:
             exc_type: type[BaseException] | None,
             exc_value: BaseException | None,
             traceback: TracebackType | None,
-        ) -> Self:
+        ) -> None:
             type(self).closed = True
-            return await super().__aexit__(exc_type, exc_value, traceback)
+            await super().__aexit__(exc_type, exc_value, traceback)
 
     lock_backend = _RaisingLock()
     election_backend = _TrackingElection()

@@ -533,3 +533,22 @@ async def test_aexit_cleanup_delete_errors(
     else:
         await backend.__aexit__(None, None, None)
         assert backend._client is None
+
+
+async def test_aexit_skips_live_lease() -> None:
+    """Cleanup leaves a still-live lease in place and does not delete it."""
+    # Arrange
+    backend = KubernetesLockAdapter(namespace="default")
+    live_lease = _make_lease(expired=False)
+    mock_client = AsyncMock()
+    mock_client.list = MagicMock(return_value=_async_iter([live_lease]))
+    mock_client.delete = AsyncMock()
+    mock_client.close = AsyncMock()
+    backend._client = mock_client
+
+    # Act
+    await backend.__aexit__(None, None, None)
+
+    # Assert
+    mock_client.delete.assert_not_called()
+    assert backend._client is None

@@ -15,7 +15,7 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.cached import cached
 from grelmicro.cache.serializers import JsonSerializer
-from grelmicro.coordination import Coordination, LeaderElection
+from grelmicro.coordination import Coordination, LeaderElection, Lock
 from grelmicro.health import HealthChecks, HealthDetails
 from grelmicro.health.fastapi import health_router
 from grelmicro.log import configure
@@ -28,7 +28,6 @@ from grelmicro.resilience import (
     RateLimiters,
 )
 from grelmicro.resilience.errors import CircuitBreakerError
-from grelmicro.sync import Lock, Sync
 from grelmicro.task import Tasks
 
 logger = logging.getLogger("demo")
@@ -49,7 +48,7 @@ POSTGRES_URL = os.environ.get(
 redis = RedisProvider(REDIS_URL)
 postgres = PostgresProvider(POSTGRES_URL)
 
-sync_backend = redis.sync()
+lock_backend = redis.lock()
 cache_backend = redis.cache()
 ratelimiter_backend = redis.ratelimiter()
 breaker_backend = postgres.breaker()
@@ -65,11 +64,10 @@ micro = Grelmicro(
     uses=[
         redis,
         postgres,
-        Sync(sync_backend),
         Cache(cache_backend),
         RateLimiters(ratelimiter_backend),
         CircuitBreakers(breaker_backend),
-        Coordination(leader_backend),
+        Coordination(lock=lock_backend, election=leader_backend),
         health,
         tasks,
     ]
@@ -79,7 +77,7 @@ micro = Grelmicro(
 @health.check("redis")
 async def check_redis() -> HealthDetails | None:
     # Readiness probe: a lock round-trip proves Redis is reachable.
-    await Lock("healthz", backend=sync_backend).locked()
+    await Lock("healthz", backend=lock_backend).locked()
     return None
 
 
@@ -142,7 +140,7 @@ async def flaky(fail: bool = False) -> dict:
 
 
 # --- Distributed lock: serialize a ledger update across replicas ---
-ledger_lock = Lock("ledger", backend=sync_backend)
+ledger_lock = Lock("ledger", backend=lock_backend)
 
 
 @app.post("/ledger")
