@@ -1,28 +1,28 @@
-"""Synchronization Errors."""
+"""Coordination Errors."""
 
 from grelmicro.errors import GrelmicroError, SettingsValidationError
 
 __all__ = [
+    "CoordinationError",
+    "CoordinationSettingsValidationError",
     "LockAcquireError",
+    "LockBackendError",
     "LockLockedCheckError",
     "LockNotOwnedError",
     "LockOwnedCheckError",
     "LockReentrantError",
     "LockReleaseError",
-    "SyncBackendError",
-    "SyncError",
-    "SyncSettingsValidationError",
 ]
 
 
-class SyncError(GrelmicroError):
-    """Synchronization Primitive Error.
+class CoordinationError(GrelmicroError):
+    """Coordination Primitive Error.
 
-    This is the base class for all synchronization errors.
+    This is the base class for all coordination errors.
     """
 
 
-class LockReentrantError(SyncError):
+class LockReentrantError(CoordinationError):
     """Lock Reentrant Error.
 
     This error is raised when a lock that does not support nested usage
@@ -38,11 +38,11 @@ class LockReentrantError(SyncError):
         )
 
 
-class SyncBackendError(SyncError):
-    """Synchronization Backend Error."""
+class LockBackendError(CoordinationError):
+    """Lock Backend Error."""
 
 
-class LockLockedCheckError(SyncBackendError):
+class LockLockedCheckError(LockBackendError):
     """Lock Locked Check Error.
 
     This error is raised when an error on backend side occurs while checking if a lock is acquired.
@@ -53,7 +53,7 @@ class LockLockedCheckError(SyncBackendError):
         super().__init__(f"Failed to check if lock is acquired: name={name}")
 
 
-class LockOwnedCheckError(SyncBackendError):
+class LockOwnedCheckError(LockBackendError):
     """Lock Owned Check Error.
 
     This error is raised when an error on backend side occurs while checking if a lock is owned.
@@ -64,7 +64,7 @@ class LockOwnedCheckError(SyncBackendError):
         super().__init__(f"Failed to check if lock is owned: name={name}")
 
 
-class LockAcquireError(SyncBackendError):
+class LockAcquireError(LockBackendError):
     """Acquire Lock Error.
 
     This error is raised when an error on backend side occurs during lock acquisition.
@@ -75,7 +75,7 @@ class LockAcquireError(SyncBackendError):
         super().__init__(f"Failed to acquire lock: name={name}")
 
 
-class LockReleaseError(SyncBackendError):
+class LockReleaseError(LockBackendError):
     """Lock Release Error.
 
     This error is raised when an error on backend side occurs during lock release.
@@ -101,5 +101,7 @@ class LockNotOwnedError(LockReleaseError):
         super().__init__(name=name, reason="lock not owned")
 
 
-class SyncSettingsValidationError(SyncError, SettingsValidationError):
-    """Synchronization Settings Validation Error."""
+class CoordinationSettingsValidationError(
+    CoordinationError, SettingsValidationError
+):
+    """Coordination Settings Validation Error."""
