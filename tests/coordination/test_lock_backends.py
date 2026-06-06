@@ -384,6 +384,98 @@ async def test_owned(backend: LockBackend) -> None:
     assert owned_after is True
 
 
+async def test_acquire_returns_fencing_token(backend: LockBackend) -> None:
+    """A fresh acquire returns a positive fencing token."""
+    # Arrange
+    name = "test_fence_fresh" + uuid4().hex
+    token = uuid4().hex
+
+    # Act
+    fence = await backend.acquire(name=name, token=token, duration=60)
+
+    # Assert
+    assert fence is not None
+    assert fence >= 1
+
+
+async def test_not_acquired_returns_none(backend: LockBackend) -> None:
+    """A blocked acquire returns None, not a fencing token."""
+    # Arrange
+    name = "test_fence_blocked" + uuid4().hex
+    token1 = uuid4().hex
+    token2 = uuid4().hex
+
+    # Act
+    fence1 = await backend.acquire(name=name, token=token1, duration=60)
+    fence2 = await backend.acquire(name=name, token=token2, duration=60)
+
+    # Assert
+    assert fence1 is not None
+    assert fence2 is None
+
+
+async def test_extend_keeps_same_fencing_token(backend: LockBackend) -> None:
+    """The same holder extending the lease keeps its fencing token."""
+    # Arrange
+    name = "test_fence_extend" + uuid4().hex
+    token = uuid4().hex
+
+    # Act
+    fence1 = await backend.acquire(name=name, token=token, duration=60)
+    fence2 = await backend.acquire(name=name, token=token, duration=60)
+
+    # Assert
+    assert fence1 is not None
+    assert fence2 == fence1
+
+
+async def test_takeover_after_expiry_bumps_fencing_token(
+    backend: LockBackend, expire_duration: float, expire_wait: float
+) -> None:
+    """A takeover after expiry returns a strictly greater fencing token."""
+    # Arrange
+    name = "test_fence_takeover" + uuid4().hex
+    token1 = uuid4().hex
+    token2 = uuid4().hex
+
+    # Act
+    fence1 = await backend.acquire(
+        name=name, token=token1, duration=expire_duration
+    )
+    await sleep(expire_wait)
+    fence2 = await backend.acquire(
+        name=name, token=token2, duration=expire_duration
+    )
+
+    # Assert
+    assert fence1 is not None
+    assert fence2 is not None
+    assert fence2 > fence1
+
+
+async def test_reacquire_after_release_keeps_climbing(
+    backend: LockBackend,
+) -> None:
+    """Release then re-acquire returns a strictly greater fencing token.
+
+    The per-name high-water counter survives release on every backend, so
+    fencing tokens never repeat across release and re-acquire cycles.
+    """
+    # Arrange
+    name = "test_fence_reacquire" + uuid4().hex
+    token = uuid4().hex
+
+    # Act
+    fence1 = await backend.acquire(name=name, token=token, duration=60)
+    await backend.release(name=name, token=token)
+    fence2 = await backend.acquire(name=name, token=token, duration=60)
+
+    # Assert
+    assert fence1 is not None
+    assert fence2 is not None
+    assert fence2 > fence1
+
+
 async def test_owned_another(backend: LockBackend) -> None:
     """Test owned another."""
     # Arrange

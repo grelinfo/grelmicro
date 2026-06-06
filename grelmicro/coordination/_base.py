@@ -1,12 +1,13 @@
 """Lock Base Classes."""
 
 from types import TracebackType
-from typing import Annotated, Protocol, Self
+from typing import Annotated, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Doc
 
+from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._tokens import generate_worker_id
 from grelmicro.coordination.abc import LockPrimitive
 
@@ -30,8 +31,10 @@ class BaseLockConfig(BaseModel):
 class BaseLock(LockPrimitive, Protocol):
     """Base Lock Protocol."""
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> LockHandle:
         """Acquire the lock.
+
+        Returns the `LockHandle` for this acquisition.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
@@ -59,8 +62,10 @@ class BaseLock(LockPrimitive, Protocol):
         """Return the config."""
         ...
 
-    async def acquire(self) -> None:
+    async def acquire(self) -> LockHandle:
         """Acquire the lock.
+
+        Returns the `LockHandle` for this acquisition.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
@@ -69,9 +74,11 @@ class BaseLock(LockPrimitive, Protocol):
         """
         ...
 
-    async def acquire_nowait(self) -> None:
+    async def acquire_nowait(self) -> LockHandle:
         """
         Acquire the lock, without blocking.
+
+        Returns the `LockHandle` for this acquisition.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).

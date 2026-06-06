@@ -1,6 +1,7 @@
 """Coordination primitives for distributed locking and leader election."""
 
 from grelmicro.coordination._component import Coordination
+from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination.abc import (
     LeaderElectionBackend,
     LeaderRecord,
@@ -37,6 +38,7 @@ __all__ = [
     "LockAcquireError",
     "LockBackend",
     "LockBackendError",
+    "LockHandle",
     "LockLockedCheckError",
     "LockNotOwnedError",
     "LockOwnedCheckError",

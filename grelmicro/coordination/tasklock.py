@@ -357,13 +357,16 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         """
         backend = self.backend
         try:
-            acquired = await backend.acquire(
+            # TaskLock does not surface the fencing token. A non-None result
+            # means the lock was acquired.
+            fencing_token = await backend.acquire(
                 name=self._lock_name,
                 token=token,
                 duration=duration,
             )
         except Exception as exc:
             raise LockAcquireError(name=self._name) from exc
+        acquired = fencing_token is not None
         if acquired:
             self._acquired_at = monotonic()
         return acquired
@@ -398,11 +401,15 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         """
         backend = self.backend
         try:
-            return await backend.acquire(
-                name=self._lock_name,
-                token=token,
-                duration=duration,
-            )
+            # TaskLock does not surface the fencing token. A non-None result
+            # means the lock was re-acquired.
+            return (
+                await backend.acquire(
+                    name=self._lock_name,
+                    token=token,
+                    duration=duration,
+                )
+            ) is not None
         except Exception as exc:
             raise LockReleaseError(name=self._name) from exc
 

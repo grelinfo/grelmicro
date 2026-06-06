@@ -14,6 +14,7 @@ from typing_extensions import Doc
 from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
 from grelmicro.coordination._base import BaseLock, BaseLockConfig
+from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._tokens import generate_task_token
 from grelmicro.coordination.abc import LockBackend, Seconds
 from grelmicro.coordination.errors import (
@@ -287,15 +288,17 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         )
         return coordination.lock_backend
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> LockHandle:
         """Acquire the lock with the async context manager.
+
+        Returns the `LockHandle` for this acquisition so the body can read
+        `held.fencing_token`.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
-        await self.acquire()
-        return self
+        return await self.acquire()
 
     async def __aexit__(
         self,
@@ -327,8 +330,11 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             raise RuntimeError(msg)
         return task
 
-    async def acquire(self) -> None:
+    async def acquire(self) -> LockHandle:
         """Acquire the lock.
+
+        Returns the `LockHandle` for this acquisition, carrying the ownership
+        `token` and the strictly increasing `fencing_token`.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
@@ -341,12 +347,22 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             raise LockReentrantError(name=self._name)
         token = generate_task_token(config.worker)
         duration = config.lease_duration
-        while not await self.do_acquire(token=token, duration=duration):  # noqa: ASYNC110 // Polling is intentional
+        fencing_token = await self.do_acquire(token=token, duration=duration)
+        while fencing_token is None:
             await asyncio.sleep(config.retry_interval)
+            fencing_token = await self.do_acquire(
+                token=token, duration=duration
+            )
         self._held_by_tasks.add(task)
+        return LockHandle(
+            name=self._name, token=token, fencing_token=fencing_token
+        )
 
-    async def acquire_nowait(self) -> None:
+    async def acquire_nowait(self) -> LockHandle:
         """Acquire the lock, without blocking.
+
+        Returns the `LockHandle` for this acquisition, carrying the ownership
+        `token` and the strictly increasing `fencing_token`.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
@@ -358,12 +374,16 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         if task in self._held_by_tasks:
             raise LockReentrantError(name=self._name)
         token = generate_task_token(config.worker)
-        if not await self.do_acquire(
+        fencing_token = await self.do_acquire(
             token=token, duration=config.lease_duration
-        ):
+        )
+        if fencing_token is None:
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
         self._held_by_tasks.add(task)
+        return LockHandle(
+            name=self._name, token=token, fencing_token=fencing_token
+        )
 
     async def release(self) -> None:
         """Release the lock.
@@ -403,7 +423,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         return await self.do_owned(generate_task_token(self._config.worker))
 
-    async def do_acquire(self, token: str, *, duration: Seconds) -> bool:
+    async def do_acquire(self, token: str, *, duration: Seconds) -> int | None:
         """Acquire the lock.
 
         This method should not be called directly. Use `acquire` instead.
@@ -417,7 +437,8 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 runs concurrently.
 
         Returns:
-            bool: True if the lock was acquired, False if the lock was not acquired.
+            int | None: The fencing token if the lock was acquired, None if
+                the lock was not acquired.
 
         Raises:
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
@@ -480,7 +501,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """Build a thread token from a worker identity and the given thread ID."""
         return f"{worker}:thread:{thread_id}"
 
-    async def do_thread_acquire(self, thread_id: int) -> None:
+    async def do_thread_acquire(self, thread_id: int) -> LockHandle:
         """Acquire the lock from a worker thread (blocking).
 
         Runs on the event loop so the reentrant check and backend acquire
@@ -495,11 +516,18 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             raise LockReentrantError(name=self._name)
         token = self._thread_token(thread_id, config.worker)
         duration = config.lease_duration
-        while not await self.do_acquire(token=token, duration=duration):  # noqa: ASYNC110 // Polling is intentional
+        fencing_token = await self.do_acquire(token=token, duration=duration)
+        while fencing_token is None:
             await asyncio.sleep(config.retry_interval)
+            fencing_token = await self.do_acquire(
+                token=token, duration=duration
+            )
         self._held_by_threads.add(thread_id)
+        return LockHandle(
+            name=self._name, token=token, fencing_token=fencing_token
+        )
 
-    async def do_thread_acquire_nowait(self, thread_id: int) -> None:
+    async def do_thread_acquire_nowait(self, thread_id: int) -> LockHandle:
         """Acquire the lock from a worker thread (non-blocking).
 
         Runs on the event loop so the reentrant check and backend acquire
@@ -514,12 +542,16 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         if thread_id in self._held_by_threads:
             raise LockReentrantError(name=self._name)
         token = self._thread_token(thread_id, config.worker)
-        if not await self.do_acquire(
+        fencing_token = await self.do_acquire(
             token=token, duration=config.lease_duration
-        ):
+        )
+        if fencing_token is None:
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
         self._held_by_threads.add(thread_id)
+        return LockHandle(
+            name=self._name, token=token, fencing_token=fencing_token
+        )
 
     async def do_thread_release(self, thread_id: int) -> None:
         """Release the lock from a worker thread.
@@ -550,15 +582,17 @@ class ThreadLockAdapter:
         """Initialize the lock adapter."""
         self._lock = lock
 
-    def __enter__(self) -> Self:
+    def __enter__(self) -> LockHandle:
         """Acquire the lock with the context manager.
+
+        Returns the `LockHandle` for this acquisition so the body can read
+        `held.fencing_token`.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: Cannot acquire the lock due to backend error.
         """
-        self.acquire()
-        return self
+        return self.acquire()
 
     def __exit__(
         self,
@@ -569,27 +603,33 @@ class ThreadLockAdapter:
         """Release the lock with the context manager."""
         self.release()
 
-    def acquire(self) -> None:
+    def acquire(self) -> LockHandle:
         """Acquire the lock.
+
+        Returns the `LockHandle` for this acquisition, carrying the ownership
+        `token` and the strictly increasing `fencing_token`.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: Cannot acquire the lock due to backend error.
         """
-        asyncio.run_coroutine_threadsafe(
+        return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_acquire(get_ident()),
             self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
         ).result()
 
-    def acquire_nowait(self) -> None:
+    def acquire_nowait(self) -> LockHandle:
         """Acquire the lock, without blocking.
+
+        Returns the `LockHandle` for this acquisition, carrying the ownership
+        `token` and the strictly increasing `fencing_token`.
 
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: Cannot acquire the lock due to backend error.
             WouldBlockError: If the lock cannot be acquired without blocking.
         """
-        asyncio.run_coroutine_threadsafe(
+        return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_acquire_nowait(get_ident()),
             self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
         ).result()

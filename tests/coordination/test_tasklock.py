@@ -472,10 +472,10 @@ async def test_tasklock_reacquire_lost_raises(
 
     async def reject_reacquire(
         *, name: str, token: str, duration: float
-    ) -> bool:
-        # Let initial acquire succeed, return False on re-acquire
+    ) -> int | None:
+        # Let initial acquire succeed, return None (not acquired) on re-acquire
         if duration < max_lock_seconds:
-            return False
+            return None
         return await original_acquire(name=name, token=token, duration=duration)
 
     mocker.patch.object(backend, "acquire", side_effect=reject_reacquire)
