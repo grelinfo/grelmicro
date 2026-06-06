@@ -1,1 +1,0 @@
-"""grelmicro Synchronization Primitives Examples."""

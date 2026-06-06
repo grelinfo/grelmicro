@@ -1,4 +1,4 @@
-from grelmicro.sync import Lock
+from grelmicro.coordination import Lock
 
 lock = Lock("cart", lease_duration=60, retry_interval=0.1)
 

@@ -1,6 +1,6 @@
 from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync import Sync
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[redis, Sync(redis)])
+micro = Grelmicro(uses=[redis, Coordination(redis)])
