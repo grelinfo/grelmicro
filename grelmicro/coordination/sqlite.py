@@ -1,4 +1,4 @@
-"""SQLite Synchronization Adapter."""
+"""SQLite Lock Adapter."""
 
 import asyncio
 import re
@@ -11,9 +11,9 @@ import aiosqlite
 from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
+from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination.errors import CoordinationSettingsValidationError
 from grelmicro.errors import OutOfContextError
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.errors import SyncSettingsValidationError
 
 
 class _SQLiteSettings(BaseSettings):
@@ -26,7 +26,7 @@ def _get_sqlite_path() -> str:
     """Get the SQLite path from the environment variables.
 
     Raises:
-        SyncSettingsValidationError: If SQLITE_PATH is not set.
+        CoordinationSettingsValidationError: If SQLITE_PATH is not set.
     """
     settings = _SQLiteSettings()
 
@@ -34,11 +34,11 @@ def _get_sqlite_path() -> str:
         return settings.SQLITE_PATH
 
     msg = "SQLITE_PATH must be set"
-    raise SyncSettingsValidationError(msg)
+    raise CoordinationSettingsValidationError(msg)
 
 
-class SQLiteSyncAdapter(SyncBackend):
-    """SQLite Synchronization Adapter."""
+class SQLiteLockAdapter(LockBackend):
+    """SQLite Lock Adapter."""
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (

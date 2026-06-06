@@ -24,17 +24,17 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache._component import Cache
+    from grelmicro.coordination._component import Coordination
     from grelmicro.log._component import Log
-    from grelmicro.sync._component import Sync
     from grelmicro.trace._component import Trace
 else:
     # Runtime fallback so `typing.get_type_hints(Grelmicro)` resolves the
-    # `sync` / `cache` property annotations without forcing first-party
+    # `coordination` / `cache` property annotations without forcing first-party
     # submodules to load at `import grelmicro`. Real types are visible to
     # static type checkers via the `TYPE_CHECKING` branch above.
     Cache = Any
+    Coordination = Any
     Log = Any
-    Sync = Any
     Trace = Any
 
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
@@ -79,13 +79,13 @@ class Grelmicro:
 
     ```python
     from grelmicro import Grelmicro
-    from grelmicro.sync import Sync
+    from grelmicro.coordination import Coordination
     from grelmicro.task import Tasks
 
     tasks = Tasks()
 
     micro = Grelmicro(uses=[
-        Sync(RedisSyncAdapter()),
+        Coordination(lock=RedisLockAdapter()),
         tasks,
     ])
 
@@ -207,19 +207,19 @@ class Grelmicro:
 
         1. A `Component` instance: registered with `(kind, name)` lookup and
            exposed on `micro.<kind>`.
-        2. A first-party backend (e.g. `RedisSyncAdapter`): auto-wrapped
-           into the matching `Component` (`Sync` for sync backends, `Cache`
-           for cache backends) before registration.
+        2. A first-party backend (e.g. `RedisLockAdapter`): auto-wrapped
+           into the matching `Component` (`Coordination` for lock backends,
+           `Cache` for cache backends) before registration.
         3. Any other async context manager: just lifecycled with the app,
            the caller keeps the reference.
 
         ```python
         # Auto-wrapped first-party backend
-        micro.use(RedisSyncAdapter())          # registered as (sync, default)
+        micro.use(RedisLockAdapter())          # registered as (coordination, default)
         micro.use(RedisCacheAdapter())         # registered as (cache, default)
 
         # Explicit Component when a non-default name is needed
-        micro.use(Sync(RedisSyncAdapter(), name="analytics"))
+        micro.use(Coordination(lock=RedisLockAdapter(), name="analytics"))
 
         # Plain async context manager: lifecycled only, caller holds reference
         tasks = Tasks()
@@ -228,9 +228,9 @@ class Grelmicro:
 
         Returns `None`. Mirrors FastAPI's `app.include_router(router)`
         pattern: pure side-effect registration. To access registered
-        components, use the typed `micro.sync` / `micro.cache` properties or
-        `micro.get(kind, name)`. For plain async context managers, the
-        caller already holds the reference.
+        components, use the typed `micro.coordination` / `micro.cache`
+        properties or `micro.get(kind, name)`. For plain async context
+        managers, the caller already holds the reference.
 
         Raises:
             ComponentAlreadyRegisteredError: A different component is already
@@ -239,7 +239,7 @@ class Grelmicro:
         """
         # A bare class (no parens) is instantiated with no arguments, in the
         # spirit of FastAPI's `Depends(dep)`: pass the reference, the framework
-        # calls it. Useful for zero-arg adapters like `MemorySyncAdapter`.
+        # calls it. Useful for zero-arg adapters like `MemoryLockAdapter`.
         item = instantiate_if_class(item)
         # Resolve the item to a Component if possible: pass-through for Component
         # instances, auto-wrap for first-party backends, None for plain CMs.
@@ -278,7 +278,7 @@ class Grelmicro:
             Doc(
                 """
                 Component category, matching the `kind` class attribute on
-                the registered component (`"sync"`, `"cache"`, `"ratelimiter"`,
+                the registered component (`"coordination"`, `"cache"`, `"ratelimiter"`,
                 `"circuitbreaker"`, `"log"`, `"trace"`, `"tasks"`, `"health"`).
                 """,
             ),
@@ -290,7 +290,7 @@ class Grelmicro:
                 Component instance name. `"default"` matches the entry that
                 also backs `micro.<kind>`. Pass the explicit name to resolve
                 a secondary registration such as
-                `Sync(backend, name="analytics")`.
+                `Coordination(lock=backend, name="analytics")`.
                 """,
             ),
         ] = "default",
@@ -341,7 +341,7 @@ class Grelmicro:
 
         ```python
         async with micro:
-            async with micro.override(Sync(MockSync())):
+            async with micro.override(Coordination(lock=MockLock())):
                 await test_thing()
         ```
 
@@ -389,9 +389,13 @@ class Grelmicro:
         return tuple(self._by_key.values())
 
     @property
-    def sync(self) -> Sync:
-        """The registered `Sync` component (default-named, or sole entry of kind `sync`)."""
-        return self._resolve_kind("sync")
+    def coordination(self) -> Coordination:
+        """The registered `Coordination` component.
+
+        Resolves the default-named entry, or the sole entry of kind
+        `coordination`.
+        """
+        return self._resolve_kind("coordination")
 
     @property
     def cache(self) -> Cache:
@@ -537,7 +541,7 @@ class Grelmicro:
     def _warn_unlifecycled_providers(self) -> None:
         """Warn when a Component holds a Provider that is not lifecycled correctly.
 
-        Components built with `Sync(provider)` borrow the provider's client
+        Components built with `Coordination(provider)` borrow the provider's client
         but do not lifecycle it. The user must list the provider in `uses=`
         *before* the Component so the provider opens first.
 
@@ -607,6 +611,13 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     """
     from grelmicro.cache._component import Cache  # noqa: PLC0415
     from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
+    from grelmicro.coordination._component import (  # noqa: PLC0415
+        Coordination,
+    )
+    from grelmicro.coordination.abc import (  # noqa: PLC0415
+        LeaderElectionBackend,
+        LockBackend,
+    )
     from grelmicro.resilience._components import (  # noqa: PLC0415
         CircuitBreakers,
         RateLimiters,
@@ -615,13 +626,13 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
         CircuitBreakerBackend,
         RateLimiterBackend,
     )
-    from grelmicro.sync._component import Sync  # noqa: PLC0415
-    from grelmicro.sync.abc import SyncBackend  # noqa: PLC0415
 
     if isinstance(item, CacheBackend):
         return Cache(item)
-    if isinstance(item, SyncBackend):
-        return Sync(item)
+    if isinstance(item, LeaderElectionBackend):
+        return Coordination(election=item)
+    if isinstance(item, LockBackend):
+        return Coordination(lock=item)
     if isinstance(item, CircuitBreakerBackend):
         return CircuitBreakers(item)
     if isinstance(item, RateLimiterBackend):

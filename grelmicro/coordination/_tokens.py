@@ -1,4 +1,4 @@
-"""Synchronization Tokens."""
+"""Coordination Tokens."""
 
 from asyncio import current_task
 from itertools import count

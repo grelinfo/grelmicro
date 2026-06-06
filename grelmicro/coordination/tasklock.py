@@ -17,23 +17,23 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
-from grelmicro.errors import WouldBlockError
-from grelmicro.sync._base import BaseLockConfig
-from grelmicro.sync._tokens import (
+from grelmicro.coordination._base import BaseLockConfig
+from grelmicro.coordination._tokens import (
     generate_task_token,
     generate_thread_token,
     generate_token_nonce,
 )
-from grelmicro.sync.abc import Seconds, SyncBackend, SyncPrimitive
-from grelmicro.sync.errors import (
+from grelmicro.coordination.abc import LockBackend, LockPrimitive, Seconds
+from grelmicro.coordination.errors import (
     LockAcquireError,
     LockLockedCheckError,
     LockNotOwnedError,
     LockReentrantError,
     LockReleaseError,
 )
+from grelmicro.errors import WouldBlockError
 
-logger = getLogger("grelmicro.sync")
+logger = getLogger("grelmicro.coordination")
 
 
 class TaskLockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
@@ -68,7 +68,7 @@ class TaskLockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore
         return self
 
 
-class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
+class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     """Task Lock.
 
     A distributed lock for scheduled tasks. Unlike a regular Lock,
@@ -105,7 +105,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         ],
         *,
         backend: Annotated[
-            SyncBackend | str | None,
+            LockBackend | str | None,
             Doc(
                 """
                 The distributed lock backend used to acquire and release the lock.
@@ -223,7 +223,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         ],
         *,
         backend: Annotated[
-            SyncBackend | str | None,
+            LockBackend | str | None,
             Doc(
                 """
                 The distributed lock backend used to acquire and release the lock.
@@ -242,14 +242,14 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         self,
         name: str,
         config: TaskLockConfig,
-        backend: SyncBackend | str | None,
+        backend: LockBackend | str | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
-        self._backend: SyncBackend | None = (
+        self._backend: LockBackend | None = (
             backend if not isinstance(backend, str) else None
         )
         self._backend_name: str | None = (
@@ -265,18 +265,20 @@ class TaskLock(Reconfigurable[TaskLockConfig], SyncPrimitive):
         return self._name
 
     @property
-    def backend(self) -> SyncBackend:
-        """Bound sync backend, resolved on each call.
+    def backend(self) -> LockBackend:
+        """Bound lock backend, resolved on each call.
 
         When a backend instance was passed at construction it is
         always returned. Otherwise the active `Grelmicro` app is
         consulted via `Grelmicro.current()` on every access so that
-        `micro.override(Sync(...))` blocks take effect.
+        `micro.override(Coordination(...))` blocks take effect.
         """
         if self._backend is not None:
             return self._backend
-        sync = Grelmicro.current().get("sync", self._backend_name or "default")
-        return sync.backend
+        coordination = Grelmicro.current().get(
+            "coordination", self._backend_name or "default"
+        )
+        return coordination.lock_backend
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with duration=max_lock_seconds.

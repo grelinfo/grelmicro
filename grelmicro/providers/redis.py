@@ -18,14 +18,16 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache.redis import RedisCacheAdapter
-    from grelmicro.coordination.redis import RedisLeaderElectionBackend
+    from grelmicro.coordination.redis import (
+        RedisLeaderElectionBackend,
+        RedisLockAdapter,
+    )
     from grelmicro.resilience.circuitbreaker.redis import (
         RedisCircuitBreakerAdapter,
     )
     from grelmicro.resilience.ratelimiter.redis import (
         RedisRateLimiterAdapter,
     )
-    from grelmicro.sync.redis import RedisSyncAdapter
 
 
 class RedisConfig(BaseModel):
@@ -59,7 +61,7 @@ class RedisProvider(Provider):
     """Redis connection provider.
 
     Holds the resolved URL and an async Redis client. Adapters
-    (`RedisSyncAdapter`, `RedisCacheAdapter`, ...) borrow the client
+    (`RedisLockAdapter`, `RedisCacheAdapter`, ...) borrow the client
     from a provider instead of opening their own pool, so multiple
     components against the same Redis share one connection.
 
@@ -228,11 +230,13 @@ class RedisProvider(Provider):
         """The underlying `redis.asyncio.Redis` client."""
         return self._client
 
-    def sync(self, **kwargs: Any) -> RedisSyncAdapter:  # noqa: ANN401
-        """Build a `RedisSyncAdapter` bound to this provider."""
-        from grelmicro.sync.redis import RedisSyncAdapter  # noqa: PLC0415
+    def lock(self, **kwargs: Any) -> RedisLockAdapter:  # noqa: ANN401
+        """Build a `RedisLockAdapter` bound to this provider."""
+        from grelmicro.coordination.redis import (  # noqa: PLC0415
+            RedisLockAdapter,
+        )
 
-        return RedisSyncAdapter(provider=self, **kwargs)
+        return RedisLockAdapter(provider=self, **kwargs)
 
     def leader_election(
         self,

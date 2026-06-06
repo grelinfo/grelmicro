@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from grelmicro.cache._protocol import CacheBackend
-    from grelmicro.coordination.abc import LeaderElectionBackend
+    from grelmicro.coordination.abc import (
+        LeaderElectionBackend,
+        LockBackend,
+    )
     from grelmicro.resilience._protocol import (
         CircuitBreakerBackend,
         RateLimiterBackend,
     )
-    from grelmicro.sync.abc import SyncBackend
 
 
 class Provider(AbstractAsyncContextManager["Provider"]):
@@ -20,7 +22,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
 
     A `Provider` owns the native client (e.g. `redis.asyncio.Redis`,
     `asyncpg.Pool`) and the URL or credentials that built it. Components
-    (`Sync`, `Cache`, `RateLimiters`, ...) accept a `Provider` and ask it for
+    (`Coordination`, `Cache`, `RateLimiters`, ...) accept a `Provider` and ask it for
     the matching adapter via the factory methods below.
 
     Subclasses implement any subset of the factory methods. Factories that
@@ -34,15 +36,15 @@ class Provider(AbstractAsyncContextManager["Provider"]):
 
     short_name: ClassVar[str]
 
-    def sync(self, **kwargs: Any) -> SyncBackend:  # noqa: ANN401
-        """Return the matching `SyncBackend` adapter for this Provider.
+    def lock(self, **kwargs: Any) -> LockBackend:  # noqa: ANN401
+        """Return the matching `LockBackend` adapter for this Provider.
 
         Raises:
-            NotImplementedError: If this Provider does not ship a sync adapter.
+            NotImplementedError: If this Provider does not ship a lock adapter.
         """
         msg = (
-            f"{type(self).__name__} has no sync adapter. "
-            f"Pass a SyncBackend instance to Sync(...) directly."
+            f"{type(self).__name__} has no lock adapter. "
+            f"Pass a LockBackend instance to Coordination(lock=...) directly."
         )
         raise NotImplementedError(msg)
 

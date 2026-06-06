@@ -6,12 +6,12 @@ into a component exactly as before, while the log captures every call for
 assertions, in the spirit of `pytest-mock`'s `mocker.spy`.
 
 ```python
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.testing import record
 
-backend = MemorySyncAdapter()
+backend = MemoryLockAdapter()
 log = record(backend)
-micro = Grelmicro(uses=[Sync(backend)])
+micro = Grelmicro(uses=[Coordination(lock=backend)])
 
 async with micro:
     await login("u1")

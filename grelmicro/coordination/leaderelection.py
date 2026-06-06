@@ -14,10 +14,14 @@ from typing_extensions import Doc
 from grelmicro._app import Grelmicro
 from grelmicro._async import sleep_or_stop
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
-from grelmicro.coordination.abc import LeaderElectionBackend, LeaderRecord
+from grelmicro.coordination._base import BaseLockConfig
+from grelmicro.coordination.abc import (
+    LeaderElectionBackend,
+    LeaderRecord,
+    LockPrimitive,
+    Seconds,
+)
 from grelmicro.errors import WouldBlockError
-from grelmicro.sync._base import BaseLockConfig
-from grelmicro.sync.abc import Seconds, SyncPrimitive
 from grelmicro.task.abc import Task
 
 logger = getLogger("grelmicro.leader_election")
@@ -84,7 +88,7 @@ class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: 
         return self
 
 
-class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
+class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
     """Leader Election.
 
     The leader election is a synchronization primitive with the worker as scope.
@@ -378,15 +382,15 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
         always returned. Otherwise the active `Grelmicro` app is
         consulted via `Grelmicro.current()` on every access so that
         `micro.override(Coordination(...))` blocks take effect. The
-        backend comes from the `Coordination` component, which can point
-        at a different vendor than the `Sync` component used for `Lock`.
+        backend comes from the `Coordination` component, whose election
+        backend can point at a different vendor than its lock backend.
         """
         if self._backend is not None:
             return self._backend
         coordination = Grelmicro.current().get(
             "coordination", self._backend_name or "default"
         )
-        return coordination.backend
+        return coordination.election_backend
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""
@@ -627,7 +631,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], SyncPrimitive, Task):
             )
 
 
-class _LeaderGuard(SyncPrimitive):
+class _LeaderGuard(LockPrimitive):
     """Non-blocking leader election guard.
 
     Raises ``WouldBlock`` on entry if the worker is not the leader.
