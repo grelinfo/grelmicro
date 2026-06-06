@@ -38,40 +38,62 @@ def _get_sqlite_path() -> str:
 
 
 class SQLiteLockAdapter(LockBackend):
-    """SQLite Lock Adapter."""
+    """SQLite Lock Adapter.
+
+    Fencing tokens live in a `fence` column on the lock row. Acquire runs
+    inside a `BEGIN IMMEDIATE` transaction, bumps the fence on every
+    free-to-held transition, keeps it on a same-holder extend, and returns it
+    with `RETURNING fence`. Release clears the holder and expiry but keeps the
+    row and its fence, so the fence is strictly monotonic per name across
+    release and re-acquire cycles.
+    """
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     name TEXT PRIMARY KEY,
-                    token TEXT NOT NULL,
-                    expire_at TEXT NOT NULL
+                    token TEXT,
+                    expire_at TEXT,
+                    fence INTEGER NOT NULL DEFAULT 0
                 );
                 """
 
     _SQL_ACQUIRE_OR_EXTEND = """
-                INSERT INTO {table_name} (name, token, expire_at)
-                VALUES (?, ?, datetime('now', '+' || ? || ' seconds'))
+                INSERT INTO {table_name} (name, token, expire_at, fence)
+                VALUES (
+                    ?, ?, datetime('now', '+' || ? || ' seconds'), 1
+                )
                 ON CONFLICT (name) DO UPDATE
-                SET token = EXCLUDED.token, expire_at = EXCLUDED.expire_at
+                SET token = EXCLUDED.token,
+                    expire_at = EXCLUDED.expire_at,
+                    fence = CASE
+                        WHEN {table_name}.token = EXCLUDED.token
+                             AND {table_name}.expire_at >= datetime('now')
+                        THEN {table_name}.fence
+                        ELSE {table_name}.fence + 1
+                    END
                 WHERE {table_name}.token = EXCLUDED.token
+                   OR {table_name}.token IS NULL
+                   OR {table_name}.expire_at IS NULL
                    OR {table_name}.expire_at < datetime('now')
-                RETURNING 1;
+                RETURNING fence;
                 """
 
     _SQL_RELEASE = """
-            DELETE FROM {table_name}
+            UPDATE {table_name}
+            SET token = NULL, expire_at = NULL
             WHERE name = ? AND token = ? AND expire_at >= datetime('now')
             RETURNING 1;
             """
 
     _SQL_RELEASE_ALL_EXPIRED = """
-        DELETE FROM {table_name}
+        UPDATE {table_name}
+        SET token = NULL, expire_at = NULL
         WHERE expire_at < datetime('now');
         """
 
     _SQL_LOCKED = """
         SELECT 1 FROM {table_name}
-        WHERE name = ? AND expire_at >= datetime('now');
+        WHERE name = ? AND token IS NOT NULL AND expire_at >= datetime('now');
         """
 
     _SQL_OWNED = """
@@ -140,17 +162,28 @@ class SQLiteLockAdapter(LockBackend):
             await self._conn.close()
             self._conn = None
 
-    async def acquire(self, *, name: str, token: str, duration: float) -> bool:
-        """Acquire a lock."""
+    async def acquire(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire a lock, returning the fencing token or `None`.
+
+        Runs the read-modify-write inside a `BEGIN IMMEDIATE` transaction so
+        the fence high-water update is serialized against concurrent writers.
+        """
         if not self._conn:
             raise OutOfContextError(self, "acquire")
 
-        async with self._conn.execute(
-            self._acquire_sql, (name, token, ceil(duration))
-        ) as cursor:
-            result = await cursor.fetchone()
+        await self._conn.execute("BEGIN IMMEDIATE;")
+        try:
+            async with self._conn.execute(
+                self._acquire_sql, (name, token, ceil(duration))
+            ) as cursor:
+                result = await cursor.fetchone()
+        except BaseException:
+            await self._conn.rollback()
+            raise
         await self._conn.commit()
-        return result is not None
+        return int(result[0]) if result is not None else None
 
     async def release(self, *, name: str, token: str) -> bool:
         """Release the lock."""

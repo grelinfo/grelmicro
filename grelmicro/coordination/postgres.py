@@ -23,39 +23,62 @@ class PostgresLockAdapter(LockBackend):
     for distributed locks. Pass an explicit `provider=` to share a pool
     with other components, or rely on the default `env_prefix=` to build
     one from environment variables.
+
+    Fencing tokens live in a `fence BIGINT` column. The acquire statement
+    bumps the fence on every free-to-held transition and keeps it on a
+    same-holder extend, returning the value with `RETURNING fence`. Release
+    clears the holder and expiry but keeps the row and its fence, so the
+    fence is strictly monotonic per name across release and re-acquire cycles.
     """
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     name TEXT PRIMARY KEY,
-                    token TEXT NOT NULL,
-                    expire_at TIMESTAMP NOT NULL
+                    token TEXT,
+                    expire_at TIMESTAMP,
+                    fence BIGINT NOT NULL DEFAULT 0
                 );
+                ALTER TABLE {table_name}
+                    ADD COLUMN IF NOT EXISTS fence BIGINT NOT NULL DEFAULT 0;
+                ALTER TABLE {table_name} ALTER COLUMN token DROP NOT NULL;
+                ALTER TABLE {table_name} ALTER COLUMN expire_at DROP NOT NULL;
                 """
 
     _SQL_ACQUIRE_OR_EXTEND = """
-                INSERT INTO {table_name} (name, token, expire_at)
-                VALUES ($1, $2, NOW() + make_interval(secs => $3))
+                INSERT INTO {table_name} (name, token, expire_at, fence)
+                VALUES ($1, $2, NOW() + make_interval(secs => $3), 1)
                 ON CONFLICT (name) DO UPDATE
-                SET token = EXCLUDED.token, expire_at = EXCLUDED.expire_at
-                WHERE {table_name}.token = EXCLUDED.token OR {table_name}.expire_at < NOW()
-                RETURNING 1;
+                SET token = EXCLUDED.token,
+                    expire_at = EXCLUDED.expire_at,
+                    fence = CASE
+                        WHEN {table_name}.token = EXCLUDED.token
+                             AND {table_name}.expire_at >= NOW()
+                        THEN {table_name}.fence
+                        ELSE {table_name}.fence + 1
+                    END
+                WHERE {table_name}.token = EXCLUDED.token
+                   OR {table_name}.token IS NULL
+                   OR {table_name}.expire_at IS NULL
+                   OR {table_name}.expire_at < NOW()
+                RETURNING fence;
                 """
 
     _SQL_RELEASE = """
-            DELETE FROM {table_name}
+            UPDATE {table_name}
+            SET token = NULL, expire_at = NULL
             WHERE name = $1 AND token = $2 AND expire_at >= NOW()
             RETURNING 1;
             """
 
     _SQL_RELEASE_ALL_EXPIRED = """
-        DELETE FROM {table_name}
+        UPDATE {table_name}
+        SET token = NULL, expire_at = NULL
         WHERE expire_at < NOW();
         """
 
     _SQL_LOCKED = """
         SELECT 1 FROM {table_name}
-        WHERE name = $1 AND expire_at >= NOW();
+        WHERE name = $1 AND token IS NOT NULL AND expire_at >= NOW();
         """
 
     _SQL_OWNED = """
@@ -144,13 +167,14 @@ class PostgresLockAdapter(LockBackend):
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
-    async def acquire(self, *, name: str, token: str, duration: float) -> bool:
-        """Acquire a lock."""
-        return bool(
-            await self._provider.client.fetchval(
-                self._acquire_sql, name, token, duration
-            )
+    async def acquire(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire a lock, returning the fencing token or `None`."""
+        fence = await self._provider.client.fetchval(
+            self._acquire_sql, name, token, duration
         )
+        return int(fence) if fence is not None else None
 
     async def release(self, *, name: str, token: str) -> bool:
         """Release the lock."""

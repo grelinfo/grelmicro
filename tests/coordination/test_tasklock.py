@@ -397,7 +397,7 @@ async def test_tasklock_reacquire_backend_error(
 
     async def fail_on_reacquire(
         *, name: str, token: str, duration: float
-    ) -> bool:
+    ) -> int | None:
         # Let initial acquire succeed, fail on re-acquire (shorter duration)
         if duration < max_lock_seconds:
             msg = "Backend Error"
@@ -435,7 +435,7 @@ async def test_tasklock_state_cleaned_up_after_failed_reacquire(
 
     async def fail_on_reacquire(
         *, name: str, token: str, duration: float
-    ) -> bool:
+    ) -> int | None:
         # Let initial acquire succeed, fail on re-acquire (shorter duration)
         if duration < max_lock_seconds:
             msg = "Transient backend error"
@@ -472,10 +472,10 @@ async def test_tasklock_reacquire_lost_raises(
 
     async def reject_reacquire(
         *, name: str, token: str, duration: float
-    ) -> bool:
-        # Let initial acquire succeed, return False on re-acquire
+    ) -> int | None:
+        # Let initial acquire succeed, return None (not acquired) on re-acquire
         if duration < max_lock_seconds:
-            return False
+            return None
         return await original_acquire(name=name, token=token, duration=duration)
 
     mocker.patch.object(backend, "acquire", side_effect=reject_reacquire)
@@ -631,7 +631,7 @@ async def test_tasklock_from_thread_reacquire_backend_error(
 
     async def fail_on_reacquire(
         *, name: str, token: str, duration: float
-    ) -> bool:
+    ) -> int | None:
         if duration < max_lock_seconds:
             msg = "Backend Error"
             raise Exception(msg)  # noqa: TRY002

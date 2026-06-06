@@ -25,6 +25,7 @@ class MemoryLockAdapter(LockBackend):
     def __init__(self) -> None:
         """Initialize the lock backend."""
         self._locks: dict[str, tuple[str | None, float]] = {}
+        self._fences: dict[str, int] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
@@ -40,18 +41,24 @@ class MemoryLockAdapter(LockBackend):
     ) -> None:
         """Close the lock backend."""
         self._locks.clear()
+        self._fences.clear()
 
-    async def acquire(self, *, name: str, token: str, duration: float) -> bool:
-        """Acquire the lock."""
+    async def acquire(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire the lock, returning the fencing token or `None`."""
         current_token, expire_at = self._locks.get(name, (None, 0))
-        if (
-            current_token is None
-            or current_token == token
-            or expire_at < monotonic()
-        ):
+        free = current_token is None or expire_at < monotonic()
+        if free or current_token == token:
+            if free:
+                # Free-to-held transition: a new holder or a takeover of an
+                # expired lock bumps the per-name high-water counter. The
+                # counter persists for the adapter lifetime, even across
+                # release, so re-acquire keeps climbing.
+                self._fences[name] = self._fences.get(name, 0) + 1
             self._locks[name] = (token, monotonic() + duration)
-            return True
-        return False
+            return self._fences[name]
+        return None
 
     async def release(self, *, name: str, token: str) -> bool:
         """Release the lock."""

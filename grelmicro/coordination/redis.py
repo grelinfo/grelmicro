@@ -24,23 +24,47 @@ class RedisLockAdapter(LockBackend):
     for distributed locks. Pass an explicit `provider=` to share a
     pool with other components, or rely on the default `env_prefix=`
     to build one from environment variables.
+
+    Fencing tokens come from a Redis `INCR` on a per-name counter key,
+    bumped inside the acquire Lua script only on a free-to-held transition.
+    The lock value stores the token's fence so an extend by the same holder
+    returns the same token. The counter key is never deleted on release, so
+    re-acquire keeps climbing. Tokens are strictly monotonic against a single
+    Redis master.
     """
 
     _LUA_ACQUIRE_OR_EXTEND = """
-        local token = redis.call('get', KEYS[1])
-        if not token then
-            redis.call('set', KEYS[1], ARGV[1], 'px', ARGV[2])
-            return 1
+        -- KEYS[1] = lock key, KEYS[2] = fence counter key
+        -- ARGV[1] = token, ARGV[2] = duration in ms
+        -- The lock value is stored as "<fence>:<token>". The fence counter
+        -- key is INCR'd only on a free-to-held transition and never deleted,
+        -- so fencing tokens stay strictly monotonic across release cycles.
+        local stored = redis.call('get', KEYS[1])
+        if not stored then
+            local fence = redis.call('incr', KEYS[2])
+            redis.call(
+                'set', KEYS[1], fence .. ':' .. ARGV[1], 'px', ARGV[2]
+            )
+            return fence
         end
+        local sep = string.find(stored, ':', 1, true)
+        local fence = tonumber(string.sub(stored, 1, sep - 1))
+        local token = string.sub(stored, sep + 1)
         if token == ARGV[1] then
             redis.call('pexpire', KEYS[1], ARGV[2])
-            return 1
+            return fence
         end
-        return 0
+        return nil
     """
     _LUA_RELEASE = """
-        local token = redis.call('get', KEYS[1])
-        if not token or token ~= ARGV[1] then
+        -- The fence counter key is left untouched so re-acquire keeps climbing.
+        local stored = redis.call('get', KEYS[1])
+        if not stored then
+            return 0
+        end
+        local sep = string.find(stored, ':', 1, true)
+        local token = string.sub(stored, sep + 1)
+        if token ~= ARGV[1] then
             return 0
         end
         redis.call('del', KEYS[1])
@@ -121,15 +145,20 @@ class RedisLockAdapter(LockBackend):
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
-    async def acquire(self, *, name: str, token: str, duration: float) -> bool:
-        """Acquire the lock."""
-        return bool(
-            await self._lua_acquire(
-                keys=[f"{self._key_prefix}{name}"],
-                args=[token, int(duration * 1000)],
-                client=self._provider.client,
-            )
+    def _fence_key(self, name: str) -> str:
+        """Return the persistent fence counter key for a lock name."""
+        return f"{self._key_prefix}fence:{name}"
+
+    async def acquire(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire the lock, returning the fencing token or `None`."""
+        fence = await self._lua_acquire(
+            keys=[f"{self._key_prefix}{name}", self._fence_key(name)],
+            args=[token, int(duration * 1000)],
+            client=self._provider.client,
         )
+        return int(fence) if fence is not None else None
 
     async def release(self, *, name: str, token: str) -> bool:
         """Release the lock."""
@@ -149,9 +178,12 @@ class RedisLockAdapter(LockBackend):
 
     async def owned(self, *, name: str, token: str) -> bool:
         """Check if the lock is owned."""
-        return (
-            await self._provider.client.get(f"{self._key_prefix}{name}")
-        ) == token.encode()
+        stored = await self._provider.client.get(f"{self._key_prefix}{name}")
+        if stored is None:
+            return False
+        value = stored.decode() if isinstance(stored, bytes) else stored
+        _fence, sep, holder = value.partition(":")
+        return sep == ":" and holder == token
 
 
 class RedisLeaderElectionBackend:

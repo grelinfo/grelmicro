@@ -66,11 +66,17 @@ class LockBackend(Protocol):
                 " this elapses."
             ),
         ],
-    ) -> bool:
+    ) -> int | None:
         """Acquire the lock.
 
-        Returns `True` when the lock was granted, `False` when another
-        token already holds it.
+        Returns the fencing token when the lock was granted, `None` when
+        another token already holds it.
+
+        The fencing token is a strictly increasing integer per lock name.
+        It increments on every free-to-held transition (a fresh acquire by
+        a new holder, or a takeover of an expired lock) and keeps climbing
+        across release and re-acquire cycles. The same holder renewing or
+        extending its lease receives the same token.
         """
         ...
 
@@ -127,8 +133,12 @@ class LockBackend(Protocol):
 class LockPrimitive(Protocol):
     """Lock Primitive Protocol."""
 
-    async def __aenter__(self) -> Self:
-        """Enter the lock primitive."""
+    async def __aenter__(self) -> object:
+        """Enter the lock primitive.
+
+        Implementations return whatever the `async with` block binds. A
+        `Lock` binds a `LockHandle`, a `TaskLock` binds itself.
+        """
 
     async def __aexit__(
         self,

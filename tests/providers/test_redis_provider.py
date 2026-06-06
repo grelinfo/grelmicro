@@ -41,7 +41,7 @@ class TestConstruction:
             host="test_host",
             port=1234,
             db=0,
-            password="test_password",  # noqa: S106
+            password="test_password",
         )
         assert provider.url == URL
 
@@ -131,7 +131,7 @@ class TestFromConfig:
             host="cfg_host",
             port=4321,
             db=2,
-            password="cfg_pw",  # noqa: S106
+            password="cfg_pw",
         )
 
         provider = RedisProvider.from_config(cfg)

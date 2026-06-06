@@ -38,7 +38,7 @@ async def test_out_of_context_errors() -> None:
     """Adapter methods raise when called outside the context manager."""
     backend = PostgresLockAdapter(provider=PostgresProvider(URL))
     name = "lock"
-    token = "token"  # noqa: S105
+    token = "token"
 
     with pytest.raises(OutOfContextError):
         await backend.acquire(name=name, token=token, duration=1)
