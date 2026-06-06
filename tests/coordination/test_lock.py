@@ -17,6 +17,7 @@ from grelmicro.coordination.errors import (
     LockReentrantError,
     LockReleaseError,
 )
+from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import WouldBlockError as WouldBlock
@@ -541,6 +542,92 @@ async def test_lock_locked_backend_error(
     # Act / Assert
     with pytest.raises(LockLockedCheckError):
         await lock.locked()
+
+
+# --- Fencing tokens ---
+
+
+async def test_acquire_returns_handle(lock: Lock) -> None:
+    """`acquire` returns a LockHandle with name, token, and fencing token."""
+    handle = await lock.acquire()
+
+    assert isinstance(handle, LockHandle)
+    assert handle.name == LOCK_NAME
+    assert handle.token
+    assert handle.fencing_token >= 1
+
+
+async def test_acquire_nowait_returns_handle(lock: Lock) -> None:
+    """`acquire_nowait` returns a LockHandle."""
+    handle = await lock.acquire_nowait()
+
+    assert isinstance(handle, LockHandle)
+    assert handle.fencing_token >= 1
+
+
+async def test_context_manager_binds_handle(lock: Lock) -> None:
+    """`async with lock as held` binds the LockHandle."""
+    async with lock as held:
+        assert isinstance(held, LockHandle)
+        assert held.fencing_token >= 1
+
+
+async def test_from_thread_acquire_returns_handle(lock: Lock) -> None:
+    """`from_thread.acquire` returns a LockHandle."""
+    handles: list[LockHandle] = []
+
+    def sync() -> None:
+        handles.append(lock.from_thread.acquire())
+
+    await asyncio.to_thread(sync)
+
+    assert isinstance(handles[0], LockHandle)
+    assert handles[0].fencing_token >= 1
+
+
+async def test_from_thread_acquire_nowait_returns_handle(lock: Lock) -> None:
+    """`from_thread.acquire_nowait` returns a LockHandle."""
+    handles: list[LockHandle] = []
+
+    def sync() -> None:
+        handles.append(lock.from_thread.acquire_nowait())
+
+    await asyncio.to_thread(sync)
+
+    assert isinstance(handles[0], LockHandle)
+
+
+async def test_from_thread_context_manager_binds_handle(lock: Lock) -> None:
+    """`with lock.from_thread as held` binds the LockHandle."""
+    handles: list[LockHandle] = []
+
+    def sync() -> None:
+        with lock.from_thread as held:
+            handles.append(held)
+
+    await asyncio.to_thread(sync)
+
+    assert isinstance(handles[0], LockHandle)
+
+
+async def test_fencing_token_climbs_across_reacquire(lock: Lock) -> None:
+    """Releasing and re-acquiring mints a strictly greater fencing token."""
+    first = await lock.acquire()
+    await lock.release()
+    second = await lock.acquire()
+
+    assert second.fencing_token > first.fencing_token
+
+
+async def test_blocked_acquire_then_takeover_climbs(
+    locks: list[Lock],
+) -> None:
+    """A waiter that takes over after expiry gets a greater fencing token."""
+    first = await locks[WORKER_1].acquire()
+    # worker 2 blocks until worker 1's short lease expires, then takes over.
+    second = await locks[WORKER_2].acquire()
+
+    assert second.fencing_token > first.fencing_token
 
 
 # --- Non-reentrant (nested usage rejected) tests ---

@@ -270,6 +270,43 @@ database round-trip, can keep using `Lock(name)` directly. Reach for
 - the deployment has `GREL_ENV_LOAD=true` and you want to skip the env path on
   per-request construction
 
+### Fencing tokens
+
+A fencing token is a strictly increasing integer the backend mints for a lock
+name. Each acquisition returns a `LockHandle` that carries it. Read it from the
+value the context manager binds:
+
+```python
+async with Lock("cart") as held:
+    print(held.fencing_token)
+```
+
+The token grows by one on every free-to-held transition: a new holder, or a
+takeover after the previous lease expired. It keeps climbing across release and
+re-acquire cycles, so a token is never reused for a name. The same holder
+renewing or extending its lease keeps the same token.
+
+`acquire()` and `acquire_nowait()` also return the `LockHandle`. The handle is
+per-acquisition, so a `Lock` shared by several tasks gives each holder its own
+handle with its own token.
+
+Every backend mints tokens that are strictly monotonic per name. Redis is
+strictly monotonic against its master.
+
+!!! warning "The resource enforces, grelmicro mints"
+    A fencing token only protects a resource that checks it. grelmicro hands you
+    the token. The resource you write to must record the highest token it has
+    accepted and reject any write that arrives with a lower or equal token.
+    Without that check on the resource, a paused or partitioned old holder can
+    still write after a new holder took over.
+
+    The pattern: read `held.fencing_token`, pass it to the resource on every
+    write, and have the resource compare it against its stored high-water mark.
+
+```python
+--8<-- "coordination/fencing.py"
+```
+
 ## Task Lock
 
 The Task Lock is a distributed lock for scheduled tasks. Unlike a regular Lock,
