@@ -434,15 +434,15 @@ class TestAsyncCachedStampede:
         import sys  # noqa: PLC0415
         from collections import OrderedDict  # noqa: PLC0415
 
-        import grelmicro.cache.cached  # noqa: F401, PLC0415
+        import grelmicro.cache._stampede  # noqa: F401, PLC0415
 
-        cached_mod = sys.modules["grelmicro.cache.cached"]
+        stampede_mod = sys.modules["grelmicro.cache._stampede"]
 
-        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 4)
+        monkeypatch.setattr(stampede_mod, "_PER_KEY_LOCK_BUDGET", 4)
         locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         for i in range(20):
             locks[f"k{i}"] = asyncio.Lock()
-            cached_mod._evict_idle_locks(locks)
+            stampede_mod._evict_idle_locks(locks)
         assert len(locks) == 4  # noqa: PLR2004
 
     async def test_per_key_lock_eviction_keeps_held_entries(
@@ -453,11 +453,11 @@ class TestAsyncCachedStampede:
         import sys  # noqa: PLC0415
         from collections import OrderedDict  # noqa: PLC0415
 
-        import grelmicro.cache.cached  # noqa: F401, PLC0415
+        import grelmicro.cache._stampede  # noqa: F401, PLC0415
 
-        cached_mod = sys.modules["grelmicro.cache.cached"]
+        stampede_mod = sys.modules["grelmicro.cache._stampede"]
 
-        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 2)
+        monkeypatch.setattr(stampede_mod, "_PER_KEY_LOCK_BUDGET", 2)
         locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         held = asyncio.Lock()
         await held.acquire()
@@ -465,7 +465,7 @@ class TestAsyncCachedStampede:
             locks["held"] = held
             for i in range(10):
                 locks[f"idle-{i}"] = asyncio.Lock()
-            cached_mod._evict_idle_locks(locks)
+            stampede_mod._evict_idle_locks(locks)
             assert "held" in locks
         finally:
             held.release()
