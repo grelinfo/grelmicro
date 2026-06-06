@@ -1,10 +1,10 @@
-# Synchronization Internals
+# Coordination Internals
 
-This page documents the internal design of the [Synchronization Primitives](../sync.md).
+This page documents the internal design of the [Coordination primitives](../coordination.md).
 
 ## Worker Identity
 
-By default, each synchronization primitive (`Lock`, `TaskLock`, `LeaderElection`) generates a unique **worker identity** at instantiation using `token_hex(4)` (8 random hex characters, 32 bits of entropy) when no explicit `worker` parameter is provided.
+By default, each coordination primitive (`Lock`, `TaskLock`, `LeaderElection`) generates a unique **worker identity** at instantiation using `token_hex(4)` (8 random hex characters, 32 bits of entropy) when no explicit `worker` parameter is provided.
 
 This provides uniqueness across:
 
@@ -34,7 +34,7 @@ This design provides the following guarantees:
 
 ## Lock Name and Backend Key
 
-Each synchronization primitive automatically prefixes the user-provided `name` with a type-specific namespace to form the backend key:
+Each coordination primitive automatically prefixes the user-provided `name` with a type-specific namespace to form the backend key:
 
 | Primitive | Name | Backend Key |
 |---|---|---|
