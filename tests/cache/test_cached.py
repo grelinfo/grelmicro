@@ -45,6 +45,13 @@ def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
     )
 
 
+def _tag_keys(cache: TTLCache) -> dict[str, set[str]]:
+    """Return the in-memory backend's forward tag map for assertions."""
+    backend = cache._backend
+    assert isinstance(backend, MemoryCacheAdapter)
+    return backend._tag_keys
+
+
 # ---------------------------------------------------------------------------
 # Async function tests
 # ---------------------------------------------------------------------------
@@ -434,15 +441,15 @@ class TestAsyncCachedStampede:
         import sys  # noqa: PLC0415
         from collections import OrderedDict  # noqa: PLC0415
 
-        import grelmicro.cache.cached  # noqa: F401, PLC0415
+        import grelmicro.cache._stampede  # noqa: F401, PLC0415
 
-        cached_mod = sys.modules["grelmicro.cache.cached"]
+        stampede_mod = sys.modules["grelmicro.cache._stampede"]
 
-        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 4)
+        monkeypatch.setattr(stampede_mod, "_PER_KEY_LOCK_BUDGET", 4)
         locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         for i in range(20):
             locks[f"k{i}"] = asyncio.Lock()
-            cached_mod._evict_idle_locks(locks)
+            stampede_mod._evict_idle_locks(locks)
         assert len(locks) == 4  # noqa: PLR2004
 
     async def test_per_key_lock_eviction_keeps_held_entries(
@@ -453,11 +460,11 @@ class TestAsyncCachedStampede:
         import sys  # noqa: PLC0415
         from collections import OrderedDict  # noqa: PLC0415
 
-        import grelmicro.cache.cached  # noqa: F401, PLC0415
+        import grelmicro.cache._stampede  # noqa: F401, PLC0415
 
-        cached_mod = sys.modules["grelmicro.cache.cached"]
+        stampede_mod = sys.modules["grelmicro.cache._stampede"]
 
-        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 2)
+        monkeypatch.setattr(stampede_mod, "_PER_KEY_LOCK_BUDGET", 2)
         locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         held = asyncio.Lock()
         await held.acquire()
@@ -465,7 +472,7 @@ class TestAsyncCachedStampede:
             locks["held"] = held
             for i in range(10):
                 locks[f"idle-{i}"] = asyncio.Lock()
-            cached_mod._evict_idle_locks(locks)
+            stampede_mod._evict_idle_locks(locks)
             assert "held" in locks
         finally:
             held.release()
@@ -1366,3 +1373,103 @@ class TestEarlyRefresh:
         gate.set()
         await asyncio.sleep(0.05)
         assert call_count == EXPECTED_CALL_COUNT_2  # only one refresh ran
+
+
+class TestCachedTags:
+    """Tests for @cached tag templating."""
+
+    async def test_literal_tags_async(self) -> None:
+        """Test that literal tags are stored unchanged for an async func."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["users"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(1)
+
+        assert _tag_keys(cache)["users"]
+
+    async def test_templated_tag_from_positional_arg(self) -> None:
+        """Test that a templated tag renders from a positional argument."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(42)
+
+        assert "user:42" in _tag_keys(cache)
+
+    async def test_templated_tag_from_keyword_arg(self) -> None:
+        """Test that a templated tag renders from a keyword argument."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(user_id=7)
+
+        assert "user:7" in _tag_keys(cache)
+
+    async def test_mixed_literal_and_templated_tags(self) -> None:
+        """Test that literal and templated tags are both applied."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["users", "user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(3)
+
+        assert "users" in _tag_keys(cache)
+        assert "user:3" in _tag_keys(cache)
+
+    async def test_tag_renders_from_default_argument(self) -> None:
+        """Test that a templated tag uses a default when the arg is omitted."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["page:{page}"])
+        async def fetch(page: int = 1) -> dict:
+            return {"page": page}
+
+        await fetch()
+
+        assert "page:1" in _tag_keys(cache)
+
+    async def test_delete_tags_invalidates_cached_async(self) -> None:
+        """Test that delete_tags drops a cached entry by tag."""
+        cache = _make_cache()
+        calls = 0
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            nonlocal calls
+            calls += 1
+            return {"id": user_id, "calls": calls}
+
+        first = await fetch(1)
+        await cache.delete_tags("user:1")
+        second = await fetch(1)
+
+        assert first["calls"] == 1
+        assert second["calls"] == 2  # noqa: PLR2004
+
+    def test_literal_tags_sync(self) -> None:
+        """Test that tags are applied for a sync cached function."""
+        backend = MemoryCacheAdapter()
+        cache = TTLCache(ttl=60, backend=backend, serializer=PickleSerializer())
+
+        @cached(cache, tags=["user:{user_id}"])
+        def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        async def run() -> None:
+            backend._loop = asyncio.get_running_loop()
+            await asyncio.to_thread(fetch, 5)
+
+        asyncio.run(run())
+
+        assert "user:5" in backend._tag_keys

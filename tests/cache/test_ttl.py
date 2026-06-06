@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from time import monotonic
 from unittest.mock import patch
 
@@ -608,3 +609,303 @@ class TestSerializer:
             TypeError, match="Cannot store list without a serializer"
         ):
             await cache.set("key", [1, 2, 3])
+
+
+class TestGetOrSet:
+    """Tests for TTLCache.get_or_set."""
+
+    async def test_cold_path_computes_and_stores(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a miss runs the factory, stores, and returns the value."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+        calls = 0
+
+        def factory() -> dict:
+            nonlocal calls
+            calls += 1
+            return {"v": 1}
+
+        result = await cache.get_or_set("k", factory)
+
+        assert result == {"v": 1}
+        assert calls == 1
+        assert await cache.get("k") == {"v": 1}
+
+    async def test_fast_path_returns_cached_without_calling_factory(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a hit returns the cached value and skips the factory."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+        await cache.set("k", {"v": 1})
+        calls = 0
+
+        def factory() -> dict:
+            nonlocal calls
+            calls += 1
+            return {"v": 2}
+
+        result = await cache.get_or_set("k", factory)
+
+        assert result == {"v": 1}
+        assert calls == 0
+
+    async def test_async_factory_is_awaited(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that an async factory is detected and awaited."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        async def factory() -> dict:
+            return {"v": 42}
+
+        result = await cache.get_or_set("k", factory)
+
+        assert result == {"v": 42}
+
+    async def test_records_hit_on_fast_path(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a hit increments the hit counter once."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+        await cache.set("k", {"v": 1})
+
+        await cache.get_or_set("k", lambda: {"v": 2})
+
+        assert cache.cache_info().hits == 1
+        assert cache.cache_info().misses == 0
+
+    async def test_records_single_miss_on_cold_path(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a cold miss is counted exactly once."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        await cache.get_or_set("k", lambda: {"v": 1})
+
+        assert cache.cache_info().misses == 1
+        assert cache.cache_info().hits == 0
+
+    async def test_stores_tags(self, backend: MemoryCacheAdapter) -> None:
+        """Test that get_or_set associates tags with the computed entry."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        await cache.get_or_set("k", lambda: {"v": 1}, tags=["t"])
+
+        assert backend._tag_keys["t"] == {"cache:k"}
+
+    async def test_stampede_folds_concurrent_misses(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that concurrent misses compute the factory once."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+        calls = 0
+        barrier = asyncio.Event()
+
+        async def factory() -> dict:
+            nonlocal calls
+            calls += 1
+            await barrier.wait()
+            return {"v": calls}
+
+        task_a = asyncio.create_task(cache.get_or_set("k", factory))
+        task_b = asyncio.create_task(cache.get_or_set("k", factory))
+        await asyncio.sleep(0.05)
+        barrier.set()
+
+        result_a = await task_a
+        result_b = await task_b
+
+        assert calls == 1
+        assert result_a == result_b == {"v": 1}
+
+
+class TestGetMany:
+    """Tests for TTLCache.get_many."""
+
+    async def test_returns_found_only(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that get_many returns only the keys present."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+        await cache.set("a", {"v": 1})
+        await cache.set("b", {"v": 2})
+
+        result = await cache.get_many(["a", "b", "missing"])
+
+        assert result == {"a": {"v": 1}, "b": {"v": 2}}
+
+    async def test_empty_keys_returns_empty(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that an empty key list returns an empty dict."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        assert await cache.get_many([]) == {}
+
+    async def test_records_hit_per_found_and_miss_per_absent(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that stats count one hit per found and one miss per absent."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+        await cache.set("a", {"v": 1})
+
+        await cache.get_many(["a", "b", "c"])
+
+        info = cache.cache_info()
+        assert info.hits == 1
+        assert info.misses == 2  # noqa: PLR2004
+
+    async def test_promotes_found_keys_in_lru(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that get_many promotes found keys when maxsize is set."""
+        cache = TTLCache(maxsize=10, ttl=60, backend=backend)
+        await cache.set("a", b"a")
+        await cache.set("b", b"b")
+
+        result = await cache.get_many(["a"])
+
+        assert result == {"a": b"a"}
+        assert "a" in cache._keys
+
+
+class TestSetMany:
+    """Tests for TTLCache.set_many."""
+
+    async def test_stores_all(self, backend: MemoryCacheAdapter) -> None:
+        """Test that set_many writes every pair."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        await cache.set_many({"a": {"v": 1}, "b": {"v": 2}})
+
+        assert await cache.get("a") == {"v": 1}
+        assert await cache.get("b") == {"v": 2}
+
+    async def test_empty_mapping_is_no_op(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that an empty mapping does nothing."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        await cache.set_many({})
+
+    async def test_rejects_non_positive_ttl(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a non-positive ttl raises."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        with pytest.raises(ValueError, match="ttl must be positive"):
+            await cache.set_many({"a": {"v": 1}}, ttl=0)
+
+    async def test_stores_tags(self, backend: MemoryCacheAdapter) -> None:
+        """Test that set_many associates tags with every key."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+
+        await cache.set_many({"a": {"v": 1}, "b": {"v": 2}}, tags=["g"])
+
+        assert backend._tag_keys["g"] == {"cache:a", "cache:b"}
+
+    async def test_evicts_when_over_maxsize(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that set_many enforces maxsize via LRU eviction."""
+        cache = TTLCache(maxsize=2, ttl=60, backend=backend)
+        await cache.set("old", b"old")
+
+        await cache.set_many({"a": b"a", "b": b"b"})
+
+        assert cache.cache_info().currsize == 2  # noqa: PLR2004
+        assert cache.cache_info().evictions >= 1
+
+    async def test_promotes_existing_key(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that set_many promotes an already-tracked key without evicting."""
+        cache = TTLCache(maxsize=2, ttl=60, backend=backend)
+        await cache.set("a", b"a")
+        await cache.set("b", b"b")
+
+        await cache.set_many({"a": b"a2"})
+
+        assert await cache.get("a") == b"a2"
+        assert cache.cache_info().currsize == 2  # noqa: PLR2004
+
+
+class TestDeleteMany:
+    """Tests for TTLCache.delete_many."""
+
+    async def test_deletes_all(self, backend: MemoryCacheAdapter) -> None:
+        """Test that delete_many removes every listed key."""
+        cache = TTLCache(maxsize=10, ttl=60, backend=backend)
+        await cache.set("a", b"a")
+        await cache.set("b", b"b")
+
+        await cache.delete_many(["a", "b"])
+
+        assert await cache.get("a") is None
+        assert await cache.get("b") is None
+        assert "a" not in cache._keys
+        assert "b" not in cache._keys
+
+    async def test_empty_keys_is_no_op(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that an empty key list does nothing."""
+        cache = TTLCache(ttl=60, backend=backend)
+
+        await cache.delete_many([])
+
+
+class TestDeleteTags:
+    """Tests for TTLCache.delete_tags."""
+
+    async def test_deletes_tagged_entries(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that delete_tags removes every entry sharing a tag."""
+        cache = TTLCache(ttl=60, backend=backend, serializer=JsonSerializer())
+        await cache.set("a", {"v": 1}, tags=["g"])
+        await cache.set("b", {"v": 2}, tags=["g"])
+        await cache.set("c", {"v": 3}, tags=["other"])
+
+        await cache.delete_tags("g")
+
+        assert await cache.get("a") is None
+        assert await cache.get("b") is None
+        assert await cache.get("c") == {"v": 3}
+
+    async def test_no_tags_is_no_op(self, backend: MemoryCacheAdapter) -> None:
+        """Test that calling delete_tags with no tags does nothing."""
+        cache = TTLCache(maxsize=10, ttl=60, backend=backend)
+        await cache.set("a", b"a")
+
+        await cache.delete_tags()
+
+        assert await cache.get("a") == b"a"
+        assert "a" in cache._keys
+
+    async def test_clears_local_lru(self, backend: MemoryCacheAdapter) -> None:
+        """Test that delete_tags clears the local LRU bookkeeping."""
+        cache = TTLCache(maxsize=10, ttl=60, backend=backend)
+        await cache.set("a", b"a", tags=["g"])
+
+        await cache.delete_tags("g")
+
+        assert len(cache._keys) == 0
+
+
+class TestSetWithTags:
+    """Tests for tags on TTLCache.set."""
+
+    async def test_set_associates_tags(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that set forwards tags to the backend."""
+        cache = TTLCache(ttl=60, backend=backend)
+
+        await cache.set("a", b"a", tags=["t1", "t2"])
+
+        assert backend._tag_keys["t1"] == {"cache:a"}
+        assert backend._tag_keys["t2"] == {"cache:a"}

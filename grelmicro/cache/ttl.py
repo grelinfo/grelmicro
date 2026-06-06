@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, Generic
+from typing import TYPE_CHECKING, Annotated, Any, Generic, cast
 
 from pydantic import BaseModel, NonNegativeInt, PositiveFloat
 from typing_extensions import Doc, TypeVar
 
 from grelmicro._app import Grelmicro
+from grelmicro.cache._stampede import (
+    _SENTINEL,
+    AsyncStampedeGuard,
+    compute_with_stampede,
+)
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
+
     from grelmicro.cache._protocol import CacheBackend
     from grelmicro.cache.serializers import CacheSerializer
 
@@ -156,6 +164,8 @@ class TTLCache(Generic[T]):
         self._evictions = 0
         # LRU tracking (OrderedDict for O(1) move_to_end / popitem)
         self._keys: OrderedDict[str, None] = OrderedDict()
+        # Per-key in-process locks for get_or_set stampede protection.
+        self._stampede = AsyncStampedeGuard()
 
     @property
     def config(self) -> TTLCacheConfig:
@@ -241,8 +251,16 @@ class TTLCache(Generic[T]):
                 "Per-entry TTL override in seconds. Uses the default TTL if None."
             ),
         ] = None,
+        *,
+        tags: Annotated[
+            Sequence[str],
+            Doc(
+                "Tags to associate with the entry. Invalidate every entry"
+                " sharing a tag at once with `delete_tags`."
+            ),
+        ] = (),
     ) -> None:
-        """Set a value with an optional per-entry TTL override.
+        """Set a value with an optional per-entry TTL override and tags.
 
         If the cache is full (maxsize > 0), evicts the least recently
         used entry before storing.
@@ -264,11 +282,138 @@ class TTLCache(Generic[T]):
                 await self._evict()
 
         await self._get_backend().set(
-            key=f"{_CACHE_PREFIX}:{key}", value=raw, ttl=entry_ttl
+            key=f"{_CACHE_PREFIX}:{key}", value=raw, ttl=entry_ttl, tags=tags
         )
 
         if self._maxsize > 0:
             self._promote(key)
+
+    async def get_or_set(
+        self,
+        key: Annotated[str, Doc("The cache key.")],
+        factory: Annotated[
+            Callable[[], T] | Callable[[], Awaitable[T]],
+            Doc(
+                "Sync or async callable that produces the value on a miss."
+                " Awaited when it returns a coroutine."
+            ),
+        ],
+        *,
+        ttl: Annotated[
+            float | None,
+            Doc("Per-entry TTL override in seconds. Uses the default if None."),
+        ] = None,
+        tags: Annotated[
+            Sequence[str],
+            Doc("Tags to associate with the entry when it is computed."),
+        ] = (),
+    ) -> T:
+        """Return the cached value, or compute, store, and return it.
+
+        On a hit the cached value is returned and a hit is recorded. On a
+        miss the ``factory`` runs once under stampede protection, the
+        result is stored with the given ``ttl`` and ``tags``, and a miss
+        is recorded by the initial read. Concurrent misses on the same
+        key fold into a single computation, across replicas when a lock
+        backend is configured.
+        """
+        result = await self.get(key, _SENTINEL)
+        if result is not _SENTINEL:
+            return cast("T", result)
+
+        async def compute() -> T:
+            value = factory()
+            if asyncio.iscoroutine(value):
+                value = await value
+            await self.set(key, cast("T", value), ttl, tags=tags)
+            return cast("T", value)
+
+        return cast(
+            "T",
+            await compute_with_stampede(
+                self,
+                key,
+                compute,
+                self._stampede,
+                per_key=True,
+                auto_distributed=True,
+            ),
+        )
+
+    async def get_many(
+        self,
+        keys: Annotated[Sequence[str], Doc("The cache keys to read.")],
+    ) -> dict[str, T]:
+        """Return a dict of found values for the given keys.
+
+        Missing or expired keys are absent from the result. Records one
+        hit per found key and one miss per absent key.
+        """
+        keys = list(keys)
+        if not keys:
+            return {}
+        raw = await self._get_backend().get_many(
+            keys=[f"{_CACHE_PREFIX}:{key}" for key in keys]
+        )
+        plen = len(_CACHE_PREFIX) + 1
+        found = {full[plen:]: value for full, value in raw.items()}
+        result: dict[str, T] = {}
+        for key in keys:
+            if key not in found:
+                self._misses += 1
+                _emit.incr("grelmicro.cache.operations", result="miss")
+                continue
+            self._hits += 1
+            _emit.incr("grelmicro.cache.operations", result="hit")
+            if self._maxsize > 0:
+                self._promote(key)
+            result[key] = self._deserialize(found[key])
+        return result
+
+    async def set_many(
+        self,
+        mapping: Annotated[
+            Mapping[str, T],
+            Doc("Key to value pairs to store."),
+        ],
+        *,
+        ttl: Annotated[
+            float | None,
+            Doc("Per-entry TTL override in seconds. Uses the default if None."),
+        ] = None,
+        tags: Annotated[
+            Sequence[str],
+            Doc("Tags to associate with every stored entry."),
+        ] = (),
+    ) -> None:
+        """Store many key to value pairs with one TTL and optional tags.
+
+        Raises:
+            ValueError: If ttl is not positive.
+            TypeError: If a value is not bytes and no serializer is set.
+        """
+        if ttl is not None and ttl <= 0:
+            msg = "ttl must be positive"
+            raise ValueError(msg)
+        if not mapping:
+            return
+
+        entry_ttl = ttl if ttl is not None else self._ttl
+        items = {
+            f"{_CACHE_PREFIX}:{key}": self._serialize(value)
+            for key, value in mapping.items()
+        }
+
+        if self._maxsize > 0:
+            for key in mapping:
+                if key not in self._keys:
+                    while len(self._keys) >= self._maxsize:
+                        await self._evict()
+                self._promote(key)
+
+        await self._get_backend().set_many(
+            items=items, ttl=entry_ttl, tags=tags
+        )
 
     async def delete(
         self,
@@ -280,6 +425,37 @@ class TTLCache(Generic[T]):
         """
         await self._get_backend().delete(key=f"{_CACHE_PREFIX}:{key}")
         self._keys.pop(key, None)
+
+    async def delete_many(
+        self,
+        keys: Annotated[Sequence[str], Doc("The cache keys to delete.")],
+    ) -> None:
+        """Delete many keys from the cache.
+
+        Keys that do not exist are ignored.
+        """
+        keys = list(keys)
+        if not keys:
+            return
+        await self._get_backend().delete_many(
+            keys=[f"{_CACHE_PREFIX}:{key}" for key in keys]
+        )
+        for key in keys:
+            self._keys.pop(key, None)
+
+    async def delete_tags(
+        self,
+        *tags: Annotated[str, Doc("Tags whose every entry should be deleted.")],
+    ) -> None:
+        """Delete every entry associated with any of the given tags.
+
+        Clears the local LRU bookkeeping, since the deleted keys are not
+        known in advance.
+        """
+        if not tags:
+            return
+        await self._get_backend().delete_tags(tags=tags)
+        self._keys.clear()
 
     async def clear(self) -> None:
         """Remove all entries from the cache."""

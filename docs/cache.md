@@ -149,6 +149,71 @@ Override the default TTL for individual entries:
 await cache.set("session", b"token", ttl=3600)  # 1 hour instead of default
 ```
 
+### Get or Set
+
+`get_or_set` returns the cached value, or computes it once and stores it. Pass a sync or async factory. It runs only on a miss:
+
+```python
+user = await cache.get_or_set(
+    "user:1",
+    lambda: fetch_user(1),
+    tags=["users"],
+)
+```
+
+The factory shares the same stampede protection as `@cached(lock=True)`. When many callers miss the same key at once, the factory runs once and the rest reuse its result. This works across replicas when a `Coordination` backend is configured.
+
+```python title="get_or_set.py"
+--8<-- "docs/snippets/cache/get_or_set.py"
+```
+
+### Batch Operations
+
+Read, write, and delete many keys in one call:
+
+```python
+await cache.set_many({"user:1": user1, "user:2": user2}, tags=["users"])
+
+found = await cache.get_many(["user:1", "user:2", "user:3"])
+# Missing keys are absent from the result.
+
+await cache.delete_many(["user:1", "user:2"])
+```
+
+```python title="batch.py"
+--8<-- "docs/snippets/cache/batch.py"
+```
+
+### Tags and Invalidation
+
+Tags group entries so you can drop a whole group at once. Tag an entry on `set`, `set_many`, or `get_or_set`, then invalidate by tag with `delete_tags`:
+
+```python
+await cache.set("user:1", user, tags=["users", "user:1"])
+
+await cache.delete_tags("user:1")   # drop one user
+await cache.delete_tags("users")    # drop every user
+```
+
+The `@cached` decorator takes tags too. Each tag is a template filled in from the call's arguments, so one decorator tags every entry with both a shared tag and a per-call tag:
+
+```python
+@cached(cache, tags=["users", "user:{user_id}"])
+async def get_user(user_id: int) -> dict:
+    return await db.fetch_user(user_id)
+
+
+# Later, after a write:
+await cache.delete_tags("user:42")   # drop the entry for user_id=42
+await cache.delete_tags("users")     # drop every cached user
+```
+
+Literal tags with no `{...}` pass through unchanged. Tags work the same across Memory, Redis, and Postgres. Invalidating by tag stays consistent even when keys expire on their own.
+
+```python title="tags.py"
+--8<-- "docs/snippets/cache/tags.py"
+```
+
 ## @cached Decorator
 
 The `@cached` decorator automatically caches function results. It works with both sync and async functions.
@@ -210,6 +275,7 @@ async def get_homepage_feed() -> dict:
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
 | `lock` | `True`, `False`, or `"local"` | `False` | Concurrent-miss (stampede) protection. |
 | `early` | `float` in `[0, 1)` | `None` | Probabilistic early refresh in the late TTL window. |
+| `tags` | `Sequence[str]` | `()` | Tags to attach to each result. Templates like `"user:{user_id}"` fill in from the arguments. Invalidate with `cache.delete_tags(...)`. |
 
 ## Redis Backend Configuration
 
