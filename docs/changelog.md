@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+* ✨ Add `VirtualClock` for deterministic time in tests. Time-dependent primitives (`Retry` backoff, `CircuitBreaker` half-open window, `RateLimiter` refill, `Shield` adaptive gate) read time through a clock seam (`grelmicro.clock.monotonic` / `sleep`). Install a `VirtualClock` (`Grelmicro(uses=[clock, ...])` or `async with VirtualClock()`) and call `clock.advance(seconds)` to drive that behavior with no real waiting. With no clock registered, the seam forwards to `time.monotonic` and `asyncio.sleep`, so production keeps real time. Issue [#272](https://github.com/grelinfo/grelmicro/issues/272).
+
 ## 0.26.0 - 2026-06-05
 
 ### Breaking

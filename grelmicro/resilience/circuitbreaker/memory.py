@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from time import monotonic
 from typing import TYPE_CHECKING, ClassVar, Self
 
+from grelmicro.clock import monotonic
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
     CircuitBreakerSnapshot,

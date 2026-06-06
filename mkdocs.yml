@@ -85,6 +85,7 @@ nav:
     - task.md
 - API Reference:
     - reference/cache.md
+    - reference/clock.md
     - reference/health.md
     - reference/json.md
     - reference/logging.md

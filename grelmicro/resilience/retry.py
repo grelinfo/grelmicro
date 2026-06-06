@@ -38,6 +38,8 @@ from grelmicro._config import (
     parse_csv_or_json,
     resolve_config,
 )
+from grelmicro.clock import monotonic as clock_monotonic
+from grelmicro.clock import sleep as clock_sleep
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience._retry_strategy import build_retry_strategy
@@ -298,7 +300,7 @@ class RetryAttempt:
         if not self._matcher(Outcome.from_exception(exc)):
             return False
         if self.number >= self._attempts:
-            elapsed = time.monotonic() - self._started_at
+            elapsed = clock_monotonic() - self._started_at
             backoff_name = self._loop.backoff_name
             exc.add_note(
                 f"retry: {self._attempts}/{self._attempts} attempts "
@@ -337,11 +339,11 @@ async def _async_iter(
     """Yield successive ``RetryAttempt`` objects, sleeping between attempts."""
     strategy = build_retry_strategy(config.backoff)
     loop = _AttemptLoop(_backoff_name(config.backoff))
-    started_at = time.monotonic()
+    started_at = clock_monotonic()
     delay_before = 0.0
     for number in range(1, config.attempts + 1):  # pragma: no branch
         if delay_before > 0:
-            await asyncio.sleep(delay_before)
+            await clock_sleep(delay_before)
         yield RetryAttempt(
             number=number,
             delay_before=delay_before,
@@ -362,7 +364,7 @@ def _sync_iter(
     """Yield successive ``RetryAttempt`` objects, sleeping between attempts."""
     strategy = build_retry_strategy(config.backoff)
     loop = _AttemptLoop(_backoff_name(config.backoff))
-    started_at = time.monotonic()
+    started_at = clock_monotonic()
     delay_before = 0.0
     for number in range(1, config.attempts + 1):  # pragma: no branch
         if delay_before > 0:
@@ -389,13 +391,13 @@ async def _run_async(
 ) -> Any:  # noqa: ANN401
     """Decorator/class-form async wrapper. Handles exception and result retries."""
     strategy = build_retry_strategy(config.backoff)
-    started_at = time.monotonic()
+    started_at = clock_monotonic()
     backoff_name = _backoff_name(config.backoff)
     delay = 0.0
     last_result: Any = None
     for number in range(1, config.attempts + 1):
         if delay > 0:
-            await asyncio.sleep(delay)
+            await clock_sleep(delay)
         try:
             result = await fn(*args, **kwargs)
         except Exception as exc:
@@ -404,7 +406,7 @@ async def _run_async(
             if number >= config.attempts:
                 exc.add_note(
                     f"retry: {config.attempts}/{config.attempts} attempts "
-                    f"exhausted in {time.monotonic() - started_at:.2f}s "
+                    f"exhausted in {clock_monotonic() - started_at:.2f}s "
                     f"({backoff_name} backoff)"
                 )
                 raise
@@ -428,7 +430,7 @@ def _run_sync(
 ) -> Any:  # noqa: ANN401
     """Decorator/class-form sync wrapper. Handles exception and result retries."""
     strategy = build_retry_strategy(config.backoff)
-    started_at = time.monotonic()
+    started_at = clock_monotonic()
     backoff_name = _backoff_name(config.backoff)
     delay = 0.0
     last_result: Any = None
@@ -443,7 +445,7 @@ def _run_sync(
             if number >= config.attempts:
                 exc.add_note(
                     f"retry: {config.attempts}/{config.attempts} attempts "
-                    f"exhausted in {time.monotonic() - started_at:.2f}s "
+                    f"exhausted in {clock_monotonic() - started_at:.2f}s "
                     f"({backoff_name} backoff)"
                 )
                 raise
