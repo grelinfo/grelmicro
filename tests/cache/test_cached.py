@@ -45,6 +45,13 @@ def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
     )
 
 
+def _tag_keys(cache: TTLCache) -> dict[str, set[str]]:
+    """Return the in-memory backend's forward tag map for assertions."""
+    backend = cache._backend
+    assert isinstance(backend, MemoryCacheAdapter)
+    return backend._tag_keys
+
+
 # ---------------------------------------------------------------------------
 # Async function tests
 # ---------------------------------------------------------------------------
@@ -1381,7 +1388,7 @@ class TestCachedTags:
 
         await fetch(1)
 
-        assert cache._backend._tag_keys["users"]
+        assert _tag_keys(cache)["users"]
 
     async def test_templated_tag_from_positional_arg(self) -> None:
         """Test that a templated tag renders from a positional argument."""
@@ -1393,7 +1400,7 @@ class TestCachedTags:
 
         await fetch(42)
 
-        assert "user:42" in cache._backend._tag_keys
+        assert "user:42" in _tag_keys(cache)
 
     async def test_templated_tag_from_keyword_arg(self) -> None:
         """Test that a templated tag renders from a keyword argument."""
@@ -1405,7 +1412,7 @@ class TestCachedTags:
 
         await fetch(user_id=7)
 
-        assert "user:7" in cache._backend._tag_keys
+        assert "user:7" in _tag_keys(cache)
 
     async def test_mixed_literal_and_templated_tags(self) -> None:
         """Test that literal and templated tags are both applied."""
@@ -1417,8 +1424,8 @@ class TestCachedTags:
 
         await fetch(3)
 
-        assert "users" in cache._backend._tag_keys
-        assert "user:3" in cache._backend._tag_keys
+        assert "users" in _tag_keys(cache)
+        assert "user:3" in _tag_keys(cache)
 
     async def test_tag_renders_from_default_argument(self) -> None:
         """Test that a templated tag uses a default when the arg is omitted."""
@@ -1430,7 +1437,7 @@ class TestCachedTags:
 
         await fetch()
 
-        assert "page:1" in cache._backend._tag_keys
+        assert "page:1" in _tag_keys(cache)
 
     async def test_delete_tags_invalidates_cached_async(self) -> None:
         """Test that delete_tags drops a cached entry by tag."""
@@ -1452,16 +1459,17 @@ class TestCachedTags:
 
     def test_literal_tags_sync(self) -> None:
         """Test that tags are applied for a sync cached function."""
-        cache = _make_cache()
+        backend = MemoryCacheAdapter()
+        cache = TTLCache(ttl=60, backend=backend, serializer=PickleSerializer())
 
         @cached(cache, tags=["user:{user_id}"])
         def fetch(user_id: int) -> dict:
             return {"id": user_id}
 
         async def run() -> None:
-            cache._backend._loop = asyncio.get_running_loop()
+            backend._loop = asyncio.get_running_loop()
             await asyncio.to_thread(fetch, 5)
 
         asyncio.run(run())
 
-        assert "user:5" in cache._backend._tag_keys
+        assert "user:5" in backend._tag_keys

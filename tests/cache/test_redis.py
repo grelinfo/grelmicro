@@ -1,7 +1,7 @@
 """Tests for RedisCacheAdapter."""
 
 from collections.abc import AsyncIterator
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -128,10 +128,10 @@ class TestRedisCacheAdapterAsyncMethods:
 
         await backend.delete(key="key")
 
-        client.eval.assert_awaited_once()
-        args = client.eval.await_args.args
-        # numkeys, value key, reverse-tag set.
-        assert args[1:] == (2, "p:key", "p:cache:rtag:key")
+        # script, numkeys, value key, reverse-tag set.
+        client.eval.assert_awaited_once_with(
+            ANY, 2, "p:key", "p:cache:rtag:key"
+        )
 
     async def test_delete_missing_key_is_no_op(self) -> None:
         """`delete` on a missing key does not raise."""
@@ -140,9 +140,9 @@ class TestRedisCacheAdapterAsyncMethods:
 
         await backend.delete(key="nonexistent")
 
-        client.eval.assert_awaited_once()
-        args = client.eval.await_args.args
-        assert args[1:] == (2, "nonexistent", "cache:rtag:nonexistent")
+        client.eval.assert_awaited_once_with(
+            ANY, 2, "nonexistent", "cache:rtag:nonexistent"
+        )
 
     async def test_clear(self) -> None:
         """`clear` deletes every key matching the configured prefix."""
