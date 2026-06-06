@@ -70,7 +70,7 @@ If you build microservices on FastAPI today, grelmicro is the missing batteries.
 | Backends | Memory, Redis, Memcached | Memory, Redis, Memcached, DynamoDB | Memory, Redis, Postgres |
 | Decorator | `@cached` | `@cache` | `@cached` |
 | Type-safe `Cache[T]` | no | no | yes (`TTLCache[T]` plus `PydanticSerializer(T)`) |
-| Stampede protection | local lock via `lock_value` | none | `lock=True` (folds across replicas when a `Sync` backend is set), `lock="local"` (in-process only), `early=` (XFetch refresh) |
+| Stampede protection | local lock via `lock_value` | none | `lock=True` (folds across replicas when a `Coordination` backend is set), `lock="local"` (in-process only), `early=` (XFetch refresh) |
 | Serializers | several built-in | json, binary | `JsonSerializer`, `PydanticSerializer`, `PickleSerializer` |
 | FastAPI integration | manual | first-class | works with any async framework, no FastAPI coupling |
 

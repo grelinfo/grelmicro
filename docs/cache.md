@@ -170,7 +170,7 @@ A cache stampede (or "dog-pile") happens when many callers miss the same key at 
 | Setting | What it does | Cost | Use when |
 |---|---|---|---|
 | `lock=False` (default) | no protection | none | misses are cheap or rare |
-| `lock=True` | fold concurrent misses, across replicas when a `Sync` backend is configured | one backend acquire per cold miss | the common case |
+| `lock=True` | fold concurrent misses, across replicas when a `Coordination` backend is configured | one backend acquire per cold miss | the common case |
 | `lock="local"` | fold misses in-process only, never touches a backend | free, no I/O | per-replica recompute is fine |
 | `early=0.1` | probabilistic early refresh (XFetch) in the last 10% of the TTL | one background recompute per refresh | the hottest keys, where no caller should ever block |
 
@@ -182,7 +182,7 @@ async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 
 
-@cached(cache, lock=True)       # fold misses, across replicas if a Sync backend is set
+@cached(cache, lock=True)       # fold misses, across replicas if a lock backend is set
 async def get_billing(user_id: int) -> dict:
     return await billing.fetch(user_id)
 
@@ -194,7 +194,7 @@ async def get_homepage_feed() -> dict:
 
 `lock` is **per-key**: concurrent misses on different keys run in parallel. Only callers that request the same key wait in turn, so one slow computation does not block unrelated keys.
 
-`lock=True` folds misses across replicas when the active `Grelmicro` app has a `Sync` backend, and folds them in-process when it does not. Use `lock="local"` to force the in-process path even when a `Sync` backend is configured.
+`lock=True` folds misses across replicas when the active `Grelmicro` app has a `Coordination` backend, and folds them in-process when it does not. Use `lock="local"` to force the in-process path even when a `Coordination` backend is configured.
 
 `early=` returns the cached value immediately and recomputes in the background, so a hot key refreshes before it expires and no caller ever waits on a cold miss. It costs one extra recompute per refresh and stores a small sidecar entry next to the value so replicas coordinate the refresh window.
 

@@ -7,13 +7,14 @@ import typer
 from fast_depends import Depends
 from fastapi import FastAPI
 
-from grelmicro.coordination import LeaderElection
-from grelmicro.coordination.memory import MemoryLeaderElectionBackend
-from grelmicro.sync import Lock
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination import LeaderElection, Lock
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionBackend,
+    MemoryLockAdapter,
+)
 from grelmicro.task import Tasks
 
-backend = MemorySyncAdapter()
+backend = MemoryLockAdapter()
 coordination_backend = MemoryLeaderElectionBackend()
 task = Tasks()
 

@@ -165,7 +165,7 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
     ) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config."""
         conn = self._provider.client
-        lock = self._provider.lock
+        lock = self._provider.connection_lock
         match config:
             case TokenBucketConfig():
                 return _SQLiteTokenBucket(

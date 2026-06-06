@@ -7,8 +7,8 @@ The [roadmap](https://github.com/grelinfo/grelmicro/issues/124) carries the live
 ## Vocabulary
 
 - **Pattern**: user-facing class. `Lock`, `LeaderElection`, `TaskLock`, `TTLCache`, `RateLimiter`, `CircuitBreaker`, `Retry`, `Bulkhead`, `Fallback`, `Timeout`.
-- **Adapter**: concrete implementation of a Backend Protocol. `RedisSyncAdapter`, `PostgresSyncAdapter`, `MemoryCacheAdapter`, `SQLiteSyncAdapter`, `KubernetesSyncAdapter`, and so on.
-- **Backend**: the Protocol class an Adapter satisfies. `SyncBackend`, `CacheBackend`, `RateLimiterBackend`, `CircuitBreakerBackend`.
+- **Adapter**: concrete implementation of a Backend Protocol. `RedisLockAdapter`, `PostgresLockAdapter`, `MemoryCacheAdapter`, `SQLiteLockAdapter`, `KubernetesLockAdapter`, and so on.
+- **Backend**: the Protocol class an Adapter satisfies. `LockBackend`, `LeaderElectionBackend`, `CacheBackend`, `RateLimiterBackend`, `CircuitBreakerBackend`.
 - **Provider**: vendor configuration plus native client, shared by Adapters that talk to the same service. `RedisProvider`, `PostgresProvider`, `SQLiteProvider`. Memory and Kubernetes Adapters do not use a Provider.
 
 See [Backends and Adapters](architecture/backends.md) for the full model.

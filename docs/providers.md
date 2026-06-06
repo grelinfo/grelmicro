@@ -2,7 +2,7 @@
 
 A **Provider** is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
-of both. Components like `Sync`, `Cache`, and `RateLimiters` accept a
+of both. Components like `Coordination`, `Cache`, and `RateLimiters` accept a
 Provider directly and use its matching adapter under the hood.
 
 Three providers ship today: `RedisProvider`, `PostgresProvider`, and
@@ -15,15 +15,15 @@ Pass a Provider to every Component that needs the same connection:
 ```python
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
+from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import RateLimiters
-from grelmicro.sync import Sync
 
 redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(uses=[
     redis,
-    Sync(redis),
+    Coordination(redis),
     Cache(redis),
     RateLimiters(redis),
 ])
@@ -32,9 +32,9 @@ async with micro:
     ...
 ```
 
-Components dispatch to the Provider's factory methods (`provider.sync()`,
+Components dispatch to the Provider's factory methods (`provider.lock()`,
 `provider.cache()`, `provider.ratelimiter()`). The Adapter classes
-(`RedisSyncAdapter`, `RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay
+(`RedisLockAdapter`, `RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay
 public as escape hatches but rarely appear in user code.
 
 ## Recipe 1: env-driven
@@ -45,14 +45,14 @@ the environment:
 ```python
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
+from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync import Sync
 
 redis = RedisProvider()  # reads REDIS_URL or REDIS_HOST + REDIS_PORT + ...
 
 micro = Grelmicro(uses=[
     redis,
-    Sync(redis),
+    Coordination(redis),
     Cache(redis),
 ])
 ```
@@ -72,7 +72,7 @@ session_redis = RedisProvider(env_prefix="SESSION_REDIS_")
 micro = Grelmicro(uses=[
     cache_redis,
     session_redis,
-    Sync(session_redis),
+    Coordination(session_redis),
     Cache(cache_redis),
 ])
 ```
@@ -129,30 +129,31 @@ Each Provider exposes factory methods that return its matching adapter:
 
 | Method                      | Returns                       | RedisProvider | PostgresProvider | SQLiteProvider |
 |----------------------------|-------------------------------|:-------------:|:----------------:|:--------------:|
-| `.sync(**kwargs)`           | `SyncBackend` implementation  |       ✓        |        ✓         |       ✓        |
+| `.lock(**kwargs)`           | `LockBackend` implementation  |       ✓        |        ✓         |       ✓        |
+| `.leader_election(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |        ✓         |      N/A       |
 | `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        ✓         |      N/A       |
 | `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        ✓         |       ✓        |
 | `.breaker(**kwargs)`        | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |      N/A       |
 
 Factories that do not apply raise `NotImplementedError` with a message
-pointing to the right alternative. `Sync(provider)`, `Cache(provider)`,
+pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
 `RateLimiters(provider)`, and `CircuitBreakers(provider)` call these factories.
 
 ## Postgres
 
-`PostgresProvider` ships the `.sync()` factory. The provider wraps an
-`asyncpg.Pool` and opens it lazily on `__aenter__`.
+`PostgresProvider` ships the `.lock()` and `.leader_election()` factories. The
+provider wraps an `asyncpg.Pool` and opens it lazily on `__aenter__`.
 
 ```python
 from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination
 from grelmicro.providers.postgres import PostgresProvider
-from grelmicro.sync import Sync
 
 postgres = PostgresProvider("postgresql://localhost/app")
 
 micro = Grelmicro(uses=[
     postgres,
-    Sync(postgres),
+    Coordination(postgres),
 ])
 ```
 
@@ -168,8 +169,8 @@ read = PostgresProvider(env_prefix="READ_POSTGRES_")
 micro = Grelmicro(uses=[
     write,
     read,
-    Sync(write),
-    Sync(read, name="read"),
+    Coordination(write),
+    Coordination(read, name="read"),
 ])
 ```
 
@@ -188,7 +189,7 @@ PostgresProvider.from_client(pool)              # bring-your-own pool
 
 ## SQLite
 
-`SQLiteProvider` ships the `.sync()` and `.ratelimiter()` factories. The
+`SQLiteProvider` ships the `.lock()` and `.ratelimiter()` factories. The
 provider owns one `aiosqlite` connection (autocommit, WAL) and a shared
 lock that adapters borrow.
 
@@ -232,7 +233,7 @@ the correct fix is to list the Provider first.
 
 ## Memory backends
 
-In-memory backends (`MemorySyncAdapter`, `MemoryCacheAdapter`,
+In-memory backends (`MemoryLockAdapter`, `MemoryCacheAdapter`,
 `MemoryRateLimiterAdapter`, `MemoryCircuitBreakerAdapter`) have no
 provider. Pass the adapter directly to its Component:
 

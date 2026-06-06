@@ -109,6 +109,36 @@ async def test_out_of_context_errors() -> None:
         await backend.get(name="election")
 
 
+# --- __aenter__ / __aexit__ ---
+
+
+@pytest.mark.timeout(1)
+async def test_aenter_sets_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`__aenter__` creates an AsyncClient."""
+    backend = KubernetesLeaderElectionBackend(namespace="default")
+    monkeypatch.setattr(
+        "grelmicro.coordination.kubernetes.AsyncClient",
+        lambda **_kwargs: AsyncMock(),
+    )
+
+    assert backend._client is None
+    await backend.__aenter__()
+    assert backend._client is not None
+
+
+@pytest.mark.timeout(1)
+async def test_aexit_closes_client() -> None:
+    """`__aexit__` closes and clears the client."""
+    backend = KubernetesLeaderElectionBackend(namespace="default")
+    mock_client = AsyncMock()
+    backend._client = mock_client
+
+    await backend.__aexit__(None, None, None)
+
+    mock_client.close.assert_awaited_once()
+    assert backend._client is None
+
+
 # --- Protocol ---
 
 

@@ -17,7 +17,7 @@ from typing_extensions import Doc
 from grelmicro._app import Grelmicro
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
-from grelmicro.sync.lock import Lock
+from grelmicro.coordination.lock import Lock
 
 # Decorator factories cannot use PEP 695 cleanly: the inner
 # ``decorator`` would inherit ``cached``'s type parameters instead
@@ -124,12 +124,12 @@ def cached(
             - ``False`` (default): no protection. Every concurrent miss
               runs the function.
             - ``True``: fold concurrent misses to one execution. When the
-              active `Grelmicro` app has a `Sync` backend, misses fold
+              active `Grelmicro` app has a lock backend, misses fold
               across replicas through it. Otherwise an in-process lock
               folds them within the worker. An in-process lock is always
               applied first, so the backend is hit once per cold miss.
             - ``"local"``: force the in-process lock only, even when a
-              `Sync` backend is configured. Use when per-replica recompute
+              lock backend is configured. Use when per-replica recompute
               is acceptable and you want no backend round-trip on a cold
               miss.
             """,
@@ -214,17 +214,17 @@ def cached(
 # --- Stampede helpers ---
 
 
-def _has_sync_backend() -> bool:
-    """Return whether the active app exposes a default `Sync` backend.
+def _has_lock_backend() -> bool:
+    """Return whether the active app exposes a default lock backend.
 
     Drives ``lock=True`` auto-selection: a cold miss folds across replicas
     when a backend is present and folds in-process otherwise.
     """
     try:
-        Grelmicro.current().get("sync")
+        coordination = Grelmicro.current().get("coordination")
     except LookupError:
         return False
-    return True
+    return coordination._lock_backend is not None  # noqa: SLF001
 
 
 def _stampede_lock_name(key: str) -> str:
@@ -339,7 +339,7 @@ def _build_async_wrapper(
             result = await cache._peek(key, _SENTINEL)  # noqa: SLF001
             if result is not _SENTINEL:
                 return result
-            if auto_distributed and _has_sync_backend():
+            if auto_distributed and _has_lock_backend():
                 return await _compute_distributed(
                     func, args, kwargs, cache, key, skip, early=early
                 )
@@ -360,7 +360,7 @@ async def _compute_distributed(
     *,
     early: float | None,
 ) -> Any:  # noqa: ANN401
-    """Compute under a cross-replica `Sync` lock, re-checking inside it."""
+    """Compute under a cross-replica lock, re-checking inside it."""
     async with Lock(_stampede_lock_name(key)):
         result = await cache._peek(key, _SENTINEL)  # noqa: SLF001
         if result is not _SENTINEL:
@@ -488,7 +488,7 @@ def _build_sync_wrapper(
             result = _run(cache._peek(key, _SENTINEL), loop)  # noqa: SLF001
             if result is not _SENTINEL:
                 return result
-            if auto_distributed and _has_sync_backend():
+            if auto_distributed and _has_lock_backend():
                 return _run(
                     _distributed_orchestrate(
                         func, args, kwargs, cache, key, skip, loop, early=early

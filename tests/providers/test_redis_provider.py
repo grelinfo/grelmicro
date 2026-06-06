@@ -6,6 +6,7 @@ import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.cache.redis import RedisCacheAdapter
+from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.providers.redis import (
     RedisConfig,
     RedisProvider,
@@ -15,7 +16,6 @@ from grelmicro.resilience.circuitbreaker.redis import (
     RedisCircuitBreakerAdapter,
 )
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
-from grelmicro.sync.redis import RedisSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -237,15 +237,15 @@ class TestSafeUrl:
 
 
 class TestBuilders:
-    """Pure-sugar `.sync()` / `.cache()` builders."""
+    """Pure-sugar `.lock()` / `.cache()` builders."""
 
-    def test_sync_builder_binds_provider(self) -> None:
-        """`provider.sync()` returns an adapter borrowing the provider."""
+    def test_lock_builder_binds_provider(self) -> None:
+        """`provider.lock()` returns an adapter borrowing the provider."""
         provider = RedisProvider(URL)
 
-        adapter = provider.sync()
+        adapter = provider.lock()
 
-        assert isinstance(adapter, RedisSyncAdapter)
+        assert isinstance(adapter, RedisLockAdapter)
         assert adapter.provider is provider
         assert adapter._owns_provider is False
 
@@ -284,9 +284,9 @@ class TestRebindProvider:
     """`_rebind_provider` swaps the bound provider on every Redis adapter."""
 
     def test_sync_adapter_rebind(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """RedisSyncAdapter rebinds to a new provider and re-registers scripts."""
+        """RedisLockAdapter rebinds to a new provider and re-registers scripts."""
         monkeypatch.setenv("REDIS_URL", URL)
-        adapter = RedisSyncAdapter()
+        adapter = RedisLockAdapter()
         assert adapter._owns_provider is True
         owned = RedisProvider(URL)
 
@@ -381,17 +381,21 @@ class TestSharingCache:
         """Two adapters with the same default env_prefix share one provider."""
         monkeypatch.setenv("REDIS_URL", URL)
 
-        sync_adapter = RedisSyncAdapter()
+        sync_adapter = RedisLockAdapter()
         cache_adapter = RedisCacheAdapter()
         assert sync_adapter.provider is not cache_adapter.provider
 
         from grelmicro.cache._component import Cache  # noqa: PLC0415
-        from grelmicro.sync._component import Sync  # noqa: PLC0415
+        from grelmicro.coordination._component import (  # noqa: PLC0415
+            Coordination,
+        )
 
         for ad in (sync_adapter, cache_adapter):
             ad.provider._client = MagicMock(aclose=AsyncMock())
 
-        micro = Grelmicro(uses=[Sync(sync_adapter), Cache(cache_adapter)])
+        micro = Grelmicro(
+            uses=[Coordination(lock=sync_adapter), Cache(cache_adapter)]
+        )
         async with micro:
             assert sync_adapter.provider is cache_adapter.provider
             assert sync_adapter._owns_provider is True
@@ -405,13 +409,17 @@ class TestSharingCache:
         monkeypatch.setenv("SESSION_REDIS_URL", URL)
 
         cache_adapter = RedisCacheAdapter(env_prefix="CACHE_REDIS_")
-        sync_adapter = RedisSyncAdapter(env_prefix="SESSION_REDIS_")
+        sync_adapter = RedisLockAdapter(env_prefix="SESSION_REDIS_")
         for ad in (cache_adapter, sync_adapter):
             ad.provider._client = MagicMock(aclose=AsyncMock())
 
         from grelmicro.cache._component import Cache  # noqa: PLC0415
-        from grelmicro.sync._component import Sync  # noqa: PLC0415
+        from grelmicro.coordination._component import (  # noqa: PLC0415
+            Coordination,
+        )
 
-        micro = Grelmicro(uses=[Cache(cache_adapter), Sync(sync_adapter)])
+        micro = Grelmicro(
+            uses=[Cache(cache_adapter), Coordination(lock=sync_adapter)]
+        )
         async with micro:
             assert cache_adapter.provider is not sync_adapter.provider
