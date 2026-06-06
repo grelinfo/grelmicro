@@ -251,6 +251,22 @@ class Metrics:
             name, unit=unit, description=description
         )
 
+    def gauge(
+        self,
+        name: Annotated[str, Doc("Instrument name, e.g. `pool.size`.")],
+        *,
+        unit: Annotated[str, Doc("Unit of measure, e.g. `1`.")] = "",
+        description: Annotated[str, Doc("Human-readable description.")] = "",
+    ) -> Any:  # noqa: ANN401
+        """Create (or reuse) a synchronous `Gauge` recording last-set values.
+
+        Raises:
+            RuntimeError: If accessed before the component has been entered.
+        """
+        return self.meter("grelmicro.metrics").create_gauge(
+            name, unit=unit, description=description
+        )
+
     async def __aenter__(self) -> Self:
         """Build the `MeterProvider` and install it as the global provider."""
         try:

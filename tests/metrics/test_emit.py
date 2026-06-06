@@ -39,13 +39,26 @@ def test_incr_default_and_custom(metrics_reader: MetricsHarness) -> None:
     assert attrs == {"outcome": "success"}
 
 
-def test_observe_and_add_up_down(metrics_reader: MetricsHarness) -> None:
-    """`observe` and `add_up_down` both feed an up_down_counter."""
+def test_add_up_down_accumulates(metrics_reader: MetricsHarness) -> None:
+    """`add_up_down` nets signed amounts on an up_down_counter."""
     _emit.add_up_down("svc.active", 1)
     _emit.add_up_down("svc.active", 1)
     _emit.add_up_down("svc.active", -1)
     points = metrics_reader.points("svc.active")
     assert points[0][0] == 1
+
+
+def test_observe_sets_last_value(metrics_reader: MetricsHarness) -> None:
+    """`observe` records the last value on a gauge, not a running sum."""
+    _emit.observe("svc.state", 1)
+    _emit.observe("svc.state", 3)
+    points = metrics_reader.points("svc.state")
+    assert points[0][0] == 3  # noqa: PLR2004
+
+
+def test_observe_noop_when_off() -> None:
+    """`observe` returns silently when no component is active."""
+    _emit.observe("svc.state", 1)
 
 
 def test_no_attrs_passes_none(metrics_reader: MetricsHarness) -> None:

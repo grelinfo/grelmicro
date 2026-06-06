@@ -47,13 +47,21 @@ def incr(name: str, amount: int = 1, /, **attrs: Any) -> None:  # noqa: ANN401
     counter.add(amount, attributes=attrs or None)
 
 
-def observe(name: str, amount: int, /, **attrs: Any) -> None:  # noqa: ANN401
-    """Set a gauge-like value on the `<name>` up_down_counter.
+def observe(name: str, amount: float, /, **attrs: Any) -> None:  # noqa: ANN401
+    """Set the last-known value on the `<name>` gauge.
 
-    Used for snapshot values (a state code, an up/down flag). No-op when
-    no `Metrics` component is active.
+    Used for snapshot values (a state code, an up/down flag, a pool size).
+    Unlike `add_up_down`, the gauge records the value as-is rather than
+    accumulating. No-op when no `Metrics` component is active.
     """
-    add_up_down(name, amount, **attrs)
+    component = _hub.active()
+    if component is None:
+        return
+    gauge = _hub.get_instrument(
+        name,
+        lambda: component.gauge(name, unit="1"),
+    )
+    gauge.set(amount, attributes=attrs or None)
 
 
 def add_up_down(name: str, amount: int, /, **attrs: Any) -> None:  # noqa: ANN401
