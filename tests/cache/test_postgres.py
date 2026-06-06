@@ -31,7 +31,7 @@ def _mock_conn() -> MagicMock:
         async def __aexit__(self, *exc: object) -> None:
             return None
 
-    conn.transaction = lambda: _Txn()
+    conn.transaction = _Txn
     return conn
 
 

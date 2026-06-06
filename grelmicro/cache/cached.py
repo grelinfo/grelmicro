@@ -61,6 +61,7 @@ class _TagSpec(NamedTuple):
         bound.apply_defaults()
         return [t.format_map(bound.arguments) for t in self.templates]
 
+
 # Seams rebound by tests for deterministic ``early`` behavior. ``_random``
 # rolls the XFetch die; ``_now`` is the wall clock that ages entries.
 _random = random.random
@@ -206,9 +207,7 @@ def cached(
         is_async_func = asyncio.iscoroutinefunction(func)
         per_key = lock is not False
         auto_distributed = lock is True
-        tag_spec = _TagSpec(
-            tags, inspect.signature(func) if tags else None
-        )
+        tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)
 
         if is_async_func:
             wrapper = _build_async_wrapper(
@@ -320,15 +319,28 @@ def _build_async_wrapper(
         if result is not _SENTINEL:
             if early is not None:
                 await _maybe_refresh_async(
-                    func, args, kwargs, cache, key, skip, early, guard,
+                    func,
+                    args,
+                    kwargs,
+                    cache,
+                    key,
+                    skip,
+                    early,
+                    guard,
                     tag_spec,
                 )
             return result
 
         async def compute() -> Any:  # noqa: ANN401
             return await _compute_and_cache(
-                func, args, kwargs, cache, key, skip,
-                early=early, tag_spec=tag_spec,
+                func,
+                args,
+                kwargs,
+                cache,
+                key,
+                skip,
+                early=early,
+                tag_spec=tag_spec,
             )
 
         return await compute_with_stampede(
@@ -368,8 +380,14 @@ async def _maybe_refresh_async(
             return
         async with the_lock:
             await _compute_and_cache(
-                func, args, kwargs, cache, key, skip,
-                early=early, tag_spec=tag_spec,
+                func,
+                args,
+                kwargs,
+                cache,
+                key,
+                skip,
+                early=early,
+                tag_spec=tag_spec,
             )
 
     task = asyncio.create_task(refresh())
@@ -458,8 +476,15 @@ def _build_sync_wrapper(
 
         if not per_key:
             return _compute_and_cache_sync(
-                func, args, kwargs, cache, key, skip, loop,
-                early=early, tag_spec=tag_spec,
+                func,
+                args,
+                kwargs,
+                cache,
+                key,
+                skip,
+                loop,
+                early=early,
+                tag_spec=tag_spec,
             )
 
         the_lock = get_key_lock(key)
@@ -470,14 +495,28 @@ def _build_sync_wrapper(
             if auto_distributed and _has_lock_backend():
                 return _run(
                     _distributed_orchestrate(
-                        func, args, kwargs, cache, key, skip, loop,
-                        early=early, tag_spec=tag_spec,
+                        func,
+                        args,
+                        kwargs,
+                        cache,
+                        key,
+                        skip,
+                        loop,
+                        early=early,
+                        tag_spec=tag_spec,
                     ),
                     loop,
                 )
             return _compute_and_cache_sync(
-                func, args, kwargs, cache, key, skip, loop,
-                early=early, tag_spec=tag_spec,
+                func,
+                args,
+                kwargs,
+                cache,
+                key,
+                skip,
+                loop,
+                early=early,
+                tag_spec=tag_spec,
             )
 
     return sync_wrapper
@@ -543,8 +582,15 @@ def _maybe_refresh_sync(
     def refresh() -> None:
         try:
             _compute_and_cache_sync(
-                func, args, kwargs, cache, key, skip, loop,
-                early=early, tag_spec=tag_spec,
+                func,
+                args,
+                kwargs,
+                cache,
+                key,
+                skip,
+                loop,
+                early=early,
+                tag_spec=tag_spec,
             )
         finally:
             the_lock.release()

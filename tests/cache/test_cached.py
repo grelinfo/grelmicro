@@ -1366,3 +1366,102 @@ class TestEarlyRefresh:
         gate.set()
         await asyncio.sleep(0.05)
         assert call_count == EXPECTED_CALL_COUNT_2  # only one refresh ran
+
+
+class TestCachedTags:
+    """Tests for @cached tag templating."""
+
+    async def test_literal_tags_async(self) -> None:
+        """Test that literal tags are stored unchanged for an async func."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["users"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(1)
+
+        assert cache._backend._tag_keys["users"]
+
+    async def test_templated_tag_from_positional_arg(self) -> None:
+        """Test that a templated tag renders from a positional argument."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(42)
+
+        assert "user:42" in cache._backend._tag_keys
+
+    async def test_templated_tag_from_keyword_arg(self) -> None:
+        """Test that a templated tag renders from a keyword argument."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(user_id=7)
+
+        assert "user:7" in cache._backend._tag_keys
+
+    async def test_mixed_literal_and_templated_tags(self) -> None:
+        """Test that literal and templated tags are both applied."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["users", "user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(3)
+
+        assert "users" in cache._backend._tag_keys
+        assert "user:3" in cache._backend._tag_keys
+
+    async def test_tag_renders_from_default_argument(self) -> None:
+        """Test that a templated tag uses a default when the arg is omitted."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["page:{page}"])
+        async def fetch(page: int = 1) -> dict:
+            return {"page": page}
+
+        await fetch()
+
+        assert "page:1" in cache._backend._tag_keys
+
+    async def test_delete_tags_invalidates_cached_async(self) -> None:
+        """Test that delete_tags drops a cached entry by tag."""
+        cache = _make_cache()
+        calls = 0
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            nonlocal calls
+            calls += 1
+            return {"id": user_id, "calls": calls}
+
+        first = await fetch(1)
+        await cache.delete_tags("user:1")
+        second = await fetch(1)
+
+        assert first["calls"] == 1
+        assert second["calls"] == 2  # noqa: PLR2004
+
+    def test_literal_tags_sync(self) -> None:
+        """Test that tags are applied for a sync cached function."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["user:{user_id}"])
+        def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        async def run() -> None:
+            cache._backend._loop = asyncio.get_running_loop()
+            await asyncio.to_thread(fetch, 5)
+
+        asyncio.run(run())
+
+        assert "user:5" in cache._backend._tag_keys

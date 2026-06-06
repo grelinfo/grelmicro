@@ -150,7 +150,7 @@ class MemoryCacheAdapter:
         """Drop a key from each given tag's forward set, pruning empties."""
         for tag in tags:
             members = self._tag_keys.get(tag)
-            if members is None:
+            if members is None:  # pragma: no cover - forward/reverse in sync
                 continue
             members.discard(key)
             if not members:

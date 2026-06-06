@@ -25,14 +25,16 @@ _TAG_SCAN_BATCH_SIZE = 500
 # ARGV[3..]    tag set keys to add the value key to
 _SET_WITH_TAGS_SCRIPT = """
 redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
-if #ARGV >= 3 then
-    redis.call('DEL', KEYS[2])
-    for i = 3, #ARGV do
-        redis.call('SADD', ARGV[i], KEYS[1])
-        redis.call('SADD', KEYS[2], ARGV[i])
-    end
-    redis.call('PEXPIRE', KEYS[2], ARGV[2])
+local old = redis.call('SMEMBERS', KEYS[2])
+for i = 1, #old do
+    redis.call('SREM', old[i], KEYS[1])
 end
+redis.call('DEL', KEYS[2])
+for i = 3, #ARGV do
+    redis.call('SADD', ARGV[i], KEYS[1])
+    redis.call('SADD', KEYS[2], ARGV[i])
+end
+redis.call('PEXPIRE', KEYS[2], ARGV[2])
 return 1
 """
 

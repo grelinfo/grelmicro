@@ -147,6 +147,121 @@ async def test_overwrite(backend: CacheBackend) -> None:
     assert result == b"new"
 
 
+# --- Batch operations (run against all backends) ---
+
+
+async def test_get_many_returns_found_only(backend: CacheBackend) -> None:
+    """Test that get_many returns only the keys that exist."""
+    await backend.set(key="gm_a", value=b"a", ttl=60)
+    await backend.set(key="gm_b", value=b"b", ttl=60)
+
+    result = await backend.get_many(keys=["gm_a", "gm_b", "gm_missing"])
+
+    assert result == {"gm_a": b"a", "gm_b": b"b"}
+
+
+async def test_get_many_empty_keys(backend: CacheBackend) -> None:
+    """Test that get_many with no keys returns an empty dict."""
+    assert await backend.get_many(keys=[]) == {}
+
+
+async def test_set_many_stores_all(backend: CacheBackend) -> None:
+    """Test that set_many writes every key."""
+    await backend.set_many(items={"sm_a": b"a", "sm_b": b"b"}, ttl=60)
+
+    assert await backend.get(key="sm_a") == b"a"
+    assert await backend.get(key="sm_b") == b"b"
+
+
+async def test_set_many_empty_is_no_op(backend: CacheBackend) -> None:
+    """Test that set_many with no items does not raise."""
+    await backend.set_many(items={}, ttl=60)
+
+
+async def test_delete_many_removes_all(backend: CacheBackend) -> None:
+    """Test that delete_many removes every listed key."""
+    await backend.set(key="dm_a", value=b"a", ttl=60)
+    await backend.set(key="dm_b", value=b"b", ttl=60)
+
+    await backend.delete_many(keys=["dm_a", "dm_b", "dm_missing"])
+
+    assert await backend.get(key="dm_a") is None
+    assert await backend.get(key="dm_b") is None
+
+
+async def test_delete_many_empty_is_no_op(backend: CacheBackend) -> None:
+    """Test that delete_many with no keys does not raise."""
+    await backend.delete_many(keys=[])
+
+
+# --- Tags (run against all backends) ---
+
+
+async def test_set_with_tags_then_delete_tags(backend: CacheBackend) -> None:
+    """Test that delete_tags invalidates every key sharing a tag."""
+    await backend.set(key="tg_a", value=b"a", ttl=60, tags=["group"])
+    await backend.set(key="tg_b", value=b"b", ttl=60, tags=["group"])
+    await backend.set(key="tg_c", value=b"c", ttl=60, tags=["other"])
+
+    await backend.delete_tags(tags=["group"])
+
+    assert await backend.get(key="tg_a") is None
+    assert await backend.get(key="tg_b") is None
+    assert await backend.get(key="tg_c") == b"c"
+
+
+async def test_delete_cleans_tag_membership(backend: CacheBackend) -> None:
+    """Test that deleting a key leaves its tag empty of that key."""
+    await backend.set(key="dc_a", value=b"a", ttl=60, tags=["g"])
+    await backend.set(key="dc_b", value=b"b", ttl=60, tags=["g"])
+
+    await backend.delete(key="dc_a")
+    await backend.delete_tags(tags=["g"])
+
+    assert await backend.get(key="dc_b") is None
+
+
+async def test_set_many_with_tags_then_delete_tags(
+    backend: CacheBackend,
+) -> None:
+    """Test that set_many tags are invalidated by delete_tags."""
+    await backend.set_many(
+        items={"smt_a": b"a", "smt_b": b"b"}, ttl=60, tags=["bulk"]
+    )
+
+    await backend.delete_tags(tags=["bulk"])
+
+    assert await backend.get(key="smt_a") is None
+    assert await backend.get(key="smt_b") is None
+
+
+async def test_overwrite_replaces_tags(backend: CacheBackend) -> None:
+    """Test that re-setting a key with new tags drops the old tag link."""
+    await backend.set(key="rt_k", value=b"v", ttl=60, tags=["old"])
+    await backend.set(key="rt_k", value=b"v2", ttl=60, tags=["new"])
+
+    await backend.delete_tags(tags=["old"])
+
+    assert await backend.get(key="rt_k") == b"v2"
+
+    await backend.delete_tags(tags=["new"])
+
+    assert await backend.get(key="rt_k") is None
+
+
+async def test_clear_sweeps_tags(backend: CacheBackend) -> None:
+    """Test that clear removes tagged entries and their tag bookkeeping."""
+    await backend.set(key="ct_a", value=b"a", ttl=60, tags=["g"])
+
+    await backend.clear()
+
+    assert await backend.get(key="ct_a") is None
+    # A fresh entry under the same tag is not haunted by stale members.
+    await backend.set(key="ct_b", value=b"b", ttl=60, tags=["g"])
+    await backend.delete_tags(tags=["g"])
+    assert await backend.get(key="ct_b") is None
+
+
 # --- Redis-specific tests ---
 
 
