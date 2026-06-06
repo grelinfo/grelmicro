@@ -357,13 +357,13 @@ class TestAsyncCachedStampede:
     """Test @cached stampede protection on async functions."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
-        """stampede='local' ensures only one coroutine computes on concurrent miss."""
+        """lock='local' ensures only one coroutine computes on concurrent miss."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         async def slow_fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -386,14 +386,14 @@ class TestAsyncCachedStampede:
     async def test_lock_true_per_key_allows_parallel_different_keys(
         self,
     ) -> None:
-        """stampede='local' uses per-key locks: different keys run in parallel."""
+        """lock='local' uses per-key locks: different keys run in parallel."""
         # Arrange
         cache = _make_cache()
         order: list[str] = []
         barrier_a = asyncio.Event()
         barrier_b = asyncio.Event()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         async def fetch(key: str) -> str:
             if key == "a":
                 order.append("a:start")
@@ -496,13 +496,13 @@ class TestAsyncCachedStampede:
             held.release()
 
     async def test_stampede_none_allows_duplicate_computation(self) -> None:
-        """stampede=None runs the function for every concurrent miss."""
+        """lock=False runs the function for every concurrent miss."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
-        @cached(cache, stampede=None)
+        @cached(cache, lock=False)
         async def slow_fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -525,7 +525,7 @@ class TestAsyncCachedStampede:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         async def fetch(x: int) -> int:
             return x
 
@@ -540,12 +540,12 @@ class TestAsyncCachedStampede:
         assert cache.cache_info().hits == EXPECTED_HITS_1
 
     async def test_lock_false_disables_protection(self) -> None:
-        """stampede=None disables protection but still caches."""
+        """lock=False disables protection but still caches."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, stampede=None)
+        @cached(cache, lock=False)
         async def fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -800,12 +800,12 @@ class TestSyncCachedStampede:
     """Test @cached stampede protection on sync functions."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
-        """stampede='local' with threading.Lock prevents redundant computation."""
+        """lock='local' with threading.Lock prevents redundant computation."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -823,7 +823,7 @@ class TestSyncCachedStampede:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         def compute(x: int) -> int:
             return x * 2
 
@@ -834,14 +834,14 @@ class TestSyncCachedStampede:
         await asyncio.to_thread(lambda: compute(7))
 
     async def test_local_prevents_stampede_under_concurrency(self) -> None:
-        """stampede='local' folds concurrent same-key sync misses to one run."""
+        """lock='local' folds concurrent same-key sync misses to one run."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         # started is set the first time slow_compute begins executing
         started = threading.Event()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         def slow_compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -869,12 +869,12 @@ class TestSyncCachedStampede:
         assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
 
     async def test_lock_true_per_key_sync(self) -> None:
-        """stampede='local' uses per-key threading.Lock: same key serialized, different keys not."""
+        """lock='local' uses per-key threading.Lock: same key serialized, different keys not."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -891,12 +891,12 @@ class TestSyncCachedStampede:
         assert call_count == EXPECTED_CALL_COUNT_2  # 5 once, 6 once
 
     async def test_lock_false_still_caches(self) -> None:
-        """stampede=None disables protection but still caches."""
+        """lock=False disables protection but still caches."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, stampede=None)
+        @cached(cache, lock=False)
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -927,7 +927,7 @@ def _shared_cache(loop: asyncio.AbstractEventLoop) -> TTLCache:
 
 
 class TestDistributedStampede:
-    """Test @cached(stampede="distributed") across simulated replicas."""
+    """Test @cached(lock=True) across simulated replicas."""
 
     async def test_two_replicas_fold_to_one_execution(self) -> None:
         """Concurrent distributed misses on the same key run once."""
@@ -947,8 +947,8 @@ class TestDistributedStampede:
             return impl
 
         impl = impl_factory()
-        replica_a = cached(cache, stampede="distributed")(impl)
-        replica_b = cached(cache, stampede="distributed")(impl)
+        replica_a = cached(cache, lock=True)(impl)
+        replica_b = cached(cache, lock=True)(impl)
 
         async with micro:
             task_a = asyncio.create_task(replica_a(5))
@@ -975,8 +975,8 @@ class TestDistributedStampede:
             time.sleep(0.03)
             return x * 2
 
-        replica_a = cached(cache, stampede="distributed")(impl)
-        replica_b = cached(cache, stampede="distributed")(impl)
+        replica_a = cached(cache, lock=True)(impl)
+        replica_b = cached(cache, lock=True)(impl)
 
         async with micro:
             results: list[int] = []
@@ -991,6 +991,59 @@ class TestDistributedStampede:
 
         assert call_count == EXPECTED_CALL_COUNT_1
         assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
+
+
+class TestLockTrueAutoSelect:
+    """Test lock=True auto-selects distributed vs in-process by backend."""
+
+    async def test_lock_true_without_backend_folds_in_process(self) -> None:
+        """lock=True with no Sync backend folds concurrent misses locally."""
+        cache = _make_cache()
+        call_count = 0
+        barrier = asyncio.Event()
+
+        @cached(cache, lock=True)
+        async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            await barrier.wait()
+            return x * 2
+
+        task_a = asyncio.create_task(fetch(5))
+        task_b = asyncio.create_task(fetch(5))
+        await asyncio.sleep(0.02)
+        barrier.set()
+
+        assert await task_a == EXPECTED_DOUBLE_5
+        assert await task_b == EXPECTED_DOUBLE_5
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_lock_true_sync_without_backend_folds_in_process(
+        self,
+    ) -> None:
+        """lock=True sync with no Sync backend folds via the threading lock."""
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, lock=True)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.03)
+            return x * 2
+
+        results: list[int] = []
+
+        async def run() -> None:
+            results.append(await asyncio.to_thread(lambda: compute(5)))
+
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(run())
+            await asyncio.sleep(0.01)
+            tg.create_task(run())
+
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert results == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
 
 
 # ---------------------------------------------------------------------------
@@ -1019,11 +1072,11 @@ class TestEarlyRefresh:
         with pytest.raises(ValueError, match="early"):
             cached(cache, early=-0.1)
 
-    async def test_invalid_stampede_rejected(self) -> None:
-        """An unknown stampede value raises at decoration time."""
+    async def test_invalid_lock_rejected(self) -> None:
+        """An unknown lock value raises at decoration time."""
         cache = _make_cache()
-        with pytest.raises(ValueError, match="stampede"):
-            cached(cache, stampede="global")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        with pytest.raises(ValueError, match="lock"):
+            cached(cache, lock="global")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
     async def test_early_outside_window_does_not_refresh(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1256,7 +1309,7 @@ class TestEarlyRefresh:
         def impl(x: int) -> int:
             return x * 2
 
-        fetch = cached(cache, stampede="distributed", early=0.5)(impl)
+        fetch = cached(cache, lock=True, early=0.5)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
             key = _make_key(impl, (5,), {}, None, typed=False)
@@ -1275,7 +1328,7 @@ class TestEarlyRefresh:
             call_count += 1
             return x * 2
 
-        fetch = cached(cache, stampede="distributed", skip=lambda _: True)(impl)
+        fetch = cached(cache, lock=True, skip=lambda _: True)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
             await asyncio.to_thread(lambda: fetch(5))

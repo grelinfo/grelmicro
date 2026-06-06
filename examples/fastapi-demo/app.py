@@ -98,12 +98,12 @@ app = FastAPI(title="grelmicro demo", lifespan=lifespan)
 app.include_router(health_router(health))  # GET /livez, /readyz, /healthz
 
 
-# --- Cache: @cached over the Cache backend, local stampede protection ---
+# --- Cache: @cached over the Cache backend, with stampede protection ---
 catalog = TTLCache(ttl=30, backend=cache_backend, serializer=JsonSerializer())
 
 
 @app.get("/product/{product_id}")
-@cached(catalog)
+@cached(catalog, lock=True)
 async def get_product(product_id: int) -> dict:
     # Cache Pattern: the second call within the TTL skips this body.
     return {"id": product_id, "name": f"Product {product_id}"}

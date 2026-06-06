@@ -165,35 +165,36 @@ async def get_user(user_id: int) -> dict:
 
 ### Stampede Protection
 
-A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. `@cached` ships a three-layer menu, opt-in by cost:
+A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. Turn on `lock` to fold those misses into one execution, and add `early=` to refresh hot keys before they expire:
 
-| Layer | What it does | Cost | Use when |
+| Setting | What it does | Cost | Use when |
 |---|---|---|---|
-| `stampede="local"` (default) | per-key in-process lock | free, no I/O | always, the cheap correct default |
-| `stampede="distributed"` | cross-replica lock via the `Sync` component | one backend acquire per cold miss | a hot key on many replicas |
+| `lock=False` (default) | no protection | none | misses are cheap or rare |
+| `lock=True` | fold concurrent misses, across replicas when a `Sync` backend is configured | one backend acquire per cold miss | the common case |
+| `lock="local"` | fold misses in-process only, never touches a backend | free, no I/O | per-replica recompute is fine |
 | `early=0.1` | probabilistic early refresh (XFetch) in the last 10% of the TTL | one background recompute per refresh | the hottest keys, where no caller should ever block |
 
-The layers compose. `stampede="distributed"` implies `"local"` (in-process dedup is free), and `early=` works with either.
+`lock=True` always dedups in-process first, so the backend is hit at most once per cold miss. `early=` works alongside either lock mode.
 
 ```python
-@cached(cache)                          # default: stampede="local"
+@cached(cache)                  # default: no stampede protection
 async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 
 
-@cached(cache, stampede="distributed")  # cross-replica via the Sync component
+@cached(cache, lock=True)       # fold misses, across replicas if a Sync backend is set
 async def get_billing(user_id: int) -> dict:
     return await billing.fetch(user_id)
 
 
-@cached(cache, early=0.1)               # refresh hot keys before they expire
+@cached(cache, early=0.1)       # refresh hot keys before they expire
 async def get_homepage_feed() -> dict:
     return await build_feed()
 ```
 
-`stampede="local"` is **per-key**: concurrent misses on different keys run in parallel. Only callers that request the same key wait in turn, so one slow computation does not block unrelated keys.
+`lock` is **per-key**: concurrent misses on different keys run in parallel. Only callers that request the same key wait in turn, so one slow computation does not block unrelated keys.
 
-`stampede="distributed"` resolves the `Sync` component from the active `Grelmicro` app, so it needs an app with a `Sync` backend. Set `stampede=None` to opt out entirely.
+`lock=True` folds misses across replicas when the active `Grelmicro` app has a `Sync` backend, and folds them in-process when it does not. Use `lock="local"` to force the in-process path even when a `Sync` backend is configured.
 
 `early=` returns the cached value immediately and recomputes in the background, so a hot key refreshes before it expires and no caller ever waits on a cold miss. It costs one extra recompute per refresh and stores a small sidecar entry next to the value so replicas coordinate the refresh window.
 
@@ -207,7 +208,7 @@ async def get_homepage_feed() -> dict:
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
-| `stampede` | `"local"`, `"distributed"`, or `None` | `"local"` | Concurrent-miss protection. |
+| `lock` | `True`, `False`, or `"local"` | `False` | Concurrent-miss (stampede) protection. |
 | `early` | `float` in `[0, 1)` | `None` | Probabilistic early refresh in the late TTL window. |
 
 ## Redis Backend Configuration

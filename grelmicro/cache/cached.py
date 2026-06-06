@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal, ParamSpec, TypeVar
 
 from typing_extensions import Doc
 
+from grelmicro._app import Grelmicro
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.sync.lock import Lock
@@ -30,8 +31,6 @@ _SENTINEL = object()
 _PER_KEY_LOCK_BUDGET = 1024
 
 _XFETCH_SUFFIX = "\x00xf"
-
-Stampede = Literal["local", "distributed"]
 
 # Seams rebound by tests for deterministic ``early`` behavior. ``_random``
 # rolls the XFetch die; ``_now`` is the wall clock that ages entries.
@@ -115,26 +114,27 @@ def cached(
             """,
         ),
     ] = False,
-    stampede: Annotated[
-        Stampede | None,
+    lock: Annotated[
+        bool | Literal["local"],
         Doc(
             """
             Protect against duplicate work when many callers miss the
             same key at once (the "dog-pile" effect).
 
-            - ``"local"`` (default): per-key in-process lock. Misses on
-              the same key fold to one execution; the others wait and
-              reuse the result. Free, no I/O.
-            - ``"distributed"``: cross-replica lock via the `Sync`
-              component, resolved from the active `Grelmicro` app. One
-              short-lived backend acquire per cold miss folds misses
-              across replicas. Implies ``"local"`` (in-process dedup is
-              free). Requires an active app with a `Sync` backend.
-            - ``None``: no protection. Every concurrent miss runs the
-              function.
+            - ``False`` (default): no protection. Every concurrent miss
+              runs the function.
+            - ``True``: fold concurrent misses to one execution. When the
+              active `Grelmicro` app has a `Sync` backend, misses fold
+              across replicas through it. Otherwise an in-process lock
+              folds them within the worker. An in-process lock is always
+              applied first, so the backend is hit once per cold miss.
+            - ``"local"``: force the in-process lock only, even when a
+              `Sync` backend is configured. Use when per-replica recompute
+              is acceptable and you want no backend round-trip on a cold
+              miss.
             """,
         ),
-    ] = "local",
+    ] = False,
     early: Annotated[
         float | None,
         Doc(
@@ -162,19 +162,14 @@ def cached(
     ``cache_clear()`` is always a coroutine (must be awaited).
 
     Raises:
-        ValueError: If ``stampede`` is not ``"local"``, ``"distributed"``,
-            or ``None``, if ``early`` is outside ``[0, 1)``, or if
-            ``stampede="distributed"`` is used on a sync function without
-            an active app.
+        ValueError: If ``lock`` is not ``True``, ``False``, or ``"local"``,
+            or if ``early`` is outside ``[0, 1)``.
 
     Returns:
         A decorator that caches function results.
     """
-    if stampede not in ("local", "distributed", None):
-        msg = (
-            f"Invalid stampede {stampede!r}: "
-            f"use 'local', 'distributed', or None."
-        )
+    if lock not in (True, False, "local"):
+        msg = f"Invalid lock {lock!r}: use True, False, or 'local'."
         raise ValueError(msg)
     if early is not None and not 0 <= early < 1:
         msg = f"Invalid early {early!r}: must be a float in [0, 1)."
@@ -184,8 +179,8 @@ def cached(
         func: Callable[P, R],
     ) -> Callable[P, R]:
         is_async_func = asyncio.iscoroutinefunction(func)
-        per_key = stampede in ("local", "distributed")
-        distributed = stampede == "distributed"
+        per_key = lock is not False
+        auto_distributed = lock is True
 
         if is_async_func:
             wrapper = _build_async_wrapper(
@@ -195,7 +190,7 @@ def cached(
                 skip,
                 typed=typed,
                 per_key=per_key,
-                distributed=distributed,
+                auto_distributed=auto_distributed,
                 early=early,
             )
         else:
@@ -206,7 +201,7 @@ def cached(
                 skip,
                 typed=typed,
                 per_key=per_key,
-                distributed=distributed,
+                auto_distributed=auto_distributed,
                 early=early,
             )
         wrapper.cache_info = cache.cache_info
@@ -217,6 +212,19 @@ def cached(
 
 
 # --- Stampede helpers ---
+
+
+def _has_sync_backend() -> bool:
+    """Return whether the active app exposes a default `Sync` backend.
+
+    Drives ``lock=True`` auto-selection: a cold miss folds across replicas
+    when a backend is present and folds in-process otherwise.
+    """
+    try:
+        Grelmicro.current().get("sync")
+    except LookupError:
+        return False
+    return True
 
 
 def _stampede_lock_name(key: str) -> str:
@@ -292,7 +300,7 @@ def _build_async_wrapper(
     *,
     typed: bool,
     per_key: bool,
-    distributed: bool,
+    auto_distributed: bool,
     early: float | None,
 ) -> Any:  # noqa: ANN401
     """Build async wrapper for cached decorator."""
@@ -331,7 +339,7 @@ def _build_async_wrapper(
             result = await cache._peek(key, _SENTINEL)  # noqa: SLF001
             if result is not _SENTINEL:
                 return result
-            if distributed:
+            if auto_distributed and _has_sync_backend():
                 return await _compute_distributed(
                     func, args, kwargs, cache, key, skip, early=early
                 )
@@ -427,7 +435,7 @@ def _build_sync_wrapper(
     *,
     typed: bool,
     per_key: bool,
-    distributed: bool,
+    auto_distributed: bool,
     early: float | None,
 ) -> Any:  # noqa: ANN401
     """Build sync wrapper for cached decorator.
@@ -480,7 +488,7 @@ def _build_sync_wrapper(
             result = _run(cache._peek(key, _SENTINEL), loop)  # noqa: SLF001
             if result is not _SENTINEL:
                 return result
-            if distributed:
+            if auto_distributed and _has_sync_backend():
                 return _run(
                     _distributed_orchestrate(
                         func, args, kwargs, cache, key, skip, loop, early=early
