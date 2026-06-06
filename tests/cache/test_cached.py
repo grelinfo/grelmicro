@@ -12,8 +12,8 @@ from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
-from grelmicro.sync import Sync
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.memory import MemoryLockAdapter
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -914,7 +914,7 @@ class TestSyncCachedStampede:
 # ---------------------------------------------------------------------------
 # Distributed stampede tests
 # ---------------------------------------------------------------------------
-# A distributed miss serializes through the Sync component's lock. Two
+# A distributed miss serializes through the Coordination component's lock. Two
 # separate decorations of the SAME function share the cache key and the
 # distributed lock but keep independent in-process locks, so they model
 # two replicas folding onto one execution.
@@ -933,7 +933,7 @@ class TestDistributedStampede:
         """Concurrent distributed misses on the same key run once."""
         loop = asyncio.get_running_loop()
         cache = _shared_cache(loop)
-        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         call_count = 0
         barrier = asyncio.Event()
 
@@ -966,7 +966,7 @@ class TestDistributedStampede:
         """Distributed protection drives the lock from a sync worker thread."""
         loop = asyncio.get_running_loop()
         cache = _shared_cache(loop)
-        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         call_count = 0
 
         def impl(x: int) -> int:
@@ -997,7 +997,7 @@ class TestLockTrueAutoSelect:
     """Test lock=True auto-selects distributed vs in-process by backend."""
 
     async def test_lock_true_without_backend_folds_in_process(self) -> None:
-        """lock=True with no Sync backend folds concurrent misses locally."""
+        """lock=True with no lock backend folds concurrent misses locally."""
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
@@ -1021,7 +1021,7 @@ class TestLockTrueAutoSelect:
     async def test_lock_true_sync_without_backend_folds_in_process(
         self,
     ) -> None:
-        """lock=True sync with no Sync backend folds via the threading lock."""
+        """lock=True sync with no lock backend folds via the threading lock."""
         cache = _make_cache()
         call_count = 0
 
@@ -1304,7 +1304,7 @@ class TestEarlyRefresh:
 
         loop = asyncio.get_running_loop()
         cache = _shared_cache(loop)
-        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
 
         def impl(x: int) -> int:
             return x * 2
@@ -1320,7 +1320,7 @@ class TestEarlyRefresh:
         """A sync distributed miss whose result is skipped is not cached."""
         loop = asyncio.get_running_loop()
         cache = _shared_cache(loop)
-        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         call_count = 0
 
         def impl(x: int) -> int:

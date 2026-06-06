@@ -18,7 +18,8 @@ from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
 from grelmicro.coordination.abc import LeaderRecord, LockBackend
-from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.coordination.errors import CoordinationSettingsValidationError
+from grelmicro.errors import OutOfContextError
 
 _LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 _LABEL_MANAGED_BY_VALUE = "grelmicro"
@@ -38,7 +39,7 @@ def _get_kube_namespace() -> str:
     """Get the Kubernetes namespace from the environment variables.
 
     Raises:
-        SettingsValidationError: If KUBE_NAMESPACE is not set.
+        CoordinationSettingsValidationError: If KUBE_NAMESPACE is not set.
     """
     settings = _KubernetesSettings()
 
@@ -46,7 +47,7 @@ def _get_kube_namespace() -> str:
         return settings.KUBE_NAMESPACE
 
     msg = "KUBE_NAMESPACE must be set"
-    raise SettingsValidationError(msg)
+    raise CoordinationSettingsValidationError(msg)
 
 
 def _sanitize_lease_name(name: str) -> str:

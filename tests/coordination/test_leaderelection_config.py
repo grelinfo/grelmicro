@@ -42,7 +42,7 @@ def test_construction_does_not_resolve(mocker: MockerFixture) -> None:
 async def test_backend_property_resolves_on_every_call() -> None:
     """`le.backend` consults the active `Grelmicro` app on each read."""
     backend_instance = MemoryLeaderElectionBackend()
-    micro = Grelmicro(uses=[Coordination(backend_instance)])
+    micro = Grelmicro(uses=[Coordination(election=backend_instance)])
     async with micro:
         le = LeaderElection("svc")
         assert le.backend is backend_instance

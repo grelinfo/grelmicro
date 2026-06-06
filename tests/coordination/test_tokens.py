@@ -1,10 +1,10 @@
-"""Tests for Synchronization Tokens."""
+"""Tests for Coordination Tokens."""
 
 import asyncio
 from threading import get_ident
 from uuid import uuid1
 
-from grelmicro.sync._tokens import (
+from grelmicro.coordination._tokens import (
     generate_task_token,
     generate_thread_token,
     generate_token_nonce,

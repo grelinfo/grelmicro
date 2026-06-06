@@ -1,9 +1,9 @@
-"""Tests for the Redis Sync Adapter."""
+"""Tests for the Redis Lock Adapter."""
 
 import pytest
 
+from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync.redis import RedisSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -16,7 +16,7 @@ def test_adapter_with_implicit_env_provider(
     """Without `provider=`, the adapter builds its own from env vars."""
     monkeypatch.setenv("REDIS_URL", URL)
 
-    backend = RedisSyncAdapter()
+    backend = RedisLockAdapter()
 
     assert backend.provider.url == URL
     assert backend._owns_provider is True
@@ -25,7 +25,7 @@ def test_adapter_with_implicit_env_provider(
 def test_adapter_borrows_external_provider() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = RedisProvider(URL)
-    backend = RedisSyncAdapter(provider=provider)
+    backend = RedisLockAdapter(provider=provider)
 
     assert backend.provider is provider
     assert backend._owns_provider is False
@@ -37,7 +37,7 @@ def test_adapter_env_prefix_passed_to_implicit_provider(
     """`env_prefix=` reaches the implicit provider."""
     monkeypatch.setenv("CACHE_REDIS_URL", URL)
 
-    backend = RedisSyncAdapter(env_prefix="CACHE_REDIS_")
+    backend = RedisLockAdapter(env_prefix="CACHE_REDIS_")
 
     assert backend.provider.url == URL
     assert backend.provider.env_prefix == "CACHE_REDIS_"

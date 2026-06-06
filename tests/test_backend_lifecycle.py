@@ -7,14 +7,14 @@ from pytest_mock import MockerFixture
 
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
+from grelmicro.coordination.kubernetes import KubernetesLockAdapter
+from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.coordination.postgres import PostgresLockAdapter
+from grelmicro.coordination.redis import RedisLockAdapter
+from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
-from grelmicro.sync.kubernetes import KubernetesSyncAdapter
-from grelmicro.sync.memory import MemorySyncAdapter
-from grelmicro.sync.postgres import PostgresSyncAdapter
-from grelmicro.sync.redis import RedisSyncAdapter
-from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def mock_redis(mocker: MockerFixture) -> MagicMock:
 
 async def test_sync_memory_async_with() -> None:
     """The memory sync adapter opens and closes cleanly."""
-    async with MemorySyncAdapter():
+    async with MemoryLockAdapter():
         pass
 
 
@@ -44,7 +44,7 @@ async def test_cache_memory_async_with() -> None:
 
 async def test_sync_redis_async_with(mock_redis: MagicMock) -> None:  # noqa: ARG001
     """The Redis sync adapter opens and closes cleanly."""
-    async with RedisSyncAdapter(provider=RedisProvider("redis://localhost")):
+    async with RedisLockAdapter(provider=RedisProvider("redis://localhost")):
         pass
 
 
@@ -61,13 +61,13 @@ async def test_sync_postgres_async_with(
         "grelmicro.providers.postgres.create_pool",
         AsyncMock(return_value=mock_pool),
     )
-    async with PostgresSyncAdapter():
+    async with PostgresLockAdapter():
         pass
 
 
 async def test_sync_sqlite_async_with(tmp_path) -> None:  # noqa: ANN001
     """The SQLite sync adapter opens and closes cleanly."""
-    async with SQLiteSyncAdapter(tmp_path / "lock.db"):
+    async with SQLiteLockAdapter(tmp_path / "lock.db"):
         pass
 
 
@@ -82,10 +82,10 @@ async def test_sync_kubernetes_async_with(mocker: MockerFixture) -> None:
 
     mock_client.list = _empty_list
     mocker.patch(
-        "grelmicro.sync.kubernetes.AsyncClient",
+        "grelmicro.coordination.kubernetes.AsyncClient",
         return_value=mock_client,
     )
-    async with KubernetesSyncAdapter(namespace="default"):
+    async with KubernetesLockAdapter(namespace="default"):
         pass
 
 

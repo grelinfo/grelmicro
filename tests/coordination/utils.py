@@ -3,7 +3,7 @@
 import asyncio
 from asyncio import Event
 
-from grelmicro.sync._base import BaseLock
+from grelmicro.coordination._base import BaseLock
 from tests.task._helpers import cancel_group
 
 

@@ -8,9 +8,8 @@ from collections.abc import AsyncGenerator
 import pytest
 from pytest_mock import MockerFixture
 
-from grelmicro.errors import WouldBlockError as WouldBlock
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.errors import (
+from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination.errors import (
     LockAcquireError,
     LockLockedCheckError,
     LockNotOwnedError,
@@ -18,8 +17,9 @@ from grelmicro.sync.errors import (
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.sync.lock import Lock
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination.lock import Lock
+from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.errors import WouldBlockError as WouldBlock
 from tests._faults import cancel_midflight
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -33,14 +33,14 @@ BACKEND_LOCK_NAME = f"lock:{LOCK_NAME}"
 
 
 @pytest.fixture
-async def backend() -> AsyncGenerator[SyncBackend]:
+async def backend() -> AsyncGenerator[LockBackend]:
     """Return Memory Synchronization Backend."""
-    async with MemorySyncAdapter() as backend:
+    async with MemoryLockAdapter() as backend:
         yield backend
 
 
 @pytest.fixture
-async def locks(backend: SyncBackend) -> list[Lock]:
+async def locks(backend: LockBackend) -> list[Lock]:
     """Locks of multiple workers."""
     return [
         Lock(
@@ -61,7 +61,7 @@ async def lock(locks: list[Lock]) -> Lock:
 
 
 @pytest.fixture
-async def reentrant_thread_lock(backend: SyncBackend) -> Lock:
+async def reentrant_thread_lock(backend: LockBackend) -> Lock:
     """Lock with a lease long enough to outlive thread-scheduling jitter.
 
     The reentrant-from-thread tests do *acquire → attempt-reacquire-raises →
@@ -80,7 +80,7 @@ async def reentrant_thread_lock(backend: SyncBackend) -> Lock:
     )
 
 
-async def test_lock_key_prefix(backend: SyncBackend, lock: Lock) -> None:
+async def test_lock_key_prefix(backend: LockBackend, lock: Lock) -> None:
     """Test Lock uses prefixed key on the backend."""
     # Act
     await lock.acquire()
@@ -448,7 +448,7 @@ async def test_lock_from_thread_release_expired(locks: list[Lock]) -> None:
 
 
 async def test_lock_acquire_backend_error(
-    backend: SyncBackend, lock: Lock, mocker: MockerFixture
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
     """Test Lock acquire backend error."""
     # Arrange
@@ -462,7 +462,7 @@ async def test_lock_acquire_backend_error(
 
 
 async def test_lock_from_thread_acquire_backend_error(
-    backend: SyncBackend,
+    backend: LockBackend,
     lock: Lock,
     mocker: MockerFixture,
 ) -> None:
@@ -481,7 +481,7 @@ async def test_lock_from_thread_acquire_backend_error(
 
 
 async def test_lock_release_backend_error(
-    backend: SyncBackend, lock: Lock, mocker: MockerFixture
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
     """Test Lock release backend error."""
     # Arrange
@@ -496,7 +496,7 @@ async def test_lock_release_backend_error(
 
 
 async def test_lock_from_thread_release_backend_error(
-    backend: SyncBackend,
+    backend: LockBackend,
     lock: Lock,
     mocker: MockerFixture,
 ) -> None:
@@ -516,7 +516,7 @@ async def test_lock_from_thread_release_backend_error(
 
 
 async def test_lock_owned_backend_error(
-    backend: SyncBackend, lock: Lock, mocker: MockerFixture
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
     """Test Lock owned backend error."""
     # Arrange
@@ -530,7 +530,7 @@ async def test_lock_owned_backend_error(
 
 
 async def test_lock_locked_backend_error(
-    backend: SyncBackend, lock: Lock, mocker: MockerFixture
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
 ) -> None:
     """Test Lock locked backend error."""
     # Arrange
@@ -708,7 +708,7 @@ async def test_lock_acquire_cancelled_midflight(locks: list[Lock]) -> None:
     assert await locks[WORKER_2].owned() is False
 
 
-async def test_lock_retry_interval_too_small(backend: SyncBackend) -> None:
+async def test_lock_retry_interval_too_small(backend: LockBackend) -> None:
     """Test Lock rejects retry_interval below minimum."""
     with pytest.raises(ValueError, match="retry_interval must be"):
         Lock(name="test", backend=backend, retry_interval=0.0001)
@@ -749,7 +749,7 @@ async def test_reconfigure_rejects_worker_change(lock: Lock) -> None:
 
 async def test_reconfigure_changes_lease_duration_for_next_acquire(
     lock: Lock,
-    backend: SyncBackend,
+    backend: LockBackend,
     mocker: MockerFixture,
 ) -> None:
     """Acquire after reconfigure passes the new lease_duration to the backend."""

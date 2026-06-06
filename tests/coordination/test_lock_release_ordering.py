@@ -6,14 +6,14 @@ from collections.abc import AsyncGenerator
 import pytest
 from pytest_mock import MockerFixture
 
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.errors import (
+from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination.errors import (
     LockNotOwnedError,
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.sync.lock import Lock
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination.lock import Lock
+from grelmicro.coordination.memory import MemoryLockAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -22,14 +22,14 @@ WORKER = "worker_1"
 
 
 @pytest.fixture
-async def backend() -> AsyncGenerator[SyncBackend]:
+async def backend() -> AsyncGenerator[LockBackend]:
     """Return a Memory sync backend."""
-    async with MemorySyncAdapter() as backend:
+    async with MemoryLockAdapter() as backend:
         yield backend
 
 
 @pytest.fixture
-def lock(backend: SyncBackend) -> Lock:
+def lock(backend: LockBackend) -> Lock:
     """Return a Lock bound to the memory backend."""
     return Lock(LOCK_NAME, backend=backend, worker=WORKER, lease_duration=10)
 
@@ -49,7 +49,7 @@ async def test_release_clears_state_on_success(lock: Lock) -> None:
 
 async def test_release_keeps_state_on_backend_error(
     lock: Lock,
-    backend: SyncBackend,
+    backend: LockBackend,
     mocker: MockerFixture,
 ) -> None:
     """A backend error during release keeps the held marker intact."""
@@ -71,7 +71,7 @@ async def test_release_keeps_state_on_backend_error(
 
 async def test_release_clears_state_when_backend_reports_not_owned(
     lock: Lock,
-    backend: SyncBackend,
+    backend: LockBackend,
     mocker: MockerFixture,
 ) -> None:
     """A "not owned" answer from the backend clears the held marker."""
@@ -91,7 +91,7 @@ async def test_release_clears_state_when_backend_reports_not_owned(
 
 async def test_thread_release_keeps_state_on_backend_error(
     lock: Lock,
-    backend: SyncBackend,
+    backend: LockBackend,
     mocker: MockerFixture,
 ) -> None:
     """A backend error during thread release keeps the held-by-thread marker intact."""
@@ -111,7 +111,7 @@ async def test_thread_release_keeps_state_on_backend_error(
 
 async def test_thread_release_clears_state_when_not_owned(
     lock: Lock,
-    backend: SyncBackend,
+    backend: LockBackend,
     mocker: MockerFixture,
 ) -> None:
     """A "not owned" answer from the backend clears the held-by-thread marker."""

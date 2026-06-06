@@ -9,18 +9,18 @@ import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
-from grelmicro.errors import WouldBlockError as WouldBlock
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.errors import (
+from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination.errors import (
     LockAcquireError,
     LockLockedCheckError,
     LockNotOwnedError,
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.sync.lock import Lock, LockConfig
-from grelmicro.sync.memory import MemorySyncAdapter
-from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
+from grelmicro.coordination.lock import Lock, LockConfig
+from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
+from grelmicro.errors import WouldBlockError as WouldBlock
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -33,9 +33,9 @@ WORKER_2 = "worker_2"
 
 
 @pytest.fixture
-async def backend() -> AsyncGenerator[SyncBackend]:
+async def backend() -> AsyncGenerator[LockBackend]:
     """Return Memory Synchronization Backend."""
-    async with MemorySyncAdapter() as backend:
+    async with MemoryLockAdapter() as backend:
         yield backend
 
 
@@ -98,7 +98,7 @@ def test_tasklock_config_equal_values() -> None:
 # --- Namespace isolation ---
 
 
-async def test_tasklock_key_prefix(backend: SyncBackend) -> None:
+async def test_tasklock_key_prefix(backend: LockBackend) -> None:
     """Test TaskLock uses prefixed key on the backend."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -115,7 +115,7 @@ async def test_tasklock_key_prefix(backend: SyncBackend) -> None:
         assert await backend.locked(name=LOCK_NAME) is False
 
 
-async def test_tasklock_no_collision_with_lock(backend: SyncBackend) -> None:
+async def test_tasklock_no_collision_with_lock(backend: LockBackend) -> None:
     """Test TaskLock and Lock with same name don't collide."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -139,7 +139,7 @@ async def test_tasklock_no_collision_with_lock(backend: SyncBackend) -> None:
 # --- Nested usage guard ---
 
 
-async def test_tasklock_nested_raises(backend: SyncBackend) -> None:
+async def test_tasklock_nested_raises(backend: LockBackend) -> None:
     """Test TaskLock raises LockReentrantError on nested async usage."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -155,7 +155,7 @@ async def test_tasklock_nested_raises(backend: SyncBackend) -> None:
                 pass
 
 
-async def test_tasklock_from_thread_nested_raises(backend: SyncBackend) -> None:
+async def test_tasklock_from_thread_nested_raises(backend: LockBackend) -> None:
     """Test TaskLock raises LockReentrantError on nested thread usage."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -176,7 +176,7 @@ async def test_tasklock_from_thread_nested_raises(backend: SyncBackend) -> None:
 # --- Acquire + Release (elapsed >= min_lock_seconds) ---
 
 
-async def test_tasklock_acquire_release(backend: SyncBackend) -> None:
+async def test_tasklock_acquire_release(backend: LockBackend) -> None:
     """Test TaskLock acquires and releases when elapsed >= min_lock_seconds."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -200,7 +200,7 @@ async def test_tasklock_acquire_release(backend: SyncBackend) -> None:
 # --- WouldBlock when already locked ---
 
 
-async def test_tasklock_would_block(backend: SyncBackend) -> None:
+async def test_tasklock_would_block(backend: LockBackend) -> None:
     """Test TaskLock raises WouldBlock when already locked by another worker."""
     task_lock_1 = TaskLock(
         LOCK_NAME,
@@ -227,7 +227,7 @@ async def test_tasklock_would_block(backend: SyncBackend) -> None:
 
 
 async def test_tasklock_stays_locked_when_elapsed_less_than_at_least(
-    backend: SyncBackend,
+    backend: LockBackend,
 ) -> None:
     """Test lock stays held after exit when elapsed < min_lock_seconds."""
     task_lock = TaskLock(
@@ -254,7 +254,7 @@ async def test_tasklock_stays_locked_when_elapsed_less_than_at_least(
 # --- Lock auto-expires after max_lock_seconds ---
 
 
-async def test_tasklock_auto_expires(backend: SyncBackend) -> None:
+async def test_tasklock_auto_expires(backend: LockBackend) -> None:
     """Test lock auto-expires after max_lock_seconds and raises on release."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -278,7 +278,7 @@ async def test_tasklock_auto_expires(backend: SyncBackend) -> None:
 # --- Same worker can re-enter (re-acquire updates TTL) ---
 
 
-async def test_tasklock_same_worker_reacquire(backend: SyncBackend) -> None:
+async def test_tasklock_same_worker_reacquire(backend: LockBackend) -> None:
     """Test same worker can re-acquire (token-based re-entrancy)."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -303,7 +303,7 @@ async def test_tasklock_same_worker_reacquire(backend: SyncBackend) -> None:
 
 
 async def test_tasklock_release_expired_raises(
-    backend: SyncBackend,
+    backend: LockBackend,
 ) -> None:
     """Test TaskLock raises LockNotOwnedError when lock expired before release."""
     task_lock = TaskLock(
@@ -323,7 +323,7 @@ async def test_tasklock_release_expired_raises(
 
 
 async def test_tasklock_acquire_backend_error(
-    backend: SyncBackend, mocker: MockerFixture
+    backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock raises LockAcquireError on backend error during acquire."""
     task_lock = TaskLock(
@@ -341,7 +341,7 @@ async def test_tasklock_acquire_backend_error(
 
 
 async def test_tasklock_locked_backend_error(
-    backend: SyncBackend, mocker: MockerFixture
+    backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock raises LockLockedCheckError on backend error during locked check."""
     task_lock = TaskLock(
@@ -358,7 +358,7 @@ async def test_tasklock_locked_backend_error(
 
 
 async def test_tasklock_release_backend_error(
-    backend: SyncBackend, mocker: MockerFixture
+    backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock raises LockReleaseError on backend error during release."""
     task_lock = TaskLock(
@@ -380,7 +380,7 @@ async def test_tasklock_release_backend_error(
 
 
 async def test_tasklock_reacquire_backend_error(
-    backend: SyncBackend, mocker: MockerFixture
+    backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock raises LockReleaseError on backend error during re-acquire in exit."""
     min_lock_seconds = 10
@@ -412,7 +412,7 @@ async def test_tasklock_reacquire_backend_error(
 
 
 async def test_tasklock_state_cleaned_up_after_failed_reacquire(
-    backend: SyncBackend, mocker: MockerFixture
+    backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock clears state even when re-acquire fails with an exception.
 
@@ -454,7 +454,7 @@ async def test_tasklock_state_cleaned_up_after_failed_reacquire(
 
 
 async def test_tasklock_reacquire_lost_raises(
-    backend: SyncBackend,
+    backend: LockBackend,
     mocker: MockerFixture,
 ) -> None:
     """Test TaskLock raises LockNotOwnedError when re-acquire returns False."""
@@ -489,7 +489,7 @@ async def test_tasklock_reacquire_lost_raises(
 
 
 async def test_tasklock_from_thread_acquire_release(
-    backend: SyncBackend,
+    backend: LockBackend,
 ) -> None:
     """Test TaskLock from thread acquires and releases when elapsed >= min_lock_seconds."""
     task_lock = TaskLock(
@@ -519,7 +519,7 @@ async def test_tasklock_from_thread_acquire_release(
     assert locked_after is False
 
 
-async def test_tasklock_from_thread_would_block(backend: SyncBackend) -> None:
+async def test_tasklock_from_thread_would_block(backend: LockBackend) -> None:
     """Test TaskLock from thread raises WouldBlock when already locked."""
     task_lock_1 = TaskLock(
         LOCK_NAME,
@@ -547,7 +547,7 @@ async def test_tasklock_from_thread_would_block(backend: SyncBackend) -> None:
     await asyncio.to_thread(sync)
 
 
-async def test_tasklock_from_thread_stays_locked(backend: SyncBackend) -> None:
+async def test_tasklock_from_thread_stays_locked(backend: LockBackend) -> None:
     """Test TaskLock from thread stays locked when elapsed < min_lock_seconds."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -571,7 +571,7 @@ async def test_tasklock_from_thread_stays_locked(backend: SyncBackend) -> None:
 
 
 async def test_tasklock_from_thread_acquire_backend_error(
-    backend: SyncBackend, mocker: MockerFixture
+    backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock from thread raises LockAcquireError on backend error."""
     task_lock = TaskLock(
@@ -591,7 +591,7 @@ async def test_tasklock_from_thread_acquire_backend_error(
 
 
 async def test_tasklock_from_thread_release_backend_error(
-    backend: SyncBackend, mocker: MockerFixture
+    backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock from thread raises LockReleaseError on backend error during release."""
     task_lock = TaskLock(
@@ -614,7 +614,7 @@ async def test_tasklock_from_thread_release_backend_error(
 
 
 async def test_tasklock_from_thread_reacquire_backend_error(
-    backend: SyncBackend, mocker: MockerFixture
+    backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock from thread raises LockReleaseError on backend error during re-acquire."""
     min_lock_seconds = 10
@@ -647,7 +647,7 @@ async def test_tasklock_from_thread_reacquire_backend_error(
 
 
 async def test_tasklock_from_thread_release_expired_raises(
-    backend: SyncBackend,
+    backend: LockBackend,
 ) -> None:
     """Test TaskLock from thread raises LockNotOwnedError when lock expired."""
     task_lock = TaskLock(
@@ -666,7 +666,7 @@ async def test_tasklock_from_thread_release_expired_raises(
     await asyncio.to_thread(sync)
 
 
-async def test_task_lock_config_property(backend: SyncBackend) -> None:
+async def test_task_lock_config_property(backend: LockBackend) -> None:
     """Test TaskLock config property returns the config."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -682,7 +682,7 @@ async def test_task_lock_config_property(backend: SyncBackend) -> None:
     assert config.max_lock_seconds == expected_max
 
 
-async def test_task_lock_exit_without_acquire(backend: SyncBackend) -> None:
+async def test_task_lock_exit_without_acquire(backend: LockBackend) -> None:
     """Test TaskLock exit without acquire raises LockNotOwnedError."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -697,7 +697,7 @@ async def test_task_lock_exit_without_acquire(backend: SyncBackend) -> None:
 # --- reconfigure ---
 
 
-async def test_tasklock_reconfigure_swaps_config(backend: SyncBackend) -> None:
+async def test_tasklock_reconfigure_swaps_config(backend: LockBackend) -> None:
     """Reconfigure publishes the new config."""
     task_lock = TaskLock(
         LOCK_NAME,
@@ -716,7 +716,7 @@ async def test_tasklock_reconfigure_swaps_config(backend: SyncBackend) -> None:
 
 
 async def test_tasklock_reconfigure_same_config_is_noop(
-    backend: SyncBackend,
+    backend: LockBackend,
 ) -> None:
     """Equal configs short-circuit."""
     task_lock = TaskLock(
@@ -734,7 +734,7 @@ async def test_tasklock_reconfigure_same_config_is_noop(
 
 
 async def test_tasklock_reconfigure_rejects_worker_change(
-    backend: SyncBackend,
+    backend: LockBackend,
 ) -> None:
     """Changing `worker` is not allowed: it is part of the live token."""
     task_lock = TaskLock(
@@ -751,7 +751,7 @@ async def test_tasklock_reconfigure_rejects_worker_change(
 
 
 async def test_tasklock_reconfigure_changes_max_lock_for_next_acquire(
-    backend: SyncBackend,
+    backend: LockBackend,
     mocker: MockerFixture,
 ) -> None:
     """Acquire after reconfigure passes the new max_lock_seconds to the backend."""
@@ -776,7 +776,7 @@ async def test_tasklock_reconfigure_changes_max_lock_for_next_acquire(
 
 
 async def test_tasklock_reconfigure_rejects_different_config_type(
-    backend: SyncBackend,
+    backend: LockBackend,
 ) -> None:
     """The mixin rejects config types different from the current one."""
     task_lock = TaskLock(

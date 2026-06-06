@@ -1,4 +1,4 @@
-"""Test Synchronization Backends."""
+"""Test Lock Backends."""
 
 import tempfile
 import time as time_module
@@ -11,14 +11,14 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
+from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination.kubernetes import KubernetesLockAdapter
+from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.coordination.postgres import PostgresLockAdapter
+from grelmicro.coordination.redis import RedisLockAdapter
+from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.kubernetes import KubernetesSyncAdapter
-from grelmicro.sync.memory import MemorySyncAdapter
-from grelmicro.sync.postgres import PostgresSyncAdapter
-from grelmicro.sync.redis import RedisSyncAdapter
-from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
 pytestmark = [pytest.mark.timeout(30)]
 
@@ -144,32 +144,32 @@ def expire_wait(backend_name: str, expire_duration: float) -> float:
 @pytest.fixture(scope="module")
 async def backend(
     backend_name: str, container: DockerContainer | None
-) -> AsyncGenerator[SyncBackend]:
+) -> AsyncGenerator[LockBackend]:
     """Test Container for each Backend."""
     if backend_name == "redis" and container:
         port = container.get_exposed_port(6379)
         provider = RedisProvider(f"redis://localhost:{port}/0")
-        async with RedisSyncAdapter(provider=provider) as backend:
+        async with RedisLockAdapter(provider=provider) as backend:
             yield backend
     elif backend_name == "postgres" and container:
         port = container.get_exposed_port(5432)
         provider = PostgresProvider(
             f"postgresql://test:test@localhost:{port}/test"
         )
-        async with provider, PostgresSyncAdapter(provider=provider) as backend:
+        async with provider, PostgresLockAdapter(provider=provider) as backend:
             yield backend
     elif backend_name == "memory":
-        async with MemorySyncAdapter() as backend:
+        async with MemoryLockAdapter() as backend:
             yield backend
     elif backend_name == "sqlite":
-        async with SQLiteSyncAdapter(":memory:") as backend:
+        async with SQLiteLockAdapter(":memory:") as backend:
             yield backend
     elif backend_name == "kubernetes" and container:
-        async with KubernetesSyncAdapter(namespace="default") as backend:
+        async with KubernetesLockAdapter(namespace="default") as backend:
             yield backend
 
 
-async def test_acquire(backend: SyncBackend) -> None:
+async def test_acquire(backend: LockBackend) -> None:
     """Test acquire."""
     # Arrange
     name = "test_acquire"
@@ -183,7 +183,7 @@ async def test_acquire(backend: SyncBackend) -> None:
     assert result
 
 
-async def test_acquire_reantrant(backend: SyncBackend) -> None:
+async def test_acquire_reantrant(backend: LockBackend) -> None:
     """Test acquire is reantrant."""
     # Arrange
     name = "test_acquire_reantrant"
@@ -199,7 +199,7 @@ async def test_acquire_reantrant(backend: SyncBackend) -> None:
     assert result2
 
 
-async def test_acquire_already_acquired(backend: SyncBackend) -> None:
+async def test_acquire_already_acquired(backend: LockBackend) -> None:
     """Test acquire when already acquired."""
     # Arrange
     name = "test_acquire_already_acquired"
@@ -218,7 +218,7 @@ async def test_acquire_already_acquired(backend: SyncBackend) -> None:
 
 
 async def test_acquire_expired(
-    backend: SyncBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: float, expire_wait: float
 ) -> None:
     """Test acquire when expired."""
     # Arrange
@@ -240,7 +240,7 @@ async def test_acquire_expired(
 
 
 async def test_acquire_already_acquired_expired(
-    backend: SyncBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: float, expire_wait: float
 ) -> None:
     """Test acquire when already acquired but expired."""
     # Arrange
@@ -263,7 +263,7 @@ async def test_acquire_already_acquired_expired(
     assert result2
 
 
-async def test_release_not_acquired(backend: SyncBackend) -> None:
+async def test_release_not_acquired(backend: LockBackend) -> None:
     """Test release when not acquired."""
     # Arrange
     name = "test_release" + uuid4().hex
@@ -276,7 +276,7 @@ async def test_release_not_acquired(backend: SyncBackend) -> None:
     assert not result
 
 
-async def test_release_acquired(backend: SyncBackend) -> None:
+async def test_release_acquired(backend: LockBackend) -> None:
     """Test release when acquired."""
     # Arrange
     name = "test_release_acquired" + uuid4().hex
@@ -292,7 +292,7 @@ async def test_release_acquired(backend: SyncBackend) -> None:
     assert result2
 
 
-async def test_release_not_reantrant(backend: SyncBackend) -> None:
+async def test_release_not_reantrant(backend: LockBackend) -> None:
     """Test release is not reantrant."""
     # Arrange
     name = "test_release_not_reantrant" + uuid4().hex
@@ -311,7 +311,7 @@ async def test_release_not_reantrant(backend: SyncBackend) -> None:
 
 
 async def test_release_acquired_expired(
-    backend: SyncBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: float, expire_wait: float
 ) -> None:
     """Test release when acquired but expired."""
     # Arrange
@@ -331,7 +331,7 @@ async def test_release_acquired_expired(
 
 
 async def test_release_not_acquired_expired(
-    backend: SyncBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: float, expire_wait: float
 ) -> None:
     """Test release when not acquired but expired."""
     # Arrange
@@ -350,7 +350,7 @@ async def test_release_not_acquired_expired(
     assert not result2
 
 
-async def test_locked(backend: SyncBackend) -> None:
+async def test_locked(backend: LockBackend) -> None:
     """Test locked."""
     # Arrange
     name = "test_locked" + uuid4().hex
@@ -367,7 +367,7 @@ async def test_locked(backend: SyncBackend) -> None:
     assert locked_after is True
 
 
-async def test_owned(backend: SyncBackend) -> None:
+async def test_owned(backend: LockBackend) -> None:
     """Test owned."""
     # Arrange
     name = "test_owned" + uuid4().hex
@@ -384,7 +384,7 @@ async def test_owned(backend: SyncBackend) -> None:
     assert owned_after is True
 
 
-async def test_owned_another(backend: SyncBackend) -> None:
+async def test_owned_another(backend: LockBackend) -> None:
     """Test owned another."""
     # Arrange
     name = "test_owned_another" + uuid4().hex

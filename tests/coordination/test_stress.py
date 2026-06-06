@@ -12,8 +12,8 @@ import asyncio
 
 import pytest
 
-from grelmicro.sync.lock import Lock
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination.lock import Lock
+from grelmicro.coordination.memory import MemoryLockAdapter
 
 pytestmark = [pytest.mark.stress, pytest.mark.slow]
 
@@ -26,7 +26,7 @@ async def test_lock_contention_many_acquirers() -> None:
     held = 0
     max_held = 0
 
-    async with MemorySyncAdapter() as backend:
+    async with MemoryLockAdapter() as backend:
 
         async def contend(worker: int) -> None:
             nonlocal held, max_held
@@ -55,7 +55,7 @@ async def test_lock_contention_many_acquirers() -> None:
 async def test_backend_startup_shutdown_cycles() -> None:
     """Repeated adapter open/close cycles stay clean and leak no state."""
     for _ in range(STARTUP_CYCLES):
-        async with MemorySyncAdapter() as backend:
+        async with MemoryLockAdapter() as backend:
             lock = Lock(name="cycle", backend=backend, lease_duration=60)
             await lock.acquire()
             assert await lock.locked() is True

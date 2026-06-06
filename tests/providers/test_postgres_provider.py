@@ -6,6 +6,7 @@ import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.cache.postgres import PostgresCacheAdapter
+from grelmicro.coordination.postgres import PostgresLockAdapter
 from grelmicro.providers._base import Provider
 from grelmicro.providers.postgres import (
     PostgresConfig,
@@ -16,7 +17,6 @@ from grelmicro.resilience.circuitbreaker.postgres import (
     PostgresCircuitBreakerAdapter,
 )
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
-from grelmicro.sync.postgres import PostgresSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -263,15 +263,15 @@ class TestSafeUrl:
 
 
 class TestBuilders:
-    """Pure-sugar `.sync()` builders."""
+    """Pure-sugar `.lock()` builders."""
 
-    def test_sync_builder_binds_provider(self) -> None:
-        """`provider.sync()` returns an adapter borrowing the provider."""
+    def test_lock_builder_binds_provider(self) -> None:
+        """`provider.lock()` returns an adapter borrowing the provider."""
         provider = PostgresProvider(URL)
 
-        adapter = provider.sync()
+        adapter = provider.lock()
 
-        assert isinstance(adapter, PostgresSyncAdapter)
+        assert isinstance(adapter, PostgresLockAdapter)
         assert adapter.provider is provider
         assert adapter._owns_provider is False
 
@@ -323,9 +323,9 @@ class TestRebindProvider:
     """`_rebind_provider` swaps the bound provider on the adapter."""
 
     def test_sync_adapter_rebind(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """PostgresSyncAdapter rebinds to a new provider."""
+        """PostgresLockAdapter rebinds to a new provider."""
         monkeypatch.setenv("POSTGRES_URL", URL)
-        adapter = PostgresSyncAdapter()
+        adapter = PostgresLockAdapter()
         assert adapter._owns_provider is True
         owned = PostgresProvider(URL)
 
@@ -394,11 +394,13 @@ class TestSharingCache:
         """Two adapters with the same default env_prefix share one provider."""
         monkeypatch.setenv("POSTGRES_URL", URL)
 
-        first = PostgresSyncAdapter()
-        second = PostgresSyncAdapter(table_name="other_locks")
+        first = PostgresLockAdapter()
+        second = PostgresLockAdapter(table_name="other_locks")
         assert first.provider is not second.provider
 
-        from grelmicro.sync._component import Sync  # noqa: PLC0415
+        from grelmicro.coordination._component import (  # noqa: PLC0415
+            Coordination,
+        )
 
         pool = MagicMock()
         pool.execute = AsyncMock()
@@ -406,7 +408,12 @@ class TestSharingCache:
         for ad in (first, second):
             ad.provider._pool = pool
 
-        micro = Grelmicro(uses=[Sync(first), Sync(second, name="other")])
+        micro = Grelmicro(
+            uses=[
+                Coordination(lock=first),
+                Coordination(lock=second, name="other"),
+            ]
+        )
         async with micro:
             assert first.provider is second.provider
             assert first._owns_provider is True
@@ -419,12 +426,14 @@ class TestSharingCache:
         monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
         monkeypatch.setenv("READ_POSTGRES_URL", URL)
 
-        write = PostgresSyncAdapter(env_prefix="WRITE_POSTGRES_")
-        read = PostgresSyncAdapter(
+        write = PostgresLockAdapter(env_prefix="WRITE_POSTGRES_")
+        read = PostgresLockAdapter(
             env_prefix="READ_POSTGRES_", table_name="read_locks"
         )
 
-        from grelmicro.sync._component import Sync  # noqa: PLC0415
+        from grelmicro.coordination._component import (  # noqa: PLC0415
+            Coordination,
+        )
 
         for ad in (write, read):
             pool = MagicMock()
@@ -432,6 +441,11 @@ class TestSharingCache:
             pool.close = AsyncMock()
             ad.provider._pool = pool
 
-        micro = Grelmicro(uses=[Sync(write), Sync(read, name="read")])
+        micro = Grelmicro(
+            uses=[
+                Coordination(lock=write),
+                Coordination(lock=read, name="read"),
+            ]
+        )
         async with micro:
             assert write.provider is not read.provider

@@ -11,9 +11,9 @@ from grelmicro import (
     Grelmicro,
     NoActiveAppError,
 )
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
-from grelmicro.sync import Sync
-from grelmicro.sync.memory import MemorySyncAdapter
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -284,29 +284,31 @@ async def test_reconfigure_rebuilds_executor() -> None:
 
 async def test_uses_overrides_default_backend_in_scope() -> None:
     """Inside the scope, a default lookup resolves to the bulkhead's component."""
-    default = MemorySyncAdapter()
-    dedicated = MemorySyncAdapter()
-    micro = Grelmicro(uses=[Sync(default)])
-    bulkhead = Bulkhead("checkout", uses=[Sync(dedicated)])
+    default = MemoryLockAdapter()
+    dedicated = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead("checkout", uses=[Coordination(lock=dedicated)])
 
     async with micro:
-        assert micro.get("sync", "default").backend is default
+        assert micro.get("coordination", "default").lock_backend is default
         async with bulkhead:
-            assert micro.get("sync", "default").backend is dedicated
-        assert micro.get("sync", "default").backend is default
+            assert (
+                micro.get("coordination", "default").lock_backend is dedicated
+            )
+        assert micro.get("coordination", "default").lock_backend is default
 
 
 async def test_uses_override_only_covers_registered_keys() -> None:
     """A key the bulkhead does not override falls through to the registry."""
-    default = MemorySyncAdapter()
-    dedicated = MemorySyncAdapter()
-    micro = Grelmicro(uses=[Sync(default)])
-    bulkhead = Bulkhead("checkout", uses=[Sync(dedicated)])
+    default = MemoryLockAdapter()
+    dedicated = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead("checkout", uses=[Coordination(lock=dedicated)])
 
     async with micro, bulkhead:
-        assert micro.get("sync", "default").backend is dedicated
+        assert micro.get("coordination", "default").lock_backend is dedicated
         with pytest.raises(ComponentNotRegisteredError):
-            micro.get("sync", "analytics")
+            micro.get("coordination", "analytics")
 
 
 async def test_uses_opens_once_and_closes_at_shutdown() -> None:
@@ -341,7 +343,9 @@ async def test_uses_opens_once_and_closes_at_shutdown() -> None:
 
 async def test_uses_requires_active_app() -> None:
     """Entering a `uses=` bulkhead without an app raises."""
-    bulkhead = Bulkhead("checkout", uses=[Sync(MemorySyncAdapter())])
+    bulkhead = Bulkhead(
+        "checkout", uses=[Coordination(lock=MemoryLockAdapter())]
+    )
     with pytest.raises(NoActiveAppError):
         async with bulkhead:
             pass
@@ -349,20 +353,32 @@ async def test_uses_requires_active_app() -> None:
 
 async def test_nested_bulkheads_merge_overrides() -> None:
     """A nested bulkhead's overrides layer over the outer one's."""
-    default = MemorySyncAdapter()
-    outer_adapter = MemorySyncAdapter()
-    inner_adapter = MemorySyncAdapter()
-    micro = Grelmicro(uses=[Sync(default)])
-    outer = Bulkhead("outer", uses=[Sync(outer_adapter)])
-    inner = Bulkhead("inner", uses=[Sync(inner_adapter, name="analytics")])
+    default = MemoryLockAdapter()
+    outer_adapter = MemoryLockAdapter()
+    inner_adapter = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    outer = Bulkhead("outer", uses=[Coordination(lock=outer_adapter)])
+    inner = Bulkhead(
+        "inner", uses=[Coordination(lock=inner_adapter, name="analytics")]
+    )
 
     async with micro, outer:
-        assert micro.get("sync", "default").backend is outer_adapter
+        assert (
+            micro.get("coordination", "default").lock_backend is outer_adapter
+        )
         async with inner:
-            assert micro.get("sync", "default").backend is outer_adapter
-            assert micro.get("sync", "analytics").backend is inner_adapter
-        assert micro.get("sync", "default").backend is outer_adapter
-    assert micro.get("sync", "default").backend is default
+            assert (
+                micro.get("coordination", "default").lock_backend
+                is outer_adapter
+            )
+            assert (
+                micro.get("coordination", "analytics").lock_backend
+                is inner_adapter
+            )
+        assert (
+            micro.get("coordination", "default").lock_backend is outer_adapter
+        )
+    assert micro.get("coordination", "default").lock_backend is default
 
 
 async def test_uses_opens_once_under_concurrent_first_entry() -> None:

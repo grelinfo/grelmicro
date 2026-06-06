@@ -4,10 +4,10 @@ import pytest
 from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
-from grelmicro.sync import Sync
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.memory import MemorySyncAdapter
-from grelmicro.sync.tasklock import TaskLock, TaskLockConfig
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 
 MIN_KWARG = 5.0
 MAX_KWARG = 30.0
@@ -18,9 +18,9 @@ DEFAULT_MAX = 60.0
 
 
 @pytest.fixture
-def backend() -> SyncBackend:
+def backend() -> LockBackend:
     """Return a memory backend usable without a running event loop."""
-    return MemorySyncAdapter()
+    return MemoryLockAdapter()
 
 
 def test_construction_does_not_resolve(mocker: MockerFixture) -> None:
@@ -32,15 +32,15 @@ def test_construction_does_not_resolve(mocker: MockerFixture) -> None:
 
 async def test_backend_property_resolves_on_every_call() -> None:
     """`task_lock.backend` consults the active `Grelmicro` app on each read."""
-    backend_instance = MemorySyncAdapter()
-    micro = Grelmicro(uses=[Sync(backend_instance)])
+    backend_instance = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=backend_instance)])
     async with micro:
         task_lock = TaskLock("cart")
         assert task_lock.backend is backend_instance
         assert task_lock.backend is backend_instance
 
 
-def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:
+def test_programmatic_path_uses_kwargs(backend: LockBackend) -> None:
     """Plain kwargs build a config, falling back to TaskLockConfig defaults."""
     task_lock = TaskLock(
         "cleanup",
@@ -53,7 +53,7 @@ def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:
     assert task_lock.config.max_lock_seconds == MAX_KWARG
 
 
-def test_declarative_path_uses_from_config(backend: SyncBackend) -> None:
+def test_declarative_path_uses_from_config(backend: LockBackend) -> None:
     """`TaskLock.from_config()` constructs from a name and a `TaskLockConfig`."""
     cfg = TaskLockConfig(
         worker="web-1",
@@ -66,7 +66,7 @@ def test_declarative_path_uses_from_config(backend: SyncBackend) -> None:
 
 
 def test_from_config_bypasses_env(
-    backend: SyncBackend,
+    backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`TaskLock.from_config()` ignores env even when set."""
@@ -81,7 +81,7 @@ def test_from_config_bypasses_env(
 
 
 def test_environmental_path_reads_grel_prefixed_env(
-    backend: SyncBackend,
+    backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Env vars under ``GREL_TASK_LOCK_{NAME}_*`` populate unset fields."""
@@ -93,7 +93,7 @@ def test_environmental_path_reads_grel_prefixed_env(
 
 
 def test_kwargs_override_env(
-    backend: SyncBackend,
+    backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Caller kwargs win over env vars."""
@@ -103,7 +103,7 @@ def test_kwargs_override_env(
 
 
 def test_env_prefix_override(
-    backend: SyncBackend,
+    backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``env_prefix=`` replaces the auto-derived ``GREL_TASK_LOCK_{NAME}_``."""
@@ -117,7 +117,7 @@ def test_env_prefix_override(
 
 
 def test_env_load_false_ignores_env(
-    backend: SyncBackend,
+    backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``env_load=False`` skips env reads entirely."""
@@ -127,7 +127,7 @@ def test_env_load_false_ignores_env(
 
 
 def test_zero_config_uses_taskconfig_defaults(
-    backend: SyncBackend,
+    backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without env or kwargs, TaskLockConfig defaults take over."""
@@ -138,14 +138,14 @@ def test_zero_config_uses_taskconfig_defaults(
     assert task_lock.config.max_lock_seconds == DEFAULT_MAX
 
 
-def test_worker_default_factory_generates_uuid(backend: SyncBackend) -> None:
+def test_worker_default_factory_generates_uuid(backend: LockBackend) -> None:
     """An auto-generated worker id is set when none is provided."""
     task_lock = TaskLock("cleanup", backend=backend)
     assert task_lock.config.worker
     assert task_lock.config.worker != ""
 
 
-def test_worker_kwarg_passed_through(backend: SyncBackend) -> None:
+def test_worker_kwarg_passed_through(backend: LockBackend) -> None:
     """An explicit worker kwarg overrides the default factory."""
     task_lock = TaskLock("cleanup", backend=backend, worker="web-1")
     assert task_lock.config.worker == "web-1"

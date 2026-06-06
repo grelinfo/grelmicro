@@ -5,10 +5,10 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
+from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteConfig, SQLiteProvider
 from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
-from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
 
 def test_positional_path() -> None:
@@ -59,10 +59,10 @@ def test_client_before_open_raises() -> None:
 
 
 def test_factories_return_adapters() -> None:
-    """The provider builds rate limiter and sync adapters."""
+    """The provider builds rate limiter and lock adapters."""
     provider = SQLiteProvider("x.db")
     assert isinstance(provider.ratelimiter(), SQLiteRateLimiterAdapter)
-    assert isinstance(provider.sync(), SQLiteSyncAdapter)
+    assert isinstance(provider.lock(), SQLiteLockAdapter)
 
 
 async def test_open_and_close(tmp_path: Path) -> None:
@@ -70,7 +70,7 @@ async def test_open_and_close(tmp_path: Path) -> None:
     provider = SQLiteProvider(tmp_path / "app.db")
     async with provider as opened:
         assert opened.client is not None
-        assert isinstance(opened.lock.locked(), bool)
+        assert isinstance(opened.connection_lock.locked(), bool)
     with pytest.raises(OutOfContextError):
         _ = provider.client
 

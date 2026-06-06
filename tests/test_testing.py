@@ -3,8 +3,8 @@
 import pytest
 
 from grelmicro import Grelmicro
-from grelmicro.sync import Sync
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.testing import Call, CallLog, record
 
 pytestmark = [pytest.mark.timeout(1)]
@@ -105,11 +105,11 @@ def test_call_log_default_is_empty() -> None:
 
 async def test_records_calls_through_a_component() -> None:
     """A recorded backend works unchanged inside a `Grelmicro` app."""
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     log = record(backend)
-    micro = Grelmicro(uses=[Sync(backend)])
+    micro = Grelmicro(uses=[Coordination(lock=backend)])
 
-    async with micro, micro.sync.lock("cart"):
+    async with micro, micro.coordination.lock("cart"):
         pass
 
     assert log.count("acquire") == 1

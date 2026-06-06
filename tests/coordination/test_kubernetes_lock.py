@@ -10,14 +10,14 @@ from lightkube.models.coordination_v1 import LeaseSpec
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.coordination_v1 import Lease
 
-from grelmicro.errors import OutOfContextError
-from grelmicro.sync.errors import SyncSettingsValidationError
-from grelmicro.sync.kubernetes import (
+from grelmicro.coordination.errors import CoordinationSettingsValidationError
+from grelmicro.coordination.kubernetes import (
     _MAX_NAME_LENGTH,
-    KubernetesSyncAdapter,
+    KubernetesLockAdapter,
     _get_expire_at,
     _sanitize_lease_name,
 )
+from grelmicro.errors import OutOfContextError
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -61,9 +61,9 @@ def _make_lease(
 
 def _make_mocked_backend(
     **client_overrides: AsyncMock,
-) -> KubernetesSyncAdapter:
-    """Create a KubernetesSyncAdapter with a mocked client."""
-    backend = KubernetesSyncAdapter(namespace="default")
+) -> KubernetesLockAdapter:
+    """Create a KubernetesLockAdapter with a mocked client."""
+    backend = KubernetesLockAdapter(namespace="default")
     mock_client = AsyncMock()
     for attr, mock in client_overrides.items():
         setattr(mock_client, attr, mock)
@@ -83,7 +83,7 @@ async def _async_iter(items: list) -> AsyncIterator:
 async def test_sync_backend_out_of_context_errors() -> None:
     """Test Synchronization Backend Out Of Context Errors."""
     # Arrange
-    backend = KubernetesSyncAdapter(namespace="default")
+    backend = KubernetesLockAdapter(namespace="default")
     name = "lock"
     key = "token"
 
@@ -109,7 +109,7 @@ def test_kubernetes_env_var_settings(
     monkeypatch.setenv("KUBE_NAMESPACE", "my-namespace")
 
     # Act
-    backend = KubernetesSyncAdapter()
+    backend = KubernetesLockAdapter()
 
     # Assert
     assert backend._namespace == "my-namespace"
@@ -119,16 +119,16 @@ def test_kubernetes_env_var_settings_validation_error() -> None:
     """Test Kubernetes Settings Validation Error."""
     # Assert / Act
     with pytest.raises(
-        SyncSettingsValidationError,
+        CoordinationSettingsValidationError,
         match=(r"Could not validate settings:\n"),
     ):
-        KubernetesSyncAdapter()
+        KubernetesLockAdapter()
 
 
 def test_sync_backend_prefix() -> None:
     """Test Synchronization Backend Prefix."""
     # Act
-    backend = KubernetesSyncAdapter(namespace="default", prefix="myapp-")
+    backend = KubernetesLockAdapter(namespace="default", prefix="myapp-")
 
     # Assert
     assert backend._prefix == "myapp-"
@@ -214,9 +214,9 @@ def test_get_expire_at_computes_correctly() -> None:
 async def test_aenter_sets_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test __aenter__ creates an AsyncClient."""
     # Arrange
-    backend = KubernetesSyncAdapter(namespace="default")
+    backend = KubernetesLockAdapter(namespace="default")
     monkeypatch.setattr(
-        "grelmicro.sync.kubernetes.AsyncClient",
+        "grelmicro.coordination.kubernetes.AsyncClient",
         lambda **_kwargs: AsyncMock(),
     )
 
@@ -403,7 +403,7 @@ async def test_owned_wrong_token() -> None:
     ids=["acquire", "release", "locked", "owned"],
 )
 async def test_raises_on_non_404_get_error(
-    method_caller: Callable[[KubernetesSyncAdapter], Awaitable[bool]],
+    method_caller: Callable[[KubernetesLockAdapter], Awaitable[bool]],
 ) -> None:
     """Test all methods re-raise non-404 API errors on GET."""
     # Arrange
@@ -518,7 +518,7 @@ async def test_aexit_cleanup_delete_errors(
 ) -> None:
     """Test __aexit__ error handling during cleanup delete."""
     # Arrange
-    backend = KubernetesSyncAdapter(namespace="default")
+    backend = KubernetesLockAdapter(namespace="default")
     expired_lease = _make_lease(expired=True)
     mock_client = AsyncMock()
     mock_client.list = MagicMock(return_value=_async_iter([expired_lease]))

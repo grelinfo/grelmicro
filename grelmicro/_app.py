@@ -527,16 +527,16 @@ class Grelmicro:
         """
         cache: dict[tuple[type, str], object] = {}
         for item in self._items:
-            target = getattr(item, "backend", item)
-            if not getattr(target, "_owns_provider", False):
-                continue
-            provider = target._provider  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
-            key = (type(provider), provider.env_prefix)
-            shared = cache.get(key)
-            if shared is None:
-                cache[key] = provider
-            elif shared is not provider:  # pragma: no branch
-                target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            for target in _iter_provider_backends(item):
+                if not getattr(target, "_owns_provider", False):
+                    continue
+                provider = target._provider  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+                key = (type(provider), provider.env_prefix)
+                shared = cache.get(key)
+                if shared is None:
+                    cache[key] = provider
+                elif shared is not provider:  # pragma: no branch
+                    target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
 
     def _warn_unlifecycled_providers(self) -> None:
         """Warn when a Component holds a Provider that is not lifecycled correctly.
@@ -558,41 +558,65 @@ class Grelmicro:
         Reported as `UserWarning` by default, or as `LifecycleOrderError`
         when the app was built with `strict=True`.
         """
+        for index, item in enumerate(self._items):
+            for target in _iter_provider_backends(item):
+                provider = getattr(target, "_provider", None)
+                if provider is None:
+                    continue
+                owns = getattr(target, "_owns_provider", True)
+                if owns:
+                    continue
+                self._report_provider_lifecycle(target, provider, index)
+
+    def _report_provider_lifecycle(
+        self,
+        target: object,
+        provider: object,
+        index: int,
+    ) -> None:
+        """Warn or raise for a single misordered or missing provider."""
         import warnings  # noqa: PLC0415
 
-        for index, item in enumerate(self._items):
-            target = getattr(item, "backend", item)
-            provider = getattr(target, "_provider", None)
-            if provider is None:
-                continue
-            owns = getattr(target, "_owns_provider", True)
-            if owns:
-                continue
-            try:
-                provider_index = self._items.index(provider)
-            except ValueError:
-                msg = (
-                    f"{type(target).__name__} holds a "
-                    f"{type(provider).__name__} that is not listed in "
-                    f"Grelmicro(uses=[...]). The provider will not be "
-                    f"lifecycled with the app and its connection will "
-                    f"leak. Add the provider to uses= so it is opened "
-                    f"and closed with the components that depend on it."
-                )
-                if self._strict:
-                    raise LifecycleOrderError(msg) from None
-                warnings.warn(msg, UserWarning, stacklevel=3)
-                continue
-            if provider_index > index:
-                msg = (
-                    f"{type(provider).__name__} is listed after "
-                    f"{type(target).__name__} in Grelmicro(uses=[...]). "
-                    f"Providers must be listed before the components that "
-                    f"depend on them so they open first."
-                )
-                if self._strict:
-                    raise LifecycleOrderError(msg)
-                warnings.warn(msg, UserWarning, stacklevel=3)
+        try:
+            provider_index = self._items.index(provider)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        except ValueError:
+            msg = (
+                f"{type(target).__name__} holds a "
+                f"{type(provider).__name__} that is not listed in "
+                f"Grelmicro(uses=[...]). The provider will not be "
+                f"lifecycled with the app and its connection will "
+                f"leak. Add the provider to uses= so it is opened "
+                f"and closed with the components that depend on it."
+            )
+            if self._strict:
+                raise LifecycleOrderError(msg) from None
+            warnings.warn(msg, UserWarning, stacklevel=3)
+            return
+        if provider_index > index:
+            msg = (
+                f"{type(provider).__name__} is listed after "
+                f"{type(target).__name__} in Grelmicro(uses=[...]). "
+                f"Providers must be listed before the components that "
+                f"depend on them so they open first."
+            )
+            if self._strict:
+                raise LifecycleOrderError(msg)
+            warnings.warn(msg, UserWarning, stacklevel=3)
+
+
+def _iter_provider_backends(item: object) -> list[object]:
+    """Return the provider-holding backends to inspect for `item`.
+
+    Most components expose one backend via `backend`. A `Coordination`
+    component holds a lock backend and an election backend, either of which
+    may own a Provider, so both are returned. A plain item with no backend
+    is inspected directly.
+    """
+    lock_backend = getattr(item, "_lock_backend", None)
+    election_backend = getattr(item, "_election_backend", None)
+    if lock_backend is not None or election_backend is not None:
+        return [b for b in (lock_backend, election_backend) if b is not None]
+    return [getattr(item, "backend", item)]
 
 
 def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:

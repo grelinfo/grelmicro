@@ -1,13 +1,13 @@
-"""Tests for the Postgres Sync Adapter."""
+"""Tests for the Postgres Lock Adapter."""
 
 import pytest
 
+from grelmicro.coordination.postgres import PostgresLockAdapter
 from grelmicro.errors import OutOfContextError
 from grelmicro.providers.postgres import (
     PostgresProvider,
     PostgresProviderConfigError,
 )
-from grelmicro.sync.postgres import PostgresSyncAdapter
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -29,14 +29,14 @@ def test_table_name_invalid(table_name: str) -> None:
     with pytest.raises(
         ValueError, match=r"Table name '.*' is not a valid SQL identifier"
     ):
-        PostgresSyncAdapter(
+        PostgresLockAdapter(
             provider=PostgresProvider(URL), table_name=table_name
         )
 
 
 async def test_out_of_context_errors() -> None:
     """Adapter methods raise when called outside the context manager."""
-    backend = PostgresSyncAdapter(provider=PostgresProvider(URL))
+    backend = PostgresLockAdapter(provider=PostgresProvider(URL))
     name = "lock"
     token = "token"  # noqa: S105
 
@@ -56,7 +56,7 @@ def test_adapter_with_implicit_env_provider(
     """Without `provider=`, the adapter builds its own from env vars."""
     monkeypatch.setenv("POSTGRES_URL", URL)
 
-    backend = PostgresSyncAdapter()
+    backend = PostgresLockAdapter()
 
     assert backend.provider.url == URL
     assert backend._owns_provider is True
@@ -65,7 +65,7 @@ def test_adapter_with_implicit_env_provider(
 def test_adapter_borrows_external_provider() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = PostgresProvider(URL)
-    backend = PostgresSyncAdapter(provider=provider)
+    backend = PostgresLockAdapter(provider=provider)
 
     assert backend.provider is provider
     assert backend._owns_provider is False
@@ -77,7 +77,7 @@ def test_adapter_env_prefix_passed_to_implicit_provider(
     """`env_prefix=` reaches the implicit provider."""
     monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
 
-    backend = PostgresSyncAdapter(env_prefix="WRITE_POSTGRES_")
+    backend = PostgresLockAdapter(env_prefix="WRITE_POSTGRES_")
 
     assert backend.provider.url == URL
     assert backend.provider.env_prefix == "WRITE_POSTGRES_"
@@ -91,12 +91,12 @@ def test_env_validation_error_propagates(
     monkeypatch.delenv("POSTGRES_HOST", raising=False)
 
     with pytest.raises(PostgresProviderConfigError):
-        PostgresSyncAdapter()
+        PostgresLockAdapter()
 
 
 def test_custom_table_name() -> None:
     """Custom `table_name=` is stored on the adapter."""
-    backend = PostgresSyncAdapter(
+    backend = PostgresLockAdapter(
         provider=PostgresProvider(URL), table_name="my_locks"
     )
 
