@@ -6,6 +6,7 @@ and exposes a `@measure` decorator plus a Prometheus `/metrics` router.
 """
 
 from grelmicro.metrics._component import Metrics
+from grelmicro.metrics._measure import measure
 from grelmicro.metrics.config import (
     MetricsConfig,
     MetricsExporterType,
@@ -21,4 +22,5 @@ __all__ = [
     "MetricsError",
     "MetricsExporterType",
     "MetricsSettingsValidationError",
+    "measure",
 ]
