@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Move `LeaderElection` out of `grelmicro.sync` into a new `grelmicro.coordination` package. Import it from `grelmicro.coordination`. `Sync.leader_election()` is removed: register a `Coordination` component and call `micro.coordination.leader_election(...)`. Leader election now runs on a dedicated `LeaderElectionBackend`, not the lock `SyncBackend`, so it can use a different vendor than `Lock` (Redis for `Lock`, a Kubernetes Lease for leader election). Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+
 ### Features
 
+* ✨ Leader election leases carry a Kubernetes-style `LeaderRecord` (holder, lease duration, acquire and renew times, leadership transitions, and free-form metadata). Read it from `LeaderElection.record`, set the metadata via `LeaderElection(metadata=...)`. Metadata-storing backends ship for memory, Redis, Postgres, and Kubernetes Lease, resolved through `provider.leader_election()` or passed to `Coordination(...)` directly. Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
 * ✨ Add `grelmicro.testing.record(backend)` for protocol-level call assertions. It instruments a backend's public async methods in place and returns a `CallLog`, so the backend keeps its type and behavior while every call is recorded. Assert with `log.count(method, **kwargs)`, inspect `log.methods()`, or read the raw `log.calls`. Works like `pytest-mock`'s `mocker.spy`. Issue [#271](https://github.com/grelinfo/grelmicro/issues/271).
 * 📝 Correct the comparison page and capability matrix to show the Postgres and SQLite cache, rate limiter, and circuit breaker backends as shipped (they were stale-labeled "planned").
 * 📝 Add a "what grelmicro is not" line to the README and docs landing for sharper first-read positioning.

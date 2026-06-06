@@ -15,6 +15,7 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.cached import cached
 from grelmicro.cache.serializers import JsonSerializer
+from grelmicro.coordination import Coordination, LeaderElection
 from grelmicro.health import HealthChecks, HealthDetails
 from grelmicro.health.fastapi import health_router
 from grelmicro.log import configure
@@ -27,7 +28,7 @@ from grelmicro.resilience import (
     RateLimiters,
 )
 from grelmicro.resilience.errors import CircuitBreakerError
-from grelmicro.sync import LeaderElection, Lock, Sync
+from grelmicro.sync import Lock, Sync
 from grelmicro.task import Tasks
 
 logger = logging.getLogger("demo")
@@ -52,9 +53,10 @@ sync_backend = redis.sync()
 cache_backend = redis.cache()
 ratelimiter_backend = redis.ratelimiter()
 breaker_backend = postgres.breaker()
+leader_backend = redis.leader_election()
 
 tasks = Tasks()
-leader = LeaderElection("demo-leader", backend=sync_backend)
+leader = LeaderElection("demo-leader", backend=leader_backend)
 tasks.add_task(leader)
 
 health = HealthChecks()
@@ -67,6 +69,7 @@ micro = Grelmicro(
         Cache(cache_backend),
         RateLimiters(ratelimiter_backend),
         CircuitBreakers(breaker_backend),
+        Coordination(leader_backend),
         health,
         tasks,
     ]

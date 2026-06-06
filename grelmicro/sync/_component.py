@@ -8,7 +8,6 @@ from typing_extensions import Doc
 
 from grelmicro._component import instantiate_if_class
 from grelmicro.providers._base import Provider
-from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.lock import Lock
 from grelmicro.sync.tasklock import TaskLock
 
@@ -22,8 +21,9 @@ class Sync:
     """Sync component: wraps a `SyncBackend` and exposes lock primitives.
 
     Registered as `micro.sync` after `Grelmicro.use(Sync(...))`. Exposes
-    `lock(...)`, `task_lock(...)`, and `leader_election(...)` factories so
-    users do not need to pass `backend=` on every primitive.
+    `lock(...)` and `task_lock(...)` factories so users do not need to pass
+    `backend=` on every primitive. Leader election lives on the separate
+    `Coordination` component so it can run on a different backend.
 
     Accepts a `Provider` or a `SyncBackend`. When given a Provider, the
     component calls `provider.sync()` to build the matching adapter.
@@ -91,14 +91,6 @@ class Sync:
     def task_lock(self, name: str, **kwargs: Any) -> TaskLock:  # noqa: ANN401
         """Construct a `TaskLock` bound to this component's backend."""
         return TaskLock(name, backend=self._backend, **kwargs)
-
-    def leader_election(
-        self,
-        name: str,
-        **kwargs: Any,  # noqa: ANN401
-    ) -> LeaderElection:
-        """Construct a `LeaderElection` bound to this component's backend."""
-        return LeaderElection(name, backend=self._backend, **kwargs)
 
     async def __aenter__(self) -> Self:
         """Open the underlying backend."""

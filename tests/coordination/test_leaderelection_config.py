@@ -4,10 +4,13 @@ import pytest
 from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
-from grelmicro.sync import Sync
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.leaderelection import LeaderElection, LeaderElectionConfig
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.abc import LeaderElectionBackend
+from grelmicro.coordination.leaderelection import (
+    LeaderElection,
+    LeaderElectionConfig,
+)
+from grelmicro.coordination.memory import MemoryLeaderElectionBackend
 
 LEASE_KWARG = 12.0
 RETRY_KWARG = 1.0
@@ -18,9 +21,9 @@ DEFAULT_RETRY = 2.0
 
 
 @pytest.fixture
-def backend() -> SyncBackend:
+def backend() -> LeaderElectionBackend:
     """Return a memory backend usable without a running event loop."""
-    return MemorySyncAdapter()
+    return MemoryLeaderElectionBackend()
 
 
 async def test_release_is_noop_when_backend_was_never_resolved() -> None:
@@ -38,15 +41,15 @@ def test_construction_does_not_resolve(mocker: MockerFixture) -> None:
 
 async def test_backend_property_resolves_on_every_call() -> None:
     """`le.backend` consults the active `Grelmicro` app on each read."""
-    backend_instance = MemorySyncAdapter()
-    micro = Grelmicro(uses=[Sync(backend_instance)])
+    backend_instance = MemoryLeaderElectionBackend()
+    micro = Grelmicro(uses=[Coordination(backend_instance)])
     async with micro:
         le = LeaderElection("svc")
         assert le.backend is backend_instance
         assert le.backend is backend_instance
 
 
-def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:
+def test_programmatic_path_uses_kwargs(backend: LeaderElectionBackend) -> None:
     """Plain kwargs build a config, falling back to LeaderElectionConfig defaults."""
     le = LeaderElection(
         "cron",
@@ -59,7 +62,9 @@ def test_programmatic_path_uses_kwargs(backend: SyncBackend) -> None:
     assert le.config.retry_interval == RETRY_KWARG
 
 
-def test_declarative_path_uses_from_config(backend: SyncBackend) -> None:
+def test_declarative_path_uses_from_config(
+    backend: LeaderElectionBackend,
+) -> None:
     """`LeaderElection.from_config()` constructs from a name and a `LeaderElectionConfig`."""
     cfg = LeaderElectionConfig(
         worker="web-1",
@@ -72,7 +77,7 @@ def test_declarative_path_uses_from_config(backend: SyncBackend) -> None:
 
 
 def test_from_config_bypasses_env(
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`LeaderElection.from_config()` ignores env even when set."""
@@ -89,7 +94,7 @@ def test_from_config_bypasses_env(
 
 
 def test_environmental_path_reads_grel_prefixed_env(
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Env vars under ``GREL_LEADER_ELECTION_{NAME}_*`` populate unset fields."""
@@ -105,7 +110,7 @@ def test_environmental_path_reads_grel_prefixed_env(
 
 
 def test_kwargs_override_env(
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Caller kwargs win over env vars."""
@@ -117,7 +122,7 @@ def test_kwargs_override_env(
 
 
 def test_env_prefix_override(
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``env_prefix=`` replaces the auto-derived ``GREL_LEADER_ELECTION_{NAME}_``."""
@@ -133,7 +138,7 @@ def test_env_prefix_override(
 
 
 def test_env_load_false_ignores_env(
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``env_load=False`` skips env reads entirely."""
@@ -145,7 +150,7 @@ def test_env_load_false_ignores_env(
 
 
 def test_zero_config_uses_leaderelectionconfig_defaults(
-    backend: SyncBackend,
+    backend: LeaderElectionBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without env or kwargs, LeaderElectionConfig defaults take over."""
@@ -160,14 +165,16 @@ def test_zero_config_uses_leaderelectionconfig_defaults(
     assert le.config.retry_interval == DEFAULT_RETRY
 
 
-def test_worker_default_factory_generates_uuid(backend: SyncBackend) -> None:
+def test_worker_default_factory_generates_uuid(
+    backend: LeaderElectionBackend,
+) -> None:
     """An auto-generated worker id is set when none is provided."""
     le = LeaderElection("cron", backend=backend)
     assert le.config.worker
     assert le.config.worker != ""
 
 
-def test_worker_kwarg_passed_through(backend: SyncBackend) -> None:
+def test_worker_kwarg_passed_through(backend: LeaderElectionBackend) -> None:
     """An explicit worker kwarg overrides the default factory."""
     le = LeaderElection("cron", backend=backend, worker="web-1")
     assert le.config.worker == "web-1"

@@ -6,7 +6,7 @@ The `task` package provides a simple task scheduler that can be used to run task
     This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
 
 !!! warning "Per-process by default"
-    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](sync.md#task-lock) or [`LeaderElection`](sync.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.interval(...)` three times per tick.
+    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](sync.md#task-lock) or [`LeaderElection`](coordination.md). Without one of those, a 3-replica deployment runs the same `@tasks.interval(...)` three times per tick.
 
 The key features are:
 
@@ -95,7 +95,7 @@ Set `max_lock_seconds` to enable distributed locking: the task runs at most once
 
 ### Leader Gating
 
-Restrict the task to the leader worker with a [Leader Election](sync.md#leader-election), so only one worker executes it. Setting `leader` also enables distributed locking, with `max_lock_seconds` defaulting to `seconds * 5`:
+Restrict the task to the leader worker with a [Leader Election](coordination.md), so only one worker executes it. Setting `leader` also enables distributed locking, with `max_lock_seconds` defaulting to `seconds * 5`:
 
 ```python
 --8<-- "task/interval_leader.py"
@@ -130,7 +130,7 @@ When combining leader gating, distributed locking, and a resource lock, the sync
 
 | Order | Primitive | Purpose |
 |-------|-----------|---------|
-| 1 | [`LeaderElection`](sync.md#leader-election) | Rejects non-leader workers immediately without acquiring any lock, which avoids unnecessary contention. |
+| 1 | [`LeaderElection`](coordination.md) | Rejects non-leader workers immediately without acquiring any lock, which avoids unnecessary contention. |
 | 2 | [`TaskLock`](sync.md#task-lock) | Guarantees at-most-once execution per interval. It is acquired after leadership is confirmed so the TTL window stays short. |
 | 3 | [`Lock`](sync.md#lock) | User-provided lock for shared-resource access. It is acquired last so the resource is held only during actual execution. |
 

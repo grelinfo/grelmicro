@@ -9,8 +9,8 @@ from typing_extensions import Doc
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
+    from grelmicro.coordination.leaderelection import LeaderElection
     from grelmicro.sync.abc import SyncBackend, SyncPrimitive
-    from grelmicro.sync.leaderelection import LeaderElection
     from grelmicro.task.abc import Task
 
 

@@ -7,7 +7,7 @@ import pytest
 from grelmicro import Component, Grelmicro
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync import LeaderElection, Lock, Sync, TaskLock
+from grelmicro.sync import Lock, Sync, TaskLock
 from grelmicro.sync.memory import MemorySyncAdapter
 from grelmicro.sync.postgres import PostgresSyncAdapter
 from grelmicro.sync.redis import RedisSyncAdapter
@@ -53,15 +53,6 @@ def test_sync_task_lock_factory_binds_backend() -> None:
     task_lock = sync.task_lock("cleanup")
     assert isinstance(task_lock, TaskLock)
     assert task_lock.backend is backend
-
-
-def test_sync_leader_election_factory_binds_backend() -> None:
-    """`sync.leader_election(name)` creates a `LeaderElection` bound to the backend."""
-    backend = MemorySyncAdapter()
-    sync = Sync(backend)
-    election = sync.leader_election("primary")
-    assert isinstance(election, LeaderElection)
-    assert election.backend is backend
 
 
 def test_sync_backend_property() -> None:

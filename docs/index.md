@@ -53,7 +53,8 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | Module | Summary |
 |---|---|
 | [**Cache**](cache.md) | `@cached` decorator with local, distributed, and early (XFetch) stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
-| [**Synchronization**](sync.md) | Distributed `Lock`, `TaskLock`, `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
+| [**Synchronization**](sync.md) | Distributed `Lock` and `TaskLock`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
+| [**Coordination**](coordination.md) | `LeaderElection` with a record-carrying lease (holder, times, transitions, metadata). Redis, PostgreSQL, Kubernetes Lease, in-memory. |
 | [**Task Scheduler**](task.md) | Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement. |
 | [**Resilience**](resilience/index.md) | [Circuit Breaker](resilience/circuit-breaker.md) and [Rate Limiter](resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
 | [**Logging**](logging.md) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
@@ -173,7 +174,8 @@ from grelmicro.resilience import (
     RateLimiters,
 )
 from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
-from grelmicro.sync import LeaderElection, Lock, Sync
+from grelmicro.coordination import Coordination, LeaderElection
+from grelmicro.sync import Lock, Sync
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
@@ -181,8 +183,6 @@ logger = logging.getLogger(__name__)
 # === grelmicro app: one container, one lifespan ===
 tasks = Tasks()
 health = HealthChecks()
-leader = LeaderElection("leader-election")
-tasks.add_task(leader)
 
 redis = RedisProvider("redis://localhost:6379/0")
 
@@ -193,6 +193,10 @@ sync_backend = redis.sync()
 cache_backend = redis.cache()
 ratelimiter_backend = redis.ratelimiter()
 breaker_backend = MemoryCircuitBreakerAdapter()
+leader_backend = redis.leader_election()
+
+leader = LeaderElection("leader-election", backend=leader_backend)
+tasks.add_task(leader)
 
 micro = Grelmicro(uses=[
     redis,
@@ -200,6 +204,7 @@ micro = Grelmicro(uses=[
     Cache(cache_backend),
     RateLimiters(ratelimiter_backend),
     CircuitBreakers(breaker_backend),
+    Coordination(leader_backend),
     tasks,
     health,
 ])

@@ -10,10 +10,10 @@ from uuid import UUID
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
+from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.errors import WouldBlockError
 from grelmicro.sync.abc import SyncBackend, SyncPrimitive
 from grelmicro.sync.errors import LockNotOwnedError
-from grelmicro.sync.leaderelection import LeaderElection
 from grelmicro.sync.tasklock import TaskLock
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.abc import Task

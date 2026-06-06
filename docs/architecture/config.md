@@ -99,7 +99,7 @@ We keep `self._config` as the single source of truth. If a future profile shows 
 |---|---|
 | `LockConfig` | `grelmicro.sync.lock` |
 | `TaskLockConfig` | `grelmicro.sync.tasklock` |
-| `LeaderElectionConfig` | `grelmicro.sync.leaderelection` |
+| `LeaderElectionConfig` | `grelmicro.coordination.leaderelection` |
 | `CircuitBreakerConfig` | `grelmicro.resilience.circuitbreaker` |
 | `RateLimiterConfig` (discriminated union) | `grelmicro.resilience.ratelimiter` |
 | `RateLimitFilterConfig` | `grelmicro.log` |

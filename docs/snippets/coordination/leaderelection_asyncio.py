@@ -1,8 +1,9 @@
 import asyncio
 
-from grelmicro.sync import LeaderElection
+from grelmicro.coordination import LeaderElection
+from grelmicro.coordination.memory import MemoryLeaderElectionBackend
 
-leader = LeaderElection("cluster_group")
+leader = LeaderElection("cluster_group", backend=MemoryLeaderElectionBackend())
 
 
 async def main():
