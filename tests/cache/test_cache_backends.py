@@ -286,6 +286,19 @@ async def test_overwrite_replaces_tags(backend: CacheBackend) -> None:
     assert await backend.get(key="rt_k") is None
 
 
+async def test_overwrite_with_empty_tags_clears_tags(
+    backend: CacheBackend,
+) -> None:
+    """Re-setting a tagged key with no tags drops the old tag link."""
+    await backend.set(key="et_k", value=b"v", ttl=60, tags=["old"])
+    await backend.set(key="et_k", value=b"v2", ttl=60)  # no tags
+
+    await backend.delete_tags(tags=["old"])
+
+    # The key carries no tags now, so deleting "old" must not remove it.
+    assert await backend.get(key="et_k") == b"v2"
+
+
 async def test_clear_sweeps_tags(backend: CacheBackend) -> None:
     """Test that clear removes tagged entries and their tag bookkeeping."""
     await backend.set(key="ct_a", value=b"a", ttl=60, tags=["g"])

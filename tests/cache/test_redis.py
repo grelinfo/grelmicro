@@ -95,31 +95,38 @@ class TestRedisCacheAdapterAsyncMethods:
         client.get.assert_awaited_once_with("ns:k")
 
     async def test_set_passes_key_value_ttl(self) -> None:
-        """`set` forwards the prefixed key, value, and TTL."""
+        """`set` runs the reconcile script with the prefixed key, value, TTL."""
         backend, client = _build(prefix="p:")
-        client.set = AsyncMock()
+        client.eval = AsyncMock()
 
         await backend.set(key="key", value=b"value", ttl=30)
 
-        client.set.assert_awaited_once_with("p:key", b"value", px=30000)
+        # script, numkeys, value key, reverse-tag set, value, px.
+        client.eval.assert_awaited_once_with(
+            ANY, 2, "p:key", "p:cache:rtag:key", b"value", "30000"
+        )
 
     async def test_set_without_prefix(self) -> None:
         """`set` uses the bare key when no prefix is configured."""
         backend, client = _build()
-        client.set = AsyncMock()
+        client.eval = AsyncMock()
 
         await backend.set(key="bare", value=b"data", ttl=60)
 
-        client.set.assert_awaited_once_with("bare", b"data", px=60000)
+        client.eval.assert_awaited_once_with(
+            ANY, 2, "bare", "cache:rtag:bare", b"data", "60000"
+        )
 
     async def test_set_float_ttl(self) -> None:
         """`set` passes fractional TTL values through to Redis."""
         backend, client = _build()
-        client.set = AsyncMock()
+        client.eval = AsyncMock()
 
         await backend.set(key="k", value=b"v", ttl=0.5)
 
-        client.set.assert_awaited_once_with("k", b"v", px=500)
+        client.eval.assert_awaited_once_with(
+            ANY, 2, "k", "cache:rtag:k", b"v", "500"
+        )
 
     async def test_delete(self) -> None:
         """`delete` runs the delete-with-tags script on the prefixed key."""

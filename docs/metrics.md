@@ -11,7 +11,7 @@ The `metrics` module records OpenTelemetry metrics for your app. Add one `Metric
 `Metrics()` installs an OpenTelemetry `MeterProvider` for the app's lifetime. The provider is installed on enter and restored to the prior global on exit, so sequential apps in tests do not stack providers.
 
 !!! tip "Install"
-    Metrics need the `opentelemetry` extra: `pip install "grelmicro[opentelemetry]"`. See the [installation guide](installation.md) for `uv` and `poetry`. Without the extra, every metric call is a no-op and your app still runs.
+    Metrics need the `opentelemetry` extra: `pip install "grelmicro[opentelemetry]"`. See the [installation guide](installation.md) for `uv` and `poetry`. Without the extra, the metric calls built into every component are no-ops, so an app that does not register `Metrics()` runs normally. Registering a `Metrics()` component does require the extra: it raises `DependencyNotFoundError` at startup when OpenTelemetry is missing.
 
 ## Exporters
 

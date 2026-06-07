@@ -27,7 +27,7 @@ class Coordination:
     """Coordination component: wraps backends and exposes coordination primitives.
 
     Registered as `micro.coordination` after `Grelmicro.use(Coordination(...))`.
-    Exposes `lock(...)`, `task_lock(...)`, and `leader_election(...)` so users do
+    Exposes `lock(...)`, `tasklock(...)`, and `leaderelection(...)` so users do
     not need to pass `backend=` on every primitive.
 
     A single positional `Provider` resolves every primitive: the component calls

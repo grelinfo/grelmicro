@@ -32,10 +32,10 @@ class SQLiteCacheAdapter:
     whenever the key row goes away, so deleting by tag, by key, or by
     janitor never leaves an orphan tag row behind.
 
-    Reads and writes run inside a `BEGIN IMMEDIATE` transaction. The
-    provider's lock serializes the single connection within the process,
-    and the transaction's write lock serializes across processes sharing
-    the same file. State survives process restarts.
+    Writes run inside a `BEGIN IMMEDIATE` transaction (reads are a plain
+    `SELECT`). The provider's lock serializes the single connection within
+    the process, and the transaction's write lock serializes across
+    processes sharing the same file. State survives process restarts.
 
     Pass an explicit `provider=` to share a connection with other
     components, or rely on the default `env_prefix=` to build one from
@@ -218,8 +218,11 @@ class SQLiteCacheAdapter:
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
+        # `foreign_keys` is a per-connection setting, so it must be on whether
+        # or not we own the schema. Otherwise the tag rows' `ON DELETE CASCADE`
+        # is silently inert when `auto_migrate=False`.
+        await self._provider.client.execute("PRAGMA foreign_keys=ON;")
         if self._auto_migrate:
-            await self._provider.client.execute("PRAGMA foreign_keys=ON;")
             await self._provider.client.executescript(
                 self._SQL_CREATE_TABLE.format(table_name=self._table_name)
             )
