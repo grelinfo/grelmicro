@@ -49,8 +49,8 @@ The instance name (`"cart"`) becomes the namespace inside the prefix. Names with
 | Component | Prefix |
 |---|---|
 | `Lock("cart")` | `GREL_LOCK_CART_` |
-| `TaskLock("etl")` | `GREL_TASK_LOCK_ETL_` |
-| `LeaderElection("svc")` | `GREL_LEADER_ELECTION_SVC_` |
+| `TaskLock("etl")` | `GREL_TASKLOCK_ETL_` |
+| `LeaderElection("svc")` | `GREL_LEADERELECTION_SVC_` |
 | `RateLimitFilter()` | `GREL_RATE_LIMIT_FILTER_` |
 | `DuplicateFilter()` | `GREL_DUPLICATE_FILTER_` |
 | `HealthChecks()` | `GREL_HEALTH_` |

@@ -430,7 +430,7 @@ directly inside an `asyncio.TaskGroup`:
 
 `LeaderElection` follows the three-paths configuration contract. The lease timing
 fields (`lease_duration`, `renew_deadline`, `retry_interval`, `backend_timeout`,
-`error_interval`) resolve programmatically, from `GREL_LEADER_ELECTION_{NAME}_*`
+`error_interval`) resolve programmatically, from `GREL_LEADERELECTION_{NAME}_*`
 environment variables, or from a pre-built `LeaderElectionConfig`. See
 [Configuration](config.md) for the shared rules.
 

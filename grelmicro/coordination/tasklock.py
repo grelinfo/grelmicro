@@ -134,7 +134,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 before this duration has elapsed. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
-                `GREL_TASK_LOCK_{NAME_UPPER}_MIN_LOCK_SECONDS` if
+                `GREL_TASKLOCK_{NAME_UPPER}_MIN_LOCK_SECONDS` if
                 present, otherwise falls back to the
                 `TaskLockConfig` default.
                 """
@@ -149,7 +149,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 Default: 60. Acts as the TTL on acquire. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
-                `GREL_TASK_LOCK_{NAME_UPPER}_MAX_LOCK_SECONDS` if
+                `GREL_TASKLOCK_{NAME_UPPER}_MAX_LOCK_SECONDS` if
                 present, otherwise falls back to the
                 `TaskLockConfig` default.
                 """
@@ -161,7 +161,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: `GREL_TASK_LOCK_{NAME_UPPER}_`. Set this to
+                Default: `GREL_TASKLOCK_{NAME_UPPER}_`. Set this to
                 a custom prefix when the application uses a different
                 naming convention.
                 """
@@ -189,7 +189,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 "min_lock_seconds": min_lock_seconds,
                 "max_lock_seconds": max_lock_seconds,
             },
-            env_prefix=env_prefix or f"GREL_TASK_LOCK_{env_segment(name)}_",
+            env_prefix=env_prefix or f"GREL_TASKLOCK_{env_segment(name)}_",
             env_load=env_load,
         )
         self._setup(name, config, backend)
