@@ -91,7 +91,9 @@ def _signature(obj: object) -> str | None:
         for param in sig.parameters.values()
     ]
     return str(
-        sig.replace(parameters=params, return_annotation=inspect.Signature.empty)
+        sig.replace(
+            parameters=params, return_annotation=inspect.Signature.empty
+        )
     )
 
 
