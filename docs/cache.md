@@ -302,7 +302,9 @@ async def get_homepage_feed() -> dict:
 Set `stale_ttl` to keep serving the last good value when a recompute fails. Each result is also kept as a fallback copy for `ttl + stale_ttl` seconds. After the TTL, the next miss recomputes as usual, but if that recompute raises, the most recent value is served instead of propagating the error, for up to `stale_ttl` seconds past the TTL.
 
 ```python
-@cached(cache, ttl=60, stale_ttl=600)
+cache = TTLCache(ttl=60)
+
+@cached(cache, stale_ttl=600)
 async def get_exchange_rates() -> dict:
     return await rates_api.fetch()   # a flaky external call
 ```

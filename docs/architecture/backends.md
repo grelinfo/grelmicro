@@ -20,15 +20,15 @@ Users construct **Providers**, attach **Components** that share each Provider, a
 
 ## Distribution model
 
-Not every Pattern needs a backend, and the ones that do not all need the same kind. Three tiers decide whether you register a Component at all.
+Not every Pattern needs a backend, and the ones that do behave differently when one is missing. What a Pattern does without a registered backend sorts it into three tiers.
 
-**Distributed-mandatory.** `Lock`, `TaskLock`, `LeaderElection`, and the `@cron` schedule only mean something against a shared store: a lock that is local to one process is not a lock. They have no local fallback, so using one without a registered `Coordination` backend raises. Because every coordination Pattern runs on the same store, one `Coordination(provider)` wires the whole domain at once.
+**Backend required.** `Lock`, `TaskLock`, and `LeaderElection` only mean something against a shared store: a lock local to one process is not a lock. They have no safe local fallback, so using one without a registered `Coordination` backend raises.
 
-**Local-first, shared-optional.** `CircuitBreaker` and `RateLimiter` work per process out of the box and fall back to an in-process backend when nothing is registered. A circuit breaker is local by default on purpose: each replica trips on the failures it sees. Sharing is a deliberate opt-in, and the safe default differs per Pattern, so each has its own Component (`CircuitBreakers`, `RateLimiters`). Register `CircuitBreakers(redis)` only when one replica's open circuit should short-circuit the fleet, and `RateLimiters(redis)` only when the quota is global. Keeping them separate means opting rate limiting into a shared store does not also distribute your circuit breakers.
+**Backend optional, degrades safely.** `CircuitBreaker`, `RateLimiter`, and the `@cron` schedule all run without a backend, they just stop coordinating across replicas. A circuit breaker trips per replica, a rate limiter counts per replica, and a `@cron` task runs on every worker instead of once across the fleet. Sharing is a deliberate opt-in, and the safe default differs per Pattern: a circuit breaker is best left local (each replica reacts to what it sees), a rate limiter is often global, and a cron task usually wants the schedule backend so it fires once. Resilience keeps `CircuitBreakers` and `RateLimiters` as separate Components so opting rate limiting into a shared store does not also distribute your circuit breakers.
 
 **Purely local.** `Retry`, `Timeout`, `Bulkhead`, `Shield`, and `Fallback` hold no shared state and never take a backend. Construct and use them directly.
 
-This is why `Coordination` is a single component for its whole domain while resilience exposes one component per shared Pattern: coordination has one mandatory backend decision, resilience has independent per-Pattern ones.
+`Coordination` groups the coordination backends (lock, leader election, schedule) under one Component because they belong to one domain, though you can still wire each to a different backend (`Coordination(lock=..., election=..., schedule=...)`). Resilience instead exposes one Component per shared Pattern, because each carries an independent sharing decision.
 
 ## Construction vs registration
 
