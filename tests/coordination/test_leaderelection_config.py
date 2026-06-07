@@ -154,12 +154,8 @@ def test_zero_config_uses_leaderelectionconfig_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without env or kwargs, LeaderElectionConfig defaults take over."""
-    monkeypatch.delenv(
-        "GREL_LEADERELECTION_CRON_LEASE_DURATION", raising=False
-    )
-    monkeypatch.delenv(
-        "GREL_LEADERELECTION_CRON_RETRY_INTERVAL", raising=False
-    )
+    monkeypatch.delenv("GREL_LEADERELECTION_CRON_LEASE_DURATION", raising=False)
+    monkeypatch.delenv("GREL_LEADERELECTION_CRON_RETRY_INTERVAL", raising=False)
     le = LeaderElection("cron", backend=backend)
     assert le.config.lease_duration == DEFAULT_LEASE
     assert le.config.retry_interval == DEFAULT_RETRY
