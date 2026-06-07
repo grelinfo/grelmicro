@@ -145,6 +145,17 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = 3
 
+    max_seconds: Annotated[
+        PositiveFloat | None,
+        Doc(
+            "Optional wall-clock budget in seconds, measured from the "
+            "first attempt. Retrying stops as soon as either ``attempts`` "
+            "is reached or this budget elapses, whichever comes first. The "
+            "budget is checked between attempts, so one backoff may run "
+            "slightly past it. ``None`` (default) means no time limit."
+        ),
+    ] = None
+
     when: Annotated[
         Match,
         Doc(
@@ -236,6 +247,7 @@ class RetryAttempt:
         "_attempts",
         "_loop",
         "_matcher",
+        "_max_seconds",
         "_started_at",
         "delay_before",
         "number",
@@ -250,6 +262,7 @@ class RetryAttempt:
         matcher: Matcher,
         loop: _AttemptLoop,
         started_at: float,
+        max_seconds: float | None,
     ) -> None:
         """Initialize one retry attempt."""
         self.number = number
@@ -262,6 +275,7 @@ class RetryAttempt:
         self._matcher = matcher
         self._loop = loop
         self._started_at = started_at
+        self._max_seconds = max_seconds
 
     async def __aenter__(self) -> Self:
         """Enter the attempt context."""
@@ -300,13 +314,24 @@ class RetryAttempt:
             return False
         if not self._matcher(Outcome.from_exception(exc)):
             return False
-        if self.number >= self._attempts:
-            elapsed = clock_monotonic() - self._started_at
+        elapsed = clock_monotonic() - self._started_at
+        attempts_done = self.number >= self._attempts
+        time_done = (
+            self._max_seconds is not None and elapsed >= self._max_seconds
+        )
+        if attempts_done or time_done:
             backoff_name = self._loop.backoff_name
-            exc.add_note(
-                f"retry: {self._attempts}/{self._attempts} attempts "
-                f"exhausted in {elapsed:.2f}s ({backoff_name} backoff)"
-            )
+            if attempts_done:
+                exc.add_note(
+                    f"retry: {self._attempts}/{self._attempts} attempts "
+                    f"exhausted in {elapsed:.2f}s ({backoff_name} backoff)"
+                )
+            else:
+                exc.add_note(
+                    f"retry: {self._max_seconds}s budget elapsed after "
+                    f"{self.number} attempt(s) in {elapsed:.2f}s "
+                    f"({backoff_name} backoff)"
+                )
             return False
         return True
 
@@ -352,6 +377,7 @@ async def _async_iter(
             matcher=matcher,
             loop=loop,
             started_at=started_at,
+            max_seconds=config.max_seconds,
         )
         if loop.done:
             return
@@ -377,6 +403,7 @@ def _sync_iter(
             matcher=matcher,
             loop=loop,
             started_at=started_at,
+            max_seconds=config.max_seconds,
         )
         if loop.done:
             return
@@ -424,12 +451,24 @@ async def _run_async(
         except Exception as exc:
             if not matcher(Outcome.from_exception(exc)):
                 raise
-            if number >= config.attempts:
-                exc.add_note(
-                    f"retry: {config.attempts}/{config.attempts} attempts "
-                    f"exhausted in {clock_monotonic() - started_at:.2f}s "
-                    f"({backoff_name} backoff)"
-                )
+            elapsed = clock_monotonic() - started_at
+            attempts_done = number >= config.attempts
+            time_done = (
+                config.max_seconds is not None and elapsed >= config.max_seconds
+            )
+            if attempts_done or time_done:
+                if attempts_done:
+                    exc.add_note(
+                        f"retry: {config.attempts}/{config.attempts} "
+                        f"attempts exhausted in {elapsed:.2f}s "
+                        f"({backoff_name} backoff)"
+                    )
+                else:
+                    exc.add_note(
+                        f"retry: {config.max_seconds}s budget elapsed "
+                        f"after {number} attempt(s) in {elapsed:.2f}s "
+                        f"({backoff_name} backoff)"
+                    )
                 _emit_retry(name, started_at=started_at, outcome="error")
                 raise
             delay = strategy.delay(number)
@@ -438,7 +477,10 @@ async def _run_async(
             _emit_retry(name, started_at=started_at, outcome="success")
             return result
         last_result = result
-        if number >= config.attempts:
+        if number >= config.attempts or (
+            config.max_seconds is not None
+            and clock_monotonic() - started_at >= config.max_seconds
+        ):
             _emit_retry(name, started_at=started_at, outcome="error")
             return last_result
         delay = strategy.delay(number)
@@ -467,12 +509,24 @@ def _run_sync(
         except Exception as exc:
             if not matcher(Outcome.from_exception(exc)):
                 raise
-            if number >= config.attempts:
-                exc.add_note(
-                    f"retry: {config.attempts}/{config.attempts} attempts "
-                    f"exhausted in {clock_monotonic() - started_at:.2f}s "
-                    f"({backoff_name} backoff)"
-                )
+            elapsed = clock_monotonic() - started_at
+            attempts_done = number >= config.attempts
+            time_done = (
+                config.max_seconds is not None and elapsed >= config.max_seconds
+            )
+            if attempts_done or time_done:
+                if attempts_done:
+                    exc.add_note(
+                        f"retry: {config.attempts}/{config.attempts} "
+                        f"attempts exhausted in {elapsed:.2f}s "
+                        f"({backoff_name} backoff)"
+                    )
+                else:
+                    exc.add_note(
+                        f"retry: {config.max_seconds}s budget elapsed "
+                        f"after {number} attempt(s) in {elapsed:.2f}s "
+                        f"({backoff_name} backoff)"
+                    )
                 _emit_retry(name, started_at=started_at, outcome="error")
                 raise
             delay = strategy.delay(number)
@@ -481,7 +535,10 @@ def _run_sync(
             _emit_retry(name, started_at=started_at, outcome="success")
             return result
         last_result = result
-        if number >= config.attempts:
+        if number >= config.attempts or (
+            config.max_seconds is not None
+            and clock_monotonic() - started_at >= config.max_seconds
+        ):
             _emit_retry(name, started_at=started_at, outcome="error")
             return last_result
         delay = strategy.delay(number)
@@ -533,6 +590,14 @@ class Retry(Reconfigurable[RetryConfig]):
             PositiveInt | None,
             Doc("Total calls including the first. Default ``3``."),
         ] = None,
+        max_seconds: Annotated[
+            PositiveFloat | None,
+            Doc(
+                "Optional wall-clock budget in seconds. Retrying stops "
+                "when either ``attempts`` or this budget is reached, "
+                "whichever comes first. Default no time limit."
+            ),
+        ] = None,
         config: Annotated[
             RetryConfig | None,
             Doc(
@@ -552,6 +617,7 @@ class Retry(Reconfigurable[RetryConfig]):
         self._name = name
         kwargs: dict[str, object | None] = {
             "attempts": attempts,
+            "max_seconds": max_seconds,
             "when": when,
             "backoff": backoff,
         }
@@ -607,6 +673,13 @@ class Retry(Reconfigurable[RetryConfig]):
             PositiveInt,
             Doc("Total calls including the first."),
         ] = 3,
+        max_seconds: Annotated[
+            PositiveFloat | None,
+            Doc(
+                "Optional wall-clock budget in seconds, whichever comes "
+                "first with ``attempts``."
+            ),
+        ] = None,
         base_delay: Annotated[
             PositiveFloat,
             Doc("Initial delay in seconds before the first retry."),
@@ -638,6 +711,7 @@ class Retry(Reconfigurable[RetryConfig]):
             backoff,
             when=when,
             attempts=attempts,
+            max_seconds=max_seconds,
             env_load=env_load,
         )
 
@@ -654,6 +728,13 @@ class Retry(Reconfigurable[RetryConfig]):
             PositiveInt,
             Doc("Total calls including the first."),
         ] = 3,
+        max_seconds: Annotated[
+            PositiveFloat | None,
+            Doc(
+                "Optional wall-clock budget in seconds, whichever comes "
+                "first with ``attempts``."
+            ),
+        ] = None,
         delay: Annotated[
             PositiveFloat,
             Doc("Fixed delay in seconds between retries."),
@@ -675,6 +756,7 @@ class Retry(Reconfigurable[RetryConfig]):
             backoff,
             when=when,
             attempts=attempts,
+            max_seconds=max_seconds,
             env_load=env_load,
         )
 

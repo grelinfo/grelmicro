@@ -113,7 +113,7 @@ Decorator and async context manager with stop / wait / retry conditions.
 
 | Axis | [`tenacity`](https://github.com/jd/tenacity) | [`backoff`](https://github.com/litl/backoff) | grelmicro `Retry` |
 |---|---|---|---|
-| Stop conditions | rich (`stop_after_attempt`, `stop_after_delay`, ...) | basic | `attempts=` (count). Time-based stop planned. |
+| Stop conditions | rich (`stop_after_attempt`, `stop_after_delay`, ...) | basic | `attempts=` (count) and `max_seconds=` (time budget), whichever comes first. |
 | Wait strategies | rich (`wait_exponential`, `wait_chain`, ...) | exponential, fibonacci, constant | exponential, constant, linear, fibonacci, random |
 | Retry condition | `retry_if_*` factories, `\|`/`&` operators | exception type or predicate | `Match.exception(...)`, `Match.result(...)`, `Match.exception_message(...)`, `Match.exception_cause(...)`, plus `not_*` twins, `\|`/`&` operators |
 | Async support | yes | yes | yes |

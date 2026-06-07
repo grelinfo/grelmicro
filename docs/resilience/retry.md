@@ -45,6 +45,14 @@ policy = Retry.exponential("payments", when=httpx.HTTPError, attempts=5)
 polling = Retry.constant("wait_job", when=NotReady, attempts=20, delay=1.0)
 ```
 
+Add `max_seconds=` to cap the total time spent retrying. Retrying stops when
+either `attempts` or the time budget is reached, whichever comes first:
+
+```python
+# Up to 5 attempts, but never more than 30 seconds in total.
+policy = Retry.exponential("payments", when=httpx.HTTPError, max_seconds=30.0)
+```
+
 ??? note "How backoff and jitter work"
 
     **Exponential.** The raw wait before retry `N` is `min(base_delay * 2 ** (N - 1), max_delay)`. It doubles each attempt until it reaches the cap. With the defaults (`base_delay=0.1`, `max_delay=30.0`), the raw wait is `0.1s`, `0.2s`, `0.4s`, `0.8s`, `1.6s`, ..., capped at `30.0s`.
