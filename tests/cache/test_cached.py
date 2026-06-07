@@ -4,13 +4,14 @@ import asyncio
 import threading
 import time
 from contextlib import suppress
+from unittest.mock import patch
 
 import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.cache.serializers import PickleSerializer
+from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
@@ -1473,3 +1474,147 @@ class TestCachedTags:
         asyncio.run(run())
 
         assert "user:5" in backend._tag_keys
+
+
+class TestCachedStaleOnError:
+    """Test @cached(stale_ttl=...) serve-stale-on-error."""
+
+    def _cache(self) -> TTLCache:
+        return TTLCache(
+            ttl=5, backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+        )
+
+    async def test_invalid_stale_ttl_rejected(self) -> None:
+        """A non-positive stale_ttl is rejected at decoration time."""
+        cache = self._cache()
+        with pytest.raises(ValueError, match="stale_ttl"):
+            cached(cache, stale_ttl=0)
+        with pytest.raises(ValueError, match="stale_ttl"):
+            cached(cache, stale_ttl=-1)
+
+    async def test_serves_stale_when_recompute_fails(self) -> None:
+        """After the TTL, a failing recompute serves the last good value."""
+        cache = self._cache()
+        fail = False
+        calls = 0
+
+        @cached(cache, stale_ttl=100)
+        async def fetch() -> int:
+            nonlocal calls
+            calls += 1
+            if fail:
+                msg = "down"
+                raise RuntimeError(msg)
+            return calls
+
+        now = time.monotonic()
+        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+            assert await fetch() == EXPECTED_CALL_COUNT_1
+
+        fail = True
+        # Primary entry expired (ttl=5), stale reserve alive (ttl=105).
+        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+            assert await fetch() == EXPECTED_CALL_COUNT_1
+
+    async def test_propagates_when_reserve_also_expired(self) -> None:
+        """Past the stale window the original error propagates."""
+        cache = self._cache()
+        fail = False
+
+        @cached(cache, stale_ttl=100)
+        async def fetch() -> int:
+            if fail:
+                msg = "down"
+                raise RuntimeError(msg)
+            return 1
+
+        now = time.monotonic()
+        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+            assert await fetch() == EXPECTED_CALL_COUNT_1
+
+        fail = True
+        with (
+            patch("grelmicro.cache.memory.monotonic", return_value=now + 200),
+            pytest.raises(RuntimeError, match="down"),
+        ):
+            await fetch()
+
+    async def test_no_stale_ttl_propagates_error(self) -> None:
+        """Without stale_ttl, a failing recompute propagates as usual."""
+        cache = self._cache()
+        fail = False
+
+        @cached(cache)
+        async def fetch() -> int:
+            if fail:
+                msg = "down"
+                raise RuntimeError(msg)
+            return 1
+
+        now = time.monotonic()
+        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+            assert await fetch() == EXPECTED_CALL_COUNT_1
+
+        fail = True
+        with (
+            patch("grelmicro.cache.memory.monotonic", return_value=now + 10),
+            pytest.raises(RuntimeError, match="down"),
+        ):
+            await fetch()
+
+    async def test_fresh_hit_never_recomputes(self) -> None:
+        """A within-TTL hit never reaches the recompute or stale path."""
+        cache = self._cache()
+        calls = 0
+
+        @cached(cache, stale_ttl=100)
+        async def fetch() -> int:
+            nonlocal calls
+            calls += 1
+            return calls
+
+        assert await fetch() == EXPECTED_CALL_COUNT_1
+        assert await fetch() == EXPECTED_CALL_COUNT_1
+        assert calls == EXPECTED_CALL_COUNT_1
+
+
+class TestSyncCachedStaleOnError:
+    """Test sync @cached(stale_ttl=...) serve-stale-on-error."""
+
+    async def test_serves_stale_when_recompute_fails(self) -> None:
+        """A failing sync recompute serves the last good value."""
+        cache = _make_cache(ttl=5)
+        fail = False
+        calls = 0
+
+        @cached(cache, stale_ttl=100)
+        def fetch() -> int:
+            nonlocal calls
+            calls += 1
+            if fail:
+                msg = "down"
+                raise RuntimeError(msg)
+            return calls
+
+        now = time.monotonic()
+        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+            first = await asyncio.to_thread(fetch)
+        assert first == EXPECTED_CALL_COUNT_1
+
+        fail = True
+        # Primary entry expired (ttl=5), stale reserve alive (ttl=105).
+        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+            served = await asyncio.to_thread(fetch)
+        assert served == EXPECTED_CALL_COUNT_1
+
+    async def test_propagates_when_no_reserve(self) -> None:
+        """A cold sync failure with no stored value propagates the error."""
+        cache = _make_cache(ttl=5)
+
+        @cached(cache, stale_ttl=100)
+        def fetch() -> int:
+            msg = "down"
+            raise RuntimeError(msg)
+
+        with pytest.raises(RuntimeError, match="down"):
+            await asyncio.to_thread(fetch)

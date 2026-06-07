@@ -909,3 +909,75 @@ class TestSetWithTags:
 
         assert backend._tag_keys["t1"] == {"cache:a"}
         assert backend._tag_keys["t2"] == {"cache:a"}
+
+
+class TestStaleReserve:
+    """Test the stale-reserve copy behind `stale_ttl`."""
+
+    def _cache(self) -> TTLCache:
+        return TTLCache(
+            ttl=5, backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+        )
+
+    async def test_set_rejects_non_positive_stale_ttl(self) -> None:
+        """`set` validates `stale_ttl` like `ttl`."""
+        cache = self._cache()
+        with pytest.raises(ValueError, match="stale_ttl"):
+            await cache.set("k", "v", stale_ttl=0)
+        with pytest.raises(ValueError, match="stale_ttl"):
+            await cache.set("k", "v", stale_ttl=-1)
+
+    async def test_get_or_set_serves_stale_on_factory_error(self) -> None:
+        """A failing factory serves the stale reserve within `stale_ttl`."""
+        cache = self._cache()
+
+        now = monotonic()
+        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+            assert (
+                await cache.get_or_set("k", lambda: "v1", stale_ttl=100) == "v1"
+            )
+
+        def boom() -> str:
+            msg = "down"
+            raise RuntimeError(msg)
+
+        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+            assert await cache.get_or_set("k", boom, stale_ttl=100) == "v1"
+
+    async def test_get_or_set_propagates_without_stale_ttl(self) -> None:
+        """Without `stale_ttl`, a failing factory propagates."""
+        cache = self._cache()
+
+        now = monotonic()
+        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+            assert await cache.get_or_set("k", lambda: "v1") == "v1"
+
+        def boom() -> str:
+            msg = "down"
+            raise RuntimeError(msg)
+
+        with (
+            patch("grelmicro.cache.memory.monotonic", return_value=now + 10),
+            pytest.raises(RuntimeError, match="down"),
+        ):
+            await cache.get_or_set("k", boom)
+
+    async def test_delete_purges_the_stale_reserve(self) -> None:
+        """An explicit delete drops the reserve, so no later stale serve."""
+        cache = self._cache()
+
+        now = monotonic()
+        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+            await cache.get_or_set("k", lambda: "v1", stale_ttl=100)
+
+        await cache.delete("k")
+
+        def boom() -> str:
+            msg = "down"
+            raise RuntimeError(msg)
+
+        with (
+            patch("grelmicro.cache.memory.monotonic", return_value=now + 10),
+            pytest.raises(RuntimeError, match="down"),
+        ):
+            await cache.get_or_set("k", boom, stale_ttl=100)

@@ -78,6 +78,13 @@ class CacheInfo:
 
 _CACHE_PREFIX = "cache"
 
+# Suffix for the stale-reserve copy stored next to a value. The copy
+# outlives the value by `stale_ttl` seconds so `get_or_set` and `@cached`
+# can serve it when a later recompute fails. The `\x1f` separator stays
+# out of band (no real key uses it) and, unlike `\x00`, is valid in a
+# Postgres text key.
+_STALE_SUFFIX = "\x1fst"
+
 
 class TTLCache(Generic[T]):
     """Cache with per-entry TTL and optional LRU eviction.
@@ -238,6 +245,20 @@ class TTLCache(Generic[T]):
             return default
         return self._deserialize(raw)
 
+    async def _read_stale(self, key: str, default: T | None = None) -> T | None:
+        """Read the stale-reserve copy of a key, or `default` when absent.
+
+        The copy is written by `set` when `stale_ttl` is given and lives
+        `stale_ttl` seconds past the value's TTL. Pass a sentinel as
+        `default` to tell a stored `None` apart from an absent copy.
+        """
+        raw = await self._get_backend().get(
+            key=f"{_CACHE_PREFIX}:{key}{_STALE_SUFFIX}"
+        )
+        if raw is None:
+            return default
+        return self._deserialize(raw)
+
     async def set(
         self,
         key: Annotated[str, Doc("The cache key.")],
@@ -259,6 +280,15 @@ class TTLCache(Generic[T]):
                 " sharing a tag at once with `delete_tags`."
             ),
         ] = (),
+        stale_ttl: Annotated[
+            float | None,
+            Doc(
+                "Extra seconds to keep a fallback copy of the value past"
+                " its TTL. When set, `get_or_set` and `@cached` serve this"
+                " stale copy if a later recompute fails, until the extra"
+                " budget elapses. `None` (the default) keeps no fallback."
+            ),
+        ] = None,
     ) -> None:
         """Set a value with an optional per-entry TTL override and tags.
 
@@ -266,11 +296,14 @@ class TTLCache(Generic[T]):
         used entry before storing.
 
         Raises:
-            ValueError: If ttl is not positive.
+            ValueError: If ttl or stale_ttl is not positive.
             TypeError: If value is not bytes and no serializer is set.
         """
         if ttl is not None and ttl <= 0:
             msg = "ttl must be positive"
+            raise ValueError(msg)
+        if stale_ttl is not None and stale_ttl <= 0:
+            msg = "stale_ttl must be positive"
             raise ValueError(msg)
 
         entry_ttl = ttl if ttl is not None else self._ttl
@@ -284,6 +317,15 @@ class TTLCache(Generic[T]):
         await self._get_backend().set(
             key=f"{_CACHE_PREFIX}:{key}", value=raw, ttl=entry_ttl, tags=tags
         )
+        if stale_ttl is not None:
+            # Carry the same tags so `delete_tags` invalidates the reserve
+            # alongside the value it shadows.
+            await self._get_backend().set(
+                key=f"{_CACHE_PREFIX}:{key}{_STALE_SUFFIX}",
+                value=raw,
+                ttl=entry_ttl + stale_ttl,
+                tags=tags,
+            )
 
         if self._maxsize > 0:
             self._promote(key)
@@ -307,6 +349,15 @@ class TTLCache(Generic[T]):
             Sequence[str],
             Doc("Tags to associate with the entry when it is computed."),
         ] = (),
+        stale_ttl: Annotated[
+            float | None,
+            Doc(
+                "Extra seconds to keep a fallback copy past the TTL. When"
+                " set and the ``factory`` raises on a miss, the most recent"
+                " value is served instead of propagating the error, until"
+                " the extra budget elapses. `None` (default) propagates."
+            ),
+        ] = None,
     ) -> T:
         """Return the cached value, or compute, store, and return it.
 
@@ -316,6 +367,10 @@ class TTLCache(Generic[T]):
         is recorded by the initial read. Concurrent misses on the same
         key fold into a single computation, across replicas when a lock
         backend is configured.
+
+        With ``stale_ttl`` set, a ``factory`` that raises on a miss serves
+        the most recent value (kept for ``stale_ttl`` seconds past its TTL)
+        instead of propagating the error.
         """
         result = await self.get(key, _SENTINEL)
         if result is not _SENTINEL:
@@ -325,20 +380,42 @@ class TTLCache(Generic[T]):
             value = factory()
             if asyncio.iscoroutine(value):
                 value = await value
-            await self.set(key, cast("T", value), ttl, tags=tags)
+            await self.set(
+                key, cast("T", value), ttl, tags=tags, stale_ttl=stale_ttl
+            )
             return cast("T", value)
 
-        return cast(
-            "T",
-            await compute_with_stampede(
-                self,
-                key,
-                compute,
-                self._stampede,
-                per_key=True,
-                auto_distributed=True,
-            ),
-        )
+        if stale_ttl is None:
+            return cast(
+                "T",
+                await compute_with_stampede(
+                    self,
+                    key,
+                    compute,
+                    self._stampede,
+                    per_key=True,
+                    auto_distributed=True,
+                ),
+            )
+
+        try:
+            return cast(
+                "T",
+                await compute_with_stampede(
+                    self,
+                    key,
+                    compute,
+                    self._stampede,
+                    per_key=True,
+                    auto_distributed=True,
+                ),
+            )
+        except Exception:  # serve stale on any recompute failure
+            stale = await self._read_stale(key, _SENTINEL)
+            if stale is not _SENTINEL:
+                _emit.incr("grelmicro.cache.stale_serves")
+                return cast("T", stale)
+            raise
 
     async def get_many(
         self,
@@ -421,9 +498,15 @@ class TTLCache(Generic[T]):
     ) -> None:
         """Delete a key from the cache.
 
-        No-op if the key does not exist.
+        Also drops the stale-reserve copy, so an explicit delete is never
+        undone by a later stale serve. No-op if the key does not exist.
         """
-        await self._get_backend().delete(key=f"{_CACHE_PREFIX}:{key}")
+        await self._get_backend().delete_many(
+            keys=[
+                f"{_CACHE_PREFIX}:{key}",
+                f"{_CACHE_PREFIX}:{key}{_STALE_SUFFIX}",
+            ]
+        )
         self._keys.pop(key, None)
 
     async def delete_many(
@@ -439,6 +522,7 @@ class TTLCache(Generic[T]):
             return
         await self._get_backend().delete_many(
             keys=[f"{_CACHE_PREFIX}:{key}" for key in keys]
+            + [f"{_CACHE_PREFIX}:{key}{_STALE_SUFFIX}" for key in keys]
         )
         for key in keys:
             self._keys.pop(key, None)

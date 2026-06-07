@@ -176,6 +176,7 @@ dev = [
     "lightkube>=0.15.0",
     "uvicorn>=0.29.0",
     "pytest-xdist>=3.8.0",
+    "syrupy>=5.3.1",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
