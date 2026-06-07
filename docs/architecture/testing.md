@@ -27,6 +27,42 @@ Override components are entered when the block opens and exited in reverse order
 - Only `Component` instances can be overridden. Plain async context managers passed to `use(...)` are substituted at construction time, not through `override()`.
 - Calling `micro.override(...)` outside an active `async with micro:` raises `OutOfContextError`.
 
+## Virtual clock
+
+Time-dependent primitives (`Retry` backoff, `CircuitBreaker` half-open window, `RateLimiter` refill, `Shield` adaptive gate) read time through grelmicro's clock seam. Install a `VirtualClock` and advance it by hand to drive that behavior without waiting real seconds:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.clock import VirtualClock
+from grelmicro.resilience import CircuitBreakers
+from grelmicro.resilience.circuitbreaker import CircuitBreaker, CircuitBreakerState
+from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
+
+
+async def test_breaker_half_opens_after_cooldown() -> None:
+    async with VirtualClock() as clock:
+        micro = Grelmicro(uses=[CircuitBreakers(MemoryCircuitBreakerAdapter())])
+        async with micro:
+            breaker = CircuitBreaker.consecutive_count(
+                "svc", error_threshold=1, reset_timeout=30
+            )
+            try:
+                async with breaker:
+                    raise ValueError("boom")
+            except ValueError:
+                pass
+            assert breaker.state == CircuitBreakerState.OPEN
+
+            await clock.advance(30)  # cooldown elapses, no real wait
+            async with breaker:
+                pass
+            assert breaker.state == CircuitBreakerState.HALF_OPEN
+```
+
+`VirtualClock` is a clock backend. Install it for the surrounding scope with `async with VirtualClock() as clock:`, then advance time by hand with `await clock.advance(seconds)`. `monotonic()` returns the virtual time and `sleep()` suspends until the clock passes its deadline.
+
+With no clock registered, the seam forwards straight to `time.monotonic` and `asyncio.sleep`, so production keeps real time and pays only one `ContextVar` read. Only in-process backends (the memory adapters) follow the virtual clock. Redis and Postgres keep their own server-side time.
+
 ## Call recorder
 
 `record(backend)` instruments a backend's public async methods in place and returns a `CallLog`. The backend keeps its real type and behavior, so it drops into a component exactly as before, while the log captures every protocol call for assertions. It works like `pytest-mock`'s `mocker.spy`: record without replacing.

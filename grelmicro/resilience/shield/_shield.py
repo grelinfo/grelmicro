@@ -7,7 +7,6 @@ import functools
 import inspect
 import os
 import random
-import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from logging import getLogger
@@ -21,6 +20,7 @@ from grelmicro._config import (
     env_load_default,
     env_segment,
 )
+from grelmicro.clock import monotonic, sleep
 from grelmicro.resilience.errors import ResilienceError
 from grelmicro.resilience.shield._adaptive_gate import _AdaptiveGate
 from grelmicro.resilience.shield._api import ApiShieldConfig
@@ -324,7 +324,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
-        self._time = time_source or time.monotonic
+        self._time = time_source or monotonic
         self._random = random_source or random.random
         self._pending_tasks: set[asyncio.Task[Any]] = set()
         self._state = self._build_state(config)
@@ -552,7 +552,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                 retries_consumed += 1
                 delay = self._backoff_for(state, attempt)
                 if delay > 0:  # pragma: no branch
-                    await asyncio.sleep(delay)
+                    await sleep(delay)
                 continue
             else:
                 latency = self._time() - call_started
