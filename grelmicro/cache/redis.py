@@ -190,9 +190,9 @@ class RedisCacheAdapter:
         """Store raw bytes with a TTL in seconds and optional tags."""
         full_key = self._full(key)
         px = int(ttl * 1000)
-        if not tags:
-            await self._provider.client.set(full_key, value, px=px)
-            return
+        # Always reconcile tags, even when empty, so re-setting a previously
+        # tagged key drops its stale tag membership. The script handles the
+        # no-tag case (it clears the old reverse-tag set and adds nothing).
         await self._run_script(
             _SET_WITH_TAGS_SCRIPT,
             2,
@@ -229,12 +229,9 @@ class RedisCacheAdapter:
             return
         px = int(ttl * 1000)
         tag_keys = [self._tag_key(tag) for tag in tags]
-        if not tag_keys:
-            pipe = self._provider.client.pipeline(transaction=False)
-            for key, value in items.items():
-                pipe.set(self._full(key), value, px=px)
-            await pipe.execute()
-            return
+        # Reconcile tags per key, even when empty, so re-setting a previously
+        # tagged key without tags drops its stale membership. The script
+        # clears the old reverse-tag set and adds only the new tags.
         for key, value in items.items():
             await self._run_script(
                 _SET_WITH_TAGS_SCRIPT,

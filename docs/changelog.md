@@ -11,6 +11,7 @@
 
 ### Fixed
 
+* 🐛 Reconcile cache tags on every Redis `set` and `set_many`, even with no tags. Re-setting a previously tagged key without tags now drops its stale tag membership, so a later `delete_tags` no longer wrongly removes it. PR [#353](https://github.com/grelinfo/grelmicro/pull/353).
 * 🐛 Store the cache sidecar entries (the `early=` refresh metadata, and the new stale reserve) under a `\x1f` separator instead of `\x00`, so they are valid Postgres text keys. `@cached(early=...)` previously raised on a Postgres cache backend. PR [#350](https://github.com/grelinfo/grelmicro/pull/350).
 
 ### Features
