@@ -1,9 +1,19 @@
 # Health Checks
 
-The `health` module provides a health checks manager with concurrent execution and FastAPI integration for liveness, readiness, and aggregate health endpoints.
+A health checks manager with concurrent execution and FastAPI integration. Use it to expose liveness, readiness, and aggregate health endpoints.
 
-- **[HealthChecks](#health-checks)**: Register check functions with a FastAPI-style decorator, run them concurrently with per-check timeouts and caching.
+- **[HealthChecks](#quick-start)**: Register check functions with a FastAPI-style decorator, run them concurrently with per-check timeouts and caching.
 - **[health_router](#fastapi-integration)**: FastAPI router with `/livez`, `/readyz`, and `/healthz` endpoints.
+
+## Quick start
+
+Create a `HealthChecks` and register checks with the `@health.check(name)` decorator:
+
+```python
+--8<-- "health/basic.py"
+```
+
+Register the instance with a `Grelmicro` app (see below) so the router can resolve it, or pass it explicitly via `health_router(registry=health)`.
 
 ## Health Check
 
@@ -19,16 +29,6 @@ A health check is a function returning `None` (healthy) or a `HealthDetails` dic
 - Raise any other exception: unhealthy, with a generic `"Health check failed"` message. The traceback is logged server-side to avoid leaking internal information.
 
 `HealthDetails` is a type alias for `dict[str, JSONEncodable]`. Both sync and async check functions are supported. Sync functions run in a worker thread via `asyncio.to_thread` so they never block the event loop.
-
-## Health Checks
-
-Create a `HealthChecks` and register checks with the `@health.check(name)` decorator:
-
-```python
---8<-- "health/basic.py"
-```
-
-Register the instance with a `Grelmicro` app (see below) so the router can resolve it, or pass it explicitly via `health_router(registry=health)`.
 
 ### Grelmicro app integration
 

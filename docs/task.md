@@ -1,14 +1,6 @@
 # Task Scheduler
 
-The `task` package provides a simple task scheduler that can be used to run tasks periodically.
-
-!!! note
-    This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
-
-!!! warning "Per-process by default"
-    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](coordination.md#task-lock) or [`LeaderElection`](coordination.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.interval(...)` three times per tick.
-
-The key features are:
+A simple scheduler that runs tasks periodically. Use it for lightweight recurring jobs without a full task queue.
 
 - **Fast and easy**: simple decorators to define and schedule tasks with minimal boilerplate.
 - **Interval tasks**: run tasks at fixed intervals, locally or across a cluster.
@@ -16,9 +8,9 @@ The key features are:
 - **Dependency injection**: use [FastDepends](https://lancetnik.github.io/FastDepends/) to inject dependencies into tasks.
 - **Error handling**: errors are caught and logged, so a failing task does not stop the scheduler.
 
-## Tasks
+## Quick start
 
-The `Tasks` class is the main entry point to manage tasks. The recommended way to lifecycle it is to register it with a `Grelmicro` app:
+Register a `Tasks` instance with a `Grelmicro` app, then schedule a task with the `interval` decorator:
 
 ```python
 from grelmicro import Grelmicro
@@ -34,6 +26,16 @@ async def cleanup() -> None:
 async with micro:
     ...
 ```
+
+!!! warning "Per-process by default"
+    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](coordination.md#task-lock) or [`LeaderElection`](coordination.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.interval(...)` three times per tick.
+
+!!! note
+    This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
+
+## Tasks
+
+The `Tasks` class is the main entry point to manage tasks. The recommended way to lifecycle it is to register it with a `Grelmicro` app, as shown in the quick start above.
 
 `Grelmicro.use(item)` (or the `uses=` constructor kwarg) accepts any async context manager and lifecycles it with the app. The caller keeps the reference and uses the manager directly.
 
