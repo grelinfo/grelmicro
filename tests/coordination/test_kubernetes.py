@@ -688,7 +688,13 @@ def _wait_for_k3s(
     """Wait for k3s to become ready."""
     start = time_module.time()
     while time_module.time() - start < timeout:
-        exit_code, _ = container.exec("kubectl get --raw /readyz")
+        try:
+            exit_code, _ = container.exec("kubectl get --raw /readyz")
+        except Exception:  # noqa: BLE001
+            # Right after start, the Docker daemon can reject the exec with
+            # 409 "container is not running" before the container is fully
+            # up. Treat any exec error as not-ready and keep polling.
+            exit_code = 1
         if exit_code == 0:
             return
         time_module.sleep(1)
