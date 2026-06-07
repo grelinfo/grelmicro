@@ -135,6 +135,19 @@ def test_leap_year_feb_29() -> None:
     assert expr.next_after(dt(2027, 1, 1)) == dt(2028, 2, 29)
 
 
+def test_next_after_from_feb_29_does_not_crash() -> None:
+    """A Feb 29 starting point must not crash the search-window bound."""
+    expr = CronExpression("0 0 * * *")
+    # The window bound must not land on a non-leap year (2028 + 5 = 2033).
+    assert expr.next_after(dt(2028, 2, 29, 12)) == dt(2028, 3, 1)
+
+
+def test_previous_or_equal_from_feb_29_does_not_crash() -> None:
+    """A Feb 29 starting point must not crash the backward search bound."""
+    expr = CronExpression("0 0 * * *")
+    assert expr.previous_or_equal(dt(2028, 2, 29, 12)) == dt(2028, 2, 29)
+
+
 @pytest.mark.parametrize(
     "expr",
     [

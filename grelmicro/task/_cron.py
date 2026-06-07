@@ -190,7 +190,9 @@ class CronExpression:
         """
         # Start at the next whole minute strictly after dt.
         candidate = dt.replace(second=0, microsecond=0) + timedelta(minutes=1)
-        limit = candidate.replace(year=candidate.year + _MAX_SEARCH_YEARS)
+        # A timedelta bound, not `replace(year=...)`, so a Feb 29 candidate
+        # never lands on a non-leap year and raises.
+        limit = candidate + timedelta(days=_MAX_SEARCH_YEARS * 366)
 
         while candidate <= limit:
             if candidate.month not in self._months:
@@ -224,7 +226,9 @@ class CronExpression:
         within five years before ``dt``.
         """
         candidate = dt.replace(second=0, microsecond=0)
-        limit = candidate.replace(year=candidate.year - _MAX_SEARCH_YEARS)
+        # A timedelta bound, not `replace(year=...)`, so a Feb 29 candidate
+        # never lands on a non-leap year and raises.
+        limit = candidate - timedelta(days=_MAX_SEARCH_YEARS * 366)
 
         while candidate >= limit:
             if candidate.month not in self._months:
