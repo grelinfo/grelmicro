@@ -100,6 +100,7 @@ sqlite = "grelmicro.coordination.sqlite:SQLiteScheduleAdapter"
 memory = "grelmicro.cache.memory:MemoryCacheAdapter"
 redis = "grelmicro.cache.redis:RedisCacheAdapter"
 postgres = "grelmicro.cache.postgres:PostgresCacheAdapter"
+sqlite = "grelmicro.cache.sqlite:SQLiteCacheAdapter"
 
 [project.entry-points."grelmicro.ratelimiter.adapters"]
 memory = "grelmicro.resilience.ratelimiter.memory:MemoryRateLimiterAdapter"
@@ -111,6 +112,7 @@ sqlite = "grelmicro.resilience.ratelimiter.sqlite:SQLiteRateLimiterAdapter"
 memory = "grelmicro.resilience.circuitbreaker.memory:MemoryCircuitBreakerAdapter"
 redis = "grelmicro.resilience.circuitbreaker.redis:RedisCircuitBreakerAdapter"
 postgres = "grelmicro.resilience.circuitbreaker.postgres:PostgresCircuitBreakerAdapter"
+sqlite = "grelmicro.resilience.circuitbreaker.sqlite:SQLiteCircuitBreakerAdapter"
 
 [project.optional-dependencies]
 standard = [

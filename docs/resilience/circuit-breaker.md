@@ -64,6 +64,11 @@ Pass a shared `CircuitBreakers(redis_provider)` or `CircuitBreakers(postgres_pro
     --8<-- "resilience/circuitbreaker_postgres.py"
     ```
 
+=== "SQLite (single-host)"
+    ```python
+    --8<-- "resilience/circuitbreaker_sqlite.py"
+    ```
+
 === "Memory (per-replica)"
     No setup required. When no `CircuitBreakers` is registered on the `Grelmicro` app, the breaker uses an in-process adapter and state is local to the replica.
 
@@ -72,7 +77,7 @@ Pass a shared `CircuitBreakers(redis_provider)` or `CircuitBreakers(postgres_pro
 
 ### Choosing a backend
 
-Use a **shared** backend (Redis or Postgres) when one replica's circuit decision should short-circuit the rest. Pick Redis for the lowest-latency option when you already run it, or Postgres when it is your only stateful dependency. Use **Memory** (the default) when each replica's downstream is independent (per-shard databases, per-zone caches).
+Use a **shared** backend (Redis or Postgres) when one replica's circuit decision should short-circuit the rest. Pick Redis for the lowest-latency option when you already run it, or Postgres when it is your only stateful dependency. Use **SQLite** when many processes on a single host share one file and you want their circuit decisions to coordinate without an external service. SQLite is a local file, so it coordinates processes on one host, not across hosts. Use **Memory** (the default) when each replica's downstream is independent (per-shard databases, per-zone caches).
 
 When the shared backend is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with [`Retry`](retry.md) or a Fallback Pattern if you need a degraded path during an outage.
 
@@ -86,7 +91,7 @@ When the shared backend is unreachable, calls to the breaker raise the underlyin
     | `last_error` / `last_error_time` | Per replica | Per replica |
     | `total_error_count` / `total_success_count` | Per replica | Per replica |
 
-    The Postgres adapter stores breaker state in a single `grelmicro_circuit_breaker` table. Every admission and counter update runs inside a PL/pgSQL function that holds `pg_advisory_xact_lock` for the breaker name, so concurrent replicas converge to the same state. The Redis adapter does the same with atomic Lua scripts.
+    The Postgres adapter stores breaker state in a single `grelmicro_circuit_breaker` table. Every admission and counter update runs inside a PL/pgSQL function that holds `pg_advisory_xact_lock` for the breaker name, so concurrent replicas converge to the same state. The Redis adapter does the same with atomic Lua scripts. The SQLite adapter stores the same row and runs each read-modify-write inside a write transaction, so processes sharing the file on a single host converge on the same state.
 
 ## Configuration
 

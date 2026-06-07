@@ -21,9 +21,9 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 | `TaskLock`          | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
 | `LeaderElection`    | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
 | `Schedule` (cron)   | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
-| `TTLCache`          | ✅                                                             | ✅                                                             | ✅                                                             | Future                                                         | N/A        |
+| `TTLCache`          | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
 | `RateLimiter`       | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
-| `CircuitBreaker`    | ✅                                                             | ✅                                                             | ✅                                                             | Future                                                         | N/A        |
+| `CircuitBreaker`    | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
 | `Retry`             | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
 | `Bulkhead`          | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
 | `Fallback`          | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
@@ -32,7 +32,6 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 Legend:
 
 - ✅ ships today.
-- `Future` planned for a later release.
 - `N/A` does not apply. `Retry`, `Bulkhead`, `Fallback`, and `Timeout` are in-process Patterns with no remote state to share. For `Schedule` (cron), Kubernetes has no Adapter on purpose: run a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) instead.
 
 ## Picking an Adapter
@@ -40,5 +39,5 @@ Legend:
 - **Memory** for tests, single-process apps, and `Retry`, `Fallback`, `Timeout`, and `Bulkhead` (in-process Patterns).
 - **Redis** when you already run Redis and want the lowest-latency distributed option.
 - **Postgres** when Postgres is your only stateful dependency and you want one fewer service to run.
-- **SQLite** for single-host deployments that still need durability across restarts.
+- **SQLite** for single-host deployments that still need durability across restarts. The SQLite circuit breaker coordinates state across processes sharing one file on a single host, not across hosts. For fleet-wide state, use Redis or Postgres.
 - **Kubernetes** for `Lock` and `LeaderElection` when you want the cluster API as the coordination plane and no extra infrastructure.
