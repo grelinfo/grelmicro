@@ -104,7 +104,7 @@ async def ping() -> dict[str, str]:
     return {"status": "ok"}
 ```
 
-That is the whole thing. Pick a primitive, name it, call it. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[redis, RateLimiters(redis)])` as shown below.
+That is the whole thing. Pick a primitive, name it, call it. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[RateLimiters(redis)])` as shown below.
 
 ### Lifespan with one provider and one component
 
@@ -124,7 +124,7 @@ from grelmicro.resilience import (
 )
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[redis, RateLimiters(redis)])
+micro = Grelmicro(uses=[RateLimiters(redis)])
 
 api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
