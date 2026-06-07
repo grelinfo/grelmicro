@@ -82,6 +82,26 @@ def test_retry_constructs_with_class_filter(
     assert policy.config.attempts == _THREE
 
 
+def test_max_seconds_defaults_to_none() -> None:
+    """No time budget is set by default."""
+    policy = Retry.constant("svc", when=ValueError)
+    assert policy.config.max_seconds is None
+
+
+def test_max_seconds_flows_through_factories() -> None:
+    """`max_seconds=` reaches the resolved config from both factories."""
+    assert (
+        Retry.exponential(
+            "a", when=ValueError, max_seconds=5.0
+        ).config.max_seconds
+        == _FIVE
+    )
+    assert (
+        Retry.constant("b", when=ValueError, max_seconds=5.0).config.max_seconds
+        == _FIVE
+    )
+
+
 def test_retry_normalizes_single_class_to_match(
     fast_constant: ConstantBackoff,
 ) -> None:

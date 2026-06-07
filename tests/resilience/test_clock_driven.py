@@ -25,6 +25,10 @@ _BACKOFF = 5.0
 _RESET_TIMEOUT = 30.0
 _EXPECTED_CALLS = 2
 
+_BUDGET = 25.0
+_STEP = 10.0
+_CALLS_BEFORE_BUDGET = 4
+
 _BOOM = ValueError("boom")
 
 
@@ -54,6 +58,47 @@ async def test_retry_backoff_driven_by_virtual_clock(
     await clock.advance(_BACKOFF)
     assert await task == "ok"
     assert calls == _EXPECTED_CALLS
+
+
+@pytest.mark.timeout(1)
+async def test_retry_max_seconds_stops_on_time_budget(
+    clock: VirtualClock,
+) -> None:
+    """Retrying stops once the `max_seconds` budget elapses, before attempts."""
+    calls = 0
+
+    # attempts is deliberately high so the time budget is the limiting factor.
+    @Retry.constant(
+        "clock_budget",
+        when=ValueError,
+        attempts=100,
+        max_seconds=_BUDGET,
+        delay=_STEP,
+    )
+    async def always_fails() -> None:
+        nonlocal calls
+        calls += 1
+        raise _BOOM
+
+    task = asyncio.create_task(always_fails())  # ty: ignore[invalid-argument-type]
+
+    # Attempt 1 runs at t=0.
+    await asyncio.sleep(0)
+    assert calls == 1
+
+    # Each advance unblocks one backoff and runs the next attempt. By t=30 the
+    # elapsed time (30s) has passed the 25s budget, so the 4th attempt is the
+    # last and the error is re-raised.
+    for expected in (2, 3, _CALLS_BEFORE_BUDGET):
+        await clock.advance(_STEP)
+        await asyncio.sleep(0)
+        assert calls == expected
+
+    with pytest.raises(ValueError, match="boom") as info:
+        await task
+    notes = getattr(info.value, "__notes__", [])
+    assert any("budget elapsed" in note for note in notes)
+    assert calls == _CALLS_BEFORE_BUDGET
 
 
 @pytest.mark.timeout(1)

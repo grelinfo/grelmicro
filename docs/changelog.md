@@ -10,6 +10,7 @@
 
 ### Features
 
+* ✨ Add a time-based stop to `Retry` with `max_seconds=`. Retrying stops as soon as either `attempts` is reached or the wall-clock budget elapses, whichever comes first (`attempts` still defaults to 3). Available on the `Retry.exponential`/`Retry.constant` factories, the constructor, and `RetryConfig` (env var `GREL_RETRY_{NAME}_MAX_SECONDS`). The budget reads the clock seam, so `VirtualClock` drives it in tests. PR [#347](https://github.com/grelinfo/grelmicro/pull/347).
 * ✨ Re-export `FunctionTypeError` and `TaskAddOperationError` from `grelmicro.task`, so the task errors users catch live next to `TaskError` instead of only in `grelmicro.task.errors`. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
 * ✨ Export the catch-all base `GrelmicroError` and the cross-cutting `DependencyNotFoundError`, `OutOfContextError`, and `SettingsValidationError` from the top-level `grelmicro` package, so `except GrelmicroError` catches any library error from one import. Re-export `WouldBlockError` and `CoordinationBackendError` from `grelmicro.coordination` (the latter moved into `grelmicro.coordination.errors`). PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
 
