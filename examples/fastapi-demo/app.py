@@ -15,6 +15,7 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.cached import cached
 from grelmicro.cache.serializers import JsonSerializer
+from grelmicro.coordination import Coordination, LeaderElection, Lock
 from grelmicro.health import HealthChecks, HealthDetails
 from grelmicro.health.fastapi import health_router
 from grelmicro.log import configure
@@ -27,7 +28,6 @@ from grelmicro.resilience import (
     RateLimiters,
 )
 from grelmicro.resilience.errors import CircuitBreakerError
-from grelmicro.sync import LeaderElection, Lock, Sync
 from grelmicro.task import Tasks
 
 logger = logging.getLogger("demo")
@@ -48,13 +48,14 @@ POSTGRES_URL = os.environ.get(
 redis = RedisProvider(REDIS_URL)
 postgres = PostgresProvider(POSTGRES_URL)
 
-sync_backend = redis.sync()
+lock_backend = redis.lock()
 cache_backend = redis.cache()
 ratelimiter_backend = redis.ratelimiter()
 breaker_backend = postgres.breaker()
+leader_backend = redis.leader_election()
 
 tasks = Tasks()
-leader = LeaderElection("demo-leader", backend=sync_backend)
+leader = LeaderElection("demo-leader", backend=leader_backend)
 tasks.add_task(leader)
 
 health = HealthChecks()
@@ -63,10 +64,10 @@ micro = Grelmicro(
     uses=[
         redis,
         postgres,
-        Sync(sync_backend),
         Cache(cache_backend),
         RateLimiters(ratelimiter_backend),
         CircuitBreakers(breaker_backend),
+        Coordination(lock=lock_backend, election=leader_backend),
         health,
         tasks,
     ]
@@ -76,7 +77,7 @@ micro = Grelmicro(
 @health.check("redis")
 async def check_redis() -> HealthDetails | None:
     # Readiness probe: a lock round-trip proves Redis is reachable.
-    await Lock("healthz", backend=sync_backend).locked()
+    await Lock("healthz", backend=lock_backend).locked()
     return None
 
 
@@ -95,12 +96,12 @@ app = FastAPI(title="grelmicro demo", lifespan=lifespan)
 app.include_router(health_router(health))  # GET /livez, /readyz, /healthz
 
 
-# --- Cache: @cached over the Cache backend, local stampede protection ---
+# --- Cache: @cached over the Cache backend, with stampede protection ---
 catalog = TTLCache(ttl=30, backend=cache_backend, serializer=JsonSerializer())
 
 
 @app.get("/product/{product_id}")
-@cached(catalog)
+@cached(catalog, lock=True)
 async def get_product(product_id: int) -> dict:
     # Cache Pattern: the second call within the TTL skips this body.
     return {"id": product_id, "name": f"Product {product_id}"}
@@ -139,7 +140,7 @@ async def flaky(fail: bool = False) -> dict:
 
 
 # --- Distributed lock: serialize a ledger update across replicas ---
-ledger_lock = Lock("ledger", backend=sync_backend)
+ledger_lock = Lock("ledger", backend=lock_backend)
 
 
 @app.post("/ledger")

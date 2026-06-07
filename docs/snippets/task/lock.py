@@ -1,4 +1,4 @@
-from grelmicro.sync import Lock
+from grelmicro.coordination import Lock
 from grelmicro.task import Tasks
 
 task = Tasks()

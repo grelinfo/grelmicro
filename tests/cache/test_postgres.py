@@ -18,6 +18,36 @@ pytestmark = [pytest.mark.timeout(1)]
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 
 
+def _mock_conn() -> MagicMock:
+    """Return a mock asyncpg connection with an async transaction()."""
+    conn = MagicMock()
+    conn.execute = AsyncMock()
+    conn.executemany = AsyncMock()
+
+    class _Txn:
+        async def __aenter__(self) -> object:
+            return conn
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    conn.transaction = _Txn
+    return conn
+
+
+def _acquire_cm(conn: MagicMock) -> object:
+    """Return an async context manager yielding the given connection."""
+
+    class _Acquire:
+        async def __aenter__(self) -> MagicMock:
+            return conn
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    return _Acquire()
+
+
 def _build_with_mock_pool(
     *,
     prefix: str = "",
@@ -226,14 +256,27 @@ class TestAsyncMethods:
         assert await backend.get(key="missing") is None
 
     async def test_set_passes_key_value_ttl(self) -> None:
-        """`set` forwards the prefixed key, value, and TTL."""
+        """`set` upserts the value and clears stale tags in a transaction."""
         backend, pool = _build_with_mock_pool(prefix="p:")
-        pool.execute = AsyncMock()
+        conn = _mock_conn()
+        pool.acquire = lambda: _acquire_cm(conn)
 
         await backend.set(key="k", value=b"v", ttl=30)
 
-        pool.execute.assert_awaited_once_with(
-            backend._set_sql, "p:k", b"v", 30.0
+        conn.execute.assert_any_await(backend._set_sql, "p:k", b"v", 30.0)
+        conn.execute.assert_any_await(backend._delete_tags_of_key_sql, "p:k")
+        conn.executemany.assert_not_awaited()
+
+    async def test_set_with_tags_inserts_tag_rows(self) -> None:
+        """`set` with tags inserts a tag row per tag in the transaction."""
+        backend, pool = _build_with_mock_pool(prefix="p:")
+        conn = _mock_conn()
+        pool.acquire = lambda: _acquire_cm(conn)
+
+        await backend.set(key="k", value=b"v", ttl=30, tags=["t1", "t2"])
+
+        conn.executemany.assert_awaited_once_with(
+            backend._insert_tag_sql, [("p:k", "t1"), ("p:k", "t2")]
         )
 
     async def test_delete(self) -> None:

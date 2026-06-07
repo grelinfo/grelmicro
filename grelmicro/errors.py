@@ -57,6 +57,45 @@ class MultipleActiveAppsError(GrelmicroError, RuntimeError):
         )
 
 
+class ProviderNotRegisteredError(GrelmicroError, LookupError):
+    """Raised when no Provider is registered under a requested short name.
+
+    Short names resolve against the `grelmicro.providers` entry-point group.
+    A miss usually means the package that ships the Provider is not installed,
+    or the name is misspelled.
+    """
+
+    def __init__(self, short_name: str, available: list[str]) -> None:
+        """Initialize the error."""
+        known = ", ".join(available) if available else "none installed"
+        super().__init__(
+            f"No provider registered as {short_name!r} in the "
+            f"'grelmicro.providers' entry-point group. Available: {known}. "
+            f"Install the package that ships it, or check the name."
+        )
+
+
+class AdapterNotRegisteredError(GrelmicroError, LookupError):
+    """Raised when no Adapter is registered under a short name for a kind.
+
+    Short names resolve against the `grelmicro.{kind}.adapters` entry-point
+    group. A miss usually means the package that ships the Adapter is not
+    installed, or the name is misspelled.
+    """
+
+    def __init__(
+        self, kind: str, short_name: str, available: list[str]
+    ) -> None:
+        """Initialize the error."""
+        group = f"grelmicro.{kind}.adapters"
+        known = ", ".join(available) if available else "none installed"
+        super().__init__(
+            f"No {kind} adapter registered as {short_name!r} in the "
+            f"{group!r} entry-point group. Available: {known}. "
+            f"Install the package that ships it, or check the name."
+        )
+
+
 class SettingsValidationError(GrelmicroError, ValueError):
     """Settings Validation Error.
 

@@ -149,6 +149,71 @@ Override the default TTL for individual entries:
 await cache.set("session", b"token", ttl=3600)  # 1 hour instead of default
 ```
 
+### Get or Set
+
+`get_or_set` returns the cached value, or computes it once and stores it. Pass a sync or async factory. It runs only on a miss:
+
+```python
+user = await cache.get_or_set(
+    "user:1",
+    lambda: fetch_user(1),
+    tags=["users"],
+)
+```
+
+The factory shares the same stampede protection as `@cached(lock=True)`. When many callers miss the same key at once, the factory runs once and the rest reuse its result. This works across replicas when a `Coordination` backend is configured.
+
+```python title="get_or_set.py"
+--8<-- "docs/snippets/cache/get_or_set.py"
+```
+
+### Batch Operations
+
+Read, write, and delete many keys in one call:
+
+```python
+await cache.set_many({"user:1": user1, "user:2": user2}, tags=["users"])
+
+found = await cache.get_many(["user:1", "user:2", "user:3"])
+# Missing keys are absent from the result.
+
+await cache.delete_many(["user:1", "user:2"])
+```
+
+```python title="batch.py"
+--8<-- "docs/snippets/cache/batch.py"
+```
+
+### Tags and Invalidation
+
+Tags group entries so you can drop a whole group at once. Tag an entry on `set`, `set_many`, or `get_or_set`, then invalidate by tag with `delete_tags`:
+
+```python
+await cache.set("user:1", user, tags=["users", "user:1"])
+
+await cache.delete_tags("user:1")   # drop one user
+await cache.delete_tags("users")    # drop every user
+```
+
+The `@cached` decorator takes tags too. Each tag is a template filled in from the call's arguments, so one decorator tags every entry with both a shared tag and a per-call tag:
+
+```python
+@cached(cache, tags=["users", "user:{user_id}"])
+async def get_user(user_id: int) -> dict:
+    return await db.fetch_user(user_id)
+
+
+# Later, after a write:
+await cache.delete_tags("user:42")   # drop the entry for user_id=42
+await cache.delete_tags("users")     # drop every cached user
+```
+
+Literal tags with no `{...}` pass through unchanged. Tags work the same across Memory, Redis, and Postgres. Invalidating by tag stays consistent even when keys expire on their own.
+
+```python title="tags.py"
+--8<-- "docs/snippets/cache/tags.py"
+```
+
 ## @cached Decorator
 
 The `@cached` decorator automatically caches function results. It works with both sync and async functions.
@@ -165,35 +230,36 @@ async def get_user(user_id: int) -> dict:
 
 ### Stampede Protection
 
-A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. `@cached` ships a three-layer menu, opt-in by cost:
+A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. Turn on `lock` to fold those misses into one execution, and add `early=` to refresh hot keys before they expire:
 
-| Layer | What it does | Cost | Use when |
+| Setting | What it does | Cost | Use when |
 |---|---|---|---|
-| `stampede="local"` (default) | per-key in-process lock | free, no I/O | always, the cheap correct default |
-| `stampede="distributed"` | cross-replica lock via the `Sync` component | one backend acquire per cold miss | a hot key on many replicas |
+| `lock=False` (default) | no protection | none | misses are cheap or rare |
+| `lock=True` | fold concurrent misses, across replicas when a `Coordination` backend is configured | one backend acquire per cold miss | the common case |
+| `lock="local"` | fold misses in-process only, never touches a backend | free, no I/O | per-replica recompute is fine |
 | `early=0.1` | probabilistic early refresh (XFetch) in the last 10% of the TTL | one background recompute per refresh | the hottest keys, where no caller should ever block |
 
-The layers compose. `stampede="distributed"` implies `"local"` (in-process dedup is free), and `early=` works with either.
+`lock=True` always dedups in-process first, so the backend is hit at most once per cold miss. `early=` works alongside either lock mode.
 
 ```python
-@cached(cache)                          # default: stampede="local"
+@cached(cache)                  # default: no stampede protection
 async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 
 
-@cached(cache, stampede="distributed")  # cross-replica via the Sync component
+@cached(cache, lock=True)       # fold misses, across replicas if a lock backend is set
 async def get_billing(user_id: int) -> dict:
     return await billing.fetch(user_id)
 
 
-@cached(cache, early=0.1)               # refresh hot keys before they expire
+@cached(cache, early=0.1)       # refresh hot keys before they expire
 async def get_homepage_feed() -> dict:
     return await build_feed()
 ```
 
-`stampede="local"` is **per-key**: concurrent misses on different keys run in parallel. Only callers that request the same key wait in turn, so one slow computation does not block unrelated keys.
+`lock` is **per-key**: concurrent misses on different keys run in parallel. Only callers that request the same key wait in turn, so one slow computation does not block unrelated keys.
 
-`stampede="distributed"` resolves the `Sync` component from the active `Grelmicro` app, so it needs an app with a `Sync` backend. Set `stampede=None` to opt out entirely.
+`lock=True` folds misses across replicas when the active `Grelmicro` app has a `Coordination` backend, and folds them in-process when it does not. Use `lock="local"` to force the in-process path even when a `Coordination` backend is configured.
 
 `early=` returns the cached value immediately and recomputes in the background, so a hot key refreshes before it expires and no caller ever waits on a cold miss. It costs one extra recompute per refresh and stores a small sidecar entry next to the value so replicas coordinate the refresh window.
 
@@ -207,8 +273,9 @@ async def get_homepage_feed() -> dict:
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
-| `stampede` | `"local"`, `"distributed"`, or `None` | `"local"` | Concurrent-miss protection. |
+| `lock` | `True`, `False`, or `"local"` | `False` | Concurrent-miss (stampede) protection. |
 | `early` | `float` in `[0, 1)` | `None` | Probabilistic early refresh in the late TTL window. |
+| `tags` | `Sequence[str]` | `()` | Tags to attach to each result. Templates like `"user:{user_id}"` fill in from the arguments. Invalidate with `cache.delete_tags(...)`. |
 
 ## Redis Backend Configuration
 

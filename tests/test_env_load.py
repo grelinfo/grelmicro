@@ -3,8 +3,8 @@
 import pytest
 
 from grelmicro._config import env_load_default, resolve_config
-from grelmicro.sync.lock import Lock, LockConfig
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination.lock import Lock, LockConfig
+from grelmicro.coordination.memory import MemoryLockAdapter
 
 LEASE_OVERRIDE = 999.0
 LEASE_FROM_ENV = 42.0
@@ -12,9 +12,9 @@ DEFAULT_LEASE = LockConfig.model_fields["lease_duration"].default
 
 
 @pytest.fixture
-def backend() -> MemorySyncAdapter:
+def backend() -> MemoryLockAdapter:
     """Memory backend usable without an event loop."""
-    return MemorySyncAdapter()
+    return MemoryLockAdapter()
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ def test_env_opt_in_falsy_values(
 
 @pytest.mark.usefixtures("_no_env_opt_in")
 def test_env_ignored_when_flag_off(
-    backend: MemorySyncAdapter,
+    backend: MemoryLockAdapter,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without the global flag, env vars are not read."""
@@ -56,7 +56,7 @@ def test_env_ignored_when_flag_off(
 
 @pytest.mark.usefixtures("_no_env_opt_in")
 def test_per_call_env_load_true_overrides_flag_off(
-    backend: MemorySyncAdapter,
+    backend: MemoryLockAdapter,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`env_load=True` reads env even when the global flag is off."""
@@ -68,7 +68,7 @@ def test_per_call_env_load_true_overrides_flag_off(
 
 
 def test_per_call_env_load_false_overrides_flag_on(
-    backend: MemorySyncAdapter,
+    backend: MemoryLockAdapter,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`env_load=False` ignores env even when the global flag is on."""

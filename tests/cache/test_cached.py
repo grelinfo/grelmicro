@@ -12,8 +12,8 @@ from grelmicro.cache.cached import cached
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
-from grelmicro.sync import Sync
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination import Coordination
+from grelmicro.coordination.memory import MemoryLockAdapter
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -43,6 +43,13 @@ def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
         backend=backend,
         serializer=PickleSerializer(),
     )
+
+
+def _tag_keys(cache: TTLCache) -> dict[str, set[str]]:
+    """Return the in-memory backend's forward tag map for assertions."""
+    backend = cache._backend
+    assert isinstance(backend, MemoryCacheAdapter)
+    return backend._tag_keys
 
 
 # ---------------------------------------------------------------------------
@@ -357,13 +364,13 @@ class TestAsyncCachedStampede:
     """Test @cached stampede protection on async functions."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
-        """stampede='local' ensures only one coroutine computes on concurrent miss."""
+        """lock='local' ensures only one coroutine computes on concurrent miss."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         async def slow_fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -386,14 +393,14 @@ class TestAsyncCachedStampede:
     async def test_lock_true_per_key_allows_parallel_different_keys(
         self,
     ) -> None:
-        """stampede='local' uses per-key locks: different keys run in parallel."""
+        """lock='local' uses per-key locks: different keys run in parallel."""
         # Arrange
         cache = _make_cache()
         order: list[str] = []
         barrier_a = asyncio.Event()
         barrier_b = asyncio.Event()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         async def fetch(key: str) -> str:
             if key == "a":
                 order.append("a:start")
@@ -434,15 +441,15 @@ class TestAsyncCachedStampede:
         import sys  # noqa: PLC0415
         from collections import OrderedDict  # noqa: PLC0415
 
-        import grelmicro.cache.cached  # noqa: F401, PLC0415
+        import grelmicro.cache._stampede  # noqa: F401, PLC0415
 
-        cached_mod = sys.modules["grelmicro.cache.cached"]
+        stampede_mod = sys.modules["grelmicro.cache._stampede"]
 
-        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 4)
+        monkeypatch.setattr(stampede_mod, "_PER_KEY_LOCK_BUDGET", 4)
         locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         for i in range(20):
             locks[f"k{i}"] = asyncio.Lock()
-            cached_mod._evict_idle_locks(locks)
+            stampede_mod._evict_idle_locks(locks)
         assert len(locks) == 4  # noqa: PLR2004
 
     async def test_per_key_lock_eviction_keeps_held_entries(
@@ -453,11 +460,11 @@ class TestAsyncCachedStampede:
         import sys  # noqa: PLC0415
         from collections import OrderedDict  # noqa: PLC0415
 
-        import grelmicro.cache.cached  # noqa: F401, PLC0415
+        import grelmicro.cache._stampede  # noqa: F401, PLC0415
 
-        cached_mod = sys.modules["grelmicro.cache.cached"]
+        stampede_mod = sys.modules["grelmicro.cache._stampede"]
 
-        monkeypatch.setattr(cached_mod, "_PER_KEY_LOCK_BUDGET", 2)
+        monkeypatch.setattr(stampede_mod, "_PER_KEY_LOCK_BUDGET", 2)
         locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         held = asyncio.Lock()
         await held.acquire()
@@ -465,7 +472,7 @@ class TestAsyncCachedStampede:
             locks["held"] = held
             for i in range(10):
                 locks[f"idle-{i}"] = asyncio.Lock()
-            cached_mod._evict_idle_locks(locks)
+            stampede_mod._evict_idle_locks(locks)
             assert "held" in locks
         finally:
             held.release()
@@ -496,13 +503,13 @@ class TestAsyncCachedStampede:
             held.release()
 
     async def test_stampede_none_allows_duplicate_computation(self) -> None:
-        """stampede=None runs the function for every concurrent miss."""
+        """lock=False runs the function for every concurrent miss."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         barrier = asyncio.Event()
 
-        @cached(cache, stampede=None)
+        @cached(cache, lock=False)
         async def slow_fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -525,7 +532,7 @@ class TestAsyncCachedStampede:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         async def fetch(x: int) -> int:
             return x
 
@@ -540,12 +547,12 @@ class TestAsyncCachedStampede:
         assert cache.cache_info().hits == EXPECTED_HITS_1
 
     async def test_lock_false_disables_protection(self) -> None:
-        """stampede=None disables protection but still caches."""
+        """lock=False disables protection but still caches."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, stampede=None)
+        @cached(cache, lock=False)
         async def fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -800,12 +807,12 @@ class TestSyncCachedStampede:
     """Test @cached stampede protection on sync functions."""
 
     async def test_lock_true_prevents_duplicate_computation(self) -> None:
-        """stampede='local' with threading.Lock prevents redundant computation."""
+        """lock='local' with threading.Lock prevents redundant computation."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -823,7 +830,7 @@ class TestSyncCachedStampede:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         def compute(x: int) -> int:
             return x * 2
 
@@ -834,14 +841,14 @@ class TestSyncCachedStampede:
         await asyncio.to_thread(lambda: compute(7))
 
     async def test_local_prevents_stampede_under_concurrency(self) -> None:
-        """stampede='local' folds concurrent same-key sync misses to one run."""
+        """lock='local' folds concurrent same-key sync misses to one run."""
         # Arrange
         cache = _make_cache()
         call_count = 0
         # started is set the first time slow_compute begins executing
         started = threading.Event()
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         def slow_compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -869,12 +876,12 @@ class TestSyncCachedStampede:
         assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
 
     async def test_lock_true_per_key_sync(self) -> None:
-        """stampede='local' uses per-key threading.Lock: same key serialized, different keys not."""
+        """lock='local' uses per-key threading.Lock: same key serialized, different keys not."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, stampede="local")
+        @cached(cache, lock="local")
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -891,12 +898,12 @@ class TestSyncCachedStampede:
         assert call_count == EXPECTED_CALL_COUNT_2  # 5 once, 6 once
 
     async def test_lock_false_still_caches(self) -> None:
-        """stampede=None disables protection but still caches."""
+        """lock=False disables protection but still caches."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, stampede=None)
+        @cached(cache, lock=False)
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -914,7 +921,7 @@ class TestSyncCachedStampede:
 # ---------------------------------------------------------------------------
 # Distributed stampede tests
 # ---------------------------------------------------------------------------
-# A distributed miss serializes through the Sync component's lock. Two
+# A distributed miss serializes through the Coordination component's lock. Two
 # separate decorations of the SAME function share the cache key and the
 # distributed lock but keep independent in-process locks, so they model
 # two replicas folding onto one execution.
@@ -927,13 +934,13 @@ def _shared_cache(loop: asyncio.AbstractEventLoop) -> TTLCache:
 
 
 class TestDistributedStampede:
-    """Test @cached(stampede="distributed") across simulated replicas."""
+    """Test @cached(lock=True) across simulated replicas."""
 
     async def test_two_replicas_fold_to_one_execution(self) -> None:
         """Concurrent distributed misses on the same key run once."""
         loop = asyncio.get_running_loop()
         cache = _shared_cache(loop)
-        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         call_count = 0
         barrier = asyncio.Event()
 
@@ -947,8 +954,8 @@ class TestDistributedStampede:
             return impl
 
         impl = impl_factory()
-        replica_a = cached(cache, stampede="distributed")(impl)
-        replica_b = cached(cache, stampede="distributed")(impl)
+        replica_a = cached(cache, lock=True)(impl)
+        replica_b = cached(cache, lock=True)(impl)
 
         async with micro:
             task_a = asyncio.create_task(replica_a(5))
@@ -966,7 +973,7 @@ class TestDistributedStampede:
         """Distributed protection drives the lock from a sync worker thread."""
         loop = asyncio.get_running_loop()
         cache = _shared_cache(loop)
-        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         call_count = 0
 
         def impl(x: int) -> int:
@@ -975,8 +982,8 @@ class TestDistributedStampede:
             time.sleep(0.03)
             return x * 2
 
-        replica_a = cached(cache, stampede="distributed")(impl)
-        replica_b = cached(cache, stampede="distributed")(impl)
+        replica_a = cached(cache, lock=True)(impl)
+        replica_b = cached(cache, lock=True)(impl)
 
         async with micro:
             results: list[int] = []
@@ -991,6 +998,59 @@ class TestDistributedStampede:
 
         assert call_count == EXPECTED_CALL_COUNT_1
         assert sorted(results) == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
+
+
+class TestLockTrueAutoSelect:
+    """Test lock=True auto-selects distributed vs in-process by backend."""
+
+    async def test_lock_true_without_backend_folds_in_process(self) -> None:
+        """lock=True with no lock backend folds concurrent misses locally."""
+        cache = _make_cache()
+        call_count = 0
+        barrier = asyncio.Event()
+
+        @cached(cache, lock=True)
+        async def fetch(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            await barrier.wait()
+            return x * 2
+
+        task_a = asyncio.create_task(fetch(5))
+        task_b = asyncio.create_task(fetch(5))
+        await asyncio.sleep(0.02)
+        barrier.set()
+
+        assert await task_a == EXPECTED_DOUBLE_5
+        assert await task_b == EXPECTED_DOUBLE_5
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_lock_true_sync_without_backend_folds_in_process(
+        self,
+    ) -> None:
+        """lock=True sync with no lock backend folds via the threading lock."""
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, lock=True)
+        def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.03)
+            return x * 2
+
+        results: list[int] = []
+
+        async def run() -> None:
+            results.append(await asyncio.to_thread(lambda: compute(5)))
+
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(run())
+            await asyncio.sleep(0.01)
+            tg.create_task(run())
+
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert results == [EXPECTED_DOUBLE_5, EXPECTED_DOUBLE_5]
 
 
 # ---------------------------------------------------------------------------
@@ -1019,11 +1079,11 @@ class TestEarlyRefresh:
         with pytest.raises(ValueError, match="early"):
             cached(cache, early=-0.1)
 
-    async def test_invalid_stampede_rejected(self) -> None:
-        """An unknown stampede value raises at decoration time."""
+    async def test_invalid_lock_rejected(self) -> None:
+        """An unknown lock value raises at decoration time."""
         cache = _make_cache()
-        with pytest.raises(ValueError, match="stampede"):
-            cached(cache, stampede="global")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        with pytest.raises(ValueError, match="lock"):
+            cached(cache, lock="global")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
     async def test_early_outside_window_does_not_refresh(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1251,12 +1311,12 @@ class TestEarlyRefresh:
 
         loop = asyncio.get_running_loop()
         cache = _shared_cache(loop)
-        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
 
         def impl(x: int) -> int:
             return x * 2
 
-        fetch = cached(cache, stampede="distributed", early=0.5)(impl)
+        fetch = cached(cache, lock=True, early=0.5)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
             key = _make_key(impl, (5,), {}, None, typed=False)
@@ -1267,7 +1327,7 @@ class TestEarlyRefresh:
         """A sync distributed miss whose result is skipped is not cached."""
         loop = asyncio.get_running_loop()
         cache = _shared_cache(loop)
-        micro = Grelmicro(uses=[Sync(MemorySyncAdapter())])
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         call_count = 0
 
         def impl(x: int) -> int:
@@ -1275,7 +1335,7 @@ class TestEarlyRefresh:
             call_count += 1
             return x * 2
 
-        fetch = cached(cache, stampede="distributed", skip=lambda _: True)(impl)
+        fetch = cached(cache, lock=True, skip=lambda _: True)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
             await asyncio.to_thread(lambda: fetch(5))
@@ -1313,3 +1373,103 @@ class TestEarlyRefresh:
         gate.set()
         await asyncio.sleep(0.05)
         assert call_count == EXPECTED_CALL_COUNT_2  # only one refresh ran
+
+
+class TestCachedTags:
+    """Tests for @cached tag templating."""
+
+    async def test_literal_tags_async(self) -> None:
+        """Test that literal tags are stored unchanged for an async func."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["users"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(1)
+
+        assert _tag_keys(cache)["users"]
+
+    async def test_templated_tag_from_positional_arg(self) -> None:
+        """Test that a templated tag renders from a positional argument."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(42)
+
+        assert "user:42" in _tag_keys(cache)
+
+    async def test_templated_tag_from_keyword_arg(self) -> None:
+        """Test that a templated tag renders from a keyword argument."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(user_id=7)
+
+        assert "user:7" in _tag_keys(cache)
+
+    async def test_mixed_literal_and_templated_tags(self) -> None:
+        """Test that literal and templated tags are both applied."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["users", "user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(3)
+
+        assert "users" in _tag_keys(cache)
+        assert "user:3" in _tag_keys(cache)
+
+    async def test_tag_renders_from_default_argument(self) -> None:
+        """Test that a templated tag uses a default when the arg is omitted."""
+        cache = _make_cache()
+
+        @cached(cache, tags=["page:{page}"])
+        async def fetch(page: int = 1) -> dict:
+            return {"page": page}
+
+        await fetch()
+
+        assert "page:1" in _tag_keys(cache)
+
+    async def test_delete_tags_invalidates_cached_async(self) -> None:
+        """Test that delete_tags drops a cached entry by tag."""
+        cache = _make_cache()
+        calls = 0
+
+        @cached(cache, tags=["user:{user_id}"])
+        async def fetch(user_id: int) -> dict:
+            nonlocal calls
+            calls += 1
+            return {"id": user_id, "calls": calls}
+
+        first = await fetch(1)
+        await cache.delete_tags("user:1")
+        second = await fetch(1)
+
+        assert first["calls"] == 1
+        assert second["calls"] == 2  # noqa: PLR2004
+
+    def test_literal_tags_sync(self) -> None:
+        """Test that tags are applied for a sync cached function."""
+        backend = MemoryCacheAdapter()
+        cache = TTLCache(ttl=60, backend=backend, serializer=PickleSerializer())
+
+        @cached(cache, tags=["user:{user_id}"])
+        def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        async def run() -> None:
+            backend._loop = asyncio.get_running_loop()
+            await asyncio.to_thread(fetch, 5)
+
+        asyncio.run(run())
+
+        assert "user:5" in backend._tag_keys

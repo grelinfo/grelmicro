@@ -2,9 +2,23 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Replace `@cached(stampede="local" | "distributed" | None)` with `@cached(lock=False | True | "local")`. `lock=True` folds concurrent misses and picks the cross-replica path automatically when the active app has a `Sync` backend (in-process otherwise), `lock="local"` forces the in-process path, and the default is now `lock=False` (no protection, opt in explicitly). Migrate `stampede="local"` to `lock="local"`, `stampede="distributed"` to `lock=True`, and `stampede=None` to `lock=False`. Issue [#235](https://github.com/grelinfo/grelmicro/issues/235).
+* 💥 Move `LeaderElection` out of `grelmicro.sync` into a new `grelmicro.coordination` package. Import it from `grelmicro.coordination`. `Sync.leader_election()` is removed: register a `Coordination` component and call `micro.coordination.leader_election(...)`. Leader election now runs on a dedicated `LeaderElectionBackend`, not the lock `SyncBackend`, so it can use a different vendor than `Lock` (Redis for `Lock`, a Kubernetes Lease for leader election). Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+* 💥 Unify `grelmicro.sync` into `grelmicro.coordination` and delete `grelmicro.sync`. Import `Lock`, `TaskLock`, `LeaderElection`, and `Coordination` from `grelmicro.coordination`. The `Sync` component is gone: use one `Coordination` component, which exposes `.lock(...)`, `.task_lock(...)`, and `.leader_election(...)`, and reach it on `micro.coordination`. The `SyncBackend` protocol is now `LockBackend`, the `*SyncAdapter` backends are now `*LockAdapter`, and the provider factory `.sync()` is renamed to `.lock()`. Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+
 ### Features
 
-* ✨ Auto-discover shared Providers in `Grelmicro(uses=[...])`. A Provider held by a Component (`Sync(redis)`, `Cache(redis)`) no longer has to be listed separately: it is adopted and lifecycled exactly once, opened before the Components that hold it. Listing it explicitly stays valid and keeps control over lifecycle order. Issue [#263](https://github.com/grelinfo/grelmicro/issues/263).
+* ✨ Add a `Metrics` component that installs an OpenTelemetry `MeterProvider` for the app's lifetime, with OTLP, Prometheus, console, and none exporters. A `@measure` decorator times and counts any function, `metrics_router()` serves a Prometheus `/metrics` endpoint, and every built-in component (health, circuit breaker, retry, rate limiter, bulkhead, timeout, cache, tasks) emits its own metrics. All metric calls are no-ops without the `opentelemetry` extra or an active component.
+* ✨ Leader election leases carry a Kubernetes-style `LeaderRecord` (holder, lease duration, acquire and renew times, leadership transitions, and free-form metadata). Read it from `LeaderElection.record`, set the metadata via `LeaderElection(metadata=...)`. Metadata-storing backends ship for memory, Redis, Postgres, and Kubernetes Lease, resolved through `provider.leader_election()` or passed to `Coordination(...)` directly. Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+* ✨ Add `grelmicro.testing.record(backend)` for protocol-level call assertions. It instruments a backend's public async methods in place and returns a `CallLog`, so the backend keeps its type and behavior while every call is recorded. Assert with `log.count(method, **kwargs)`, inspect `log.methods()`, or read the raw `log.calls`. Works like `pytest-mock`'s `mocker.spy`. Issue [#271](https://github.com/grelinfo/grelmicro/issues/271).
+* ✨ Add cache tags, `get_or_set`, and batch operations. Tag entries via `set`, `set_many`, `get_or_set`, or `@cached(tags=["users", "user:{user_id}"])`, then invalidate a whole group with `delete_tags`. `get_or_set(key, factory)` computes a missing value once under the same stampede protection as `@cached(lock=True)`. `get_many`, `set_many`, and `delete_many` work on many keys at once. Tags and batch ops run on Memory, Redis, and Postgres.
+* 📝 Correct the comparison page and capability matrix to show the Postgres and SQLite cache, rate limiter, and circuit breaker backends as shipped (they were stale-labeled "planned").
+* 📝 Add a "what grelmicro is not" line to the README and docs landing for sharper first-read positioning.
+* 🔧 Set the PyPI `Development Status` classifier to `4 - Beta`.
+* ✨ Discover Providers and Adapters through entry-point groups. Third-party packages register under `grelmicro.providers` and `grelmicro.{kind}.adapters` (`coordination`, `cache`, `ratelimiter`, `circuitbreaker`) and resolve by short name, the same path first-party backends use. Unknown names raise `ProviderNotRegisteredError` or `AdapterNotRegisteredError` listing the installed names. New `docs/architecture/plugins.md` and an `examples/third-party-adapter/` skeleton. Issue [#234](https://github.com/grelinfo/grelmicro/issues/234).
+* ✨ Auto-discover shared Providers in `Grelmicro(uses=[...])`. A Provider held by a Component (`Coordination(redis)`, `Cache(redis)`) no longer has to be listed separately: it is adopted and lifecycled exactly once, opened before the Components that hold it. Listing it explicitly stays valid and keeps control over lifecycle order. Issue [#263](https://github.com/grelinfo/grelmicro/issues/263).
 
 ## 0.26.0 - 2026-06-05
 
@@ -73,7 +87,7 @@
 ### Internal
 
 * 🔒 `@instrument` now filters arguments whose names match common secret keywords (`password`, `token`, `secret`, `api_key`, `authorization`, `cookie`, ... matched case-insensitively) from both span attributes and log context. Pass extra names via `skip=` for custom secret-bearing parameters. Unchanged for non-sensitive args.
-* 🔧 Replace the optional `orjson` redef-as-`Any | None` pattern in `grelmicro/_json.py` with try/except branches that define the dumps/loads functions in scope. The per-call `# type: ignore[union-attr]` directives are gone; `orjson` keeps its real type from the stub package in the available branch.
+* 🔧 Replace the optional `orjson` redef-as-`Any | None` pattern in `grelmicro/_json.py` with try/except branches that define the dumps/loads functions in scope. The per-call `# type: ignore[union-attr]` directives are gone, and `orjson` keeps its real type from the stub package in the available branch.
 * 🚨 `Trace.__aenter__` now raises `TracingError` if `opentelemetry.trace._TRACER_PROVIDER` is missing instead of silently no-op patching. A future OTel that drops the private global surfaces a clear error pointing at the workaround. An inline comment near the patch documents why the private attribute is required.
 * 🔒 `PickleSerializer` docs upgraded to a Danger callout. Pickle is now framed as trusted in-process backends only, and the `@cached` decorator example leads with `JsonSerializer`. The `TTLCache` docstring lists Pydantic and JSON before Pickle.
 * 🔧 Comment why `_env_prefix=env_prefix` needs a type-ignore in `RedisProvider` and `PostgresProvider` (pydantic-settings runtime kwarg the stubs do not expose).
@@ -238,7 +252,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 * 💥 `BackendRegistry.set` is renamed `register` and `BackendRegistry.unregister` is added with an identity check. `reset` remains for test fixtures. PR [#138](https://github.com/grelinfo/grelmicro/pull/138).
 * 💥 `async with backend` opens the connection but no longer registers. Call `register(backend)` (or `use_backend(backend)`) to register, or open everything at once with `grelmicro.lifespan()`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
 * 💥 `BackendRegistry` is now multi-name: `register(backend, name="default")`, `unregister(name, backend=None)`, `get(name="default")`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
-* 💥 The sync registry name changed from `"lock"` to `"sync"` (used in error messages and `lifespan()` exclude keys); the rate limiter registry from `"rate_limiter"` to `"resilience"`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
+* 💥 The sync registry name changed from `"lock"` to `"sync"` (used in error messages and `lifespan()` exclude keys). The rate limiter registry changed from `"rate_limiter"` to `"resilience"`. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
 * 💥 Overwriting a registered name with a different instance now raises `BackendAlreadyRegisteredError` (was: warning + replace). Re-registering the same instance stays a no-op. PR [#139](https://github.com/grelinfo/grelmicro/pull/139).
 
 ### Features
@@ -552,7 +566,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 * 📝 Add [cache module](cache.md) documentation with usage guide and API reference.
 * 📝 Add [Kubernetes Backend Architecture](architecture/kubernetes.md) page.
 * 📝 Add [SQLite Backend Architecture](architecture/sqlite.md) page.
-* 📝 Add backend comparison matrix to [Synchronization](sync.md#backend) guide.
+* 📝 Add backend comparison matrix to [Coordination](coordination.md#backends) guide.
 * 📝 Rewrite README with project vision.
 
 ## 0.5.0 - 2026-03-17
@@ -572,7 +586,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 
 ### Docs
 
-* 📝 Add [Synchronization Architecture](architecture/sync.md) page. PR [#57](https://github.com/grelinfo/grelmicro/pull/57).
+* 📝 Add [Coordination Architecture](architecture/coordination.md) page. PR [#57](https://github.com/grelinfo/grelmicro/pull/57).
 
 ### Internal
 

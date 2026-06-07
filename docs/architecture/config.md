@@ -97,9 +97,9 @@ We keep `self._config` as the single source of truth. If a future profile shows 
 
 | Class | Module |
 |---|---|
-| `LockConfig` | `grelmicro.sync.lock` |
-| `TaskLockConfig` | `grelmicro.sync.tasklock` |
-| `LeaderElectionConfig` | `grelmicro.sync.leaderelection` |
+| `LockConfig` | `grelmicro.coordination.lock` |
+| `TaskLockConfig` | `grelmicro.coordination.tasklock` |
+| `LeaderElectionConfig` | `grelmicro.coordination.leaderelection` |
 | `CircuitBreakerConfig` | `grelmicro.resilience.circuitbreaker` |
 | `RateLimiterConfig` (discriminated union) | `grelmicro.resilience.ratelimiter` |
 | `RateLimitFilterConfig` | `grelmicro.log` |
@@ -111,5 +111,5 @@ Each is a `BaseModel, frozen=True, extra="forbid"`. Field docs live in `Annotate
 
 ## Related
 
-- [Configuration](../config.md) — the user-facing guide for the three paths, prefix table, and recipes.
-- [Backend Registry](backends.md) — companion contract for runtime-pluggable backends.
+- [Configuration](../config.md): the user-facing guide for the three paths, prefix table, and recipes.
+- [Backend Registry](backends.md): companion contract for runtime-pluggable backends.

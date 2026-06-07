@@ -7,8 +7,8 @@ from typing import Self
 
 from typer import echo
 
+from grelmicro.coordination.abc import LockPrimitive
 from grelmicro.errors import WouldBlockError as WouldBlock
-from grelmicro.sync.abc import SyncPrimitive
 from grelmicro.task.abc import Task
 
 condition: asyncio.Condition = asyncio.Condition()
@@ -114,7 +114,7 @@ class EventTask(Task):
         self._event.set()
 
 
-class WouldBlockLock(SyncPrimitive):
+class WouldBlockLock(LockPrimitive):
     """Lock that always raises WouldBlock."""
 
     async def __aenter__(self) -> Self:
@@ -131,7 +131,7 @@ class WouldBlockLock(SyncPrimitive):
         """Exit the synchronization primitive."""
 
 
-class BadLock(SyncPrimitive):
+class BadLock(LockPrimitive):
     """Bad Lock."""
 
     async def __aenter__(self) -> Self:

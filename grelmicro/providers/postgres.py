@@ -18,13 +18,16 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache.postgres import PostgresCacheAdapter
+    from grelmicro.coordination.postgres import (
+        PostgresLeaderElectionBackend,
+        PostgresLockAdapter,
+    )
     from grelmicro.resilience.circuitbreaker.postgres import (
         PostgresCircuitBreakerAdapter,
     )
     from grelmicro.resilience.ratelimiter.postgres import (
         PostgresRateLimiterAdapter,
     )
-    from grelmicro.sync.postgres import PostgresSyncAdapter
 
 
 class PostgresConfig(BaseModel):
@@ -65,7 +68,7 @@ class PostgresProvider(Provider):
     """Postgres connection provider.
 
     Holds the resolved URL and an asyncpg connection pool. Adapters
-    (`PostgresSyncAdapter`, ...) borrow the pool from a provider
+    (`PostgresLockAdapter`, ...) borrow the pool from a provider
     instead of opening their own, so multiple components against the
     same Postgres share one pool.
 
@@ -247,11 +250,24 @@ class PostgresProvider(Provider):
             raise OutOfContextError(self, "client")
         return self._pool
 
-    def sync(self, **kwargs: Any) -> PostgresSyncAdapter:  # noqa: ANN401
-        """Build a `PostgresSyncAdapter` bound to this provider."""
-        from grelmicro.sync.postgres import PostgresSyncAdapter  # noqa: PLC0415
+    def lock(self, **kwargs: Any) -> PostgresLockAdapter:  # noqa: ANN401
+        """Build a `PostgresLockAdapter` bound to this provider."""
+        from grelmicro.coordination.postgres import (  # noqa: PLC0415
+            PostgresLockAdapter,
+        )
 
-        return PostgresSyncAdapter(provider=self, **kwargs)
+        return PostgresLockAdapter(provider=self, **kwargs)
+
+    def leader_election(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> PostgresLeaderElectionBackend:
+        """Build a `PostgresLeaderElectionBackend` bound to this provider."""
+        from grelmicro.coordination.postgres import (  # noqa: PLC0415
+            PostgresLeaderElectionBackend,
+        )
+
+        return PostgresLeaderElectionBackend(provider=self, **kwargs)
 
     def cache(self, **kwargs: Any) -> PostgresCacheAdapter:  # noqa: ANN401
         """Build a `PostgresCacheAdapter` bound to this provider."""

@@ -24,17 +24,17 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache._component import Cache
+    from grelmicro.coordination._component import Coordination
     from grelmicro.log._component import Log
-    from grelmicro.sync._component import Sync
     from grelmicro.trace._component import Trace
 else:
     # Runtime fallback so `typing.get_type_hints(Grelmicro)` resolves the
-    # `sync` / `cache` property annotations without forcing first-party
+    # `coordination` / `cache` property annotations without forcing first-party
     # submodules to load at `import grelmicro`. Real types are visible to
     # static type checkers via the `TYPE_CHECKING` branch above.
     Cache = Any
+    Coordination = Any
     Log = Any
-    Sync = Any
     Trace = Any
 
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
@@ -79,13 +79,13 @@ class Grelmicro:
 
     ```python
     from grelmicro import Grelmicro
-    from grelmicro.sync import Sync
+    from grelmicro.coordination import Coordination
     from grelmicro.task import Tasks
 
     tasks = Tasks()
 
     micro = Grelmicro(uses=[
-        Sync(RedisSyncAdapter()),
+        Coordination(lock=RedisLockAdapter()),
         tasks,
     ])
 
@@ -207,19 +207,19 @@ class Grelmicro:
 
         1. A `Component` instance: registered with `(kind, name)` lookup and
            exposed on `micro.<kind>`.
-        2. A first-party backend (e.g. `RedisSyncAdapter`): auto-wrapped
-           into the matching `Component` (`Sync` for sync backends, `Cache`
-           for cache backends) before registration.
+        2. A first-party backend (e.g. `RedisLockAdapter`): auto-wrapped
+           into the matching `Component` (`Coordination` for lock backends,
+           `Cache` for cache backends) before registration.
         3. Any other async context manager: just lifecycled with the app,
            the caller keeps the reference.
 
         ```python
         # Auto-wrapped first-party backend
-        micro.use(RedisSyncAdapter())          # registered as (sync, default)
+        micro.use(RedisLockAdapter())          # registered as (coordination, default)
         micro.use(RedisCacheAdapter())         # registered as (cache, default)
 
         # Explicit Component when a non-default name is needed
-        micro.use(Sync(RedisSyncAdapter(), name="analytics"))
+        micro.use(Coordination(lock=RedisLockAdapter(), name="analytics"))
 
         # Plain async context manager: lifecycled only, caller holds reference
         tasks = Tasks()
@@ -228,9 +228,9 @@ class Grelmicro:
 
         Returns `None`. Mirrors FastAPI's `app.include_router(router)`
         pattern: pure side-effect registration. To access registered
-        components, use the typed `micro.sync` / `micro.cache` properties or
-        `micro.get(kind, name)`. For plain async context managers, the
-        caller already holds the reference.
+        components, use the typed `micro.coordination` / `micro.cache`
+        properties or `micro.get(kind, name)`. For plain async context
+        managers, the caller already holds the reference.
 
         Raises:
             ComponentAlreadyRegisteredError: A different component is already
@@ -239,7 +239,7 @@ class Grelmicro:
         """
         # A bare class (no parens) is instantiated with no arguments, in the
         # spirit of FastAPI's `Depends(dep)`: pass the reference, the framework
-        # calls it. Useful for zero-arg adapters like `MemorySyncAdapter`.
+        # calls it. Useful for zero-arg adapters like `MemoryLockAdapter`.
         item = instantiate_if_class(item)
         # Resolve the item to a Component if possible: pass-through for Component
         # instances, auto-wrap for first-party backends, None for plain CMs.
@@ -278,7 +278,7 @@ class Grelmicro:
             Doc(
                 """
                 Component category, matching the `kind` class attribute on
-                the registered component (`"sync"`, `"cache"`, `"ratelimiter"`,
+                the registered component (`"coordination"`, `"cache"`, `"ratelimiter"`,
                 `"circuitbreaker"`, `"log"`, `"trace"`, `"tasks"`, `"health"`).
                 """,
             ),
@@ -290,7 +290,7 @@ class Grelmicro:
                 Component instance name. `"default"` matches the entry that
                 also backs `micro.<kind>`. Pass the explicit name to resolve
                 a secondary registration such as
-                `Sync(backend, name="analytics")`.
+                `Coordination(lock=backend, name="analytics")`.
                 """,
             ),
         ] = "default",
@@ -341,7 +341,7 @@ class Grelmicro:
 
         ```python
         async with micro:
-            async with micro.override(Sync(MockSync())):
+            async with micro.override(Coordination(lock=MockLock())):
                 await test_thing()
         ```
 
@@ -389,9 +389,13 @@ class Grelmicro:
         return tuple(self._by_key.values())
 
     @property
-    def sync(self) -> Sync:
-        """The registered `Sync` component (default-named, or sole entry of kind `sync`)."""
-        return self._resolve_kind("sync")
+    def coordination(self) -> Coordination:
+        """The registered `Coordination` component.
+
+        Resolves the default-named entry, or the sole entry of kind
+        `coordination`.
+        """
+        return self._resolve_kind("coordination")
 
     @property
     def cache(self) -> Cache:
@@ -513,18 +517,22 @@ class Grelmicro:
     def _discover_shared_providers(self) -> None:
         """Adopt Providers reachable from components but absent from `uses=`.
 
-        A Component built as `Sync(provider)` borrows the provider's client
-        but does not own its lifecycle. When that provider is not listed in
-        `uses=`, discover it here and lifecycle it once, inserted just before
+        A Component built as `Coordination(provider)` borrows the provider's
+        client but does not own its lifecycle. When that provider is not listed
+        in `uses=`, discover it here and lifecycle it once, inserted just before
         the first Component that holds it. One Provider feeds many Components
         without the user repeating it in `uses=`:
 
         ```python
-        micro = Grelmicro(uses=[Sync(redis), Cache(redis)])  # redis adopted
+        micro = Grelmicro(uses=[Coordination(redis), Cache(redis)])  # adopted
         ```
 
-        Providers the user already listed are left untouched, so their
-        declared order still applies and the ordering check in
+        A `Coordination` holds two backends (a lock backend and an election
+        backend), each able to borrow its own Provider, so both are walked and
+        each borrowed Provider is adopted.
+
+        Providers the user already listed are left untouched, so their declared
+        order still applies and the ordering check in
         `_warn_unlifecycled_providers` still fires on a late listing. Adapters
         that own their provider (built from env, no user instance) are handled
         by `_resolve_provider_sharing`.
@@ -533,17 +541,17 @@ class Grelmicro:
         discovered: dict[int, AbstractAsyncContextManager[object]] = {}
         rebuilt: list[AbstractAsyncContextManager[object]] = []
         for item in self._items:
-            target = getattr(item, "backend", item)
-            provider = getattr(target, "_provider", None)
-            owns = getattr(target, "_owns_provider", True)
-            if (
-                provider is not None
-                and not owns
-                and id(provider) not in listed
-                and id(provider) not in discovered
-            ):
-                discovered[id(provider)] = provider
-                rebuilt.append(provider)
+            for target in _iter_provider_backends(item):
+                provider = getattr(target, "_provider", None)
+                owns = getattr(target, "_owns_provider", True)
+                if (
+                    provider is not None
+                    and not owns
+                    and id(provider) not in listed
+                    and id(provider) not in discovered
+                ):
+                    discovered[id(provider)] = provider
+                    rebuilt.append(provider)
             rebuilt.append(item)
         self._items = rebuilt
 
@@ -561,22 +569,22 @@ class Grelmicro:
         """
         cache: dict[tuple[type, str], object] = {}
         for item in self._items:
-            target = getattr(item, "backend", item)
-            if not getattr(target, "_owns_provider", False):
-                continue
-            provider = target._provider  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
-            key = (type(provider), provider.env_prefix)
-            shared = cache.get(key)
-            if shared is None:
-                cache[key] = provider
-            elif shared is not provider:  # pragma: no branch
-                target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            for target in _iter_provider_backends(item):
+                if not getattr(target, "_owns_provider", False):
+                    continue
+                provider = target._provider  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+                key = (type(provider), provider.env_prefix)
+                shared = cache.get(key)
+                if shared is None:
+                    cache[key] = provider
+                elif shared is not provider:  # pragma: no branch
+                    target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
 
     def _warn_unlifecycled_providers(self) -> None:
         """Warn when a user-listed Provider is ordered after its Component.
 
-        A Component built with `Sync(provider)` borrows the provider's client
-        but does not lifecycle it. `Grelmicro.__aenter__` enters items in
+        A Component built with `Coordination(provider)` borrows the provider's
+        client but does not lifecycle it. `Grelmicro.__aenter__` enters items in
         declaration order, so a Provider listed *after* the Component that
         depends on it opens too late. Providers with lazy resources
         (`PostgresProvider` builds its pool on `__aenter__`) then raise
@@ -589,26 +597,55 @@ class Grelmicro:
         Reported as `UserWarning` by default, or as `LifecycleOrderError`
         when the app was built with `strict=True`.
         """
+        for index, item in enumerate(self._items):
+            for target in _iter_provider_backends(item):
+                provider = getattr(target, "_provider", None)
+                if provider is None:
+                    continue
+                owns = getattr(target, "_owns_provider", True)
+                if owns:
+                    continue
+                self._report_provider_lifecycle(target, provider, index)
+
+    def _report_provider_lifecycle(
+        self,
+        target: object,
+        provider: object,
+        index: int,
+    ) -> None:
+        """Warn or raise when a user-listed Provider is ordered after its Component.
+
+        Discovery adopts Providers missing from `uses=` and inserts them ahead
+        of their Component, so the Provider is always present in `self._items`
+        and only the explicit-but-misordered listing reaches this check.
+        """
         import warnings  # noqa: PLC0415
 
-        for index, item in enumerate(self._items):
-            target = getattr(item, "backend", item)
-            provider = getattr(target, "_provider", None)
-            if provider is None:
-                continue
-            owns = getattr(target, "_owns_provider", True)
-            if owns:
-                continue
-            if self._items.index(provider) > index:
-                msg = (
-                    f"{type(provider).__name__} is listed after "
-                    f"{type(target).__name__} in Grelmicro(uses=[...]). "
-                    f"Providers must be listed before the components that "
-                    f"depend on them so they open first."
-                )
-                if self._strict:
-                    raise LifecycleOrderError(msg)
-                warnings.warn(msg, UserWarning, stacklevel=3)
+        if self._items.index(provider) > index:  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            msg = (
+                f"{type(provider).__name__} is listed after "
+                f"{type(target).__name__} in Grelmicro(uses=[...]). "
+                f"Providers must be listed before the components that "
+                f"depend on them so they open first."
+            )
+            if self._strict:
+                raise LifecycleOrderError(msg)
+            warnings.warn(msg, UserWarning, stacklevel=3)
+
+
+def _iter_provider_backends(item: object) -> list[object]:
+    """Return the provider-holding backends to inspect for `item`.
+
+    Most components expose one backend via `backend`. A `Coordination`
+    component holds a lock backend and an election backend, either of which
+    may own a Provider, so both are returned. A plain item with no backend
+    is inspected directly.
+    """
+    lock_backend = getattr(item, "_lock_backend", None)
+    election_backend = getattr(item, "_election_backend", None)
+    if lock_backend is not None or election_backend is not None:
+        return [b for b in (lock_backend, election_backend) if b is not None]
+    return [getattr(item, "backend", item)]
 
 
 def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
@@ -627,6 +664,13 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     """
     from grelmicro.cache._component import Cache  # noqa: PLC0415
     from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
+    from grelmicro.coordination._component import (  # noqa: PLC0415
+        Coordination,
+    )
+    from grelmicro.coordination.abc import (  # noqa: PLC0415
+        LeaderElectionBackend,
+        LockBackend,
+    )
     from grelmicro.resilience._components import (  # noqa: PLC0415
         CircuitBreakers,
         RateLimiters,
@@ -635,13 +679,13 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
         CircuitBreakerBackend,
         RateLimiterBackend,
     )
-    from grelmicro.sync._component import Sync  # noqa: PLC0415
-    from grelmicro.sync.abc import SyncBackend  # noqa: PLC0415
 
     if isinstance(item, CacheBackend):
         return Cache(item)
-    if isinstance(item, SyncBackend):
-        return Sync(item)
+    if isinstance(item, LeaderElectionBackend):
+        return Coordination(election=item)
+    if isinstance(item, LockBackend):
+        return Coordination(lock=item)
     if isinstance(item, CircuitBreakerBackend):
         return CircuitBreakers(item)
     if isinstance(item, RateLimiterBackend):

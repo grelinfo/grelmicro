@@ -15,7 +15,7 @@ The three paths share one resolution rule: caller `**kwargs` win, then env, then
 Pass values inline:
 
 ```python
-from grelmicro.sync import Lock
+from grelmicro.coordination import Lock
 
 lock = Lock("cart", lease_duration=60, retry_interval=0.1)
 ```
@@ -61,8 +61,8 @@ The instance name (`"cart"`) becomes the namespace inside the prefix. Names with
 Build a config object, then construct via `from_config`:
 
 ```python
-from grelmicro.sync import Lock
-from grelmicro.sync.lock import LockConfig
+from grelmicro.coordination import Lock
+from grelmicro.coordination.lock import LockConfig
 
 cfg = LockConfig(lease_duration=60, retry_interval=0.1)
 lock = Lock.from_config("cart", cfg)
@@ -102,8 +102,8 @@ from pydantic_settings import BaseSettings
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.sync import Lock
-from grelmicro.sync.lock import LockConfig
+from grelmicro.coordination import Lock
+from grelmicro.coordination.lock import LockConfig
 
 class AppSettings(BaseSettings):
     cart_lock: LockConfig = LockConfig()
