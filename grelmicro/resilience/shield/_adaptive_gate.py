@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import math
-import time
 from collections import deque
 from typing import TYPE_CHECKING
+
+from grelmicro.clock import monotonic, sleep
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -87,7 +88,7 @@ class _AdaptiveGate:
         self._capacity = capacity
         self._min_rate_floor = min_rate_floor
         self._max_rate_cap = max_rate_cap
-        self._time = time_source or time.monotonic
+        self._time = time_source or monotonic
         self._tokens = 0.0
         self._updated_at = self._time()
         self._enabled = False
@@ -160,7 +161,7 @@ class _AdaptiveGate:
                     self._send_window.append(now)
                     return
                 wait = (1.0 - self._tokens) / self._max_rate
-            await asyncio.sleep(wait)
+            await sleep(wait)
 
     def _refill(self, now: float) -> None:
         """Refill the bucket based on elapsed time since the last access."""
