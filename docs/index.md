@@ -44,7 +44,7 @@ It is built for any Python application that coordinates work across processes, w
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
 - **Railguarded**: fully tested, type-checked, and validated. Pre-1.0 the API may change on a minor release. `1.x` follows standard semver.
 
-grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq), **not** a web framework (it plugs into FastAPI, Starlette, or Litestar), and **not** a multi-node lock service (reach for ZooKeeper or etcd). It fills the gap between the web framework you picked and the infrastructure you run.
+grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq) and **not** a web framework (it plugs into FastAPI, Starlette, or Litestar). It fills the gap between the web framework you picked and the infrastructure you run.
 
 Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](comparison.md) for a per-domain breakdown.
 
