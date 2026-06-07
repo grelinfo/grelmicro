@@ -61,10 +61,10 @@ def test_lock_factory_binds_backend() -> None:
 
 
 def test_task_lock_factory_binds_backend() -> None:
-    """`coordination.task_lock(name)` binds the lock backend."""
+    """`coordination.tasklock(name)` binds the lock backend."""
     backend = MemoryLockAdapter()
     coordination = Coordination(lock=backend)
-    task_lock = coordination.task_lock("cleanup")
+    task_lock = coordination.tasklock("cleanup")
     assert isinstance(task_lock, TaskLock)
     assert task_lock.backend is backend
 
@@ -100,10 +100,10 @@ def test_lock_without_lock_backend_raises() -> None:
 
 
 def test_task_lock_without_lock_backend_raises() -> None:
-    """`coordination.task_lock()` raises when no lock backend is wired."""
+    """`coordination.tasklock()` raises when no lock backend is wired."""
     coordination = Coordination(election=MemoryLeaderElectionBackend())
     with pytest.raises(CoordinationBackendError, match="no lock backend"):
-        coordination.task_lock("cleanup")
+        coordination.tasklock("cleanup")
 
 
 def test_lock_backend_property_without_lock_backend_raises() -> None:
