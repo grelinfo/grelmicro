@@ -80,7 +80,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         )
         raise NotImplementedError(msg)
 
-    def ratelimiter(self, **kwargs: Any) -> RateLimiterBackend:  # noqa: ANN401
+    def rate_limiter(self, **kwargs: Any) -> RateLimiterBackend:  # noqa: ANN401
         """Return the matching `RateLimiterBackend` adapter for this Provider.
 
         Raises:
@@ -93,7 +93,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         )
         raise NotImplementedError(msg)
 
-    def circuitbreaker(self, **kwargs: Any) -> CircuitBreakerBackend:  # noqa: ANN401
+    def circuit_breaker(self, **kwargs: Any) -> CircuitBreakerBackend:  # noqa: ANN401
         """Return the matching `CircuitBreakerBackend` adapter for this Provider.
 
         Raises:

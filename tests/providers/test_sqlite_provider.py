@@ -61,7 +61,7 @@ def test_client_before_open_raises() -> None:
 def test_factories_return_adapters() -> None:
     """The provider builds rate limiter and lock adapters."""
     provider = SQLiteProvider("x.db")
-    assert isinstance(provider.ratelimiter(), SQLiteRateLimiterAdapter)
+    assert isinstance(provider.rate_limiter(), SQLiteRateLimiterAdapter)
     assert isinstance(provider.lock(), SQLiteLockAdapter)
 
 

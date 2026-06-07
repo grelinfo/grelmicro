@@ -105,10 +105,10 @@ def test_auto_migrate_flag() -> None:
 
 
 def test_provider_ratelimiter_factory() -> None:
-    """`PostgresProvider.ratelimiter()` builds a `PostgresRateLimiterAdapter`."""
+    """`PostgresProvider.rate_limiter()` builds a `PostgresRateLimiterAdapter`."""
     provider = PostgresProvider(URL)
 
-    backend = provider.ratelimiter()
+    backend = provider.rate_limiter()
 
     assert isinstance(backend, PostgresRateLimiterAdapter)
     assert backend.provider is provider

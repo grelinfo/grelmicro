@@ -188,7 +188,7 @@ redis = RedisProvider("redis://localhost:6379/0")
 # tasks run inside that scope, so they resolve their backend ambiently.
 lock_backend = redis.lock()
 cache_backend = redis.cache()
-ratelimiter_backend = redis.ratelimiter()
+ratelimiter_backend = redis.rate_limiter()
 breaker_backend = MemoryCircuitBreakerAdapter()
 leader_backend = redis.leader_election()
 

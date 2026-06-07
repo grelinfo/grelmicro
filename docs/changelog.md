@@ -4,7 +4,7 @@
 
 ### Breaking
 
-* 💥 Rename the provider factory `Provider.breaker()` to `Provider.circuitbreaker()`, matching the `circuitbreaker` component kind and the `CircuitBreaker` pattern. Custom providers must rename the method. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+* 💥 Rename the provider factory methods to snake_case: `breaker()` becomes `circuit_breaker()` and `ratelimiter()` becomes `rate_limiter()`, matching `leader_election()`, the `RateLimiter` and `CircuitBreaker` pattern classes, and PEP 8. Custom providers must rename these methods. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
 * 💥 Make `Log`, `Trace`, and `Metrics` singletons. Each configures process-global state (the root logger, the OpenTelemetry tracer and meter providers), so registering a second one on the same app now raises `ComponentAlreadyRegisteredError` instead of silently clobbering the first. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
 * 💥 Make the component `name` a read-only property everywhere (`Coordination`, `Cache`, `Log`, `Trace`, `Metrics`, `RateLimiters`, `CircuitBreakers`, `HealthChecks`, `RealClock`, `VirtualClock`), matching the resilience and coordination primitives. Pass `name=` at construction. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
 

@@ -94,7 +94,7 @@ async def backend(
             provider = SQLiteProvider(str(Path(tmpdir) / "rate_limit.db"))
             async with (
                 provider,
-                provider.ratelimiter(prefix="test:") as sqlite_backend,
+                provider.rate_limiter(prefix="test:") as sqlite_backend,
             ):
                 yield sqlite_backend
     elif backend_name == "memory":

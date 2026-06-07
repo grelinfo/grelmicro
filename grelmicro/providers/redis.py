@@ -255,7 +255,7 @@ class RedisProvider(Provider):
 
         return RedisCacheAdapter(provider=self, **kwargs)
 
-    def ratelimiter(self, **kwargs: Any) -> RedisRateLimiterAdapter:  # noqa: ANN401
+    def rate_limiter(self, **kwargs: Any) -> RedisRateLimiterAdapter:  # noqa: ANN401
         """Build a `RedisRateLimiterAdapter` bound to this provider."""
         from grelmicro.resilience.ratelimiter.redis import (  # noqa: PLC0415
             RedisRateLimiterAdapter,
@@ -263,7 +263,7 @@ class RedisProvider(Provider):
 
         return RedisRateLimiterAdapter(provider=self, **kwargs)
 
-    def circuitbreaker(self, **kwargs: Any) -> RedisCircuitBreakerAdapter:  # noqa: ANN401
+    def circuit_breaker(self, **kwargs: Any) -> RedisCircuitBreakerAdapter:  # noqa: ANN401
         """Build a `RedisCircuitBreakerAdapter` bound to this provider."""
         from grelmicro.resilience.circuitbreaker.redis import (  # noqa: PLC0415
             RedisCircuitBreakerAdapter,

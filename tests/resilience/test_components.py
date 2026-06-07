@@ -73,7 +73,7 @@ async def test_breaker_lifecycles_backend() -> None:
 
 
 def test_ratelimit_accepts_redis_provider() -> None:
-    """`RateLimiters(RedisProvider(...))` calls `provider.ratelimiter()` to build the adapter."""
+    """`RateLimiters(RedisProvider(...))` calls `provider.rate_limiter()` to build the adapter."""
     provider = RedisProvider("redis://localhost:6379/0")
     component = RateLimiters(provider)
     assert isinstance(component.backend, RedisRateLimiterAdapter)
@@ -81,7 +81,7 @@ def test_ratelimit_accepts_redis_provider() -> None:
 
 
 def test_ratelimit_accepts_postgres_provider() -> None:
-    """`RateLimiters(PostgresProvider(...))` calls `provider.ratelimiter()` to build the adapter."""
+    """`RateLimiters(PostgresProvider(...))` calls `provider.rate_limiter()`."""
     provider = PostgresProvider("postgresql://localhost:5432/app")
     component = RateLimiters(provider)
     assert isinstance(component.backend, PostgresRateLimiterAdapter)
@@ -89,7 +89,7 @@ def test_ratelimit_accepts_postgres_provider() -> None:
 
 
 def test_ratelimit_accepts_sqlite_provider() -> None:
-    """`RateLimiters(SQLiteProvider(...))` calls `provider.ratelimiter()` to build the adapter."""
+    """`RateLimiters(SQLiteProvider(...))` calls `provider.rate_limiter()` to build the adapter."""
     provider = SQLiteProvider("app.db")
     component = RateLimiters(provider)
     assert isinstance(component.backend, SQLiteRateLimiterAdapter)

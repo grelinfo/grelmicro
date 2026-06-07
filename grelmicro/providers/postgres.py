@@ -277,7 +277,7 @@ class PostgresProvider(Provider):
 
         return PostgresCacheAdapter(provider=self, **kwargs)
 
-    def ratelimiter(self, **kwargs: Any) -> PostgresRateLimiterAdapter:  # noqa: ANN401
+    def rate_limiter(self, **kwargs: Any) -> PostgresRateLimiterAdapter:  # noqa: ANN401
         """Build a `PostgresRateLimiterAdapter` bound to this provider."""
         from grelmicro.resilience.ratelimiter.postgres import (  # noqa: PLC0415
             PostgresRateLimiterAdapter,
@@ -285,7 +285,7 @@ class PostgresProvider(Provider):
 
         return PostgresRateLimiterAdapter(provider=self, **kwargs)
 
-    def circuitbreaker(self, **kwargs: Any) -> PostgresCircuitBreakerAdapter:  # noqa: ANN401
+    def circuit_breaker(self, **kwargs: Any) -> PostgresCircuitBreakerAdapter:  # noqa: ANN401
         """Build a `PostgresCircuitBreakerAdapter` bound to this provider."""
         from grelmicro.resilience.circuitbreaker.postgres import (  # noqa: PLC0415
             PostgresCircuitBreakerAdapter,
