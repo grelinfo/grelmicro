@@ -44,7 +44,7 @@ It is built for any Python application that coordinates work across processes, w
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
 - **Railguarded**: fully tested, type-checked, and validated. Pre-1.0 the API may change on a minor release. `1.x` follows standard semver.
 
-grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq), **not** a web framework (it plugs into FastAPI, Starlette, or Litestar), and **not** a multi-node lock service (reach for ZooKeeper or etcd). It fills the gap between the web framework you picked and the infrastructure you run.
+grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq) and **not** a web framework (it plugs into FastAPI, Starlette, or Litestar). It fills the gap between the web framework you picked and the infrastructure you run.
 
 Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](comparison.md) for a per-domain breakdown.
 
@@ -52,7 +52,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 
 | Module | Summary |
 |---|---|
-| [**Cache**](cache.md) | `@cached` decorator with local, distributed, and early (XFetch) stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
+| [**Cache**](cache.md) | `@cached` decorator with local and distributed stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
 | [**Coordination**](coordination.md) | Distributed `Lock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Task Scheduler**](task.md) | Interval and cron tasks with durable, distributed at-most-once execution. A modern, lightweight alternative to APScheduler and Celery beat. |
 | [**Resilience**](resilience/index.md) | [Circuit Breaker](resilience/circuit-breaker.md) and [Rate Limiter](resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
