@@ -7,17 +7,21 @@ import typer
 from fast_depends import Depends
 from fastapi import FastAPI
 
-from grelmicro.sync import LeaderElection, Lock
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination import LeaderElection, Lock
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionBackend,
+    MemoryLockAdapter,
+)
 from grelmicro.task import Tasks
 
-backend = MemorySyncAdapter()
+backend = MemoryLockAdapter()
+coordination_backend = MemoryLeaderElectionBackend()
 task = Tasks()
 
 
 @asynccontextmanager
 async def lifespan(app):
-    async with backend, task:
+    async with backend, coordination_backend, task:
         typer.echo("App started")
         yield
         typer.echo("App stopped")
@@ -36,7 +40,9 @@ leased_lock_5sec = Lock(
     backend=backend,
 )
 
-leader_election = LeaderElection(name="simple-leader", backend=backend)
+leader_election = LeaderElection(
+    name="simple-leader", backend=coordination_backend
+)
 
 task.add_task(leader_election)
 

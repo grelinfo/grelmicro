@@ -25,6 +25,7 @@ from grelmicro.health._types import (
     HealthDetails,
 )
 from grelmicro.health.errors import HealthError
+from grelmicro.metrics import _emit
 
 logger = getLogger("grelmicro.health")
 
@@ -430,6 +431,34 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
 
 
 async def _run_check(entry: _Entry) -> CheckResult:
+    """Execute a single health check, timing it and emitting metrics.
+
+    Emits ``grelmicro.health.check.up`` (1 healthy, 0 unhealthy) and
+    ``grelmicro.health.check.duration`` (seconds). Both are no-ops when no
+    `Metrics` component is active. The check name and critical flag are
+    bounded attributes (registered names, not user input).
+    """
+    start = time.monotonic()
+    result = await _run_check_inner(entry)
+    elapsed = time.monotonic() - start
+    healthy = result["status"] == HealthStatus.OK
+    _emit.observe(
+        "grelmicro.health.check.up",
+        1 if healthy else 0,
+        **{"check.name": entry.name, "critical": entry.critical},
+    )
+    _emit.record_duration(
+        "grelmicro.health.check.duration",
+        elapsed,
+        **{
+            "check.name": entry.name,
+            "outcome": "success" if healthy else "error",
+        },
+    )
+    return result
+
+
+async def _run_check_inner(entry: _Entry) -> CheckResult:
     """Execute a single health check function, returning a CheckResult.
 
     ``entry.func`` is always async (sync checks were wrapped at

@@ -44,7 +44,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
     "Topic :: Software Development",
     "Typing :: Typed",
-    "Development Status :: 1 - Planning",
+    "Development Status :: 4 - Beta",
     "Environment :: Web Environment",
     "Framework :: AsyncIO",
     "Framework :: FastAPI",
@@ -95,6 +95,10 @@ kubernetes = [
 opentelemetry = [
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
+    "opentelemetry-exporter-prometheus>=0.41b0",
+    "prometheus-client>=0.19.0",
 ]
 structlog = [
     "structlog>=24.1.0",
@@ -124,6 +128,10 @@ dev = [
     "redis>=5.0.0",
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
+    "opentelemetry-exporter-prometheus>=0.41b0",
+    "prometheus-client>=0.19.0",
     "structlog>=24.1.0",
     "aiosqlite>=0.20.0",
     "lightkube>=0.15.0",
@@ -201,6 +209,9 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 ]
 "docs/snippets/*" = [
     "ARG001",
+    "ARG002",
+    "D107",
+    "S101",
     "ANN001",
     "ANN201",
     "D100",
@@ -218,6 +229,8 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 "docs/snippets/task/router.py" = ["I001", "E402"]
 "tests/*" = [
     "S101",
+    "S105",
+    "S106",
     "SLF001",
     "RUF029",  # async test helpers may be coroutine-only without awaits
 ]

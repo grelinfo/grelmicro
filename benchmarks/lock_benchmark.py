@@ -13,8 +13,8 @@ import asyncio
 import time
 from typing import TYPE_CHECKING
 
-from grelmicro.sync.lock import Lock
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination.lock import Lock
+from grelmicro.coordination.memory import MemoryLockAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -37,7 +37,7 @@ async def _measure_async(
 
 async def _bench_lock(iterations: int) -> None:
     """Measure an acquire + release cycle on the in-memory lock."""
-    async with MemorySyncAdapter() as backend:
+    async with MemoryLockAdapter() as backend:
         lock = Lock("bench", backend=backend)
 
         async def acquire_release() -> None:

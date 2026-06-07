@@ -40,6 +40,7 @@ from grelmicro._config import (
 )
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
+from grelmicro.metrics import _emit
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience._retry_strategy import build_retry_strategy
@@ -382,12 +383,32 @@ def _sync_iter(
         delay_before = strategy.delay(number)
 
 
+def _emit_retry(name: str, *, started_at: float, outcome: str) -> None:
+    """Emit retry attempts and duration metrics for one run.
+
+    `grelmicro.retry.attempts` counts each run with a bounded ``outcome``
+    (``success`` or ``error``) and the policy ``retry.name``.
+    `grelmicro.retry.duration` records the total run time in seconds. Both
+    are no-ops when no `Metrics` component is active.
+    """
+    _emit.incr(
+        "grelmicro.retry.attempts",
+        **{"retry.name": name, "outcome": outcome},
+    )
+    _emit.record_duration(
+        "grelmicro.retry.duration",
+        clock_monotonic() - started_at,
+        **{"retry.name": name},
+    )
+
+
 async def _run_async(
     fn: Callable[..., Awaitable[Any]],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     config: RetryConfig,
     matcher: Matcher,
+    name: str = "anonymous",
 ) -> Any:  # noqa: ANN401
     """Decorator/class-form async wrapper. Handles exception and result retries."""
     strategy = build_retry_strategy(config.backoff)
@@ -409,13 +430,16 @@ async def _run_async(
                     f"exhausted in {clock_monotonic() - started_at:.2f}s "
                     f"({backoff_name} backoff)"
                 )
+                _emit_retry(name, started_at=started_at, outcome="error")
                 raise
             delay = strategy.delay(number)
             continue
         if not matcher(Outcome.from_result(result)):
+            _emit_retry(name, started_at=started_at, outcome="success")
             return result
         last_result = result
         if number >= config.attempts:
+            _emit_retry(name, started_at=started_at, outcome="error")
             return last_result
         delay = strategy.delay(number)
     return last_result  # pragma: no cover  # unreachable
@@ -427,6 +451,7 @@ def _run_sync(
     kwargs: dict[str, Any],
     config: RetryConfig,
     matcher: Matcher,
+    name: str = "anonymous",
 ) -> Any:  # noqa: ANN401
     """Decorator/class-form sync wrapper. Handles exception and result retries."""
     strategy = build_retry_strategy(config.backoff)
@@ -448,13 +473,16 @@ def _run_sync(
                     f"exhausted in {clock_monotonic() - started_at:.2f}s "
                     f"({backoff_name} backoff)"
                 )
+                _emit_retry(name, started_at=started_at, outcome="error")
                 raise
             delay = strategy.delay(number)
             continue
         if not matcher(Outcome.from_result(result)):
+            _emit_retry(name, started_at=started_at, outcome="success")
             return result
         last_result = result
         if number >= config.attempts:
+            _emit_retry(name, started_at=started_at, outcome="error")
             return last_result
         delay = strategy.delay(number)
     return last_result  # pragma: no cover  # unreachable
@@ -676,7 +704,7 @@ class Retry(Reconfigurable[RetryConfig]):
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
                 state = self._state
                 return await _run_async(
-                    fn, args, kwargs, state.config, state.matcher
+                    fn, args, kwargs, state.config, state.matcher, self._name
                 )
 
             return async_wrapper
@@ -684,7 +712,9 @@ class Retry(Reconfigurable[RetryConfig]):
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             state = self._state
-            return _run_sync(fn, args, kwargs, state.config, state.matcher)
+            return _run_sync(
+                fn, args, kwargs, state.config, state.matcher, self._name
+            )
 
         return sync_wrapper
 

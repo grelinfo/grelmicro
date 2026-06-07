@@ -1,6 +1,6 @@
 # SQLite Backend
 
-This page documents the internal design of the SQLite [Synchronization Backend](../sync.md#backend).
+This page documents the internal design of the SQLite [Coordination backend](../coordination.md#backends).
 
 ## WAL Mode
 

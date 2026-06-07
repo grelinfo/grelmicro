@@ -1,7 +1,7 @@
 """Tests for RedisCacheAdapter."""
 
 from collections.abc import AsyncIterator
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -122,22 +122,27 @@ class TestRedisCacheAdapterAsyncMethods:
         client.set.assert_awaited_once_with("k", b"v", px=500)
 
     async def test_delete(self) -> None:
-        """`delete` forwards the prefixed key."""
+        """`delete` runs the delete-with-tags script on the prefixed key."""
         backend, client = _build(prefix="p:")
-        client.delete = AsyncMock()
+        client.eval = AsyncMock()
 
         await backend.delete(key="key")
 
-        client.delete.assert_awaited_once_with("p:key")
+        # script, numkeys, value key, reverse-tag set.
+        client.eval.assert_awaited_once_with(
+            ANY, 2, "p:key", "p:cache:rtag:key"
+        )
 
     async def test_delete_missing_key_is_no_op(self) -> None:
         """`delete` on a missing key does not raise."""
         backend, client = _build()
-        client.delete = AsyncMock(return_value=0)
+        client.eval = AsyncMock(return_value=1)
 
         await backend.delete(key="nonexistent")
 
-        client.delete.assert_awaited_once_with("nonexistent")
+        client.eval.assert_awaited_once_with(
+            ANY, 2, "nonexistent", "cache:rtag:nonexistent"
+        )
 
     async def test_clear(self) -> None:
         """`clear` deletes every key matching the configured prefix."""

@@ -36,13 +36,15 @@ ______________________________________________________________________
 
 grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, Pydantic-validated. A local pre-commit hook gates commits on 100% pytest coverage (`coverage --fail-under=100`).
 
-It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve every **distributed system**, whether you call it **microservices**, a **modular monolith**, or a **self-contained system**. A distributed lock is a distributed lock whether your system is one process or fifty. It fits naturally into **cloud-native applications**, **containerized apps**, and **Kubernetes** deployments.
+It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve microservices, a modular monolith, or a self-contained system, and fit naturally into containerized and Kubernetes deployments.
 
 - **Micro**: one focused primitive per module. Each covers a microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).
 - **Fast**: small footprint by design. We keep the layers thin so your code stays quick.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any asyncio-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
 - **Railguarded**: 100% pytest coverage, ty-checked, ruff-linted, Pydantic-validated. Pre-1.0 API may shift on minor bumps. `1.x` commits to standard semver.
+
+grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq), **not** a web framework (it plugs into FastAPI, Starlette, or Litestar), and **not** a multi-node lock service (reach for ZooKeeper or etcd). It fills the gap between the web framework you picked and the infrastructure you run.
 
 Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](docs/comparison.md) for a per-domain breakdown.
 
@@ -51,7 +53,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | Module | Summary |
 |---|---|
 | [**Cache**](docs/cache.md) | `@cached` decorator with local, distributed, and early (XFetch) stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
-| [**Synchronization**](docs/sync.md) | Distributed `Lock`, `TaskLock`, `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
+| [**Coordination**](docs/coordination.md) | Distributed `Lock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Task Scheduler**](docs/task.md) | Periodic task execution with optional distributed locking. Lightweight, not a Celery replacement. |
 | [**Resilience**](docs/resilience/index.md) | [Circuit Breaker](docs/resilience/circuit-breaker.md) and [Rate Limiter](docs/resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
 | [**Logging**](docs/logging.md) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
@@ -171,7 +173,7 @@ from grelmicro.resilience import (
     RateLimiters,
 )
 from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
-from grelmicro.sync import LeaderElection, Lock, Sync
+from grelmicro.coordination import Coordination, LeaderElection, Lock
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
@@ -179,22 +181,24 @@ logger = logging.getLogger(__name__)
 # === grelmicro app: one container, one lifespan ===
 tasks = Tasks()
 health = HealthChecks()
-leader = LeaderElection("leader-election")
-tasks.add_task(leader)
 
 redis = RedisProvider("redis://localhost:6379/0")
 
 # Patterns used inside FastAPI request handlers take an explicit backend:
 # handlers run in their own task, outside the app's ambient scope. Background
 # tasks run inside that scope, so they resolve their backend ambiently.
-sync_backend = redis.sync()
+lock_backend = redis.lock()
 cache_backend = redis.cache()
 ratelimiter_backend = redis.ratelimiter()
 breaker_backend = MemoryCircuitBreakerAdapter()
+leader_backend = redis.leader_election()
+
+leader = LeaderElection("leader-election", backend=leader_backend)
+tasks.add_task(leader)
 
 micro = Grelmicro(uses=[
     redis,
-    Sync(sync_backend),
+    Coordination(lock=lock_backend, election=leader_backend),
     Cache(cache_backend),
     RateLimiters(ratelimiter_backend),
     CircuitBreakers(breaker_backend),
@@ -204,7 +208,7 @@ micro = Grelmicro(uses=[
 
 # === Patterns declared once at module load ===
 ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer(), backend=cache_backend)
-lock = Lock("shared-resource", backend=sync_backend)
+lock = Lock("shared-resource", backend=lock_backend)
 cb = CircuitBreaker("my-service", backend=breaker_backend)
 api_limiter = RateLimiter.sliding_window(
     "api", limit=100, window=60, backend=ratelimiter_backend
@@ -282,8 +286,8 @@ def leader_only_task():
 The key shape:
 
 - **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Provider, Component, and active manager. `async with micro:` opens them all in order, closes in reverse.
-- **One Provider, many Components.** `Sync(redis)`, `Cache(redis)`, `RateLimiters(redis)` all share the same `RedisProvider` pool. The Provider holds the connection, the Components attach to it.
-- **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`. The same `Lock` works in production with Redis and in tests with `MemorySyncAdapter`, no rewiring.
+- **One Provider, many Components.** `Coordination(redis)`, `Cache(redis)`, `RateLimiters(redis)` all share the same `RedisProvider` pool. The Provider holds the connection, the Components attach to it.
+- **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`. The same `Lock` works in production with Redis and in tests with `MemoryLockAdapter`, no rewiring.
 - **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
 
 For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelinfo.github.io/grelmicro/).
