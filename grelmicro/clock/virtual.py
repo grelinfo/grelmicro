@@ -53,10 +53,15 @@ class VirtualClock:
         ] = "default",
     ) -> None:
         """Initialize the virtual clock at `start`."""
-        self.name = name
+        self._name = name
         self._now = start
         self._waiters: list[tuple[float, asyncio.Future[None]]] = []
         self._token: Any = None
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     def monotonic(self) -> float:
         """Return the current virtual time."""

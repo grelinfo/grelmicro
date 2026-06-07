@@ -146,10 +146,10 @@ Each Provider exposes factory methods that return its matching adapter:
 | Method                      | Returns                       | RedisProvider | PostgresProvider | SQLiteProvider |
 |----------------------------|-------------------------------|:-------------:|:----------------:|:--------------:|
 | `.lock(**kwargs)`           | `LockBackend` implementation  |       ✓        |        ✓         |       ✓        |
-| `.leader_election(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |        ✓         |      N/A       |
+| `.leaderelection(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |        ✓         |      N/A       |
 | `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        ✓         |      N/A       |
 | `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        ✓         |       ✓        |
-| `.breaker(**kwargs)`        | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |      N/A       |
+| `.circuitbreaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |      N/A       |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
@@ -157,7 +157,7 @@ pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
 
 ## Postgres
 
-`PostgresProvider` ships the `.lock()` and `.leader_election()` factories. The
+`PostgresProvider` ships the `.lock()` and `.leaderelection()` factories. The
 provider wraps an `asyncpg.Pool` and opens it lazily on `__aenter__`.
 
 ```python

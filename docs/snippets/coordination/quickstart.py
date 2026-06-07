@@ -8,7 +8,7 @@ micro = Grelmicro(
     uses=[Coordination(election=MemoryLeaderElectionBackend()), tasks]
 )
 
-leader = micro.coordination.leader_election("worker")
+leader = micro.coordination.leaderelection("worker")
 tasks.add_task(leader)
 
 

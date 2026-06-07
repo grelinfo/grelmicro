@@ -10,8 +10,12 @@ from grelmicro._app import (
 from grelmicro._component import Component
 from grelmicro.errors import (
     AdapterNotRegisteredError,
+    DependencyNotFoundError,
+    GrelmicroError,
     MultipleActiveAppsError,
+    OutOfContextError,
     ProviderNotRegisteredError,
+    SettingsValidationError,
 )
 
 __all__ = [
@@ -19,9 +23,13 @@ __all__ = [
     "Component",
     "ComponentAlreadyRegisteredError",
     "ComponentNotRegisteredError",
+    "DependencyNotFoundError",
     "Grelmicro",
+    "GrelmicroError",
     "LifecycleOrderError",
     "MultipleActiveAppsError",
     "NoActiveAppError",
+    "OutOfContextError",
     "ProviderNotRegisteredError",
+    "SettingsValidationError",
 ]

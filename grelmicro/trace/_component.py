@@ -59,6 +59,7 @@ class Trace:
     """
 
     kind: ClassVar[str] = "trace"
+    singleton: ClassVar[bool] = True
 
     def __init__(  # noqa: PLR0913
         self,
@@ -67,8 +68,8 @@ class Trace:
             str,
             Doc(
                 """
-                Registration name. Multiple `Trace` components may coexist
-                on one `Grelmicro` under different names.
+                Registration name. `Trace` installs the process-global OTel
+                tracer provider, so only one may be registered per app.
                 """
             ),
         ] = "default",
@@ -120,7 +121,7 @@ class Trace:
         ] = None,
     ) -> None:
         """Initialize the component (defer provider build until `__aenter__`)."""
-        self.name = name
+        self._name = name
         self._explicit_config = config
         self._kwargs = {
             "service_name": service_name,
@@ -137,6 +138,11 @@ class Trace:
         self._resolved: TracingConfig | None = None
         self._provider: Any = None
         self._prior_provider: Any = None
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     @property
     def config(self) -> TracingConfig:

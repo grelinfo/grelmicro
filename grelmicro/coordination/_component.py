@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro._component import instantiate_if_class
-from grelmicro.coordination.errors import CoordinationError
+from grelmicro.coordination.errors import CoordinationBackendError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.tasklock import TaskLock
@@ -19,14 +19,6 @@ if TYPE_CHECKING:
     from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
 
 
-class CoordinationBackendError(CoordinationError):
-    """Coordination Backend Error.
-
-    Raised when a primitive is requested from a `Coordination` component that
-    has no backend wired for that primitive.
-    """
-
-
 class Coordination:
     """Coordination component: wraps backends and exposes coordination primitives.
 
@@ -35,7 +27,7 @@ class Coordination:
     not need to pass `backend=` on every primitive.
 
     A single positional `Provider` resolves both primitives: the component calls
-    `provider.lock()` for the lock backend and `provider.leader_election()` for
+    `provider.lock()` for the lock backend and `provider.leaderelection()` for
     the election backend. The `lock=` and `election=` keywords set each backend
     independently, so locks can run on one vendor and leader election on another.
     Each accepts a `Provider`, a backend instance, or a zero-arg class.
@@ -52,7 +44,7 @@ class Coordination:
         async with micro:
             async with micro.coordination.lock("cart"):
                 ...
-            leader = micro.coordination.leader_election("worker")
+            leader = micro.coordination.leaderelection("worker")
         ```
 
     Read more in the [Coordination](../coordination.md) docs.
@@ -68,7 +60,7 @@ class Coordination:
                 """
                 A `Provider` (e.g. `RedisProvider`) that resolves both
                 primitives. The component calls `provider.lock()` for the lock
-                backend and `provider.leader_election()` for the election
+                backend and `provider.leaderelection()` for the election
                 backend. A zero-arg Provider class is instantiated for you.
                 Use `lock=`/`election=` to set either backend independently.
                 """,
@@ -94,7 +86,7 @@ class Coordination:
             Doc(
                 """
                 The leader election backend. A `Provider` resolves it via
-                `provider.leader_election()`, a `LeaderElectionBackend`
+                `provider.leaderelection()`, a `LeaderElectionBackend`
                 instance is used directly, and a zero-arg class is
                 instantiated for you. Overrides the election backend resolved
                 from `source`.
@@ -112,14 +104,14 @@ class Coordination:
         ] = "default",
     ) -> None:
         """Initialize the component with the wrapped backends."""
-        self.name = name
+        self._name = name
         self._lock_backend: LockBackend | None = None
         self._election_backend: LeaderElectionBackend | None = None
 
         if source is not None:
             provider = instantiate_if_class(source)
             self._lock_backend = provider.lock()
-            self._election_backend = provider.leader_election()
+            self._election_backend = provider.leaderelection()
 
         if lock is not None:
             resolved_lock = instantiate_if_class(lock)
@@ -132,10 +124,15 @@ class Coordination:
         if election is not None:
             resolved_election = instantiate_if_class(election)
             self._election_backend = (
-                resolved_election.leader_election()
+                resolved_election.leaderelection()
                 if isinstance(resolved_election, Provider)
                 else resolved_election
             )
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     @property
     def lock_backend(self) -> LockBackend:
@@ -185,7 +182,7 @@ class Coordination:
         """
         return TaskLock(name, backend=self.lock_backend, **kwargs)
 
-    def leader_election(
+    def leaderelection(
         self,
         name: str,
         **kwargs: Any,  # noqa: ANN401

@@ -56,6 +56,7 @@ class Log:
     """
 
     kind: ClassVar[str] = "log"
+    singleton: ClassVar[bool] = True
     _lifecycle_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(
@@ -65,8 +66,8 @@ class Log:
             str,
             Doc(
                 """
-                Registration name. Multiple `Log` components may coexist on
-                one `Grelmicro` under different names.
+                Registration name. `Log` configures the process-wide root
+                logger, so only one may be registered per app.
                 """
             ),
         ] = "default",
@@ -112,7 +113,7 @@ class Log:
         ] = None,
     ) -> None:
         """Initialize the component (defer configuration until `__aenter__`)."""
-        self.name = name
+        self._name = name
         self._explicit_config = config
         self._kwargs = {
             "backend": backend,
@@ -127,6 +128,11 @@ class Log:
         self._resolved: LoggingConfig | None = None
         self._snapshot_handlers: list[logging.Handler] | None = None
         self._snapshot_level: int | None = None
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     @property
     def config(self) -> LoggingConfig:

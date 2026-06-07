@@ -103,6 +103,7 @@ nav:
     - architecture/imports.md
     - architecture/plugins.md
     - architecture/multiple-apps.md
+    - architecture/decorators.md
     - architecture/sync-from-thread.md
     - architecture/coordination.md
     - architecture/graceful-shutdown.md

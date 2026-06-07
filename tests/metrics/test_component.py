@@ -6,7 +6,7 @@ import pytest
 from opentelemetry import metrics as otel_metrics
 from opentelemetry.sdk.metrics import MeterProvider
 
-from grelmicro import Component, Grelmicro
+from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro.metrics import (
     Metrics,
     MetricsConfig,
@@ -52,16 +52,22 @@ def test_metrics_default_kind_and_name() -> None:
     assert metrics.name == "default"
 
 
-def test_metrics_named_registration() -> None:
-    """A named `Metrics` component coexists with the default one."""
-    micro = Grelmicro(
-        uses=[
-            Metrics(exporter=MetricsExporterType.NONE),
-            Metrics(exporter=MetricsExporterType.NONE, name="audit"),
-        ]
-    )
-    assert micro.get("metrics", "default").name == "default"
-    assert micro.get("metrics", "audit").name == "audit"
+def test_metrics_is_singleton() -> None:
+    """`Metrics` installs the global meter provider, so a second one is refused."""
+    with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
+        Grelmicro(
+            uses=[
+                Metrics(exporter=MetricsExporterType.NONE),
+                Metrics(exporter=MetricsExporterType.NONE, name="audit"),
+            ]
+        )
+
+
+def test_metrics_name_is_read_only() -> None:
+    """`Metrics.name` is a read-only property."""
+    metrics = Metrics(exporter=MetricsExporterType.NONE)
+    with pytest.raises(AttributeError):
+        metrics.name = "other"  # ty: ignore[invalid-assignment]
 
 
 def test_metrics_config_unavailable_before_enter() -> None:

@@ -117,10 +117,10 @@ def test_custom_table_name() -> None:
 
 @pytest.mark.timeout(1)
 def test_provider_factory() -> None:
-    """`provider.leader_election()` binds a backend to the provider."""
+    """`provider.leaderelection()` binds a backend to the provider."""
     provider = PostgresProvider(URL)
 
-    backend = provider.leader_election()
+    backend = provider.leaderelection()
 
     assert isinstance(backend, PostgresLeaderElectionBackend)
     assert backend.provider is provider

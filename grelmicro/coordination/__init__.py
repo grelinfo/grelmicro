@@ -9,6 +9,7 @@ from grelmicro.coordination.abc import (
     LockPrimitive,
 )
 from grelmicro.coordination.errors import (
+    CoordinationBackendError,
     CoordinationError,
     CoordinationSettingsValidationError,
     LockAcquireError,
@@ -18,6 +19,7 @@ from grelmicro.coordination.errors import (
     LockOwnedCheckError,
     LockReentrantError,
     LockReleaseError,
+    WouldBlockError,
 )
 from grelmicro.coordination.leaderelection import (
     LeaderElection,
@@ -28,6 +30,7 @@ from grelmicro.coordination.tasklock import TaskLock
 
 __all__ = [
     "Coordination",
+    "CoordinationBackendError",
     "CoordinationError",
     "CoordinationSettingsValidationError",
     "LeaderElection",
@@ -46,4 +49,5 @@ __all__ = [
     "LockReentrantError",
     "LockReleaseError",
     "TaskLock",
+    "WouldBlockError",
 ]

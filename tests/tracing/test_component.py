@@ -6,7 +6,7 @@ import pytest
 from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
 
-from grelmicro import Component, Grelmicro
+from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro.trace import (
     Trace,
     TracingConfig,
@@ -49,16 +49,22 @@ def test_trace_default_kind_and_name() -> None:
     assert trace.name == "default"
 
 
-def test_trace_named_registration() -> None:
-    """A named `Trace` component coexists with the default one."""
-    micro = Grelmicro(
-        uses=[
-            Trace(exporter=TracingExporterType.NONE),
-            Trace(exporter=TracingExporterType.NONE, name="audit"),
-        ]
-    )
-    assert micro.get("trace", "default").name == "default"
-    assert micro.get("trace", "audit").name == "audit"
+def test_trace_is_singleton() -> None:
+    """`Trace` installs the global tracer provider, so a second one is refused."""
+    with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
+        Grelmicro(
+            uses=[
+                Trace(exporter=TracingExporterType.NONE),
+                Trace(exporter=TracingExporterType.NONE, name="audit"),
+            ]
+        )
+
+
+def test_trace_name_is_read_only() -> None:
+    """`Trace.name` is a read-only property."""
+    trace = Trace(exporter=TracingExporterType.NONE)
+    with pytest.raises(AttributeError):
+        trace.name = "other"  # ty: ignore[invalid-assignment]
 
 
 def test_trace_config_unavailable_before_enter() -> None:

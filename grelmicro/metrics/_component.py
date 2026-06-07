@@ -67,6 +67,7 @@ class Metrics:
     """
 
     kind: ClassVar[str] = "metrics"
+    singleton: ClassVar[bool] = True
 
     def __init__(  # noqa: PLR0913
         self,
@@ -75,8 +76,8 @@ class Metrics:
             str,
             Doc(
                 """
-                Registration name. Multiple `Metrics` components may coexist
-                on one `Grelmicro` under different names.
+                Registration name. `Metrics` installs the process-global OTel
+                meter provider, so only one may be registered per app.
                 """
             ),
         ] = "default",
@@ -127,7 +128,7 @@ class Metrics:
         ] = None,
     ) -> None:
         """Initialize the component (defer provider build until `__aenter__`)."""
-        self.name = name
+        self._name = name
         self._explicit_config = config
         self._kwargs = {
             "service_name": service_name,
@@ -145,6 +146,11 @@ class Metrics:
         self._prior_provider: Any = None
         self._prometheus_registry: Any = None
         self._meters: dict[str, Meter] = {}
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     @property
     def config(self) -> MetricsConfig:

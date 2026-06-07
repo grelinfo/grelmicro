@@ -217,10 +217,15 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self, config: HealthChecksConfig, *, name: str = "default"
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
-        self.name = name
+        self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._entries: dict[str, _Entry] = {}
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     async def __aenter__(self) -> Self:
         """Open the health checks."""

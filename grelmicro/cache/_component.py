@@ -79,12 +79,17 @@ class Cache:
         ] = "default",
     ) -> None:
         """Initialize the component with the wrapped backend."""
-        self.name = name
+        self._name = name
         source = instantiate_if_class(source)
         if isinstance(source, Provider):
             self._backend = source.cache()
         else:
             self._backend = source
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     @property
     def backend(self) -> CacheBackend:

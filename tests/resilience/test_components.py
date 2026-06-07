@@ -81,7 +81,7 @@ def test_ratelimit_accepts_redis_provider() -> None:
 
 
 def test_ratelimit_accepts_postgres_provider() -> None:
-    """`RateLimiters(PostgresProvider(...))` calls `provider.ratelimiter()` to build the adapter."""
+    """`RateLimiters(PostgresProvider(...))` calls `provider.ratelimiter()`."""
     provider = PostgresProvider("postgresql://localhost:5432/app")
     component = RateLimiters(provider)
     assert isinstance(component.backend, PostgresRateLimiterAdapter)

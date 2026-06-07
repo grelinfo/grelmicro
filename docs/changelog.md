@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Rename the pattern factory methods so each uses the pattern's single-token name: `Provider.breaker()` becomes `circuitbreaker()`, and `leader_election()` becomes `leaderelection()` on both `Provider` and `Coordination`. This matches the module names (`grelmicro.coordination.leaderelection`, `grelmicro.resilience.circuitbreaker`) and the `ratelimiter`/`circuitbreaker` kind strings. Update `provider.circuitbreaker()` and `micro.coordination.leaderelection(...)` call sites. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+* 💥 Make `Log`, `Trace`, and `Metrics` singletons. Each configures process-global state (the root logger, the OpenTelemetry tracer and meter providers), so registering a second one on the same app now raises `ComponentAlreadyRegisteredError` instead of silently clobbering the first. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+* 💥 Make the component `name` a read-only property everywhere (`Coordination`, `Cache`, `Log`, `Trace`, `Metrics`, `RateLimiters`, `CircuitBreakers`, `HealthChecks`, `RealClock`, `VirtualClock`), matching the resilience and coordination primitives. Pass `name=` at construction. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+
+### Features
+
+* ✨ Re-export `FunctionTypeError` and `TaskAddOperationError` from `grelmicro.task`, so the task errors users catch live next to `TaskError` instead of only in `grelmicro.task.errors`. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+* ✨ Export the catch-all base `GrelmicroError` and the cross-cutting `DependencyNotFoundError`, `OutOfContextError`, and `SettingsValidationError` from the top-level `grelmicro` package, so `except GrelmicroError` catches any library error from one import. Re-export `WouldBlockError` and `CoordinationBackendError` from `grelmicro.coordination` (the latter moved into `grelmicro.coordination.errors`). PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+
+### Docs
+
+* 📝 Add `docs/architecture/decorators.md` documenting the bare `@deco` versus parametrized `@deco(...)` rule and which decorators wrap sync functions. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+
 ## 0.27.0 - 2026-06-07
 
 ### Breaking

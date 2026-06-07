@@ -167,7 +167,7 @@ class _RecordingProvider(Provider):
     def lock(self, **kwargs: object) -> _RecordingLockAdapter:  # noqa: ARG002
         return _RecordingLockAdapter(self)
 
-    def leader_election(
+    def leaderelection(
         self,
         **kwargs: object,  # noqa: ARG002
     ) -> _RecordingElectionAdapter:
@@ -659,7 +659,7 @@ async def test_provider_base_lock_raises_not_implemented() -> None:
 
 
 async def test_provider_base_leader_election_raises_not_implemented() -> None:
-    """`Provider.leader_election()` raises when a subclass does not override it."""
+    """`Provider.leaderelection()` raises when a subclass does not override it."""
     from grelmicro.providers import Provider  # noqa: PLC0415
 
     class _BareProvider(Provider):
@@ -678,7 +678,7 @@ async def test_provider_base_leader_election_raises_not_implemented() -> None:
 
     bare = _BareProvider()
     with pytest.raises(NotImplementedError, match="no leader election adapter"):
-        bare.leader_election()
+        bare.leaderelection()
 
 
 async def test_discovers_provider_not_in_uses(

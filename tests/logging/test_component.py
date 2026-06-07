@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from grelmicro import Component, Grelmicro
+from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro.log import Log, LoggingConfig
 from grelmicro.log.config import LoggingLevelType
 
@@ -23,11 +23,17 @@ def test_log_default_kind_and_name() -> None:
     assert log.name == "default"
 
 
-def test_log_named_registration() -> None:
-    """A named `Log` component coexists with the default one."""
-    micro = Grelmicro(uses=[Log(), Log(name="audit")])
-    assert micro.get("log", "default").name == "default"
-    assert micro.get("log", "audit").name == "audit"
+def test_log_is_singleton() -> None:
+    """`Log` configures the global root logger, so a second one is refused."""
+    with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
+        Grelmicro(uses=[Log(), Log(name="audit")])
+
+
+def test_log_name_is_read_only() -> None:
+    """`Log.name` is a read-only property."""
+    log = Log()
+    with pytest.raises(AttributeError):
+        log.name = "other"  # ty: ignore[invalid-assignment]
 
 
 def test_log_config_unavailable_before_enter() -> None:

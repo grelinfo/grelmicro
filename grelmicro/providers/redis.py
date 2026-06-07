@@ -238,7 +238,7 @@ class RedisProvider(Provider):
 
         return RedisLockAdapter(provider=self, **kwargs)
 
-    def leader_election(
+    def leaderelection(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> RedisLeaderElectionBackend:
@@ -263,7 +263,7 @@ class RedisProvider(Provider):
 
         return RedisRateLimiterAdapter(provider=self, **kwargs)
 
-    def breaker(self, **kwargs: Any) -> RedisCircuitBreakerAdapter:  # noqa: ANN401
+    def circuitbreaker(self, **kwargs: Any) -> RedisCircuitBreakerAdapter:  # noqa: ANN401
         """Build a `RedisCircuitBreakerAdapter` bound to this provider."""
         from grelmicro.resilience.circuitbreaker.redis import (  # noqa: PLC0415
             RedisCircuitBreakerAdapter,
