@@ -82,7 +82,7 @@ def test_from_config_bypasses_env(
 ) -> None:
     """`LeaderElection.from_config()` ignores env even when set."""
     monkeypatch.setenv(
-        "GREL_LEADER_ELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
+        "GREL_LEADERELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
     )
     cfg = LeaderElectionConfig(
         worker="web-1",
@@ -97,12 +97,12 @@ def test_environmental_path_reads_grel_prefixed_env(
     backend: LeaderElectionBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Env vars under ``GREL_LEADER_ELECTION_{NAME}_*`` populate unset fields."""
+    """Env vars under ``GREL_LEADERELECTION_{NAME}_*`` populate unset fields."""
     monkeypatch.setenv(
-        "GREL_LEADER_ELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
+        "GREL_LEADERELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
     )
     monkeypatch.setenv(
-        "GREL_LEADER_ELECTION_CRON_RETRY_INTERVAL", str(RETRY_ENV)
+        "GREL_LEADERELECTION_CRON_RETRY_INTERVAL", str(RETRY_ENV)
     )
     le = LeaderElection("cron", backend=backend)
     assert le.config.lease_duration == LEASE_ENV
@@ -115,7 +115,7 @@ def test_kwargs_override_env(
 ) -> None:
     """Caller kwargs win over env vars."""
     monkeypatch.setenv(
-        "GREL_LEADER_ELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
+        "GREL_LEADERELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
     )
     le = LeaderElection("cron", backend=backend, lease_duration=LEASE_KWARG)
     assert le.config.lease_duration == LEASE_KWARG
@@ -125,7 +125,7 @@ def test_env_prefix_override(
     backend: LeaderElectionBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``env_prefix=`` replaces the auto-derived ``GREL_LEADER_ELECTION_{NAME}_``."""
+    """``env_prefix=`` replaces the auto-derived ``GREL_LEADERELECTION_{NAME}_``."""
     monkeypatch.setenv(
         "MYAPP_LEADER_ELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
     )
@@ -143,7 +143,7 @@ def test_env_load_false_ignores_env(
 ) -> None:
     """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv(
-        "GREL_LEADER_ELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
+        "GREL_LEADERELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
     )
     le = LeaderElection("cron", backend=backend, env_load=False)
     assert le.config.lease_duration == DEFAULT_LEASE
@@ -154,12 +154,8 @@ def test_zero_config_uses_leaderelectionconfig_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without env or kwargs, LeaderElectionConfig defaults take over."""
-    monkeypatch.delenv(
-        "GREL_LEADER_ELECTION_CRON_LEASE_DURATION", raising=False
-    )
-    monkeypatch.delenv(
-        "GREL_LEADER_ELECTION_CRON_RETRY_INTERVAL", raising=False
-    )
+    monkeypatch.delenv("GREL_LEADERELECTION_CRON_LEASE_DURATION", raising=False)
+    monkeypatch.delenv("GREL_LEADERELECTION_CRON_RETRY_INTERVAL", raising=False)
     le = LeaderElection("cron", backend=backend)
     assert le.config.lease_duration == DEFAULT_LEASE
     assert le.config.retry_interval == DEFAULT_RETRY

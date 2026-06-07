@@ -148,7 +148,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 expired. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the environment
                 variable
-                `GREL_LEADER_ELECTION_{NAME_UPPER}_LEASE_DURATION` if
+                `GREL_LEADERELECTION_{NAME_UPPER}_LEASE_DURATION` if
                 present, otherwise falls back to the
                 `LeaderElectionConfig` default.
                 """,
@@ -212,7 +212,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: `GREL_LEADER_ELECTION_{NAME_UPPER}_`. Set
+                Default: `GREL_LEADERELECTION_{NAME_UPPER}_`. Set
                 this to a custom prefix when the application uses a
                 different naming convention.
                 """,
@@ -254,7 +254,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 "error_interval": error_interval,
             },
             env_prefix=env_prefix
-            or f"GREL_LEADER_ELECTION_{env_segment(name)}_",
+            or f"GREL_LEADERELECTION_{env_segment(name)}_",
             env_load=env_load,
         )
         self._setup(name, config, backend, metadata)

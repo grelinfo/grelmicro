@@ -70,7 +70,7 @@ def test_from_config_bypasses_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`TaskLock.from_config()` ignores env even when set."""
-    monkeypatch.setenv("GREL_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
+    monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
     cfg = TaskLockConfig(
         worker="web-1",
         min_lock_seconds=MIN_KWARG,
@@ -84,9 +84,9 @@ def test_environmental_path_reads_grel_prefixed_env(
     backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Env vars under ``GREL_TASK_LOCK_{NAME}_*`` populate unset fields."""
-    monkeypatch.setenv("GREL_TASK_LOCK_CLEANUP_MIN_LOCK_SECONDS", str(MIN_ENV))
-    monkeypatch.setenv("GREL_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
+    """Env vars under ``GREL_TASKLOCK_{NAME}_*`` populate unset fields."""
+    monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_MIN_LOCK_SECONDS", str(MIN_ENV))
+    monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
     task_lock = TaskLock("cleanup", backend=backend)
     assert task_lock.config.min_lock_seconds == MIN_ENV
     assert task_lock.config.max_lock_seconds == MAX_ENV
@@ -97,7 +97,7 @@ def test_kwargs_override_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Caller kwargs win over env vars."""
-    monkeypatch.setenv("GREL_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
+    monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
     task_lock = TaskLock("cleanup", backend=backend, max_lock_seconds=MAX_KWARG)
     assert task_lock.config.max_lock_seconds == MAX_KWARG
 
@@ -106,7 +106,7 @@ def test_env_prefix_override(
     backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``env_prefix=`` replaces the auto-derived ``GREL_TASK_LOCK_{NAME}_``."""
+    """``env_prefix=`` replaces the auto-derived ``GREL_TASKLOCK_{NAME}_``."""
     monkeypatch.setenv("MYAPP_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
     task_lock = TaskLock(
         "cleanup",
@@ -121,7 +121,7 @@ def test_env_load_false_ignores_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``env_load=False`` skips env reads entirely."""
-    monkeypatch.setenv("GREL_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
+    monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_MAX_LOCK_SECONDS", str(MAX_ENV))
     task_lock = TaskLock("cleanup", backend=backend, env_load=False)
     assert task_lock.config.max_lock_seconds == DEFAULT_MAX
 
@@ -131,8 +131,8 @@ def test_zero_config_uses_taskconfig_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without env or kwargs, TaskLockConfig defaults take over."""
-    monkeypatch.delenv("GREL_TASK_LOCK_CLEANUP_MIN_LOCK_SECONDS", raising=False)
-    monkeypatch.delenv("GREL_TASK_LOCK_CLEANUP_MAX_LOCK_SECONDS", raising=False)
+    monkeypatch.delenv("GREL_TASKLOCK_CLEANUP_MIN_LOCK_SECONDS", raising=False)
+    monkeypatch.delenv("GREL_TASKLOCK_CLEANUP_MAX_LOCK_SECONDS", raising=False)
     task_lock = TaskLock("cleanup", backend=backend)
     assert task_lock.config.min_lock_seconds == DEFAULT_MIN
     assert task_lock.config.max_lock_seconds == DEFAULT_MAX
