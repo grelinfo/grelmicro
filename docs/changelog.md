@@ -17,6 +17,7 @@
 * 📝 Correct the comparison page and capability matrix to show the Postgres and SQLite cache, rate limiter, and circuit breaker backends as shipped (they were stale-labeled "planned").
 * 📝 Add a "what grelmicro is not" line to the README and docs landing for sharper first-read positioning.
 * 🔧 Set the PyPI `Development Status` classifier to `4 - Beta`.
+* ✨ Discover Providers and Adapters through entry-point groups. Third-party packages register under `grelmicro.providers` and `grelmicro.{kind}.adapters` (`coordination`, `cache`, `ratelimiter`, `circuitbreaker`) and resolve by short name, the same path first-party backends use. Unknown names raise `ProviderNotRegisteredError` or `AdapterNotRegisteredError` listing the installed names. New `docs/architecture/plugins.md` and an `examples/third-party-adapter/` skeleton. Issue [#234](https://github.com/grelinfo/grelmicro/issues/234).
 * ✨ Add `VirtualClock` for deterministic time in tests. Time-dependent primitives (`Retry` backoff, `CircuitBreaker` half-open window, `RateLimiter` refill, `Shield` adaptive gate) read time through a clock seam (`grelmicro.clock.monotonic` / `sleep`). Install a `VirtualClock` (`Grelmicro(uses=[clock, ...])` or `async with VirtualClock()`) and call `clock.advance(seconds)` to drive that behavior with no real waiting. With no clock registered, the seam forwards to `time.monotonic` and `asyncio.sleep`, so production keeps real time. Issue [#272](https://github.com/grelinfo/grelmicro/issues/272).
 
 ## 0.26.0 - 2026-06-05
