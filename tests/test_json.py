@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from grelmicro.json import (
+from grelmicro._json import (
     has_orjson,
     json_default,
     json_dumps_bytes,
@@ -21,7 +21,7 @@ from grelmicro.json import (
 if TYPE_CHECKING:
     from types import ModuleType
 
-    from grelmicro.json import JSONEncodable
+    from grelmicro._json import JSONEncodable
 
 
 @pytest.fixture
