@@ -9,7 +9,11 @@ from typing_extensions import Doc
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
-    from grelmicro.coordination.abc import LockBackend, LockPrimitive
+    from grelmicro.coordination.abc import (
+        LockBackend,
+        LockPrimitive,
+        ScheduleBackend,
+    )
     from grelmicro.coordination.leaderelection import LeaderElection
     from grelmicro.task.abc import Task
 
@@ -186,6 +190,126 @@ class TaskRouter:
                     leader=leader,
                     backend=backend,
                     worker=worker,
+                    sync=sync,
+                ),
+            )
+            return function
+
+        return decorator
+
+    def cron(
+        self,
+        expr: Annotated[
+            str,
+            Doc(
+                """
+                The 5-field cron expression: ``minute hour day-of-month month day-of-week``.
+
+                Each field supports ``*``, ``*/step``, ``a-b``, ``a-b/step``,
+                a comma list, and a bare integer. Day of week is 0-6 with
+                0 = Sunday (7 also means Sunday). When both day-of-month and
+                day-of-week are restricted, a day matches if it matches either.
+                """,
+            ),
+        ],
+        *,
+        timezone: Annotated[
+            str,
+            Doc(
+                """
+                The IANA timezone name used to compute fire times.
+
+                Defaults to ``"UTC"``. Resolved with ``zoneinfo.ZoneInfo``.
+                """,
+            ),
+        ] = "UTC",
+        name: Annotated[
+            str | None,
+            Doc(
+                """
+                The name of the task.
+
+                If None, a name will be generated automatically from the function.
+                Also used as the schedule name for the durable last-fire state.
+                """,
+            ),
+        ] = None,
+        misfire_grace_seconds: Annotated[
+            float | None,
+            Doc(
+                """
+                How late a missed fire may run when a worker comes back.
+
+                A fire missed while every worker was down replays once on
+                restart only when now is within this many seconds of the fire.
+                Past the budget, the fire is dropped. ``None`` (default) sets
+                no budget, so any missed fire replays once, however late.
+                Only the most recent missed fire ever runs, never a backlog.
+                """,
+            ),
+        ] = None,
+        backend: Annotated[
+            "ScheduleBackend | None",
+            Doc(
+                """
+                The durable schedule backend.
+
+                By default, resolves through the active `Grelmicro` app's
+                `Coordination` component. When no backend is available, the
+                task runs on every worker, every fire.
+                """,
+            ),
+        ] = None,
+        sync: Annotated[
+            "LockPrimitive | None",
+            Doc(
+                """
+                Optional resource-level synchronization primitive.
+
+                Wraps the body once this worker wins the fire. Use a ``Lock`` to
+                serialise execution against a shared resource. Whether the task
+                runs on every worker or only one is governed by the schedule
+                backend, not this parameter.
+                """,
+            ),
+        ] = None,
+    ) -> Callable[
+        [Callable[..., Any | Awaitable[Any]]],
+        Callable[..., Any | Awaitable[Any]],
+    ]:
+        """Decorate function to add it as a cron task.
+
+        Runs the task whenever the wall-clock time matches the cron
+        expression in the given timezone.
+
+        Each fire is claimed against a durable last-fire state, so the task
+        runs at most once across every worker per fire. A fire missed while
+        every worker was down replays once on restart, bounded by
+        ``misfire_grace_seconds``, and only the most recent missed fire runs.
+        Without a backend, the task runs on every worker, every fire.
+
+        The guarantee is at-most-once. A worker that claims a fire and then
+        crashes mid-run does not retry it, because the last-fire state already
+        advanced. Make the body idempotent, or wrap it with ``@retry``, when
+        correctness depends on completion.
+
+        Raises:
+            FunctionTypeError: If the task name generation fails.
+            CronError: If the cron expression is invalid.
+        """
+        from grelmicro.task._cron import CronTask  # noqa: PLC0415
+
+        def decorator(
+            function: Callable[[], None | Awaitable[None]],
+        ) -> Callable[[], None | Awaitable[None]]:
+            self.add_task(
+                CronTask(
+                    name=name,
+                    function=function,
+                    expr=expr,
+                    timezone=timezone,
+                    misfire_grace_seconds=misfire_grace_seconds,
+                    backend=backend,
                     sync=sync,
                 ),
             )

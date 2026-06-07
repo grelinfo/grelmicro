@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination.abc import (
         LeaderElectionBackend,
         LockBackend,
+        ScheduleBackend,
     )
     from grelmicro.resilience._protocol import (
         CircuitBreakerBackend,
@@ -64,6 +65,23 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         msg = (
             f"{type(self).__name__} has no leader election adapter. "
             f"Pass a LeaderElectionBackend instance to Coordination(...) "
+            f"directly."
+        )
+        raise NotImplementedError(msg)
+
+    def schedule(self, **kwargs: Any) -> ScheduleBackend:  # noqa: ANN401
+        """Return the matching `ScheduleBackend` adapter for this Provider.
+
+        The schedule backend holds the durable `last_fired` state behind
+        distributed cron.
+
+        Raises:
+            NotImplementedError: If this Provider does not ship a schedule
+                adapter.
+        """
+        msg = (
+            f"{type(self).__name__} has no schedule adapter. "
+            f"Pass a ScheduleBackend instance to Coordination(schedule=...) "
             f"directly."
         )
         raise NotImplementedError(msg)

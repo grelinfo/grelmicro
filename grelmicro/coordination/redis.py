@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Annotated, Self
 
 from typing_extensions import Doc
 
-from grelmicro.coordination.abc import LeaderRecord, LockBackend
+from grelmicro.coordination.abc import (
+    LeaderRecord,
+    LockBackend,
+    ScheduleBackend,
+)
 from grelmicro.providers.redis import RedisProvider
 
 if TYPE_CHECKING:
@@ -184,6 +188,125 @@ class RedisLockAdapter(LockBackend):
         value = stored.decode() if isinstance(stored, bytes) else stored
         _fence, sep, holder = value.partition(":")
         return sep == ":" and holder == token
+
+
+class RedisScheduleAdapter(ScheduleBackend):
+    """Redis Schedule Adapter.
+
+    Wraps a `RedisProvider` and implements the `ScheduleBackend` protocol for
+    durable distributed cron. The `last_fired` epoch is stored in a Redis
+    string, and the claim decision runs server-side in a Lua script, so the
+    compare-and-set is atomic across processes and machines.
+
+    Pass an explicit `provider=` to share a pool with other components, or
+    rely on the default `env_prefix=` to build one from environment variables.
+    """
+
+    _LUA_CLAIM = """
+        -- KEYS[1] = last_fired key
+        -- ARGV[1] = due epoch
+        -- Set last_fired to due only when absent or strictly less than due.
+        local stored = redis.call('get', KEYS[1])
+        if stored and tonumber(stored) >= tonumber(ARGV[1]) then
+            return 0
+        end
+        redis.call('set', KEYS[1], ARGV[1])
+        return 1
+    """
+
+    def __init__(
+        self,
+        *,
+        provider: Annotated[
+            RedisProvider | None,
+            Doc(
+                """
+                A pre-built `RedisProvider`. When set, the adapter
+                borrows the provider's client and does not manage
+                its lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `RedisProvider` when `provider` is not set. Defaults
+                to `REDIS_`. Use a custom prefix to split pools.
+                """,
+            ),
+        ] = "REDIS_",
+        prefix: Annotated[
+            str,
+            Doc("Prefix prepended to every Redis key (schedule isolation)."),
+        ] = "",
+    ) -> None:
+        """Initialize the adapter."""
+        if provider is None:
+            self._provider = RedisProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
+        self._key_prefix = prefix
+        self._bind_scripts()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def provider(self) -> RedisProvider:
+        """The bound `RedisProvider`."""
+        return self._provider
+
+    def _bind_scripts(self) -> None:
+        """(Re)register the Lua scripts against the current client."""
+        client = self._provider.client
+        self._lua_claim = client.register_script(self._LUA_CLAIM)
+
+    def _rebind_provider(self, provider: RedisProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+        self._bind_scripts()
+
+    async def __aenter__(self) -> Self:
+        """Open the adapter and its provider when owned."""
+        self._loop = asyncio.get_running_loop()
+        if self._owns_provider:
+            await self._provider.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the provider when owned. External providers are left alone."""
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
+
+    def _key(self, name: str) -> str:
+        """Return the Redis key for a schedule name."""
+        return f"{self._key_prefix}{name}"
+
+    async def claim(self, name: str, due: float) -> bool:
+        """Atomically claim the fire at `due`."""
+        return bool(
+            await self._lua_claim(
+                keys=[self._key(name)],
+                args=[due],
+                client=self._provider.client,
+            )
+        )
+
+    async def last_fired(self, name: str) -> float | None:
+        """Return the stored `last_fired` epoch, or `None`."""
+        stored = await self._provider.client.get(self._key(name))
+        if stored is None:
+            return None
+        return float(stored)
 
 
 class RedisLeaderElectionBackend:

@@ -1,10 +1,6 @@
-"""Shared JSON serialization utilities.
+"""Internal JSON helpers: use orjson when available, else stdlib json.
 
-Provides fast JSON encoding using ``orjson`` when available,
-falling back to the standard library ``json`` module.
-
-The implementation is resolved once at import time to avoid
-per-call branching.
+Resolved once at import to avoid per-call branching.
 """
 
 from __future__ import annotations
@@ -13,6 +9,8 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, TypeAlias
 
+# Recursive aliases stay on `TypeAlias`, not PEP 695 `type`: the `type`
+# keyword breaks recursive expansion in `ty`.
 JSONEncodable: TypeAlias = (  # noqa: UP040
     str
     | int
@@ -24,25 +22,17 @@ JSONEncodable: TypeAlias = (  # noqa: UP040
     | list["JSONEncodable"]
     | tuple["JSONEncodable", ...]
 )
-"""Recursive JSON-encodable value. ``datetime`` is serialized as ISO 8601 string.
-
-The PEP 695 ``type`` keyword breaks recursive expansion in ``ty``. Stay on
-``TypeAlias`` until the ty bug closes.
-"""
+"""Recursive JSON-encodable value (``datetime`` becomes an ISO 8601 string)."""
 
 
 JSONDecodable: TypeAlias = (  # noqa: UP040
     dict[str, Any] | list[Any] | str | int | float | bool | None
 )
-"""Types returned by ``json_loads``."""
+"""Value returned by ``json_loads``."""
 
 
 def json_default(obj: object) -> str:
-    """Handle non-serializable types for stdlib json.
-
-    Converts ``datetime`` instances to ISO 8601 strings.
-    Raises ``TypeError`` for all other non-serializable types.
-    """
+    """Encode ``datetime`` as ISO 8601 for stdlib json, else raise ``TypeError``."""
     if isinstance(obj, datetime):
         return obj.isoformat()
     msg = f"Type is not JSON serializable: {type(obj).__name__}"

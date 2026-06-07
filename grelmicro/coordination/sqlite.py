@@ -11,7 +11,7 @@ import aiosqlite
 from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
-from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination.abc import LockBackend, ScheduleBackend
 from grelmicro.coordination.errors import CoordinationSettingsValidationError
 from grelmicro.errors import OutOfContextError
 
@@ -214,3 +214,120 @@ class SQLiteLockAdapter(LockBackend):
         async with self._conn.execute(self._owned_sql, (name, token)) as cursor:
             result = await cursor.fetchone()
         return result is not None
+
+
+class SQLiteScheduleAdapter(ScheduleBackend):
+    """SQLite Schedule Adapter.
+
+    Implements the `ScheduleBackend` protocol for durable distributed cron on a
+    single host. The `last_fired` epoch is stored as a `REAL` column on a row
+    keyed by `name`, and the claim decision runs in a single UPSERT gated by a
+    `WHERE` clause. The cursor's `rowcount` tells whether this call performed
+    the write, so the compare-and-set is atomic across processes sharing the
+    file.
+    """
+
+    _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    name TEXT PRIMARY KEY,
+                    last_fired REAL NOT NULL
+                );
+                """
+
+    _SQL_CLAIM = """
+                INSERT INTO {table_name} (name, last_fired)
+                VALUES (?, ?)
+                ON CONFLICT (name) DO UPDATE
+                SET last_fired = excluded.last_fired
+                WHERE last_fired < excluded.last_fired;
+                """
+
+    _SQL_LAST_FIRED = """
+        SELECT last_fired FROM {table_name} WHERE name = ?;
+        """
+
+    def __init__(
+        self,
+        path: Annotated[
+            str | Path | None,
+            Doc("""
+                The SQLite database path.
+
+                If not provided, the path will be taken from the environment variable SQLITE_PATH.
+                """),
+        ] = None,
+        *,
+        table_name: Annotated[
+            str, Doc("The table name to store the schedules.")
+        ] = "schedules",
+    ) -> None:
+        """Initialize the schedule backend."""
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
+            msg = f"Table name '{table_name}' is not a valid SQL identifier"
+            raise ValueError(msg)
+
+        self._path = str(path) if path is not None else _get_sqlite_path()
+        self._table_name = table_name
+        self._claim_sql = self._SQL_CLAIM.format(table_name=table_name)
+        self._last_fired_sql = self._SQL_LAST_FIRED.format(
+            table_name=table_name
+        )
+        self._conn: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    async def __aenter__(self) -> Self:
+        """Open the schedule backend."""
+        self._loop = asyncio.get_running_loop()
+        self._conn = await aiosqlite.connect(self._path, isolation_level=None)
+        await self._conn.execute("PRAGMA journal_mode=WAL;")
+        await self._conn.execute(
+            self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
+                table_name=self._table_name
+            ),
+        )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the schedule backend."""
+        if self._conn:  # pragma: no branch
+            await self._conn.close()
+            self._conn = None
+
+    async def claim(self, name: str, due: float) -> bool:
+        """Atomically claim the fire at `due`.
+
+        Runs the gated UPSERT inside a `BEGIN IMMEDIATE` transaction so the
+        compare-and-set is serialized against concurrent writers. The lock
+        serializes the single connection within the process, and the
+        transaction's write lock serializes across processes sharing the file.
+        An insert or a successful update changes one row (won), the gated update
+        changes none (lost).
+        """
+        if not self._conn:
+            raise OutOfContextError(self, "claim")
+
+        async with self._lock:
+            await self._conn.execute("BEGIN IMMEDIATE;")
+            try:
+                cursor = await self._conn.execute(self._claim_sql, (name, due))
+                changes = cursor.rowcount
+                await self._conn.execute("COMMIT;")
+            except BaseException:
+                await self._conn.execute("ROLLBACK;")
+                raise
+        return changes == 1
+
+    async def last_fired(self, name: str) -> float | None:
+        """Return the stored `last_fired` epoch, or `None`."""
+        if not self._conn:
+            raise OutOfContextError(self, "last_fired")
+
+        async with self._conn.execute(self._last_fired_sql, (name,)) as cursor:
+            result = await cursor.fetchone()
+        return float(result[0]) if result is not None else None

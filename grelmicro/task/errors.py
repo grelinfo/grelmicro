@@ -18,6 +18,18 @@ class FunctionTypeError(TaskError, TypeError):
         )
 
 
+class CronError(TaskError, ValueError):
+    """Cron Expression Error.
+
+    Raised when a cron expression is malformed or describes a schedule that
+    never matches a real date.
+    """
+
+    def __init__(self, reason: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Invalid cron expression: {reason}")
+
+
 class TaskAddOperationError(TaskError, RuntimeError):
     """Task Add Operation Error."""
 

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination.redis import (
         RedisLeaderElectionBackend,
         RedisLockAdapter,
+        RedisScheduleAdapter,
     )
     from grelmicro.resilience.circuitbreaker.redis import (
         RedisCircuitBreakerAdapter,
@@ -248,6 +249,14 @@ class RedisProvider(Provider):
         )
 
         return RedisLeaderElectionBackend(provider=self, **kwargs)
+
+    def schedule(self, **kwargs: Any) -> RedisScheduleAdapter:  # noqa: ANN401
+        """Build a `RedisScheduleAdapter` bound to this provider."""
+        from grelmicro.coordination.redis import (  # noqa: PLC0415
+            RedisScheduleAdapter,
+        )
+
+        return RedisScheduleAdapter(provider=self, **kwargs)
 
     def cache(self, **kwargs: Any) -> RedisCacheAdapter:  # noqa: ANN401
         """Build a `RedisCacheAdapter` bound to this provider."""

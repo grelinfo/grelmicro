@@ -17,6 +17,7 @@ from grelmicro.coordination import (
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionBackend,
     MemoryLockAdapter,
+    MemoryScheduleAdapter,
 )
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
@@ -165,6 +166,47 @@ def test_election_keyword_accepts_provider() -> None:
     coordination = Coordination(election=provider)
     assert coordination.election_backend.__class__.__name__ == (
         "RedisLeaderElectionBackend"
+    )
+
+
+def test_coordination_resolves_schedule_from_provider() -> None:
+    """A positional Provider resolves the schedule backend."""
+    provider = RedisProvider("redis://localhost:6379/0")
+    coordination = Coordination(provider)
+    assert coordination.schedule_backend.__class__.__name__ == (
+        "RedisScheduleAdapter"
+    )
+
+
+def test_schedule_keyword_accepts_provider() -> None:
+    """`schedule=Provider` resolves via `provider.schedule()`."""
+    provider = RedisProvider("redis://localhost:6379/0")
+    coordination = Coordination(schedule=provider)
+    assert coordination.schedule_backend.__class__.__name__ == (
+        "RedisScheduleAdapter"
+    )
+
+
+def test_schedule_keyword_accepts_backend_instance() -> None:
+    """`schedule=ScheduleBackend` is used directly."""
+    backend = MemoryScheduleAdapter()
+    coordination = Coordination(schedule=backend)
+    assert coordination.schedule_backend is backend
+
+
+def test_schedule_backend_without_schedule_raises() -> None:
+    """`coordination.schedule_backend` raises when none is wired."""
+    coordination = Coordination(lock=MemoryLockAdapter())
+    with pytest.raises(CoordinationBackendError, match="no schedule backend"):
+        _ = coordination.schedule_backend
+
+
+def test_postgres_provider_resolves_schedule_adapter() -> None:
+    """A Postgres provider resolves its schedule adapter from `source`."""
+    provider = PostgresProvider("postgresql://localhost:5432/app")
+    coordination = Coordination(provider)
+    assert coordination.schedule_backend.__class__.__name__ == (
+        "PostgresScheduleAdapter"
     )
 
 

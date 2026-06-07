@@ -20,6 +20,7 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 | `Lock`              | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
 | `TaskLock`          | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
 | `LeaderElection`    | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
+| `Schedule` (cron)   | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
 | `TTLCache`          | ✅                                                             | ✅                                                             | ✅                                                             | Future                                                         | N/A        |
 | `RateLimiter`       | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
 | `CircuitBreaker`    | ✅                                                             | ✅                                                             | ✅                                                             | Future                                                         | N/A        |
@@ -32,7 +33,7 @@ Legend:
 
 - ✅ ships today.
 - `Future` planned for a later release.
-- `N/A` does not apply. `Retry`, `Bulkhead`, `Fallback`, and `Timeout` are in-process Patterns with no remote state to share.
+- `N/A` does not apply. `Retry`, `Bulkhead`, `Fallback`, and `Timeout` are in-process Patterns with no remote state to share. For `Schedule` (cron), Kubernetes has no Adapter on purpose: run a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) instead.
 
 ## Picking an Adapter
 

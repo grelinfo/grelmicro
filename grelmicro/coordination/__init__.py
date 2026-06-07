@@ -7,6 +7,7 @@ from grelmicro.coordination.abc import (
     LeaderRecord,
     LockBackend,
     LockPrimitive,
+    ScheduleBackend,
 )
 from grelmicro.coordination.errors import (
     CoordinationBackendError,
@@ -48,6 +49,7 @@ __all__ = [
     "LockPrimitive",
     "LockReentrantError",
     "LockReleaseError",
+    "ScheduleBackend",
     "TaskLock",
     "WouldBlockError",
 ]

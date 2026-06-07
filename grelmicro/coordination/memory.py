@@ -8,7 +8,11 @@ from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import TYPE_CHECKING, Self
 
-from grelmicro.coordination.abc import LeaderRecord, LockBackend
+from grelmicro.coordination.abc import (
+    LeaderRecord,
+    LockBackend,
+    ScheduleBackend,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -79,6 +83,50 @@ class MemoryLockAdapter(LockBackend):
         """Check if the lock is owned."""
         current_token, expire_at = self._locks.get(name, (None, 0))
         return current_token == token and expire_at >= monotonic()
+
+
+class MemoryScheduleAdapter(ScheduleBackend):
+    """Memory Schedule Adapter.
+
+    Stores `last_fired` epochs in a process-local dict guarded by an
+    `asyncio.Lock` so `claim` is an atomic check-and-set within one event
+    loop. State disappears on restart and does not coordinate across nodes,
+    so it is for testing and single-process apps. Use a Redis, Postgres, or
+    SQLite backend for durable distributed cron.
+    """
+
+    def __init__(self) -> None:
+        """Initialize an empty schedule store."""
+        self._last_fired: dict[str, float] = {}
+        self._lock = asyncio.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    async def __aenter__(self) -> Self:
+        """Open the schedule backend."""
+        self._loop = asyncio.get_running_loop()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the schedule backend."""
+        self._last_fired.clear()
+
+    async def claim(self, name: str, due: float) -> bool:
+        """Atomically claim the fire at `due`."""
+        async with self._lock:
+            stored = self._last_fired.get(name)
+            if stored is not None and stored >= due:
+                return False
+            self._last_fired[name] = due
+            return True
+
+    async def last_fired(self, name: str) -> float | None:
+        """Return the stored `last_fired` epoch, or `None`."""
+        return self._last_fired.get(name)
 
 
 class MemoryLeaderElectionBackend:

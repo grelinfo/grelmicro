@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
-from grelmicro.coordination.abc import LeaderRecord, LockBackend
+from grelmicro.coordination.abc import (
+    LeaderRecord,
+    LockBackend,
+    ScheduleBackend,
+)
 from grelmicro.providers.postgres import PostgresProvider
 
 if TYPE_CHECKING:
@@ -193,6 +197,129 @@ class PostgresLockAdapter(LockBackend):
         return bool(
             await self._provider.client.fetchval(self._owned_sql, name, token),
         )
+
+
+class PostgresScheduleAdapter(ScheduleBackend):
+    """Postgres Schedule Adapter.
+
+    Wraps a `PostgresProvider` and implements the `ScheduleBackend` protocol
+    for durable distributed cron. The `last_fired` epoch is stored as a
+    `DOUBLE PRECISION` column on a row keyed by `name`, and the claim decision
+    runs in a single `INSERT ... ON CONFLICT` statement, so the compare-and-set
+    is atomic across processes and machines.
+
+    Pass an explicit `provider=` to share a pool with other components, or rely
+    on the default `env_prefix=` to build one from environment variables.
+    """
+
+    _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    name TEXT PRIMARY KEY,
+                    last_fired DOUBLE PRECISION NOT NULL
+                );
+                """
+
+    _SQL_CLAIM = """
+                INSERT INTO {table_name} (name, last_fired)
+                VALUES ($1, $2)
+                ON CONFLICT (name) DO UPDATE
+                SET last_fired = EXCLUDED.last_fired
+                WHERE {table_name}.last_fired < EXCLUDED.last_fired
+                RETURNING 1;
+                """
+
+    _SQL_LAST_FIRED = """
+        SELECT last_fired FROM {table_name} WHERE name = $1;
+        """
+
+    def __init__(
+        self,
+        *,
+        provider: Annotated[
+            PostgresProvider | None,
+            Doc(
+                """
+                A pre-built `PostgresProvider`. When set, the adapter
+                borrows the provider's pool and does not manage its
+                lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `PostgresProvider` when `provider` is not set. Defaults
+                to `POSTGRES_`. Use a custom prefix to split pools.
+                """,
+            ),
+        ] = "POSTGRES_",
+        table_name: Annotated[
+            str, Doc("The table name to store the schedules.")
+        ] = "schedules",
+    ) -> None:
+        """Initialize the adapter."""
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
+            msg = f"Table name '{table_name}' is not a valid SQL identifier"
+            raise ValueError(msg)
+
+        if provider is None:
+            self._provider = PostgresProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
+        self._table_name = table_name
+        self._claim_sql = self._SQL_CLAIM.format(table_name=table_name)
+        self._last_fired_sql = self._SQL_LAST_FIRED.format(
+            table_name=table_name
+        )
+
+    @property
+    def provider(self) -> PostgresProvider:
+        """The bound `PostgresProvider`."""
+        return self._provider
+
+    def _rebind_provider(self, provider: PostgresProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+
+    async def __aenter__(self) -> Self:
+        """Open the adapter and its provider when owned."""
+        if self._owns_provider:
+            await self._provider.__aenter__()
+        await self._provider.client.execute(
+            self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
+                table_name=self._table_name
+            ),
+        )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the provider when owned. External providers are left alone."""
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
+
+    async def claim(self, name: str, due: float) -> bool:
+        """Atomically claim the fire at `due`."""
+        return bool(
+            await self._provider.client.fetchval(self._claim_sql, name, due)
+        )
+
+    async def last_fired(self, name: str) -> float | None:
+        """Return the stored `last_fired` epoch, or `None`."""
+        stored = await self._provider.client.fetchval(
+            self._last_fired_sql, name
+        )
+        return float(stored) if stored is not None else None
 
 
 _LEADER_ELECTION_ADVISORY_NAMESPACE = 0x67726C65_2D656C65

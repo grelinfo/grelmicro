@@ -153,6 +153,73 @@ class LockPrimitive(Protocol):
 Seconds = PositiveFloat
 
 
+@runtime_checkable
+class ScheduleBackend(Protocol):
+    """Schedule Backend Protocol.
+
+    Durable state for distributed cron. The backend stores one `last_fired`
+    epoch per task name and offers a single atomic compare-and-set so exactly
+    one worker runs each fire.
+
+    The store survives restarts, so a fire missed while every worker was down
+    is detected on restart and replayed once. A vendor backs it with whatever
+    native primitive it offers (a Redis value, a Postgres row, a SQLite row).
+    Redis, Postgres, and SQLite all ship, with Memory for tests. Kubernetes is
+    intentionally not provided: use a native Kubernetes CronJob.
+
+    Implementations capture the running event loop on `__aenter__` in a
+    `_loop` attribute when they bridge from threads, mirroring `LockBackend`.
+    """
+
+    async def __aenter__(self) -> Self:
+        """Open the schedule backend."""
+        ...
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the schedule backend."""
+        ...
+
+    async def claim(
+        self,
+        name: Annotated[
+            str,
+            Doc("Identifier of the schedule to claim a fire for."),
+        ],
+        due: Annotated[
+            float,
+            Doc(
+                "UTC epoch of the fire being claimed. The most recent"
+                " scheduled fire that is due at or before now."
+            ),
+        ],
+    ) -> bool:
+        """Atomically claim the fire at `due`.
+
+        Sets the stored `last_fired` to `due` only when no value is stored or
+        the stored value is strictly less than `due`. Returns `True` when this
+        call performed the set (it won the fire), `False` otherwise.
+
+        The compare-and-set is the single point of coordination: across every
+        worker, exactly one `claim` for a given `(name, due)` returns `True`.
+        """
+        ...
+
+    async def last_fired(
+        self,
+        name: Annotated[
+            str,
+            Doc("Identifier of the schedule to read."),
+        ],
+    ) -> float | None:
+        """Return the stored `last_fired` epoch, or `None` when never fired."""
+        ...
+
+
 @dataclass(frozen=True)
 class LeaderRecord:
     """The state of a leader election lease.
