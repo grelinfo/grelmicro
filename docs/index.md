@@ -59,7 +59,6 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | [**Logging**](logging.md) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
 | [**Tracing**](tracing.md) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
 | [**Health**](health.md) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
-| [**JSON**](json.md) | Fast JSON via `orjson` when available, with automatic fallback to stdlib `json`. |
 
 ## Installation
 

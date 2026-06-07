@@ -68,7 +68,6 @@ nav:
     - cache.md
     - providers.md
     - health.md
-    - json.md
     - logging.md
     - tracing.md
     - metrics.md
@@ -88,7 +87,6 @@ nav:
     - reference/cache.md
     - reference/clock.md
     - reference/health.md
-    - reference/json.md
     - reference/logging.md
     - reference/metrics.md
     - reference/resilience.md
