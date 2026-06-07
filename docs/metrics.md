@@ -104,6 +104,7 @@ When a `Metrics` component is active, grelmicro emits these metrics from its own
 | `grelmicro.bulkhead.rejections`         | counter         | 1    | `bulkhead.name`                         |
 | `grelmicro.timeout.exceeded`            | counter         | 1    | `timeout.name`                          |
 | `grelmicro.cache.operations`            | counter         | 1    | `result` (`hit` or `miss`)              |
+| `grelmicro.cache.stale_serves`          | counter         | 1    | none                                    |
 | `grelmicro.task.runs`                   | counter         | 1    | `task.name`, `outcome`, `error.type`    |
 | `grelmicro.task.duration`               | histogram       | s    | `task.name`                             |
 | `grelmicro.task.active`                 | up_down_counter | 1    | `task.name`                             |

@@ -524,6 +524,7 @@ dev = [
     { name = "redis" },
     { name = "ruff" },
     { name = "structlog" },
+    { name = "syrupy" },
     { name = "testcontainers", extra = ["redis"] },
     { name = "ty" },
     { name = "uvicorn" },
@@ -589,6 +590,7 @@ dev = [
     { name = "redis", specifier = ">=5.0.0" },
     { name = "ruff", specifier = ">=0.7.4" },
     { name = "structlog", specifier = ">=24.1.0" },
+    { name = "syrupy", specifier = ">=5.3.1" },
     { name = "testcontainers", extras = ["postgres", "redis"], specifier = ">=4.8.2" },
     { name = "ty", specifier = ">=0.0.13" },
     { name = "uvicorn", specifier = ">=0.29.0" },
@@ -1833,6 +1835,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ef/52/9ba0f43b686e7f3ddfeaa78ac3af750292662284b3661e91ad5494f21dbc/structlog-25.5.0.tar.gz", hash = "sha256:098522a3bebed9153d4570c6d0288abf80a031dfdb2048d59a49e9dc2190fc98", size = 1460830, upload-time = "2025-10-27T08:28:23.028Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl", hash = "sha256:a8453e9b9e636ec59bd9e79bbd4a72f025981b3ba0f5837aebf48f02f37a7f9f", size = 72510, upload-time = "2025-10-27T08:28:21.535Z" },
+]
+
+[[package]]
+name = "syrupy"
+version = "5.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/34/bf26c59efb44a722c57377aa903f58ef370d068466ea013977b4f2df9f6f/syrupy-5.3.1.tar.gz", hash = "sha256:449fb2997176e4ccae0e852ce23748239e1a224b4797a63173da02d6df682340", size = 83987, upload-time = "2026-05-31T18:07:44.095Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d4/f4/753003ddb0d43247febecd5146391a59b80f77e462b2623396192180f4ee/syrupy-5.3.1-py3-none-any.whl", hash = "sha256:d755c2bb9b78692de1db5efa7b452ebff727df3a8290f740bda5c55a4ea5d7d5", size = 51985, upload-time = "2026-05-31T18:07:42.711Z" },
 ]
 
 [[package]]

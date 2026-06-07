@@ -125,6 +125,29 @@ async def test_ttl_expiry(backend: CacheBackend) -> None:
     assert await backend.get(key="expiring") is None
 
 
+async def test_stale_on_error_serves_last_value(backend: CacheBackend) -> None:
+    """A failing recompute serves the stale reserve within `stale_ttl`."""
+    cache = TTLCache(ttl=0.5, backend=backend, serializer=JsonSerializer())
+    fail = False
+    calls = 0
+
+    @cached(cache, stale_ttl=5)
+    async def fetch() -> int:
+        nonlocal calls
+        calls += 1
+        if fail:
+            msg = "upstream down"
+            raise RuntimeError(msg)
+        return calls
+
+    assert await fetch() == 1
+
+    fail = True
+    await sleep(1.0)  # primary entry expires, stale reserve still lives
+
+    assert await fetch() == 1  # recompute raises, the stale value is served
+
+
 async def test_delete(backend: CacheBackend) -> None:
     """Test that delete removes a key."""
     await backend.set(key="to_delete", value=b"bye", ttl=60)

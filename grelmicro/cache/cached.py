@@ -23,6 +23,7 @@ from grelmicro.cache._stampede import (
 )
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.coordination.lock import Lock
+from grelmicro.metrics import _emit
 
 # Decorator factories cannot use PEP 695 cleanly: the inner
 # ``decorator`` would inherit ``cached``'s type parameters instead
@@ -35,7 +36,9 @@ _SENTINEL = object()
 
 _PER_KEY_LOCK_BUDGET = 1024
 
-_XFETCH_SUFFIX = "\x00xf"
+# The `\x1f` separator stays out of band (no real key uses it) and, unlike
+# `\x00`, is valid in a Postgres text key.
+_XFETCH_SUFFIX = "\x1fxf"
 
 
 class _TagSpec(NamedTuple):
@@ -163,6 +166,22 @@ def cached(
             """,
         ),
     ] = None,
+    stale_ttl: Annotated[
+        float | None,
+        Doc(
+            """
+            Serve-stale-on-error budget in seconds. When set, each cached
+            result is also kept as a fallback copy for ``ttl + stale_ttl``
+            seconds. If a later recompute (on a miss) raises, the most
+            recent value is served instead of propagating the error, for
+            up to ``stale_ttl`` seconds past its TTL. A flaky upstream then
+            degrades to slightly stale data instead of an error storm.
+
+            Composes with ``lock`` and ``early``. Leave ``None`` to
+            propagate errors as usual.
+            """,
+        ),
+    ] = None,
     tags: Annotated[
         Sequence[str],
         Doc(
@@ -189,7 +208,8 @@ def cached(
 
     Raises:
         ValueError: If ``lock`` is not ``True``, ``False``, or ``"local"``,
-            or if ``early`` is outside ``[0, 1)``.
+            if ``early`` is outside ``[0, 1)``, or if ``stale_ttl`` is not
+            positive.
 
     Returns:
         A decorator that caches function results.
@@ -199,6 +219,9 @@ def cached(
         raise ValueError(msg)
     if early is not None and not 0 <= early < 1:
         msg = f"Invalid early {early!r}: must be a float in [0, 1)."
+        raise ValueError(msg)
+    if stale_ttl is not None and stale_ttl <= 0:
+        msg = f"Invalid stale_ttl {stale_ttl!r}: must be positive."
         raise ValueError(msg)
 
     def decorator(
@@ -219,6 +242,7 @@ def cached(
                 per_key=per_key,
                 auto_distributed=auto_distributed,
                 early=early,
+                stale_ttl=stale_ttl,
                 tag_spec=tag_spec,
             )
         else:
@@ -231,6 +255,7 @@ def cached(
                 per_key=per_key,
                 auto_distributed=auto_distributed,
                 early=early,
+                stale_ttl=stale_ttl,
                 tag_spec=tag_spec,
             )
         wrapper.cache_info = cache.cache_info
@@ -294,6 +319,30 @@ def _due_for_early_refresh(
     return _xfetch_should_refresh(remaining, delta)
 
 
+# --- Stale-on-error helpers ---
+
+
+async def _serve_stale_async(cache: TTLCache, key: str) -> tuple[bool, Any]:
+    """Return ``(found, value)`` for a stale-reserve fallback on ``key``.
+
+    Records ``grelmicro.cache.stale_serves`` when a fallback is served.
+    """
+    stale = await cache._read_stale(key, _SENTINEL)  # noqa: SLF001
+    if stale is _SENTINEL:
+        return False, None
+    _emit.incr("grelmicro.cache.stale_serves")
+    return True, stale
+
+
+def _serve_stale_sync(cache: TTLCache, key: str, loop: Any) -> tuple[bool, Any]:  # noqa: ANN401
+    """Sync variant of `_serve_stale_async`, run on the cache loop."""
+    stale = _run(cache._read_stale(key, _SENTINEL), loop)  # noqa: SLF001
+    if stale is _SENTINEL:
+        return False, None
+    _emit.incr("grelmicro.cache.stale_serves")
+    return True, stale
+
+
 # --- Async function ---
 
 
@@ -307,6 +356,7 @@ def _build_async_wrapper(
     per_key: bool,
     auto_distributed: bool,
     early: float | None,
+    stale_ttl: float | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Build async wrapper for cached decorator."""
@@ -326,6 +376,7 @@ def _build_async_wrapper(
                     key,
                     skip,
                     early,
+                    stale_ttl,
                     guard,
                     tag_spec,
                 )
@@ -340,17 +391,34 @@ def _build_async_wrapper(
                 key,
                 skip,
                 early=early,
+                stale_ttl=stale_ttl,
                 tag_spec=tag_spec,
             )
 
-        return await compute_with_stampede(
-            cache,
-            key,
-            compute,
-            guard,
-            per_key=per_key,
-            auto_distributed=auto_distributed,
-        )
+        if stale_ttl is None:
+            return await compute_with_stampede(
+                cache,
+                key,
+                compute,
+                guard,
+                per_key=per_key,
+                auto_distributed=auto_distributed,
+            )
+
+        try:
+            return await compute_with_stampede(
+                cache,
+                key,
+                compute,
+                guard,
+                per_key=per_key,
+                auto_distributed=auto_distributed,
+            )
+        except Exception:  # serve stale on any recompute failure
+            found, value = await _serve_stale_async(cache, key)
+            if found:
+                return value
+            raise
 
     return async_wrapper
 
@@ -363,6 +431,7 @@ async def _maybe_refresh_async(
     key: str,
     skip: Callable[[Any], bool] | None,
     early: float,
+    stale_ttl: float | None,
     guard: AsyncStampedeGuard,
     tag_spec: _TagSpec,
 ) -> None:
@@ -387,6 +456,7 @@ async def _maybe_refresh_async(
                 key,
                 skip,
                 early=early,
+                stale_ttl=stale_ttl,
                 tag_spec=tag_spec,
             )
 
@@ -405,6 +475,7 @@ async def _compute_and_cache(
     skip: Callable[[Any], bool] | None,
     *,
     early: float | None,
+    stale_ttl: float | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Execute async function and store result in cache."""
@@ -412,7 +483,12 @@ async def _compute_and_cache(
     result = await func(*args, **kwargs)
     delta = time.perf_counter() - started
     if skip is None or not skip(result):
-        await cache.set(key, result, tags=tag_spec.render(args, kwargs))
+        await cache.set(
+            key,
+            result,
+            tags=tag_spec.render(args, kwargs),
+            stale_ttl=stale_ttl,
+        )
         if early is not None:
             await _write_meta(cache, key, _now(), delta)
     return result
@@ -421,7 +497,7 @@ async def _compute_and_cache(
 # --- Sync function (delegates to async cache via from_thread) ---
 
 
-def _build_sync_wrapper(
+def _build_sync_wrapper(  # noqa: C901
     func: Any,  # noqa: ANN401
     cache: TTLCache,
     key_maker: Any,  # noqa: ANN401
@@ -431,6 +507,7 @@ def _build_sync_wrapper(
     per_key: bool,
     auto_distributed: bool,
     early: float | None,
+    stale_ttl: float | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Build sync wrapper for cached decorator.
@@ -468,56 +545,71 @@ def _build_sync_wrapper(
                     key,
                     skip,
                     early,
+                    stale_ttl,
                     loop,
                     get_key_lock,
                     tag_spec,
                 )
             return result
 
-        if not per_key:
-            return _compute_and_cache_sync(
-                func,
-                args,
-                kwargs,
-                cache,
-                key,
-                skip,
-                loop,
-                early=early,
-                tag_spec=tag_spec,
-            )
-
-        the_lock = get_key_lock(key)
-        with the_lock:
-            result = _run(cache._peek(key, _SENTINEL), loop)  # noqa: SLF001
-            if result is not _SENTINEL:
-                return result
-            if auto_distributed and _has_lock_backend():
-                return _run(
-                    _distributed_orchestrate(
-                        func,
-                        args,
-                        kwargs,
-                        cache,
-                        key,
-                        skip,
-                        loop,
-                        early=early,
-                        tag_spec=tag_spec,
-                    ),
+        def miss() -> Any:  # noqa: ANN401
+            if not per_key:
+                return _compute_and_cache_sync(
+                    func,
+                    args,
+                    kwargs,
+                    cache,
+                    key,
+                    skip,
                     loop,
+                    early=early,
+                    stale_ttl=stale_ttl,
+                    tag_spec=tag_spec,
                 )
-            return _compute_and_cache_sync(
-                func,
-                args,
-                kwargs,
-                cache,
-                key,
-                skip,
-                loop,
-                early=early,
-                tag_spec=tag_spec,
-            )
+
+            the_lock = get_key_lock(key)
+            with the_lock:
+                peeked = _run(cache._peek(key, _SENTINEL), loop)  # noqa: SLF001
+                if peeked is not _SENTINEL:
+                    return peeked
+                if auto_distributed and _has_lock_backend():
+                    return _run(
+                        _distributed_orchestrate(
+                            func,
+                            args,
+                            kwargs,
+                            cache,
+                            key,
+                            skip,
+                            loop,
+                            early=early,
+                            stale_ttl=stale_ttl,
+                            tag_spec=tag_spec,
+                        ),
+                        loop,
+                    )
+                return _compute_and_cache_sync(
+                    func,
+                    args,
+                    kwargs,
+                    cache,
+                    key,
+                    skip,
+                    loop,
+                    early=early,
+                    stale_ttl=stale_ttl,
+                    tag_spec=tag_spec,
+                )
+
+        if stale_ttl is None:
+            return miss()
+        try:
+            return miss()
+        except Exception:  # serve stale on any recompute failure
+            found, value = _serve_stale_sync(cache, key, loop)
+            if found:
+                return value
+            raise
 
     return sync_wrapper
 
@@ -537,6 +629,7 @@ async def _distributed_orchestrate(
     loop: Any,  # noqa: ANN401
     *,
     early: float | None,
+    stale_ttl: float | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Hold the cross-replica lock and recompute, all in one loop task.
@@ -553,13 +646,18 @@ async def _distributed_orchestrate(
         result = await loop.run_in_executor(None, lambda: func(*args, **kwargs))
         delta = time.perf_counter() - started
         if skip is None or not skip(result):
-            await cache.set(key, result, tags=tag_spec.render(args, kwargs))
+            await cache.set(
+                key,
+                result,
+                tags=tag_spec.render(args, kwargs),
+                stale_ttl=stale_ttl,
+            )
             if early is not None:
                 await _write_meta(cache, key, _now(), delta)
         return result
 
 
-def _maybe_refresh_sync(
+def _maybe_refresh_sync(  # noqa: PLR0913
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -567,6 +665,7 @@ def _maybe_refresh_sync(
     key: str,
     skip: Callable[[Any], bool] | None,
     early: float,
+    stale_ttl: float | None,
     loop: Any,  # noqa: ANN401
     get_key_lock: Callable[[str], threading.Lock],
     tag_spec: _TagSpec,
@@ -590,6 +689,7 @@ def _maybe_refresh_sync(
                 skip,
                 loop,
                 early=early,
+                stale_ttl=stale_ttl,
                 tag_spec=tag_spec,
             )
         finally:
@@ -608,6 +708,7 @@ def _compute_and_cache_sync(
     loop: Any,  # noqa: ANN401
     *,
     early: float | None,
+    stale_ttl: float | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Execute sync function and store result in async cache."""
@@ -616,7 +717,12 @@ def _compute_and_cache_sync(
     delta = time.perf_counter() - started
     if skip is None or not skip(result):
         _run(
-            cache.set(key, result, tags=tag_spec.render(args, kwargs)),
+            cache.set(
+                key,
+                result,
+                tags=tag_spec.render(args, kwargs),
+                stale_ttl=stale_ttl,
+            ),
             loop,
         )
         if early is not None:

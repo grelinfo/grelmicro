@@ -32,6 +32,12 @@ from typing_extensions import Doc
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+__all__ = [
+    "Call",
+    "CallLog",
+    "record",
+]
+
 
 @dataclass(frozen=True)
 class Call:

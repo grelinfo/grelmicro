@@ -1,0 +1,581 @@
+{
+  "grelmicro": {
+    "AdapterNotRegisteredError": {
+      "()": "(kind, short_name, available)"
+    },
+    "Component": {
+      "()": "(*args, **kwargs)"
+    },
+    "ComponentAlreadyRegisteredError": null,
+    "ComponentNotRegisteredError": null,
+    "DependencyNotFoundError": {
+      "()": "(*, module)"
+    },
+    "Grelmicro": {
+      "()": "(*, uses=..., strict=..., allow_multiple=...)",
+      ".current": "()"
+    },
+    "GrelmicroError": null,
+    "LifecycleOrderError": null,
+    "MultipleActiveAppsError": {
+      "()": "()"
+    },
+    "NoActiveAppError": null,
+    "OutOfContextError": {
+      "()": "(cls, method_name)"
+    },
+    "ProviderNotRegisteredError": {
+      "()": "(short_name, available)"
+    },
+    "SettingsValidationError": {
+      "()": "(error)"
+    }
+  },
+  "grelmicro.cache": {
+    "Cache": {
+      "()": "(source, *, name=...)",
+      ".cached": "(cache, *, key_maker=..., skip=..., typed=..., lock=..., early=..., stale_ttl=..., tags=...)"
+    },
+    "CacheBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "CacheError": null,
+    "CacheInfo": {
+      "()": "(hits, misses, maxsize, currsize, evictions)"
+    },
+    "CacheSerializer": {
+      "()": "(*args, **kwargs)"
+    },
+    "CacheSettingsValidationError": {
+      "()": "(error)"
+    },
+    "JsonSerializer": {
+      "()": "()"
+    },
+    "PickleSerializer": {
+      "()": "(*, protocol=...)"
+    },
+    "PydanticSerializer": {
+      "()": "(model)"
+    },
+    "TTLCache": {
+      "()": "(maxsize=..., ttl=..., *, backend=..., serializer=...)"
+    },
+    "TTLCacheConfig": {
+      "()": "(*, maxsize=..., ttl=...)"
+    },
+    "cached": {
+      "()": "(cache, *, key_maker=..., skip=..., typed=..., lock=..., early=..., stale_ttl=..., tags=...)"
+    }
+  },
+  "grelmicro.clock": {
+    "ClockBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "RealClock": {
+      "()": "(*, name=...)"
+    },
+    "VirtualClock": {
+      "()": "(*, start=..., name=...)"
+    },
+    "monotonic": {
+      "()": "()"
+    },
+    "sleep": {
+      "()": "(seconds)"
+    }
+  },
+  "grelmicro.coordination": {
+    "Coordination": {
+      "()": "(source=..., *, lock=..., election=..., schedule=..., name=...)"
+    },
+    "CoordinationBackendError": null,
+    "CoordinationError": null,
+    "CoordinationSettingsValidationError": {
+      "()": "(error)"
+    },
+    "LeaderElection": {
+      "()": "(name, *, backend=..., worker=..., lease_duration=..., renew_deadline=..., retry_interval=..., backend_timeout=..., error_interval=..., env_prefix=..., env_load=..., metadata=...)",
+      ".from_config": "(name, config, *, backend=..., metadata=...)"
+    },
+    "LeaderElectionBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "LeaderElectionConfig": {
+      "()": "(*, worker=..., lease_duration=..., renew_deadline=..., retry_interval=..., backend_timeout=..., error_interval=...)"
+    },
+    "LeaderRecord": {
+      "()": "(holder, lease_duration, acquired_at, renewed_at, transitions, metadata=...)"
+    },
+    "Lock": {
+      "()": "(name, *, backend=..., worker=..., lease_duration=..., retry_interval=..., env_prefix=..., env_load=...)",
+      ".from_config": "(name, config, *, backend=...)"
+    },
+    "LockAcquireError": {
+      "()": "(*, name)"
+    },
+    "LockBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "LockBackendError": null,
+    "LockHandle": {
+      "()": "(name, token, fencing_token)"
+    },
+    "LockLockedCheckError": {
+      "()": "(*, name)"
+    },
+    "LockNotOwnedError": {
+      "()": "(*, name)"
+    },
+    "LockOwnedCheckError": {
+      "()": "(*, name)"
+    },
+    "LockPrimitive": {
+      "()": "(*args, **kwargs)"
+    },
+    "LockReentrantError": {
+      "()": "(*, name)"
+    },
+    "LockReleaseError": {
+      "()": "(*, name, reason=...)"
+    },
+    "ScheduleBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "TaskLock": {
+      "()": "(name, *, backend=..., worker=..., min_lock_seconds=..., max_lock_seconds=..., env_prefix=..., env_load=...)",
+      ".from_config": "(name, config, *, backend=...)"
+    },
+    "WouldBlockError": null
+  },
+  "grelmicro.health": {
+    "CheckResult": null,
+    "HealthCheckFunc": null,
+    "HealthChecks": {
+      "()": "(*, name=..., timeout=..., cache_ttl=..., env_prefix=..., env_load=...)",
+      ".from_config": "(config, *, name=...)"
+    },
+    "HealthChecksConfig": {
+      "()": "(*, timeout=..., cache_ttl=...)"
+    },
+    "HealthDetails": null,
+    "HealthError": {
+      "()": "(message, *, details=...)"
+    },
+    "HealthReport": null,
+    "HealthStatus": {
+      "()": "(*values)"
+    }
+  },
+  "grelmicro.log": {
+    "DuplicateFilter": {
+      "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl_seconds=..., key=..., env_prefix=..., env_load=...)",
+      ".from_config": "(config, *, key=...)"
+    },
+    "DuplicateFilterConfig": {
+      "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl_seconds=...)"
+    },
+    "ErrorDict": null,
+    "JSONRecordDict": null,
+    "Log": {
+      "()": "(*, name=..., config=..., backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)"
+    },
+    "LoggingConfig": {
+      "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=...)"
+    },
+    "LoggingError": null,
+    "RateLimitFilter": {
+      "()": "(*, capacity=..., refill_rate=..., key_mode=..., cost=..., key=..., env_prefix=..., env_load=...)",
+      ".from_config": "(config, *, key=...)"
+    },
+    "RateLimitFilterConfig": {
+      "()": "(*, capacity=..., refill_rate=..., key_mode=..., cost=...)"
+    },
+    "configure": {
+      "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)"
+    },
+    "configure_with": {
+      "()": "(config)"
+    }
+  },
+  "grelmicro.metrics": {
+    "Metrics": {
+      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=..., env_load=...)"
+    },
+    "MetricsConfig": {
+      "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=...)"
+    },
+    "MetricsError": null,
+    "MetricsExporterType": {
+      "()": "(*values)"
+    },
+    "MetricsSettingsValidationError": null,
+    "measure": {
+      "()": "(func=..., *, name=..., record_in_flight=...)"
+    },
+    "metrics_router": {
+      "()": "(component=..., *, prefix=..., path=..., dependencies=...)"
+    }
+  },
+  "grelmicro.providers": {
+    "Provider": {
+      "()": "()"
+    }
+  },
+  "grelmicro.resilience": {
+    "ApiShieldConfig": {
+      "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
+    },
+    "Bulkhead": {
+      "()": "(name, *, max_concurrent=..., max_wait=..., max_workers=..., uses=..., config=..., env_load=...)",
+      ".from_config": "(name, config)"
+    },
+    "BulkheadConfig": {
+      "()": "(*, max_concurrent=..., max_wait=..., max_workers=...)"
+    },
+    "BulkheadFullError": {
+      "()": "(*, name, max_concurrent)"
+    },
+    "CircuitBreaker": {
+      "()": "(name, config=..., *, backend=...)",
+      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=...)",
+      ".from_config": "(name, config, *, backend=...)"
+    },
+    "CircuitBreakerBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "CircuitBreakerConfig": {
+      "()": "(*args, **kwargs)"
+    },
+    "CircuitBreakerError": {
+      "()": "(*, name, last_error_time=..., last_error=...)"
+    },
+    "CircuitBreakerMetrics": {
+      "()": "(*, name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error)"
+    },
+    "CircuitBreakerSnapshot": {
+      "()": "(state, opened_at, consecutive_error_count=..., consecutive_success_count=...)"
+    },
+    "CircuitBreakerState": {
+      "()": "(*values)"
+    },
+    "CircuitBreakerStrategy": {
+      "()": "(*args, **kwargs)"
+    },
+    "CircuitBreakers": {
+      "()": "(source, *, name=...)"
+    },
+    "ConsecutiveCountConfig": {
+      "()": "(*, kind=..., ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=...)"
+    },
+    "ConstantBackoff": {
+      "()": "(*, kind=..., delay=...)"
+    },
+    "ErrorDetails": {
+      "()": "(*, time, type, msg)"
+    },
+    "ExponentialBackoff": {
+      "()": "(*, kind=..., base_delay=..., max_delay=..., jitter=...)"
+    },
+    "Fallback": {
+      "()": "(name, *, when=..., default=..., factory=..., config=..., env_load=...)",
+      ".from_config": "(name, config)"
+    },
+    "FallbackConfig": {
+      "()": "(*, when, default=..., factory=...)"
+    },
+    "FallbackResult": {
+      "()": "()"
+    },
+    "FibonacciBackoff": {
+      "()": "(*, kind=..., base_delay=..., max_delay=...)"
+    },
+    "InternalShieldConfig": {
+      "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
+    },
+    "LinearBackoff": {
+      "()": "(*, kind=..., base_delay=..., max_delay=...)"
+    },
+    "Match": {
+      "()": "(matcher, repr_)",
+      ".always": "()",
+      ".exception": "(*exception_types_or_predicate)",
+      ".exception_cause": "(*exception_types_or_predicate)",
+      ".exception_message": "(*, contains=..., regex=...)",
+      ".never": "()",
+      ".not_exception": "(*exception_types_or_predicate)",
+      ".not_exception_cause": "(*exception_types_or_predicate)",
+      ".not_exception_message": "(*, contains=..., regex=...)",
+      ".not_result": "(value_or_predicate)",
+      ".predicate": "(fn)",
+      ".result": "(value_or_predicate)"
+    },
+    "Matcher": {
+      "()": "(*args, **kwargs)"
+    },
+    "MemoryCircuitBreakerAdapter": {
+      "()": "()"
+    },
+    "MemoryRateLimiterAdapter": {
+      "()": "()"
+    },
+    "MemoryTokenBucket": {
+      "()": "(*, capacity, refill_rate)"
+    },
+    "Outcome": {
+      "()": "(exception, result, raised)",
+      ".from_exception": "(exception)",
+      ".from_result": "(result)"
+    },
+    "PostgresCircuitBreakerAdapter": {
+      "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
+    },
+    "PostgresRateLimiterAdapter": {
+      "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
+    },
+    "RandomBackoff": {
+      "()": "(*, kind=..., min_delay=..., max_delay=...)"
+    },
+    "RateLimitExceededError": {
+      "()": "(*, key, retry_after)"
+    },
+    "RateLimitResult": {
+      "()": "(allowed, limit, remaining, retry_after, reset_after)"
+    },
+    "RateLimiter": {
+      "()": "(name, config, *, backend=...)",
+      ".from_config": "(name, config, *, backend=...)",
+      ".sliding_window": "(name, *, limit, window, fail_open=..., backend=...)",
+      ".token_bucket": "(name, *, capacity, refill_rate, fail_open=..., backend=...)"
+    },
+    "RateLimiterBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "RateLimiterConfig": {
+      "()": "(*args, **kwargs)"
+    },
+    "RateLimiterStrategy": {
+      "()": "(*args, **kwargs)"
+    },
+    "RateLimiters": {
+      "()": "(source, *, name=...)"
+    },
+    "RedisCircuitBreakerAdapter": {
+      "()": "(*, provider=..., env_prefix=..., prefix=...)"
+    },
+    "RedisRateLimiterAdapter": {
+      "()": "(*, provider=..., env_prefix=..., prefix=...)"
+    },
+    "ResilienceError": null,
+    "ResilienceSettingsValidationError": {
+      "()": "(error)"
+    },
+    "Retry": {
+      "()": "(name, backoff=..., *, when=..., attempts=..., max_seconds=..., config=..., env_load=...)",
+      ".constant": "(name, *, when, attempts=..., max_seconds=..., delay=..., env_load=...)",
+      ".exponential": "(name, *, when, attempts=..., max_seconds=..., base_delay=..., max_delay=..., jitter=..., env_load=...)",
+      ".from_config": "(name, config)"
+    },
+    "RetryAttempt": {
+      "()": "(*, number, delay_before, attempts, matcher, loop, started_at, max_seconds)"
+    },
+    "RetryBackoffConfig": {
+      "()": "(*args, **kwargs)"
+    },
+    "RetryConfig": {
+      "()": "(*, attempts=..., max_seconds=..., when, backoff=...)"
+    },
+    "RetryStrategy": {
+      "()": "(*args, **kwargs)"
+    },
+    "SQLiteRateLimiterAdapter": {
+      "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
+    },
+    "Shield": {
+      "()": "(name, config=..., *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., env_load=..., time_source=..., random_source=...)",
+      ".api": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)",
+      ".from_config": "(name, config)",
+      ".internal": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)",
+      ".slow": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)"
+    },
+    "ShieldConfig": {
+      "()": "(*args, **kwargs)"
+    },
+    "SlidingWindowConfig": {
+      "()": "(*, fail_open=..., kind=..., limit, window)"
+    },
+    "SlowShieldConfig": {
+      "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
+    },
+    "Timeout": {
+      "()": "(name, *, seconds=..., config=..., env_load=...)",
+      ".from_config": "(name, config)"
+    },
+    "TimeoutConfig": {
+      "()": "(*, seconds)"
+    },
+    "TokenBucketConfig": {
+      "()": "(*, fail_open=..., kind=..., capacity, refill_rate)"
+    },
+    "fallback": {
+      "()": "(*, when, default=..., factory=...)"
+    },
+    "falling_back": {
+      "()": "(*, when, default=..., factory=...)"
+    },
+    "retry": {
+      "()": "(*, when, attempts=..., backoff=...)"
+    },
+    "retrying": {
+      "()": "(*, when, attempts=..., backoff=...)"
+    },
+    "shield": {
+      "()": "(fn)"
+    }
+  },
+  "grelmicro.resilience.backoffs": {
+    "ConstantBackoff": {
+      "()": "(*, kind=..., delay=...)"
+    },
+    "ExponentialBackoff": {
+      "()": "(*, kind=..., base_delay=..., max_delay=..., jitter=...)"
+    },
+    "FibonacciBackoff": {
+      "()": "(*, kind=..., base_delay=..., max_delay=...)"
+    },
+    "LinearBackoff": {
+      "()": "(*, kind=..., base_delay=..., max_delay=...)"
+    },
+    "RandomBackoff": {
+      "()": "(*, kind=..., min_delay=..., max_delay=...)"
+    },
+    "RetryBackoffConfig": {
+      "()": "(*args, **kwargs)"
+    }
+  },
+  "grelmicro.resilience.circuitbreaker": {
+    "CircuitBreaker": {
+      "()": "(name, config=..., *, backend=...)",
+      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=...)",
+      ".from_config": "(name, config, *, backend=...)"
+    },
+    "CircuitBreakerConfig": {
+      "()": "(*args, **kwargs)"
+    },
+    "CircuitBreakerError": {
+      "()": "(*, name, last_error_time=..., last_error=...)"
+    },
+    "CircuitBreakerMetrics": {
+      "()": "(*, name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error)"
+    },
+    "CircuitBreakerState": {
+      "()": "(*values)"
+    },
+    "ConsecutiveCountConfig": {
+      "()": "(*, kind=..., ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=...)"
+    },
+    "ErrorDetails": {
+      "()": "(*, time, type, msg)"
+    }
+  },
+  "grelmicro.resilience.ratelimiter": {
+    "RateLimiter": {
+      "()": "(name, config, *, backend=...)",
+      ".from_config": "(name, config, *, backend=...)",
+      ".sliding_window": "(name, *, limit, window, fail_open=..., backend=...)",
+      ".token_bucket": "(name, *, capacity, refill_rate, fail_open=..., backend=...)"
+    },
+    "RateLimiterConfig": {
+      "()": "(*args, **kwargs)"
+    },
+    "SlidingWindowConfig": {
+      "()": "(*, fail_open=..., kind=..., limit, window)"
+    },
+    "TokenBucketConfig": {
+      "()": "(*, fail_open=..., kind=..., capacity, refill_rate)"
+    }
+  },
+  "grelmicro.resilience.shield": {
+    "ApiShieldConfig": {
+      "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
+    },
+    "InternalShieldConfig": {
+      "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
+    },
+    "Shield": {
+      "()": "(name, config=..., *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., env_load=..., time_source=..., random_source=...)",
+      ".api": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)",
+      ".from_config": "(name, config)",
+      ".internal": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)",
+      ".slow": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)"
+    },
+    "ShieldConfig": {
+      "()": "(*args, **kwargs)"
+    },
+    "SlowShieldConfig": {
+      "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
+    },
+    "shield": {
+      "()": "(fn)"
+    }
+  },
+  "grelmicro.task": {
+    "CronError": {
+      "()": "(reason)"
+    },
+    "FunctionTypeError": {
+      "()": "(reference)"
+    },
+    "TaskAddOperationError": {
+      "()": "()"
+    },
+    "TaskError": null,
+    "TaskRouter": {
+      "()": "(*, tasks=...)"
+    },
+    "Tasks": {
+      "()": "(*, auto_start=..., tasks=..., shutdown_timeout=...)"
+    }
+  },
+  "grelmicro.testing": {
+    "Call": {
+      "()": "(method, kwargs)"
+    },
+    "CallLog": {
+      "()": "(calls=...)"
+    },
+    "record": {
+      "()": "(backend)"
+    }
+  },
+  "grelmicro.trace": {
+    "Trace": {
+      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=..., env_load=...)"
+    },
+    "TracingConfig": {
+      "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=...)"
+    },
+    "TracingError": null,
+    "TracingExporterType": {
+      "()": "(*values)"
+    },
+    "TracingProcessorType": {
+      "()": "(*values)"
+    },
+    "TracingSamplerType": {
+      "()": "(*values)"
+    },
+    "add_context": {
+      "()": "(**fields)"
+    },
+    "get_context": {
+      "()": "()"
+    },
+    "instrument": {
+      "()": "(func=..., *, name=..., skip=..., skip_all=...)"
+    },
+    "span": {
+      "()": "(name, **fields)"
+    }
+  }
+}
