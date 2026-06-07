@@ -283,9 +283,9 @@ class TestBuilders:
         assert adapter.provider is provider
 
     def test_ratelimiter_factory_builds_postgres_adapter(self) -> None:
-        """`provider.rate_limiter()` builds a `PostgresRateLimiterAdapter`."""
+        """`provider.ratelimiter()` builds a `PostgresRateLimiterAdapter`."""
         provider = PostgresProvider(URL)
-        adapter = provider.rate_limiter()
+        adapter = provider.ratelimiter()
         assert isinstance(adapter, PostgresRateLimiterAdapter)
         assert adapter.provider is provider
 
@@ -295,7 +295,7 @@ class TestBuilders:
         with pytest.raises(
             NotImplementedError, match="no rate limiter adapter"
         ):
-            Provider.rate_limiter(provider)
+            Provider.ratelimiter(provider)
 
     def test_base_cache_factory_raises_not_implemented(self) -> None:
         """The base `Provider.cache` raises for providers that don't override it."""
@@ -304,9 +304,9 @@ class TestBuilders:
             Provider.cache(provider)
 
     def test_circuitbreaker_factory_builds_postgres_adapter(self) -> None:
-        """`provider.circuit_breaker()` builds a `PostgresCircuitBreakerAdapter`."""
+        """`provider.circuitbreaker()` builds a `PostgresCircuitBreakerAdapter`."""
         provider = PostgresProvider(URL)
-        adapter = provider.circuit_breaker()
+        adapter = provider.circuitbreaker()
         assert isinstance(adapter, PostgresCircuitBreakerAdapter)
         assert adapter.provider is provider
 
@@ -316,7 +316,7 @@ class TestBuilders:
         with pytest.raises(
             NotImplementedError, match="no circuit breaker adapter"
         ):
-            Provider.circuit_breaker(provider)
+            Provider.circuitbreaker(provider)
 
 
 class TestRebindProvider:

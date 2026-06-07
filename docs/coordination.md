@@ -83,7 +83,7 @@ Wire a `Coordination` component like this:
     inline like the examples above.
 
 A `Provider` resolves both primitives in one line: `Coordination(redis)` calls
-`redis.lock()` for the lock backend and `redis.leader_election()` for the
+`redis.lock()` for the lock backend and `redis.leaderelection()` for the
 election backend. Set each backend on its own with `lock=` and `election=`, so
 locks can run on one vendor and leader election on another. Each argument accepts
 a `Provider`, a backend instance, or a zero-arg class.
@@ -408,7 +408,7 @@ Pick the backend that matches your deployment.
 | `KubernetesLeaderElectionBackend` | A Kubernetes-native deployment. | A `coordination.k8s.io` Lease, metadata in its annotations. |
 
 A `Provider` builds the matching backend for you: `Coordination(redis)` calls
-`redis.leader_election()`. Pass a backend instance directly when it has no
+`redis.leaderelection()`. Pass a backend instance directly when it has no
 provider, like the Kubernetes Lease.
 
 ### Running without a component

@@ -33,7 +33,7 @@ async with micro:
 ```
 
 Components dispatch to the Provider's factory methods (`provider.lock()`,
-`provider.cache()`, `provider.rate_limiter()`). The Adapter classes
+`provider.cache()`, `provider.ratelimiter()`). The Adapter classes
 (`RedisLockAdapter`, `RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay
 public as escape hatches but rarely appear in user code.
 
@@ -146,10 +146,10 @@ Each Provider exposes factory methods that return its matching adapter:
 | Method                      | Returns                       | RedisProvider | PostgresProvider | SQLiteProvider |
 |----------------------------|-------------------------------|:-------------:|:----------------:|:--------------:|
 | `.lock(**kwargs)`           | `LockBackend` implementation  |       ✓        |        ✓         |       ✓        |
-| `.leader_election(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |        ✓         |      N/A       |
+| `.leaderelection(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |        ✓         |      N/A       |
 | `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        ✓         |      N/A       |
-| `.rate_limiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        ✓         |       ✓        |
-| `.circuit_breaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |      N/A       |
+| `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        ✓         |       ✓        |
+| `.circuitbreaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |      N/A       |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
@@ -157,7 +157,7 @@ pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
 
 ## Postgres
 
-`PostgresProvider` ships the `.lock()` and `.leader_election()` factories. The
+`PostgresProvider` ships the `.lock()` and `.leaderelection()` factories. The
 provider wraps an `asyncpg.Pool` and opens it lazily on `__aenter__`.
 
 ```python
@@ -205,7 +205,7 @@ PostgresProvider.from_client(pool)              # bring-your-own pool
 
 ## SQLite
 
-`SQLiteProvider` ships the `.lock()` and `.rate_limiter()` factories. The
+`SQLiteProvider` ships the `.lock()` and `.ratelimiter()` factories. The
 provider owns one `aiosqlite` connection (autocommit, WAL) and a shared
 lock that adapters borrow.
 

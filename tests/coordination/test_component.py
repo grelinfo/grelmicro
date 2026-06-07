@@ -70,10 +70,10 @@ def test_task_lock_factory_binds_backend() -> None:
 
 
 def test_leader_election_factory_binds_backend() -> None:
-    """`coordination.leader_election(name)` binds the election backend."""
+    """`coordination.leaderelection(name)` binds the election backend."""
     backend = MemoryLeaderElectionBackend()
     coordination = Coordination(election=backend)
-    election = coordination.leader_election("worker")
+    election = coordination.leaderelection("worker")
     assert isinstance(election, LeaderElection)
     assert election.backend is backend
 
@@ -114,12 +114,12 @@ def test_lock_backend_property_without_lock_backend_raises() -> None:
 
 
 def test_leader_election_without_election_backend_raises() -> None:
-    """`coordination.leader_election()` raises when no election backend."""
+    """`coordination.leaderelection()` raises when no election backend."""
     coordination = Coordination(lock=MemoryLockAdapter())
     with pytest.raises(
         CoordinationBackendError, match="no leader election backend"
     ):
-        coordination.leader_election("worker")
+        coordination.leaderelection("worker")
 
 
 def test_election_backend_property_without_election_backend_raises() -> None:
@@ -160,7 +160,7 @@ def test_lock_keyword_accepts_provider() -> None:
 
 
 def test_election_keyword_accepts_provider() -> None:
-    """`election=Provider` resolves via `provider.leader_election()`."""
+    """`election=Provider` resolves via `provider.leaderelection()`."""
     provider = RedisProvider("redis://localhost:6379/0")
     coordination = Coordination(election=provider)
     assert coordination.election_backend.__class__.__name__ == (

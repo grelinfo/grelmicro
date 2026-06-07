@@ -195,7 +195,7 @@ class SQLiteProvider(Provider):
         """Shared lock serializing access to the single connection."""
         return self._lock
 
-    def rate_limiter(self, **kwargs: Any) -> SQLiteRateLimiterAdapter:  # noqa: ANN401
+    def ratelimiter(self, **kwargs: Any) -> SQLiteRateLimiterAdapter:  # noqa: ANN401
         """Build a `SQLiteRateLimiterAdapter` bound to this provider."""
         from grelmicro.resilience.ratelimiter.sqlite import (  # noqa: PLC0415
             SQLiteRateLimiterAdapter,

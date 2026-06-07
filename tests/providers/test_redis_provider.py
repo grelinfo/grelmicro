@@ -260,20 +260,20 @@ class TestBuilders:
         assert adapter._key_prefix == "ns:"
 
     def test_ratelimiter_builder_binds_provider(self) -> None:
-        """`provider.rate_limiter()` returns an adapter borrowing the provider."""
+        """`provider.ratelimiter()` returns an adapter borrowing the provider."""
         provider = RedisProvider(URL)
 
-        adapter = provider.rate_limiter(prefix="rl:")
+        adapter = provider.ratelimiter(prefix="rl:")
 
         assert isinstance(adapter, RedisRateLimiterAdapter)
         assert adapter.provider is provider
         assert adapter._prefix == "rl:"
 
     def test_circuitbreaker_factory(self) -> None:
-        """`provider.circuit_breaker()` returns the matching Redis adapter."""
+        """`provider.circuitbreaker()` returns the matching Redis adapter."""
         provider = RedisProvider(URL)
 
-        adapter = provider.circuit_breaker(prefix="cb:")
+        adapter = provider.circuitbreaker(prefix="cb:")
 
         assert isinstance(adapter, RedisCircuitBreakerAdapter)
         assert adapter.provider is provider

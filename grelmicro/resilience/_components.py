@@ -26,7 +26,7 @@ class RateLimiters:
     on every call.
 
     Accepts a `Provider` or a `RateLimiterBackend`. When given a Provider, the
-    component calls `provider.rate_limiter()` to build the matching adapter.
+    component calls `provider.ratelimiter()` to build the matching adapter.
 
     Example:
         ```python
@@ -53,7 +53,7 @@ class RateLimiters:
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `RateLimiterBackend`
                 instance. When a Provider is given, the component calls
-                `provider.rate_limiter()` to build the matching adapter.
+                `provider.ratelimiter()` to build the matching adapter.
                 """,
             ),
         ],
@@ -72,7 +72,7 @@ class RateLimiters:
         self._name = name
         source = instantiate_if_class(source)
         if isinstance(source, Provider):
-            self._backend = source.rate_limiter()
+            self._backend = source.ratelimiter()
         else:
             self._backend = source
 
@@ -109,7 +109,7 @@ class CircuitBreakers:
     backend on every call.
 
     Accepts a `Provider` or a `CircuitBreakerBackend`. When given a Provider,
-    the component calls `provider.circuit_breaker()` to build the matching adapter.
+    the component calls `provider.circuitbreaker()` to build the matching adapter.
 
     Example:
         ```python
@@ -138,7 +138,7 @@ class CircuitBreakers:
             Doc(
                 """
                 A `Provider` or a `CircuitBreakerBackend` instance. When a
-                Provider is given, the component calls `provider.circuit_breaker()`
+                Provider is given, the component calls `provider.circuitbreaker()`
                 to build the matching adapter.
                 """,
             ),
@@ -158,7 +158,7 @@ class CircuitBreakers:
         self._name = name
         source = instantiate_if_class(source)
         if isinstance(source, Provider):
-            self._backend = source.circuit_breaker()
+            self._backend = source.circuitbreaker()
         else:
             self._backend = source
 

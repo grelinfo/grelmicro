@@ -42,7 +42,7 @@ async with micro:
 # every item is closed on exit (LIFO)
 ```
 
-`Coordination(provider)` calls `provider.lock()` to obtain the matching `LockBackend` and `provider.leader_election()` for the `LeaderElectionBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Coordination(lock=MemoryLockAdapter())`).
+`Coordination(provider)` calls `provider.lock()` to obtain the matching `LockBackend` and `provider.leaderelection()` for the `LeaderElectionBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Coordination(lock=MemoryLockAdapter())`).
 
 ## Named backends and per-call selection
 
