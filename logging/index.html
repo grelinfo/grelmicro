@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://grelinfo.github.io/grelmicro/logging/">
       
       
-        <link rel="prev" href="../json/">
+        <link rel="prev" href="../health/">
       
       
         <link rel="next" href="../tracing/">
@@ -607,34 +607,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -709,41 +681,35 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#backend-selection" class="md-nav__link">
+  <a href="#backends" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Backend Selection
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Backend Selection">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Installation
+        Backends
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#usage" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#structured-logging" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Usage
+        Structured Logging
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#exception-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exception Handling
+      
+    </span>
+  </a>
   
 </li>
       
@@ -768,7 +734,8 @@
     </span>
   </a>
   
-</li>
+    <nav class="md-nav" aria-label="AUTO (Default)">
+      <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#json" class="md-nav__link">
@@ -818,54 +785,9 @@
     </nav>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#settings" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Settings
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Settings">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#timezone" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Timezone
-      
-    </span>
-  </a>
-  
-</li>
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#structured-logging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Structured Logging
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#exception-handling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Exception Handling
-      
-    </span>
-  </a>
   
 </li>
       
@@ -903,45 +825,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-format-loguru-only" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom Format (Loguru only)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#json-record-structure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        JSON Record Structure
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="JSON Record Structure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#design-decisions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Design Decisions
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#deduplicating-noisy-logs" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -957,6 +840,56 @@
     <span class="md-ellipsis">
       
         Rate-Limiting Noisy Logs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#timezone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timezone
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-format-loguru-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Format (Loguru only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#json-record-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON Record Structure
       
     </span>
   </a>
@@ -1009,6 +942,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1339,14 +1300,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1403,6 +1364,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1495,14 +1460,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1523,14 +1488,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/json/" class="md-nav__link">
+      <a href="../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1579,6 +1544,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/resilience/" class="md-nav__link">
         
   
@@ -1607,14 +1600,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/sync/" class="md-nav__link">
+      <a href="../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1643,6 +1636,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1702,6 +1723,8 @@
       
         
           
+        
+      
         
       
         
@@ -1926,6 +1949,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1982,14 +2033,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sync/" class="md-nav__link">
+      <a href="../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2242,41 +2293,35 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#backend-selection" class="md-nav__link">
+  <a href="#backends" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Backend Selection
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Backend Selection">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Installation
+        Backends
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#usage" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#structured-logging" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Usage
+        Structured Logging
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#exception-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exception Handling
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2301,7 +2346,8 @@
     </span>
   </a>
   
-</li>
+    <nav class="md-nav" aria-label="AUTO (Default)">
+      <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#json" class="md-nav__link">
@@ -2351,54 +2397,9 @@
     </nav>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#settings" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Settings
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Settings">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#timezone" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Timezone
-      
-    </span>
-  </a>
-  
-</li>
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#structured-logging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Structured Logging
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#exception-handling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Exception Handling
-      
-    </span>
-  </a>
   
 </li>
       
@@ -2436,45 +2437,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-format-loguru-only" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom Format (Loguru only)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#json-record-structure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        JSON Record Structure
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="JSON Record Structure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#design-decisions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Design Decisions
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#deduplicating-noisy-logs" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2490,6 +2452,56 @@
     <span class="md-ellipsis">
       
         Rate-Limiting Noisy Logs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#timezone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timezone
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-format-loguru-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Format (Loguru only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#json-record-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON Record Structure
       
     </span>
   </a>
@@ -2539,8 +2551,12 @@
 
 
 <h1 id="logging">Logging</h1>
-<p>The <code>logging</code> package provides a simple, zero-config logging system following the <strong>12-factor app</strong> methodology.</p>
-<p>Logs go to stdout. Format is selected automatically. Configuration is done via environment variables.</p>
+<p>Zero-config logging that follows the <strong>12-factor app</strong> methodology. Use it to get structured, environment-aware logs without wiring handlers by hand.</p>
+<ul>
+<li><strong>Zero-config</strong>: logs go to stdout, the format is picked automatically.</li>
+<li><strong>Structured</strong>: extra fields become flat top-level keys, exceptions become structured error data.</li>
+<li><strong>Environment-driven</strong>: every knob is a <code>GREL_LOG_*</code> environment variable.</li>
+</ul>
 <h2 id="quick-start">Quick Start</h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 
@@ -2563,17 +2579,15 @@
 
 <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
 </code></pre></div>
-<p><code>Log()</code> accepts the same knobs as <code>configure()</code> and resolves <code>GREL_LOG_*</code>
-environment variables. On exit, the previous stdlib root handlers are
-restored.</p>
+<p><code>Log()</code> accepts the same knobs as <code>configure()</code> and resolves <code>GREL_LOG_*</code> environment variables. On exit, the previous stdlib root handlers are restored.</p>
 <p>With no environment variables set, <code>configure()</code> detects your terminal:</p>
 <ul>
 <li><strong>Terminal (TTY)</strong>: human-readable colored text</li>
 <li><strong>Piped / CI / container</strong>: structured JSON</li>
 </ul>
-<p>This is the <code>AUTO</code> format (the default).</p>
-<h2 id="backend-selection">Backend Selection</h2>
-<p>grelmicro supports three logging backends. All backends produce <strong>identical output</strong> for each format, making it easy to switch.</p>
+<p>This is the <code>AUTO</code> format (the default). Most users never need to set <code>GREL_LOG_FORMAT</code>.</p>
+<h2 id="backends">Backends</h2>
+<p>grelmicro supports three logging backends. All backends produce <strong>identical output</strong> for each format, so switching is easy. Select one with the <code>GREL_LOG_BACKEND</code> environment variable, then use the matching logger.</p>
 <table>
 <thead>
 <tr>
@@ -2600,8 +2614,36 @@ restored.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="installation">Installation</h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">stdlib (no dependencies)</label><label for="__tabbed_1_2">Loguru</label><label for="__tabbed_1_3">structlog</label><label for="__tabbed_1_4">With OpenTelemetry</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">stdlib</label><label for="__tabbed_1_2">Loguru</label><label for="__tabbed_1_3">structlog</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+
+<span class="n">configure</span><span class="p">()</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="mi">123</span><span class="p">})</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="n">configure</span><span class="p">()</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">structlog</span>
+
+<span class="n">configure</span><span class="p">()</span>
+<span class="n">log</span> <span class="o">=</span> <span class="n">structlog</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
+<span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<details class="note">
+<summary>Installation</summary>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:4"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><input id="__tabbed_2_4" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">stdlib (no dependencies)</label><label for="__tabbed_2_2">Loguru</label><label for="__tabbed_2_3">structlog</label><label for="__tabbed_2_4">With OpenTelemetry</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>No additional dependencies required. Uses Python's built-in <code>logging</code> module.</p>
@@ -2622,35 +2664,63 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 </div>
 </div>
 </div>
-<h3 id="usage">Usage</h3>
-<p>Select the backend with the <code>GREL_LOG_BACKEND</code> environment variable, then use the corresponding logger:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Loguru</label><label for="__tabbed_2_2">structlog</label><label for="__tabbed_2_3">stdlib</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+</details>
+<h2 id="structured-logging">Structured Logging</h2>
+<p>Extra context fields are passed as keyword arguments and appear as flat top-level fields:</p>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Structured logging with context.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
+
+<span class="c1"># Ensure clean state</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
 <span class="n">configure</span><span class="p">()</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;User logged in&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">,</span> <span class="n">ip_address</span><span class="o">=</span><span class="s2">&quot;192.168.1.1&quot;</span><span class="p">)</span>
 </code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">structlog</span>
+<p>Output:
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;User logged in&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;user_id&quot;</span><span class="p">:</span><span class="mi">123</span><span class="p">,</span><span class="nt">&quot;ip_address&quot;</span><span class="p">:</span><span class="s2">&quot;192.168.1.1&quot;</span><span class="p">}</span>
+</code></pre></div></p>
+<h2 id="exception-handling">Exception Handling</h2>
+<p>Exceptions are automatically captured as structured <code>ErrorDict</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Exception logging with context.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
+
+<span class="c1"># Ensure clean state</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
 
 <span class="n">configure</span><span class="p">()</span>
-<span class="n">log</span> <span class="o">=</span> <span class="n">structlog</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span>
-<span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 
-<span class="n">configure</span><span class="p">()</span>
-<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="mi">123</span><span class="p">})</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="mi">1</span> <span class="o">/</span> <span class="mi">0</span>  <span class="c1"># noqa: B018</span>
+<span class="k">except</span> <span class="ne">ZeroDivisionError</span><span class="p">:</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;Operation failed&quot;</span><span class="p">,</span> <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;divide&quot;</span><span class="p">)</span>
 </code></pre></div>
-</div>
-</div>
-</div>
+<p>JSON output:
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;ERROR&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Operation failed&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;operation&quot;</span><span class="p">:</span><span class="s2">&quot;divide&quot;</span><span class="p">,</span><span class="nt">&quot;error&quot;</span><span class="p">:{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;ZeroDivisionError&quot;</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;division by zero&quot;</span><span class="p">,</span><span class="nt">&quot;stack&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">}}</span>
+</code></pre></div></p>
+<details class="note">
+<summary>LOGFMT and PRETTY output</summary>
+<p>LOGFMT output:
+<div class="highlight"><pre><span></span><code>time=... level=ERROR msg=&quot;Operation failed&quot; logger=... error.type=ZeroDivisionError error.message=&quot;division by zero&quot; error.stack=&quot;Traceback...&quot;
+</code></pre></div></p>
+<p>PRETTY output:
+<div class="highlight"><pre><span></span><code>  ... ERROR Operation failed
+    at ...
+    operation: divide
+    error.type: ZeroDivisionError
+    error.message: division by zero
+    error.stack:
+      Traceback (most recent call last):
+        ...
+      ZeroDivisionError: division by zero
+</code></pre></div></p>
+</details>
 <h2 id="log-formats">Log Formats</h2>
 <p>grelmicro provides <strong>five format options</strong>, following common structured-logging conventions:</p>
 <table>
@@ -2737,11 +2807,9 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 <p>In a container or CI:
 <div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;2026-04-01T08:30:00.123456+00:00&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;__main__&quot;</span><span class="p">,</span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">}</span>
 </code></pre></div></p>
-<div class="admonition tip">
-<p class="admonition-title">Zero Config</p>
-<p><code>AUTO</code> is the default. Most users never need to set <code>GREL_LOG_FORMAT</code>.</p>
-</div>
-<h3 id="json">JSON</h3>
+<details class="note">
+<summary>JSON, LOGFMT, TEXT, and PRETTY formats</summary>
+<h4 id="json">JSON</h4>
 <p>Structured newline-delimited JSON. Ideal for production, log aggregation (Datadog, Loki, ELK).</p>
 <div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=JSON
 </code></pre></div>
@@ -2761,7 +2829,7 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 <p>Output:
 <div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;2026-04-01T10:30:00.123456+02:00&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Application started&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;__main__&quot;</span><span class="p">,</span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="s2">&quot;1.0.0&quot;</span><span class="p">,</span><span class="nt">&quot;environment&quot;</span><span class="p">:</span><span class="s2">&quot;production&quot;</span><span class="p">}</span>
 </code></pre></div></p>
-<h3 id="logfmt">LOGFMT</h3>
+<h4 id="logfmt">LOGFMT</h4>
 <p>Key-value pairs following the <a href="https://brandur.org/logfmt">logfmt</a> convention. 30-40% smaller than JSON, grep-friendly, parseable by Grafana Loki and most log tools.</p>
 <div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=LOGFMT
 </code></pre></div>
@@ -2783,7 +2851,7 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 <p>Nested dicts use dot notation:
 <div class="highlight"><pre><span></span><code>error.type=ValueError error.message=&quot;invalid input&quot;
 </code></pre></div></p>
-<h3 id="text">TEXT</h3>
+<h4 id="text">TEXT</h4>
 <p>Single-line, human-readable output. Includes extra fields as <code>key=value</code> pairs. Colors are enabled when output is a TTY.</p>
 <div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=TEXT
 </code></pre></div>
@@ -2803,7 +2871,7 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 <p>Output:
 <div class="highlight"><pre><span></span><code>2026-04-01 10:30:00.123 INFO     __main__:&lt;module&gt;:12 - Application started version=1.0.0
 </code></pre></div></p>
-<h3 id="pretty">PRETTY</h3>
+<h4 id="pretty">PRETTY</h4>
 <p>Multi-line format with indented fields. Best for debugging with low log volume.</p>
 <div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=PRETTY
 </code></pre></div>
@@ -2837,133 +2905,7 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
           result = 1 / 0
       ZeroDivisionError: division by zero
 </code></pre></div></p>
-<h2 id="settings">Settings</h2>
-<p>All configuration is done via environment variables:</p>
-<table>
-<thead>
-<tr>
-<th>Variable</th>
-<th>Values</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>GREL_LOG_BACKEND</code></td>
-<td><code>stdlib</code>, <code>loguru</code>, <code>structlog</code></td>
-<td><code>stdlib</code></td>
-</tr>
-<tr>
-<td><code>GREL_LOG_LEVEL</code></td>
-<td><code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code></td>
-<td><code>INFO</code></td>
-</tr>
-<tr>
-<td><code>GREL_LOG_FORMAT</code></td>
-<td><code>AUTO</code>, <code>JSON</code>, <code>LOGFMT</code>, <code>TEXT</code>, <code>PRETTY</code></td>
-<td><code>AUTO</code></td>
-</tr>
-<tr>
-<td><code>GREL_LOG_TIMEZONE</code></td>
-<td>IANA timezone (e.g., <code>UTC</code>, <code>Europe/Zurich</code>)</td>
-<td><code>UTC</code></td>
-</tr>
-<tr>
-<td><code>GREL_LOG_JSON_SERIALIZER</code></td>
-<td><code>stdlib</code>, <code>orjson</code></td>
-<td><code>stdlib</code></td>
-</tr>
-<tr>
-<td><code>GREL_LOG_CALLER_ENABLED</code></td>
-<td><code>true</code>, <code>false</code></td>
-<td><code>false</code></td>
-</tr>
-<tr>
-<td><code>GREL_LOG_OTEL_ENABLED</code></td>
-<td><code>true</code>, <code>false</code></td>
-<td>auto-detected</td>
-</tr>
-<tr>
-<td><code>NO_COLOR</code></td>
-<td>any value</td>
-<td>(unset)</td>
-</tr>
-<tr>
-<td><code>FORCE_COLOR</code></td>
-<td>any value</td>
-<td>(unset)</td>
-</tr>
-</tbody>
-</table>
-<div class="admonition note">
-<p class="admonition-title">Color Support</p>
-<p>Colors follow the <a href="https://no-color.org">NO_COLOR</a> and <a href="https://force-color.org">FORCE_COLOR</a> standards.
-When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</code> and colors are disabled.
-<code>FORCE_COLOR</code> takes precedence over <code>NO_COLOR</code>.</p>
-</div>
-<h3 id="timezone">Timezone</h3>
-<p>The <code>GREL_LOG_TIMEZONE</code> setting controls timestamps in all formats:</p>
-<div class="highlight"><pre><span></span><code>GREL_LOG_TIMEZONE=Europe/Zurich
-</code></pre></div>
-<p><strong>JSON / LOGFMT</strong>: ISO 8601 with timezone offset
-<div class="highlight"><pre><span></span><code>&quot;time&quot;:&quot;2026-04-01T15:56:36.066922+01:00&quot;
-</code></pre></div></p>
-<p><strong>TEXT / PRETTY</strong>: Localized time
-<div class="highlight"><pre><span></span><code>2026-04-01 15:56:36.066
-</code></pre></div></p>
-<h2 id="structured-logging">Structured Logging</h2>
-<p>Extra context fields are passed as keyword arguments and appear as flat top-level fields:</p>
-<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Structured logging with context.&quot;&quot;&quot;</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
-
-<span class="c1"># Ensure clean state</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
-
-<span class="n">configure</span><span class="p">()</span>
-
-<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;User logged in&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="mi">123</span><span class="p">,</span> <span class="n">ip_address</span><span class="o">=</span><span class="s2">&quot;192.168.1.1&quot;</span><span class="p">)</span>
-</code></pre></div>
-<p>Output:
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;User logged in&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;user_id&quot;</span><span class="p">:</span><span class="mi">123</span><span class="p">,</span><span class="nt">&quot;ip_address&quot;</span><span class="p">:</span><span class="s2">&quot;192.168.1.1&quot;</span><span class="p">}</span>
-</code></pre></div></p>
-<h2 id="exception-handling">Exception Handling</h2>
-<p>Exceptions are automatically captured as structured <code>ErrorDict</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Exception logging with context.&quot;&quot;&quot;</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
-
-<span class="c1"># Ensure clean state</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
-
-<span class="n">configure</span><span class="p">()</span>
-
-<span class="k">try</span><span class="p">:</span>
-    <span class="mi">1</span> <span class="o">/</span> <span class="mi">0</span>  <span class="c1"># noqa: B018</span>
-<span class="k">except</span> <span class="ne">ZeroDivisionError</span><span class="p">:</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;Operation failed&quot;</span><span class="p">,</span> <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;divide&quot;</span><span class="p">)</span>
-</code></pre></div>
-<p>JSON output:
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;ERROR&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Operation failed&quot;</span><span class="p">,</span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;operation&quot;</span><span class="p">:</span><span class="s2">&quot;divide&quot;</span><span class="p">,</span><span class="nt">&quot;error&quot;</span><span class="p">:{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;ZeroDivisionError&quot;</span><span class="p">,</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;division by zero&quot;</span><span class="p">,</span><span class="nt">&quot;stack&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">}}</span>
-</code></pre></div></p>
-<p>LOGFMT output:
-<div class="highlight"><pre><span></span><code>time=... level=ERROR msg=&quot;Operation failed&quot; logger=... error.type=ZeroDivisionError error.message=&quot;division by zero&quot; error.stack=&quot;Traceback...&quot;
-</code></pre></div></p>
-<p>PRETTY output:
-<div class="highlight"><pre><span></span><code>  ... ERROR Operation failed
-    at ...
-    operation: divide
-    error.type: ZeroDivisionError
-    error.message: division by zero
-    error.stack:
-      Traceback (most recent call last):
-        ...
-      ZeroDivisionError: division by zero
-</code></pre></div></p>
+</details>
 <h2 id="opentelemetry-integration">OpenTelemetry Integration</h2>
 <p>When <a href="https://opentelemetry.io/">OpenTelemetry</a> is installed, <code>trace_id</code> and <code>span_id</code> are automatically added to logs:</p>
 <div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;OpenTelemetry integration example.&quot;&quot;&quot;</span>
@@ -3084,56 +3026,6 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 </code></pre></div>
 <p><code>UvicornFormatter</code> and <code>UvicornAccessFormatter</code> read <code>GREL_LOG_FORMAT</code> at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.</p>
 <p><code>UvicornAccessFormatter</code> additionally parses uvicorn's access log arguments into structured fields: <code>client_addr</code>, <code>method</code>, <code>full_path</code>, <code>http_version</code>, <code>status_code</code>.</p>
-<h2 id="custom-format-loguru-only">Custom Format (Loguru only)</h2>
-<p>You can provide a custom <a href="https://loguru.readthedocs.io/en/stable/api/logger.html#message">loguru format template</a>:</p>
-<div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=&quot;{level} | {message}&quot;
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Custom format logging.&quot;&quot;&quot;</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
-
-<span class="c1"># Ensure clean state</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
-
-<span class="n">configure</span><span class="p">()</span>
-
-<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Custom format example&quot;</span><span class="p">)</span>
-</code></pre></div>
-<p>Output:
-<div class="highlight"><pre><span></span><code>INFO | Custom format example
-</code></pre></div></p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Custom format strings only work with the loguru backend.</p>
-</div>
-<h2 id="json-record-structure">JSON Record Structure</h2>
-<p>All JSON log records follow this schema. Required fields are always present, optional fields may be absent. Extra context fields are merged flat at the top level:</p>
-<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">JSONRecordDict</span><span class="p">:</span>
-    <span class="c1"># Required</span>
-    <span class="n">time</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># ISO 8601 timestamp with timezone</span>
-    <span class="n">level</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># DEBUG, INFO, WARNING, ERROR, CRITICAL</span>
-    <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span>               <span class="c1"># Log message</span>
-    <span class="n">logger</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># Logger name (e.g., &quot;myapp.api&quot;)</span>
-    <span class="c1"># Optional (opt-in via GREL_LOG_CALLER_ENABLED=true)</span>
-    <span class="n">caller</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># function:line (e.g., &quot;handle:45&quot;)</span>
-    <span class="c1"># Optional</span>
-    <span class="n">trace_id</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># OpenTelemetry trace ID (32 hex chars)</span>
-    <span class="n">span_id</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># OpenTelemetry span ID (16 hex chars)</span>
-    <span class="n">error</span><span class="p">:</span> <span class="n">ErrorDict</span>       <span class="c1"># Structured error info</span>
-</code></pre></div>
-<p>The <code>ErrorDict</code> structure:</p>
-<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ErrorDict</span><span class="p">:</span>
-    <span class="nb">type</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># Exception class name (e.g., &quot;ValueError&quot;)</span>
-    <span class="n">message</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># Exception message</span>
-    <span class="n">stack</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># Optional: full traceback string</span>
-</code></pre></div>
-<h3 id="design-decisions">Design Decisions</h3>
-<p><strong>Level casing</strong>: UPPERCASE (<code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code>), following common structured-logging conventions.</p>
-<p><strong>Field naming</strong>: Core field names (<code>time</code>, <code>level</code>, <code>msg</code>, <code>logger</code>, <code>caller</code>, <code>error</code>) follow common structured-logging conventions. <code>logger</code> is the logger name, <code>caller</code> is the call site (<code>function:line</code>).</p>
-<p><strong>Caller opt-in</strong>: <code>caller</code> is disabled by default, as in many structured-logging libraries. Enable with <code>GREL_LOG_CALLER_ENABLED=true</code>. Uvicorn formatters never include <code>caller</code> (points to uvicorn internals, not application code).</p>
-<p><strong>Collision protection</strong>: Core fields cannot be overwritten by user-supplied extra context.</p>
 <h2 id="deduplicating-noisy-logs">Deduplicating Noisy Logs</h2>
 <p><code>DuplicateFilter</code> is a <code>logging.Filter</code> that silences repeated log records.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">getLogger</span>
@@ -3229,6 +3121,132 @@ When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</cod
 <p class="admonition-title">Tip</p>
 <p><code>RateLimitFilter</code> and <code>DuplicateFilter</code> compose well: attach the dedup filter first to collapse true duplicates, then the rate-limit filter to cap the sustained flow.</p>
 </div>
+<h2 id="settings">Settings</h2>
+<p>All configuration is done via environment variables:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Values</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GREL_LOG_BACKEND</code></td>
+<td><code>stdlib</code>, <code>loguru</code>, <code>structlog</code></td>
+<td><code>stdlib</code></td>
+</tr>
+<tr>
+<td><code>GREL_LOG_LEVEL</code></td>
+<td><code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code></td>
+<td><code>INFO</code></td>
+</tr>
+<tr>
+<td><code>GREL_LOG_FORMAT</code></td>
+<td><code>AUTO</code>, <code>JSON</code>, <code>LOGFMT</code>, <code>TEXT</code>, <code>PRETTY</code></td>
+<td><code>AUTO</code></td>
+</tr>
+<tr>
+<td><code>GREL_LOG_TIMEZONE</code></td>
+<td>IANA timezone (e.g., <code>UTC</code>, <code>Europe/Zurich</code>)</td>
+<td><code>UTC</code></td>
+</tr>
+<tr>
+<td><code>GREL_LOG_JSON_SERIALIZER</code></td>
+<td><code>stdlib</code>, <code>orjson</code></td>
+<td><code>stdlib</code></td>
+</tr>
+<tr>
+<td><code>GREL_LOG_CALLER_ENABLED</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>GREL_LOG_OTEL_ENABLED</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>auto-detected</td>
+</tr>
+<tr>
+<td><code>NO_COLOR</code></td>
+<td>any value</td>
+<td>(unset)</td>
+</tr>
+<tr>
+<td><code>FORCE_COLOR</code></td>
+<td>any value</td>
+<td>(unset)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Color Support</p>
+<p>Colors follow the <a href="https://no-color.org">NO_COLOR</a> and <a href="https://force-color.org">FORCE_COLOR</a> standards.
+When <code>NO_COLOR</code> is set, <code>AUTO</code> resolves to <code>JSON</code> and colors are disabled.
+<code>FORCE_COLOR</code> takes precedence over <code>NO_COLOR</code>.</p>
+</div>
+<h3 id="timezone">Timezone</h3>
+<p>The <code>GREL_LOG_TIMEZONE</code> setting controls timestamps in all formats:</p>
+<div class="highlight"><pre><span></span><code>GREL_LOG_TIMEZONE=Europe/Zurich
+</code></pre></div>
+<p><strong>JSON / LOGFMT</strong>: ISO 8601 with timezone offset
+<div class="highlight"><pre><span></span><code>&quot;time&quot;:&quot;2026-04-01T15:56:36.066922+01:00&quot;
+</code></pre></div></p>
+<p><strong>TEXT / PRETTY</strong>: Localized time
+<div class="highlight"><pre><span></span><code>2026-04-01 15:56:36.066
+</code></pre></div></p>
+<h2 id="custom-format-loguru-only">Custom Format (Loguru only)</h2>
+<p>You can provide a custom <a href="https://loguru.readthedocs.io/en/stable/api/logger.html#message">loguru format template</a>:</p>
+<div class="highlight"><pre><span></span><code>GREL_LOG_FORMAT=&quot;{level} | {message}&quot;
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Example: Custom format logging.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">loguru</span><span class="w"> </span><span class="kn">import</span> <span class="n">logger</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
+
+<span class="c1"># Ensure clean state</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="n">configure</span><span class="p">()</span>
+
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Custom format example&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Output:
+<div class="highlight"><pre><span></span><code>INFO | Custom format example
+</code></pre></div></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Custom format strings only work with the loguru backend.</p>
+</div>
+<h2 id="json-record-structure">JSON Record Structure</h2>
+<p>All JSON log records follow this schema. Required fields are always present, optional fields may be absent. Extra context fields are merged flat at the top level:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">JSONRecordDict</span><span class="p">:</span>
+    <span class="c1"># Required</span>
+    <span class="n">time</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># ISO 8601 timestamp with timezone</span>
+    <span class="n">level</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># DEBUG, INFO, WARNING, ERROR, CRITICAL</span>
+    <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span>               <span class="c1"># Log message</span>
+    <span class="n">logger</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># Logger name (e.g., &quot;myapp.api&quot;)</span>
+    <span class="c1"># Optional (opt-in via GREL_LOG_CALLER_ENABLED=true)</span>
+    <span class="n">caller</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># function:line (e.g., &quot;handle:45&quot;)</span>
+    <span class="c1"># Optional</span>
+    <span class="n">trace_id</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># OpenTelemetry trace ID (32 hex chars)</span>
+    <span class="n">span_id</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># OpenTelemetry span ID (16 hex chars)</span>
+    <span class="n">error</span><span class="p">:</span> <span class="n">ErrorDict</span>       <span class="c1"># Structured error info</span>
+</code></pre></div>
+<p>The <code>ErrorDict</code> structure:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ErrorDict</span><span class="p">:</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># Exception class name (e.g., &quot;ValueError&quot;)</span>
+    <span class="n">message</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># Exception message</span>
+    <span class="n">stack</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># Optional: full traceback string</span>
+</code></pre></div>
+<details class="note">
+<summary>Design decisions</summary>
+<p><strong>Level casing</strong>: UPPERCASE (<code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code>), following common structured-logging conventions.</p>
+<p><strong>Field naming</strong>: Core field names (<code>time</code>, <code>level</code>, <code>msg</code>, <code>logger</code>, <code>caller</code>, <code>error</code>) follow common structured-logging conventions. <code>logger</code> is the logger name, <code>caller</code> is the call site (<code>function:line</code>).</p>
+<p><strong>Caller opt-in</strong>: <code>caller</code> is disabled by default, as in many structured-logging libraries. Enable with <code>GREL_LOG_CALLER_ENABLED=true</code>. Uvicorn formatters never include <code>caller</code> (points to uvicorn internals, not application code).</p>
+<p><strong>Collision protection</strong>: Core fields cannot be overwritten by user-supplied extra context.</p>
+</details>
 <h2 id="production-deployment">Production Deployment</h2>
 <p>For strict unbuffered output (12-factor compliance):</p>
 <div class="highlight"><pre><span></span><code><span class="nv">PYTHONUNBUFFERED</span><span class="o">=</span><span class="m">1</span>

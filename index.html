@@ -754,34 +754,6 @@
   
   
     <li class="md-nav__item">
-      <a href="json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="logging/" class="md-nav__link">
         
   
@@ -818,6 +790,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1148,14 +1148,14 @@
   
   
     <li class="md-nav__item">
-      <a href="sync/" class="md-nav__link">
+      <a href="coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1212,6 +1212,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1304,14 +1308,14 @@
   
   
     <li class="md-nav__item">
-      <a href="reference/health/" class="md-nav__link">
+      <a href="reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1332,14 +1336,14 @@
   
   
     <li class="md-nav__item">
-      <a href="reference/json/" class="md-nav__link">
+      <a href="reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1388,6 +1392,34 @@
   
   
     <li class="md-nav__item">
+      <a href="reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="reference/resilience/" class="md-nav__link">
         
   
@@ -1416,14 +1448,14 @@
   
   
     <li class="md-nav__item">
-      <a href="reference/sync/" class="md-nav__link">
+      <a href="reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1452,6 +1484,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1511,6 +1571,8 @@
       
         
           
+        
+      
         
       
         
@@ -1735,6 +1797,34 @@
   
   
     <li class="md-nav__item">
+      <a href="architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1791,14 +1881,14 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/sync/" class="md-nav__link">
+      <a href="architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2196,15 +2286,16 @@
 <p><strong>Source Code</strong>: <a href="https://github.com/grelinfo/grelmicro">https://github.com/grelinfo/grelmicro</a></p>
 <hr />
 <h2 id="why-grelmicro">Why grelmicro</h2>
-<p>grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, Pydantic-validated. A local pre-commit hook gates commits on 100% pytest coverage (<code>coverage --fail-under=100</code>).</p>
-<p>It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve every <strong>distributed system</strong>, whether you call it <strong>microservices</strong>, a <strong>modular monolith</strong>, or a <strong>self-contained system</strong>. A distributed lock is a distributed lock whether your system is one process or fifty. It fits naturally into <strong>cloud-native applications</strong>, <strong>containerized apps</strong>, and <strong>Kubernetes</strong> deployments.</p>
+<p>grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, and fully tested.</p>
+<p>It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve microservices, a modular monolith, or a self-contained system, and fit naturally into containerized and Kubernetes deployments.</p>
 <ul>
 <li><strong>Micro</strong>: one focused primitive per module. Each covers a microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).</li>
 <li><strong>Fast</strong>: small footprint by design. We keep the layers thin so your code stays quick.</li>
 <li><strong>Async-first</strong>: every I/O call is <code>async</code> / <code>await</code>. Drops into FastAPI, FastStream, and any asyncio-based stack.</li>
 <li><strong>Backend-agnostic</strong>: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.</li>
-<li><strong>Railguarded</strong>: 100% pytest coverage, ty-checked, ruff-linted, Pydantic-validated. Pre-1.0 API may shift on minor bumps. <code>1.x</code> commits to standard semver.</li>
+<li><strong>Railguarded</strong>: fully tested, type-checked, and validated. Pre-1.0 the API may change on a minor release. <code>1.x</code> follows standard semver.</li>
 </ul>
+<p>grelmicro is <strong>not</strong> a task queue (reach for Celery, Dramatiq, or taskiq), <strong>not</strong> a web framework (it plugs into FastAPI, Starlette, or Litestar), and <strong>not</strong> a multi-node lock service (reach for ZooKeeper or etcd). It fills the gap between the web framework you picked and the infrastructure you run.</p>
 <p>Already using <code>aiocache</code>, <code>slowapi</code>, <code>pybreaker</code>, <code>tenacity</code>, or <code>aioredlock</code>? See the <a href="comparison/">comparison page</a> for a per-domain breakdown.</p>
 <h2 id="modules">Modules</h2>
 <table>
@@ -2220,8 +2311,8 @@
 <td><code>@cached</code> decorator with local, distributed, and early (XFetch) stampede protection. In-memory <code>TTLCache</code> or <code>RedisCacheAdapter</code>.</td>
 </tr>
 <tr>
-<td><a href="sync/"><strong>Synchronization</strong></a></td>
-<td>Distributed <code>Lock</code>, <code>TaskLock</code>, <code>LeaderElection</code>. Redis, PostgreSQL, SQLite, Kubernetes, in-memory.</td>
+<td><a href="coordination/"><strong>Coordination</strong></a></td>
+<td>Distributed <code>Lock</code>, <code>TaskLock</code>, and <code>LeaderElection</code>. Redis, PostgreSQL, SQLite, Kubernetes, in-memory.</td>
 </tr>
 <tr>
 <td><a href="task/"><strong>Task Scheduler</strong></a></td>
@@ -2242,10 +2333,6 @@
 <tr>
 <td><a href="health/"><strong>Health</strong></a></td>
 <td>Health check registry with concurrent runners and FastAPI liveness / readiness integration.</td>
-</tr>
-<tr>
-<td><a href="json/"><strong>JSON</strong></a></td>
-<td>Fast JSON via <code>orjson</code> when available, with automatic fallback to stdlib <code>json</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -2279,7 +2366,7 @@ open<span class="w"> </span>http://localhost:8000/docs
         <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;throttled&quot;</span><span class="p">}</span>
     <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;ok&quot;</span><span class="p">}</span>
 </code></pre></div>
-<p>That is the whole thing. Pick a primitive, name it, call it. Swap to a fleet-wide backend later by composing it inside <code>Grelmicro(uses=[redis, RateLimiters(redis)])</code> as shown below.</p>
+<p>That is the whole thing. Pick a primitive, name it, call it. Swap to a fleet-wide backend later by composing it inside <code>Grelmicro(uses=[RateLimiters(redis)])</code> as shown below.</p>
 <h3 id="lifespan-with-one-provider-and-one-component">Lifespan with one provider and one component</h3>
 <p>To make the rate limiter fleet-wide, wrap it in a <code>Grelmicro</code> container with one provider and one component, then bind it to FastAPI's lifespan.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
@@ -2295,7 +2382,7 @@ open<span class="w"> </span>http://localhost:8000/docs
 <span class="p">)</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">,</span> <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
 
 <span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
@@ -2338,7 +2425,7 @@ open<span class="w"> </span>http://localhost:8000/docs
     <span class="n">RateLimiters</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerAdapter</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">LeaderElection</span><span class="p">,</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">Sync</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">LeaderElection</span><span class="p">,</span> <span class="n">Lock</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
@@ -2346,22 +2433,24 @@ open<span class="w"> </span>http://localhost:8000/docs
 <span class="c1"># === grelmicro app: one container, one lifespan ===</span>
 <span class="n">tasks</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 <span class="n">health</span> <span class="o">=</span> <span class="n">HealthChecks</span><span class="p">()</span>
-<span class="n">leader</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;leader-election&quot;</span><span class="p">)</span>
-<span class="n">tasks</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader</span><span class="p">)</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
 
 <span class="c1"># Patterns used inside FastAPI request handlers take an explicit backend:</span>
 <span class="c1"># handlers run in their own task, outside the app&#39;s ambient scope. Background</span>
 <span class="c1"># tasks run inside that scope, so they resolve their backend ambiently.</span>
-<span class="n">sync_backend</span> <span class="o">=</span> <span class="n">redis</span><span class="o">.</span><span class="n">sync</span><span class="p">()</span>
+<span class="n">lock_backend</span> <span class="o">=</span> <span class="n">redis</span><span class="o">.</span><span class="n">lock</span><span class="p">()</span>
 <span class="n">cache_backend</span> <span class="o">=</span> <span class="n">redis</span><span class="o">.</span><span class="n">cache</span><span class="p">()</span>
 <span class="n">ratelimiter_backend</span> <span class="o">=</span> <span class="n">redis</span><span class="o">.</span><span class="n">ratelimiter</span><span class="p">()</span>
 <span class="n">breaker_backend</span> <span class="o">=</span> <span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()</span>
+<span class="n">leader_backend</span> <span class="o">=</span> <span class="n">redis</span><span class="o">.</span><span class="n">leader_election</span><span class="p">()</span>
+
+<span class="n">leader</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;leader-election&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">leader_backend</span><span class="p">)</span>
+<span class="n">tasks</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">redis</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">sync_backend</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">lock_backend</span><span class="p">,</span> <span class="n">election</span><span class="o">=</span><span class="n">leader_backend</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">cache_backend</span><span class="p">),</span>
     <span class="n">RateLimiters</span><span class="p">(</span><span class="n">ratelimiter_backend</span><span class="p">),</span>
     <span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">breaker_backend</span><span class="p">),</span>
@@ -2371,7 +2460,7 @@ open<span class="w"> </span>http://localhost:8000/docs
 
 <span class="c1"># === Patterns declared once at module load ===</span>
 <span class="n">ttl_cache</span> <span class="o">=</span> <span class="n">TTLCache</span><span class="p">(</span><span class="n">ttl</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">serializer</span><span class="o">=</span><span class="n">JsonSerializer</span><span class="p">(),</span> <span class="n">backend</span><span class="o">=</span><span class="n">cache_backend</span><span class="p">)</span>
-<span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;shared-resource&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">sync_backend</span><span class="p">)</span>
+<span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;shared-resource&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">lock_backend</span><span class="p">)</span>
 <span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;my-service&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">breaker_backend</span><span class="p">)</span>
 <span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span>
     <span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">ratelimiter_backend</span>
@@ -2448,8 +2537,8 @@ open<span class="w"> </span>http://localhost:8000/docs
 <p>The key shape:</p>
 <ul>
 <li><strong>One container, one lifespan.</strong> <code>Grelmicro(uses=[...])</code> lists every Provider, Component, and active manager. <code>async with micro:</code> opens them all in order, closes in reverse.</li>
-<li><strong>One Provider, many Components.</strong> <code>Sync(redis)</code>, <code>Cache(redis)</code>, <code>RateLimiters(redis)</code> all share the same <code>RedisProvider</code> pool. The Provider holds the connection, the Components attach to it.</li>
-<li><strong>Patterns are declared at module load.</strong> <code>Lock("cart")</code>, <code>TTLCache(ttl=60)</code>, <code>CircuitBreaker("svc")</code> carry no backend reference. They resolve through the active app inside <code>async with</code>. The same <code>Lock</code> works in production with Redis and in tests with <code>MemorySyncAdapter</code>, no rewiring.</li>
+<li><strong>One Provider, many Components.</strong> <code>Coordination(redis)</code>, <code>Cache(redis)</code>, <code>RateLimiters(redis)</code> all share the same <code>RedisProvider</code> pool. The Provider holds the connection, the Components attach to it.</li>
+<li><strong>Patterns are declared at module load.</strong> <code>Lock("cart")</code>, <code>TTLCache(ttl=60)</code>, <code>CircuitBreaker("svc")</code> carry no backend reference. They resolve through the active app inside <code>async with</code>. The same <code>Lock</code> works in production with Redis and in tests with <code>MemoryLockAdapter</code>, no rewiring.</li>
 <li><strong>Pay only for what you import.</strong> <code>import grelmicro</code> does not pull in <code>redis</code>, <code>psycopg</code>, or any other vendor SDK. First-party Providers live under <code>grelmicro.providers.{vendor}</code> and load only when you import them.</li>
 </ul>
 <p>For multiple Redis instances, separate names, or test overrides, see the <a href="https://grelinfo.github.io/grelmicro/">docs</a>.</p>

@@ -779,34 +779,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../logging/" class="md-nav__link">
         
   
@@ -843,6 +815,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1173,14 +1173,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1237,6 +1237,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1329,14 +1333,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1357,14 +1361,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/json/" class="md-nav__link">
+      <a href="../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1413,6 +1417,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/resilience/" class="md-nav__link">
         
   
@@ -1441,14 +1473,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/sync/" class="md-nav__link">
+      <a href="../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1477,6 +1509,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1536,6 +1596,8 @@
       
         
           
+        
+      
         
       
         
@@ -1760,6 +1822,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1816,14 +1906,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sync/" class="md-nav__link">
+      <a href="../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2237,7 +2327,7 @@
 <p>The three paths share one resolution rule: caller <code>**kwargs</code> win, then env, then defaults. <code>None</code> kwargs are treated as unset and fall through to the next layer.</p>
 <h2 id="programmatic">Programmatic</h2>
 <p>Pass values inline:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
 
 <span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">lease_duration</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">retry_interval</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
 </code></pre></div>
@@ -2296,8 +2386,8 @@
 </table>
 <h2 id="declarative">Declarative</h2>
 <p>Build a config object, then construct via <code>from_config</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.lock</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockConfig</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.lock</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockConfig</span>
 
 <span class="n">cfg</span> <span class="o">=</span> <span class="n">LockConfig</span><span class="p">(</span><span class="n">lease_duration</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">retry_interval</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
 <span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span>
@@ -2324,8 +2414,8 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.lock</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.lock</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockConfig</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">AppSettings</span><span class="p">(</span><span class="n">BaseSettings</span><span class="p">):</span>
     <span class="n">cart_lock</span><span class="p">:</span> <span class="n">LockConfig</span> <span class="o">=</span> <span class="n">LockConfig</span><span class="p">()</span>

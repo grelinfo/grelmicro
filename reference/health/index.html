@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://grelinfo.github.io/grelmicro/reference/health/">
       
       
-        <link rel="prev" href="../cache/">
+        <link rel="prev" href="../clock/">
       
       
-        <link rel="next" href="../json/">
+        <link rel="next" href="../logging/">
       
       
         
@@ -608,34 +608,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -672,6 +644,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1002,14 +1002,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1085,6 +1085,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1140,6 +1144,34 @@
     
   
     Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../clock/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Clock
   
 
     
@@ -1580,14 +1612,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
+      <a href="../logging/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Logging
   
 
     
@@ -1608,14 +1640,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../logging/" class="md-nav__link">
+      <a href="../metrics/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Logging
+    Metrics
   
 
     
@@ -1664,14 +1696,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1700,6 +1732,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1759,6 +1819,8 @@
       
         
           
+        
+      
         
       
         
@@ -1983,6 +2045,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -2039,14 +2129,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/sync/" class="md-nav__link">
+      <a href="../../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2726,12 +2816,7 @@
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nc">HealthDetails</span> <span class="o">=</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;JSONEncodable&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro._json.JSONEncodable&lt;/code&gt;)" href="../json/#grelmicro.json.JSONEncodable">JSONEncodable</a></span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nc">HealthDetails</span> <span class="o">=</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="grelmicro._json.JSONEncodable">JSONEncodable</span></span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

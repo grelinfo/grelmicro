@@ -608,34 +608,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -672,6 +644,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1002,14 +1002,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1066,6 +1066,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1158,14 +1162,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/health/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1186,14 +1190,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/json/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1242,6 +1246,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/resilience/" class="md-nav__link">
         
   
@@ -1270,14 +1302,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/sync/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1306,6 +1338,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1367,6 +1427,8 @@
       
         
           
+        
+      
         
       
         
@@ -1737,6 +1799,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../multiple-apps/" class="md-nav__link">
         
   
@@ -1793,14 +1883,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2181,17 +2271,17 @@
 </tr>
 <tr>
 <td><strong>Component</strong></td>
-<td><code>Sync</code>, <code>Cache</code>, <code>RateLimiters</code>, <code>CircuitBreakers</code></td>
+<td><code>Coordination</code>, <code>Cache</code>, <code>RateLimiters</code>, <code>CircuitBreakers</code></td>
 <td>Registration on a <code>Grelmicro</code> app: <code>(kind, name)</code> pair plus lifecycle. Accepts a Provider or a Backend.</td>
 </tr>
 <tr>
 <td><strong>Backend</strong></td>
-<td><code>SyncBackend</code>, <code>CacheBackend</code> (Protocol)</td>
-<td>Pure interface. Memory backends (<code>MemorySyncAdapter</code>) implement it directly.</td>
+<td><code>LockBackend</code>, <code>CacheBackend</code> (Protocol)</td>
+<td>Pure interface. Memory backends (<code>MemoryLockAdapter</code>) implement it directly.</td>
 </tr>
 <tr>
 <td><strong>Adapter</strong></td>
-<td><code>RedisSyncAdapter</code>, <code>RedisCacheAdapter</code></td>
+<td><code>RedisLockAdapter</code>, <code>RedisCacheAdapter</code></td>
 <td>Internal. Built by <code>Provider.{kind}()</code> factory. Public escape hatch for custom Providers.</td>
 </tr>
 <tr>
@@ -2206,14 +2296,14 @@
 <p>Construction and registration are two distinct steps. <code>__init__</code> validates configuration and binds locals. It performs no registry writes and no I/O. Registration happens when the Component is attached to a <code>Grelmicro</code> app.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">redis</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
 <span class="p">])</span>
 
@@ -2222,13 +2312,13 @@
     <span class="o">...</span>
 <span class="c1"># every item is closed on exit (LIFO)</span>
 </code></pre></div>
-<p><code>Sync(provider)</code> calls <code>provider.sync()</code> to obtain the matching <code>SyncBackend</code>. <code>Cache(provider)</code> calls <code>provider.cache()</code>. Memory backends bypass the Provider step: pass the adapter directly (<code>Sync(MemorySyncAdapter())</code>).</p>
+<p><code>Coordination(provider)</code> calls <code>provider.lock()</code> to obtain the matching <code>LockBackend</code> and <code>provider.leader_election()</code> for the <code>LeaderElectionBackend</code>. <code>Cache(provider)</code> calls <code>provider.cache()</code>. Memory backends bypass the Provider step: pass the adapter directly (<code>Coordination(lock=MemoryLockAdapter())</code>).</p>
 <h2 id="named-backends-and-per-call-selection">Named backends and per-call selection</h2>
 <p>Register multiple Components under different names and pick one at the call site:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">Lock</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.postgres</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresProvider</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">Sync</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">()</span>
 <span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">()</span>
@@ -2236,8 +2326,8 @@
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">redis</span><span class="p">,</span>
     <span class="n">postgres</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">postgres</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;analytics&quot;</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">postgres</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;analytics&quot;</span><span class="p">),</span>
 <span class="p">])</span>
 
 <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>                       <span class="c1"># → &quot;default&quot; (Redis)</span>
@@ -2247,31 +2337,31 @@
 <p>Resolution order, in priority:</p>
 <ol>
 <li>Explicit instance (<code>backend=instance</code>).</li>
-<li>The Component registered under <code>("sync", requested_name)</code>.</li>
+<li>The Component registered under <code>("coordination", requested_name)</code>.</li>
 <li>When the requested name is <code>"default"</code> and exactly one Component of that kind is registered: that sole entry.</li>
 <li>Otherwise raise <code>ComponentNotRegisteredError</code>.</li>
 </ol>
 <h2 id="test-time-overrides">Test-time overrides</h2>
 <p><code>micro.override(...)</code> installs scoped Component swaps for the duration of a block:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">Lock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLockAdapter</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">Sync</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemorySyncAdapter</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">()</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">,</span> <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">,</span> <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
 <span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>
 
 <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="o">.</span><span class="n">override</span><span class="p">(</span><span class="n">Sync</span><span class="p">(</span><span class="n">MemorySyncAdapter</span><span class="p">())):</span>
-        <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>  <span class="c1"># routed to MemorySyncAdapter</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="o">.</span><span class="n">override</span><span class="p">(</span><span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">MemoryLockAdapter</span><span class="p">())):</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>  <span class="c1"># routed to MemoryLockAdapter</span>
             <span class="o">...</span>
 </code></pre></div>
 <p>The override propagates downward through <code>await</code>, <code>asyncio.create_task</code>, and <code>asyncio.to_thread</code> because asyncio copies the calling context at every concurrency boundary.</p>
 <h2 id="pure-construction-with-explicit-pass-through">Pure construction with explicit pass-through</h2>
 <p>Skip the app entirely for one-off usage:</p>
 <div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">with</span> <span class="n">RedisProvider</span><span class="p">()</span> <span class="k">as</span> <span class="n">redis</span><span class="p">:</span>
-    <span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-lock&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">redis</span><span class="o">.</span><span class="n">sync</span><span class="p">())</span>
+    <span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-lock&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">redis</span><span class="o">.</span><span class="n">lock</span><span class="p">())</span>
     <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
         <span class="o">...</span>
 </code></pre></div>
@@ -2280,11 +2370,11 @@
 <p>Backends are defined by protocols (structural typing), not base classes. Any object implementing the required methods works. This enables:</p>
 <ul>
 <li>Swapping adapters without changing application code.</li>
-<li>Writing test adapters (e.g. <code>MemorySyncAdapter</code>) with no external dependencies.</li>
+<li>Writing test adapters (e.g. <code>MemoryLockAdapter</code>) with no external dependencies.</li>
 <li>Adding new adapters without modifying existing code.</li>
 </ul>
 <h2 id="connection-pool-isolation">Connection pool isolation</h2>
-<p>Components share a connection pool through a <code>Provider</code>: pass the same <code>RedisProvider</code> to two Components (<code>Sync(redis)</code>, <code>Cache(redis)</code>) and they share one pool. To isolate pools, build distinct Providers with different <code>env_prefix=</code> values (<code>CACHE_REDIS_</code>, <code>SESSION_REDIS_</code>) and pass each to the matching Component.</p>
+<p>Components share a connection pool through a <code>Provider</code>: pass the same <code>RedisProvider</code> to two Components (<code>Coordination(redis)</code>, <code>Cache(redis)</code>) and they share one pool. To isolate pools, build distinct Providers with different <code>env_prefix=</code> values (<code>CACHE_REDIS_</code>, <code>SESSION_REDIS_</code>) and pass each to the matching Component.</p>
 <p>The default behavior is <strong>share when possible, isolate when asked</strong>. Distinct Providers opt into per-domain isolation.</p>
 <h2 id="error-handling">Error handling</h2>
 <p>Accessing a Component that has not been registered raises <code>ComponentNotRegisteredError</code> with a descriptive message. Resolving a Pattern outside any <code>async with micro:</code> block raises <code>NoActiveAppError</code>.</p>

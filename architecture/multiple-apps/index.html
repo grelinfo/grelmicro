@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/multiple-apps/">
       
       
-        <link rel="prev" href="../imports/">
+        <link rel="prev" href="../plugins/">
       
       
         <link rel="next" href="../sync-from-thread/">
@@ -608,34 +608,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -672,6 +644,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1002,14 +1002,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1066,6 +1066,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1158,14 +1162,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/health/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1186,14 +1190,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/json/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1242,6 +1246,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/resilience/" class="md-nav__link">
         
   
@@ -1270,14 +1302,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/sync/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1306,6 +1338,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1367,6 +1427,8 @@
       
         
           
+        
+      
         
       
         
@@ -1588,6 +1650,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -1716,14 +1806,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2013,7 +2103,7 @@
 <p><code>Log</code> and <code>Trace</code> are different. They configure <strong>process-global</strong> state (the stdlib root logger, the OpenTelemetry tracer provider) and restore the previous value on exit. Within one app the exit stack restores in reverse order, so nesting is safe. Across two overlapping apps there is no such ordering guarantee: the first to exit would restore the global and clobber the second app's configuration.</p>
 <p>So grelmicro blocks the narrow case that is actually unsafe: opening a second app that owns <code>Log</code> or <code>Trace</code> while another app that owns one is still active raises <code>MultipleActiveAppsError</code>. Apps without those components overlap freely.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># Fine: neither app owns process-global state.</span>
-<span class="k">async</span> <span class="k">with</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">)]):</span>
+<span class="k">async</span> <span class="k">with</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">)]):</span>
     <span class="k">async</span> <span class="k">with</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">)]):</span>
         <span class="o">...</span>
 

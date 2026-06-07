@@ -16,7 +16,7 @@
         <link rel="prev" href="../logging/">
       
       
-        <link rel="next" href="../resilience/">
+        <link rel="next" href="../metrics/">
       
       
         
@@ -610,34 +610,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../logging/" class="md-nav__link">
         
   
@@ -825,21 +797,38 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#works-with-all-backends" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Works With All Backends
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1162,14 +1151,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1226,6 +1215,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1318,14 +1311,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1346,14 +1339,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/json/" class="md-nav__link">
+      <a href="../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1402,6 +1395,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/resilience/" class="md-nav__link">
         
   
@@ -1430,14 +1451,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/sync/" class="md-nav__link">
+      <a href="../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1466,6 +1487,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1525,6 +1574,8 @@
       
         
           
+        
+      
         
       
         
@@ -1749,6 +1800,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1805,14 +1884,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sync/" class="md-nav__link">
+      <a href="../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2153,17 +2232,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#works-with-all-backends" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Works With All Backends
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -2185,7 +2253,12 @@
 
 
 <h1 id="tracing">Tracing</h1>
-<p>The <code>tracing</code> module provides unified instrumentation. A single <code>@instrument</code> decorator creates OTel spans and enriches log records with structured context automatically.</p>
+<p>Unified instrumentation. Use it to enrich logs with structured context and create distributed traces from one decorator.</p>
+<ul>
+<li><strong>One decorator</strong>: <code>@instrument</code> captures function arguments as context.</li>
+<li><strong>Logs always enriched</strong>: context flows into every log record, no OpenTelemetry needed.</li>
+<li><strong>Traces when installed</strong>: with OpenTelemetry present, the same fields become OTel span attributes.</li>
+</ul>
 <h2 id="quick-start">Quick Start</h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.trace</span><span class="w"> </span><span class="kn">import</span> <span class="n">instrument</span><span class="p">,</span> <span class="n">span</span><span class="p">,</span> <span class="n">add_context</span>
@@ -2267,10 +2340,7 @@
 <span class="c1"># is installed and a TracerProvider is configured.</span>
 </code></pre></div>
 <h3 id="via-grelmicro-app">Via Grelmicro app</h3>
-<p><code>Trace()</code> owns the <code>TracerProvider</code> lifecycle when registered on a
-<code>Grelmicro</code> app. The provider is installed on enter and restored to the
-prior global on exit, so sequential apps in tests do not stack
-providers.</p>
+<p><code>Trace()</code> owns the <code>TracerProvider</code> lifecycle when registered on a <code>Grelmicro</code> app:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
@@ -2306,13 +2376,13 @@ providers.</p>
 <p><code>Trace()</code> defaults to <code>TracingExporterType.OTLP_HTTP</code>, which sends spans to an OpenTelemetry collector or endpoint over OTLP HTTP. Without a reachable collector, spans are dropped. A bounded <code>shutdown_timeout</code> (default <code>5.0</code> seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.</p>
 <p>For local development with no collector, set <code>exporter=TracingExporterType.CONSOLE</code> to print spans to the console instead. Use <code>TracingExporterType.NONE</code> to disable export entirely.</p>
 </div>
-<p><code>Trace()</code> reads <code>GREL_TRACE_*</code> environment variables (see <code>TracingConfig</code>
-for the full field set) or accepts the same fields as keyword arguments.
-The OTLP HTTP and gRPC exporters require their own packages
-(<code>opentelemetry-exporter-otlp-proto-http</code> or
-<code>opentelemetry-exporter-otlp-proto-grpc</code>) and are imported only when
-selected.</p>
-<h2 id="works-with-all-backends">Works With All Backends</h2>
+<details class="note">
+<summary>Provider lifecycle and exporters</summary>
+<p>The provider is installed on enter and restored to the prior global on exit, so sequential apps in tests do not stack providers.</p>
+<p><code>Trace()</code> reads <code>GREL_TRACE_*</code> environment variables (see <code>TracingConfig</code> for the full field set) or accepts the same fields as keyword arguments. The OTLP HTTP and gRPC exporters require their own packages (<code>opentelemetry-exporter-otlp-proto-http</code> or <code>opentelemetry-exporter-otlp-proto-grpc</code>) and are imported only when selected.</p>
+</details>
+<details class="note">
+<summary>Works with all logging backends</summary>
 <p>The tracing context is injected into all three logging backends (stdlib, loguru, structlog). Use whichever logger you prefer:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># stdlib</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
@@ -2329,6 +2399,7 @@ selected.</p>
 <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;message&quot;</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="s2">&quot;value&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>All produce the same JSON output with tracing context included.</p>
+</details>
 
 
 

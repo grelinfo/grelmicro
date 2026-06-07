@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://grelinfo.github.io/grelmicro/reference/trace/">
       
       
-        <link rel="prev" href="../task/">
+        <link rel="prev" href="../testing/">
       
       
         <link rel="next" href="../../architecture/">
@@ -608,34 +608,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -672,6 +644,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1002,14 +1002,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1068,6 +1068,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1160,14 +1164,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../health/" class="md-nav__link">
+      <a href="../clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1188,14 +1192,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
+      <a href="../health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1244,6 +1248,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../resilience/" class="md-nav__link">
         
   
@@ -1272,14 +1304,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1308,6 +1340,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1852,6 +1912,8 @@
       
         
       
+        
+      
     
     
     
@@ -2048,6 +2110,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -2104,14 +2194,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/sync/" class="md-nav__link">
+      <a href="../../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2785,7 +2875,7 @@
 <h1 id="tracing">Tracing</h1>
 <ul>
 <li><strong>Start here</strong>: <a href="../../tracing/">Tracing guide</a></li>
-<li><strong>Common recipes</strong>: <code>@instrument</code> to emit spans and enrich log records; <code>Trace()</code> component to install an OTel <code>TracerProvider</code> for the app's lifetime.</li>
+<li><strong>Common recipes</strong>: <code>@instrument</code> to emit spans and enrich log records. <code>Trace()</code> component to install an OTel <code>TracerProvider</code> for the app's lifetime.</li>
 </ul>
 
 

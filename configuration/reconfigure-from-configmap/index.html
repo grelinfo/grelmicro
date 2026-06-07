@@ -690,34 +690,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -754,6 +726,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1084,14 +1084,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1148,6 +1148,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1240,14 +1244,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/health/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1268,14 +1272,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/json/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1324,6 +1328,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/resilience/" class="md-nav__link">
         
   
@@ -1352,14 +1384,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/sync/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1388,6 +1420,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1447,6 +1507,8 @@
       
         
           
+        
+      
         
       
         
@@ -1671,6 +1733,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1727,14 +1817,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/sync/" class="md-nav__link">
+      <a href="../../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2046,8 +2136,8 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">kubernetes</span><span class="w"> </span><span class="kn">import</span> <span class="n">client</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">watch</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.lock</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.lock</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockConfig</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;reconfigure&quot;</span><span class="p">)</span>
 

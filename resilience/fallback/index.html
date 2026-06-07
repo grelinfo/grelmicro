@@ -610,34 +610,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -674,6 +646,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1175,14 +1175,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1239,6 +1239,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1331,14 +1335,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/health/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1359,14 +1363,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/json/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1415,6 +1419,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/resilience/" class="md-nav__link">
         
   
@@ -1443,14 +1475,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/sync/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1479,6 +1511,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1538,6 +1598,8 @@
       
         
           
+        
+      
         
       
         
@@ -1762,6 +1824,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1818,14 +1908,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/sync/" class="md-nav__link">
+      <a href="../../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2268,7 +2358,7 @@
 </code></pre></div>
 <p>The block yields a <code>FallbackResult</code>. Call <code>result.set(value)</code> on success. If a matching exception is raised inside the block, it is suppressed and <code>result.value</code> is the configured default or the factory output.</p>
 <h2 id="filtering-exceptions">Filtering exceptions</h2>
-<p><code>when=</code> accepts the same shorthand as <code>Retry</code>'s <code>when=</code>:</p>
+<p><code>when=</code> accepts the same shorthand as <code>Retry</code>'s <code>when=</code>: an exception class, a tuple of classes, a predicate, or a <code>Match</code> instance.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Fallback</span><span class="p">,</span> <span class="n">Match</span>
 
 <span class="n">Fallback</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>

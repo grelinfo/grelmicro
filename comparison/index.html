@@ -765,34 +765,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../logging/" class="md-nav__link">
         
   
@@ -829,6 +801,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1159,14 +1159,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1223,6 +1223,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1315,14 +1319,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1343,14 +1347,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/json/" class="md-nav__link">
+      <a href="../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1399,6 +1403,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/resilience/" class="md-nav__link">
         
   
@@ -1427,14 +1459,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/sync/" class="md-nav__link">
+      <a href="../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1463,6 +1495,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1522,6 +1582,8 @@
       
         
           
+        
+      
         
       
         
@@ -1746,6 +1808,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1802,14 +1892,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sync/" class="md-nav__link">
+      <a href="../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2185,7 +2275,6 @@
 <p>Most Python libraries in this space are <strong>point solutions</strong>: one library for caching, another for rate limiting, another for distributed locks, another for retries, another for circuit breaking, another for health checks. Each ships its own config story, its own lifecycle, its own backend client, its own logging shape.</p>
 <p><strong>grelmicro's unique value is the opposite</strong>: one toolkit that ships every microservice resilience and infrastructure Pattern behind a unified API. One config contract. One lifecycle (<code>async with micro:</code>). One Redis client shared by Cache, Lock, RateLimiter, CircuitBreaker. One Postgres client shared by Lock, LeaderElection, TaskLock. One way to reconfigure at runtime. One way to declare health checks.</p>
 <p>If you only need a single Pattern, a focused library is often the right pick and this page will say so. If you need two or more, the toolkit story wins by removing four or five config dialects from your codebase.</p>
-<p>Tone: factual. Where the focused alternative is the better fit, this page says so.</p>
 <h2 id="what-should-i-pick">What should I pick?</h2>
 <p>A short decision tree before the detailed tables:</p>
 <ul>
@@ -2208,7 +2297,7 @@
 <tr>
 <td>Async cache decorator over Redis</td>
 <td><a href="https://github.com/aio-libs/aiocache"><code>aiocache</code></a> or <a href="https://github.com/long2ice/fastapi-cache"><code>fastapi-cache</code></a></td>
-<td>Three-layer stampede menu (<code>stampede="local"</code>/<code>"distributed"</code>, <code>early=</code>), type-safe <code>TTLCache[T]</code>, Postgres backend</td>
+<td>Stampede protection (<code>lock=True</code> folds misses across replicas, <code>early=</code> XFetch refresh), type-safe <code>TTLCache[T]</code>, Postgres backend</td>
 </tr>
 <tr>
 <td>FastAPI rate limiter</td>
@@ -2218,7 +2307,7 @@
 <tr>
 <td>Async circuit breaker</td>
 <td><a href="https://github.com/danielfm/pybreaker"><code>pybreaker</code></a> or <a href="https://github.com/arlyon/aiobreaker"><code>aiobreaker</code></a></td>
-<td>Reconfigurable thresholds, frozen Pydantic config, structured logging context, distributed backend (planned, see <a href="https://github.com/grelinfo/grelmicro/issues/163">#163</a>)</td>
+<td>Reconfigurable thresholds, frozen Pydantic config, structured logging context, fleet-wide state on Redis or Postgres</td>
 </tr>
 <tr>
 <td>Retry with <code>@retry(stop=, wait=)</code></td>
@@ -2267,17 +2356,17 @@
 <tr>
 <td>Cache decorator + TTL store</td>
 <td><code>Cache</code>, <code>TTLCache[T]</code>, <code>@cached</code></td>
-<td>Redis, Memory (Postgres planned)</td>
+<td>Redis, Memory, Postgres</td>
 </tr>
 <tr>
 <td>Rate limiter</td>
 <td><code>RateLimiter</code> (token bucket, sliding window)</td>
-<td>Redis, Memory</td>
+<td>Redis, Memory, Postgres, SQLite</td>
 </tr>
 <tr>
 <td>Circuit breaker</td>
 <td><code>CircuitBreaker</code></td>
-<td>Redis, Memory</td>
+<td>Redis, Memory, Postgres</td>
 </tr>
 <tr>
 <td>Retry</td>
@@ -2310,7 +2399,7 @@
 <ul>
 <li><strong>One config contract.</strong> Every Pattern reads <code>GREL_{PATTERN}_{NAME}_*</code> env vars, or accepts a kwargs constructor, or accepts a Pydantic <code>Config</code>. Three paths, identical shape across Patterns.</li>
 <li><strong>One lifecycle.</strong> <code>async with Grelmicro(uses=[...]):</code> opens every backend, every component, every Pattern. No per-library <code>startup()</code>/<code>shutdown()</code> ceremony.</li>
-<li><strong>One Redis / Postgres / SQLite client.</strong> Cache, Lock, RateLimiter on the same Redis don't open three connections. The shared client is a Provider; Patterns receive Adapters.</li>
+<li><strong>One Redis / Postgres / SQLite client.</strong> Cache, Lock, RateLimiter on the same Redis don't open three connections. The shared client is a Provider. Patterns receive Adapters.</li>
 <li><strong>One reconfigure protocol.</strong> Every Pattern that owns runtime thresholds (<code>CircuitBreaker</code>, <code>RateLimiter</code>, <code>Retry</code>, <code>Lock</code>) supports <code>reconfigure(new_config)</code> without restart.</li>
 <li><strong>One logging context.</strong> Every Pattern logs through the same structured format, with the same field names.</li>
 </ul>
@@ -2350,7 +2439,7 @@
 <td>Stampede protection</td>
 <td>local lock via <code>lock_value</code></td>
 <td>none</td>
-<td>three-layer menu: <code>stampede="local"</code> (default), <code>stampede="distributed"</code> (cross-replica), <code>early=</code> (XFetch refresh)</td>
+<td><code>lock=True</code> (folds across replicas when a <code>Coordination</code> backend is set), <code>lock="local"</code> (in-process only), <code>early=</code> (XFetch refresh)</td>
 </tr>
 <tr>
 <td>Serializers</td>
@@ -2392,7 +2481,7 @@
 <td>Memory, Redis, Memcached, MongoDB</td>
 <td>Redis only</td>
 <td>in-process only</td>
-<td>Memory, Redis (Postgres + SQLite at 1.0, see <a href="https://github.com/grelinfo/grelmicro/issues/164">#164</a>, <a href="https://github.com/grelinfo/grelmicro/issues/173">#173</a>)</td>
+<td>Memory, Redis, Postgres, SQLite</td>
 </tr>
 <tr>
 <td>Async-first</td>
@@ -2447,7 +2536,7 @@
 <td>Storage</td>
 <td>in-memory, Redis (via plugin)</td>
 <td>in-memory</td>
-<td>in-memory (Memory backend), distributed protocol at 1.0 (see <a href="https://github.com/grelinfo/grelmicro/issues/163">#163</a>)</td>
+<td>in-memory, Redis, Postgres (fleet-wide state)</td>
 </tr>
 <tr>
 <td>Decorator + async CM</td>
@@ -2477,7 +2566,7 @@
 <td>Listener hooks</td>
 <td>yes (<code>add_listener</code>)</td>
 <td>basic</td>
-<td>structured logs are first-class, explicit listener API post-1.0</td>
+<td>structured logs are first-class (name, state, last_error)</td>
 </tr>
 </tbody>
 </table>

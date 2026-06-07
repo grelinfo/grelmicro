@@ -608,34 +608,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -672,6 +644,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1002,14 +1002,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1066,6 +1066,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1158,14 +1162,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/health/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1186,14 +1190,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/json/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1242,6 +1246,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/resilience/" class="md-nav__link">
         
   
@@ -1270,14 +1302,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/sync/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1306,6 +1338,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1367,6 +1427,8 @@
       
         
           
+        
+      
         
       
         
@@ -1591,6 +1653,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../multiple-apps/" class="md-nav__link">
         
   
@@ -1647,14 +1737,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2151,7 +2241,7 @@
 
 
 <h1 id="kubernetes-backend">Kubernetes Backend</h1>
-<p>This page documents the internal design of the Kubernetes <a href="../../sync/#backend">Synchronization Backend</a>.</p>
+<p>This page documents the internal design of the Kubernetes <a href="../../coordination/#backends">Coordination backend</a>.</p>
 <h2 id="lease-resources">Lease Resources</h2>
 <p>The backend uses <strong>Lease</strong> resources from the <code>coordination.k8s.io/v1</code> API group. Leases are the idiomatic Kubernetes resource for coordination: they are used by kube-scheduler and client-go leader election. Unlike ConfigMaps, Leases have a dedicated schema for holder identity, duration, and timestamps.</p>
 <h3 id="field-mapping">Field Mapping</h3>
@@ -2198,7 +2288,7 @@
 <p>The sanitization strategy replaces invalid characters with hyphens, collapses consecutive hyphens, truncates to 253 characters, and strips leading/trailing hyphens. The resulting lease names are human-readable and visible via <code>kubectl get lease</code>.</p>
 <h2 id="multi-app-isolation">Multi-App Isolation</h2>
 <p>When multiple applications share the same Kubernetes namespace, use the <code>prefix</code> parameter to avoid lease name collisions (similar to Redis's <code>prefix</code> parameter). For example:</p>
-<div class="highlight"><pre><span></span><code><span class="n">backend</span> <span class="o">=</span> <span class="n">KubernetesSyncAdapter</span><span class="p">(</span><span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;myapp-&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="n">backend</span> <span class="o">=</span> <span class="n">KubernetesLockAdapter</span><span class="p">(</span><span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;myapp-&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>This prepends <code>myapp-</code> to every lease name before sanitization, ensuring different applications cannot interfere with each other's locks.</p>
 <h2 id="client-library">Client Library</h2>

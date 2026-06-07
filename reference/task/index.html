@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://grelinfo.github.io/grelmicro/reference/task/">
       
       
-        <link rel="prev" href="../sync/">
+        <link rel="prev" href="../coordination/">
       
       
-        <link rel="next" href="../trace/">
+        <link rel="next" href="../testing/">
       
       
         
@@ -608,34 +608,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -672,6 +644,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1002,14 +1002,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1068,6 +1068,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1160,14 +1164,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../health/" class="md-nav__link">
+      <a href="../clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1188,14 +1192,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
+      <a href="../health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1244,6 +1248,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../resilience/" class="md-nav__link">
         
   
@@ -1272,14 +1304,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1514,6 +1546,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../trace/" class="md-nav__link">
         
   
@@ -1553,6 +1613,8 @@
       
         
           
+        
+      
         
       
         
@@ -1777,6 +1839,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1833,14 +1923,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/sync/" class="md-nav__link">
+      <a href="../../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2244,7 +2334,7 @@
 <ul>
 <li><strong>Start here</strong>: <a href="../../task/">Task Scheduler guide</a></li>
 <li><strong>Common recipes</strong>: <a href="../../task/#tasks"><code>Tasks</code></a>, <a href="../../task/#interval-task"><code>Interval Task</code></a>, <a href="../../task/#task-router"><code>TaskRouter</code></a></li>
-<li><strong>Cluster-wide</strong>: gate per-process tasks with <a href="../../sync/#task-lock"><code>TaskLock</code></a> or <a href="../../sync/#leader-election"><code>LeaderElection</code></a>.</li>
+<li><strong>Cluster-wide</strong>: gate per-process tasks with <a href="../../coordination/#task-lock"><code>TaskLock</code></a> or <a href="../../coordination/#leader-election"><code>LeaderElection</code></a>.</li>
 </ul>
 
 
@@ -2631,10 +2721,10 @@ multiple files. It would then be included in the <code>Tasks</code>, or in anoth
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_lock_seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">min_lock_seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">leader</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElection&lt;/span&gt; (&lt;code&gt;grelmicro.sync.leaderelection.LeaderElection&lt;/code&gt;)" href="../sync/#grelmicro.sync.LeaderElection">LeaderElection</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">leader</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElection&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.leaderelection.LeaderElection&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.LeaderElection">LeaderElection</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">sync</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SyncPrimitive&lt;/span&gt; (&lt;code&gt;grelmicro.sync.abc.SyncPrimitive&lt;/code&gt;)" href="../sync/#grelmicro.sync.SyncPrimitive">SyncPrimitive</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">sync</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.LockPrimitive">LockPrimitive</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span>
     <span class="p">[</span><span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]]],</span>
     <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span>
@@ -2761,7 +2851,7 @@ Implies distributed locking (lock is automatically configured).</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElection&lt;/span&gt; (&lt;code&gt;grelmicro.sync.leaderelection.LeaderElection&lt;/code&gt;)" href="../sync/#grelmicro.sync.LeaderElection">LeaderElection</a> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElection&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.leaderelection.LeaderElection&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.LeaderElection">LeaderElection</a> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -2778,12 +2868,13 @@ Implies distributed locking (lock is automatically configured).</p>
               <div class="doc-md-description">
                 <p>The distributed lock backend.</p>
 <p>By default, resolves through the active <code>Grelmicro</code> app's
-<code>Sync</code> component. Only used when distributed locking is enabled.</p>
+<code>Coordination</code> component. Only used when distributed locking
+is enabled.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.sync.abc.SyncBackend">SyncBackend</span> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.LockBackend">LockBackend</a> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -2830,7 +2921,7 @@ and <code>leader</code>, not this parameter.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SyncPrimitive&lt;/span&gt; (&lt;code&gt;grelmicro.sync.abc.SyncPrimitive&lt;/code&gt;)" href="../sync/#grelmicro.sync.SyncPrimitive">SyncPrimitive</a> | None</code>
+                      <code><span title="grelmicro.coordination.abc.LockPrimitive">LockPrimitive</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>

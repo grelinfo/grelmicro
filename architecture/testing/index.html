@@ -608,34 +608,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -672,6 +644,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1002,14 +1002,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1066,6 +1066,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1158,14 +1162,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/health/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1186,14 +1190,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/json/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1242,6 +1246,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/resilience/" class="md-nav__link">
         
   
@@ -1270,14 +1302,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/sync/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1306,6 +1338,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1367,6 +1427,8 @@
       
         
           
+        
+      
         
       
         
@@ -1591,6 +1653,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../multiple-apps/" class="md-nav__link">
         
   
@@ -1647,14 +1737,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -1875,6 +1965,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#virtual-clock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Virtual clock
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#call-recorder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call recorder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pytest-recipe" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2010,6 +2122,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#virtual-clock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Virtual clock
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#call-recorder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call recorder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pytest-recipe" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2046,15 +2180,15 @@
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">unittest.mock</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncMock</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">SyncBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockBackend</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_swap_for_block</span><span class="p">(</span><span class="n">micro</span><span class="p">:</span> <span class="n">Grelmicro</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="n">fake_backend</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">SyncBackend</span><span class="p">)</span>
+    <span class="n">fake_backend</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">LockBackend</span><span class="p">)</span>
     <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-        <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="o">.</span><span class="n">override</span><span class="p">(</span><span class="n">Sync</span><span class="p">(</span><span class="n">fake_backend</span><span class="p">)):</span>
-            <span class="k">await</span> <span class="n">do_something_that_uses_sync</span><span class="p">()</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="o">.</span><span class="n">override</span><span class="p">(</span><span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">fake_backend</span><span class="p">)):</span>
+            <span class="k">await</span> <span class="n">do_something_that_uses_lock</span><span class="p">()</span>
             <span class="n">fake_backend</span><span class="o">.</span><span class="n">acquire</span><span class="o">.</span><span class="n">assert_awaited</span><span class="p">()</span>
 </code></pre></div>
 <p>Override components are entered when the block opens and exited in reverse order when it closes. Prior registrations are restored on exit, including when the block raises.</p>
@@ -2063,6 +2197,55 @@
 <li>Only <code>Component</code> instances can be overridden. Plain async context managers passed to <code>use(...)</code> are substituted at construction time, not through <code>override()</code>.</li>
 <li>Calling <code>micro.override(...)</code> outside an active <code>async with micro:</code> raises <code>OutOfContextError</code>.</li>
 </ul>
+<h2 id="virtual-clock">Virtual clock</h2>
+<p>Time-dependent primitives (<code>Retry</code> backoff, <code>CircuitBreaker</code> half-open window, <code>RateLimiter</code> refill, <code>Shield</code> adaptive gate) read time through grelmicro's clock seam. Install a <code>VirtualClock</code> and advance it by hand to drive that behavior without waiting real seconds:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.clock</span><span class="w"> </span><span class="kn">import</span> <span class="n">VirtualClock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreakers</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">CircuitBreakerState</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerAdapter</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_breaker_half_opens_after_cooldown</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">VirtualClock</span><span class="p">()</span> <span class="k">as</span> <span class="n">clock</span><span class="p">:</span>
+        <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">())])</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
+            <span class="n">breaker</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="o">.</span><span class="n">consecutive_count</span><span class="p">(</span>
+                <span class="s2">&quot;svc&quot;</span><span class="p">,</span> <span class="n">error_threshold</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">reset_timeout</span><span class="o">=</span><span class="mi">30</span>
+            <span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">async</span> <span class="k">with</span> <span class="n">breaker</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;boom&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">assert</span> <span class="n">breaker</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="n">CircuitBreakerState</span><span class="o">.</span><span class="n">OPEN</span>
+
+            <span class="k">await</span> <span class="n">clock</span><span class="o">.</span><span class="n">advance</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>  <span class="c1"># cooldown elapses, no real wait</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="n">breaker</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">assert</span> <span class="n">breaker</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="n">CircuitBreakerState</span><span class="o">.</span><span class="n">HALF_OPEN</span>
+</code></pre></div>
+<p><code>VirtualClock</code> is a clock backend. Install it for the surrounding scope with <code>async with VirtualClock() as clock:</code>, then advance time by hand with <code>await clock.advance(seconds)</code>. <code>monotonic()</code> returns the virtual time and <code>sleep()</code> suspends until the clock passes its deadline.</p>
+<p>With no clock registered, the seam forwards straight to <code>time.monotonic</code> and <code>asyncio.sleep</code>, so production keeps real time and pays only one <code>ContextVar</code> read. Only in-process backends (the memory adapters) follow the virtual clock. Redis and Postgres keep their own server-side time.</p>
+<h2 id="call-recorder">Call recorder</h2>
+<p><code>record(backend)</code> instruments a backend's public async methods in place and returns a <code>CallLog</code>. The backend keeps its real type and behavior, so it drops into a component exactly as before, while the log captures every protocol call for assertions. It works like <code>pytest-mock</code>'s <code>mocker.spy</code>: record without replacing.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLockAdapter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.testing</span><span class="w"> </span><span class="kn">import</span> <span class="n">record</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_login_takes_the_lock</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">backend</span> <span class="o">=</span> <span class="n">MemoryLockAdapter</span><span class="p">()</span>
+    <span class="n">log</span> <span class="o">=</span> <span class="n">record</span><span class="p">(</span><span class="n">backend</span><span class="p">)</span>
+    <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">backend</span><span class="p">)])</span>
+
+    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">login</span><span class="p">(</span><span class="s2">&quot;u1&quot;</span><span class="p">)</span>
+
+    <span class="k">assert</span> <span class="n">log</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="s2">&quot;acquire&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;user:u1&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
+</code></pre></div>
+<p><code>log.count(method, **kwargs)</code> counts calls matching a method name and keyword arguments, <code>log.methods()</code> lists the call order, and <code>log.reset()</code> clears the history. Read <code>log.calls</code> for the raw <code>Call</code> records.</p>
 <h2 id="pytest-recipe">Pytest recipe</h2>
 <p>grelmicro ships no pytest plugin. Add a <code>micro</code> fixture in <code>conftest.py</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncIterator</span>
@@ -2072,14 +2255,14 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCacheAdapter</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemorySyncAdapter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLockAdapter</span>
 
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">micro</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">AsyncIterator</span><span class="p">[</span><span class="n">Grelmicro</span><span class="p">]:</span>
     <span class="n">app</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">Sync</span><span class="p">(</span><span class="n">MemorySyncAdapter</span><span class="p">()),</span>
+        <span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">MemoryLockAdapter</span><span class="p">()),</span>
         <span class="n">Cache</span><span class="p">(</span><span class="n">MemoryCacheAdapter</span><span class="p">()),</span>
     <span class="p">])</span>
     <span class="k">async</span> <span class="k">with</span> <span class="n">app</span><span class="p">:</span>
@@ -2089,13 +2272,13 @@
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">unittest.mock</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncMock</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">SyncBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockBackend</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_login</span><span class="p">(</span><span class="n">micro</span><span class="p">:</span> <span class="n">Grelmicro</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="n">fake_backend</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">SyncBackend</span><span class="p">)</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="o">.</span><span class="n">override</span><span class="p">(</span><span class="n">Sync</span><span class="p">(</span><span class="n">fake_backend</span><span class="p">)):</span>
+    <span class="n">fake_backend</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">LockBackend</span><span class="p">)</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="o">.</span><span class="n">override</span><span class="p">(</span><span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">fake_backend</span><span class="p">)):</span>
         <span class="k">await</span> <span class="n">do_login</span><span class="p">(</span><span class="s2">&quot;u1&quot;</span><span class="p">)</span>
 </code></pre></div>
 

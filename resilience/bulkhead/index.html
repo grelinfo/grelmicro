@@ -610,34 +610,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../logging/" class="md-nav__link">
         
   
@@ -674,6 +646,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1153,14 +1153,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../sync/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1217,6 +1217,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1309,14 +1313,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/health/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1337,14 +1341,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/json/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1393,6 +1397,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/resilience/" class="md-nav__link">
         
   
@@ -1421,14 +1453,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/sync/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1457,6 +1489,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1516,6 +1576,8 @@
       
         
           
+        
+      
         
       
         
@@ -1740,6 +1802,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1796,14 +1886,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architecture/sync/" class="md-nav__link">
+      <a href="../../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2216,18 +2306,18 @@
 </code></pre></div>
 <h3 id="failure-domain-isolation">Failure-domain isolation</h3>
 <p><code>uses=</code> scopes Providers and Components to the bulkhead, in the same shape as <code>Grelmicro(uses=[...])</code>. Inside the scope, a Pattern that resolves its <em>default</em> backend (a bare <code>Lock("k")</code>, a <code>cache.get(...)</code>, ...) picks up the bulkhead's Component instead of the app's. A Pattern with an explicit <code>backend=</code> is unaffected, so explicit choices always win. This isolates a business context (checkout, reporting) onto its own connection pool, so one context cannot exhaust another's.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">Lock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">Bulkhead</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">Sync</span>
 
-<span class="c1"># A dedicated Redis for checkout, isolated from the app&#39;s default sync</span>
+<span class="c1"># A dedicated Redis for checkout, isolated from the app&#39;s default lock</span>
 <span class="c1"># backend. The bulkhead opens it on first entry and closes it at app</span>
 <span class="c1"># shutdown.</span>
 <span class="n">checkout_redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/1&quot;</span><span class="p">)</span>
 <span class="n">checkout</span> <span class="o">=</span> <span class="n">Bulkhead</span><span class="p">(</span>
     <span class="s2">&quot;checkout&quot;</span><span class="p">,</span>
     <span class="n">max_concurrent</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
-    <span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">checkout_redis</span><span class="p">,</span> <span class="n">Sync</span><span class="p">(</span><span class="n">checkout_redis</span><span class="p">)],</span>
+    <span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">checkout_redis</span><span class="p">,</span> <span class="n">Coordination</span><span class="p">(</span><span class="n">checkout_redis</span><span class="p">)],</span>
 <span class="p">)</span>
 
 <span class="n">cart_lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>
@@ -2235,7 +2325,7 @@
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_checkout</span><span class="p">(</span><span class="n">cart_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="c1"># `cart_lock` has no explicit backend, so inside the scope it</span>
-    <span class="c1"># resolves to the bulkhead&#39;s dedicated Sync backend.</span>
+    <span class="c1"># resolves to the bulkhead&#39;s dedicated lock backend.</span>
     <span class="k">async</span> <span class="k">with</span> <span class="n">checkout</span><span class="p">,</span> <span class="n">cart_lock</span><span class="p">:</span>
         <span class="o">...</span>
 </code></pre></div>

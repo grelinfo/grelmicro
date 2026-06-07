@@ -767,34 +767,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../logging/" class="md-nav__link">
         
   
@@ -831,6 +803,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1161,14 +1161,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1225,6 +1225,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1317,14 +1321,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1345,14 +1349,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/json/" class="md-nav__link">
+      <a href="../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1401,6 +1405,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/resilience/" class="md-nav__link">
         
   
@@ -1429,14 +1461,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/sync/" class="md-nav__link">
+      <a href="../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1465,6 +1497,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1524,6 +1584,8 @@
       
         
           
+        
+      
         
       
         
@@ -1748,6 +1810,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1804,14 +1894,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sync/" class="md-nav__link">
+      <a href="../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -2185,7 +2275,7 @@
 <h1 id="providers">Providers</h1>
 <p>A <strong>Provider</strong> is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
-of both. Components like <code>Sync</code>, <code>Cache</code>, and <code>RateLimiters</code> accept a
+of both. Components like <code>Coordination</code>, <code>Cache</code>, and <code>RateLimiters</code> accept a
 Provider directly and use its matching adapter under the hood.</p>
 <p>Three providers ship today: <code>RedisProvider</code>, <code>PostgresProvider</code>, and
 <code>SQLiteProvider</code>. More will follow.</p>
@@ -2193,15 +2283,15 @@ Provider directly and use its matching adapter under the hood.</p>
 <p>Pass a Provider to every Component that needs the same connection:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiters</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">redis</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
 <span class="p">])</span>
@@ -2209,23 +2299,37 @@ Provider directly and use its matching adapter under the hood.</p>
 <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
     <span class="o">...</span>
 </code></pre></div>
-<p>Components dispatch to the Provider's factory methods (<code>provider.sync()</code>,
+<p>Components dispatch to the Provider's factory methods (<code>provider.lock()</code>,
 <code>provider.cache()</code>, <code>provider.ratelimiter()</code>). The Adapter classes
-(<code>RedisSyncAdapter</code>, <code>RedisCacheAdapter</code>, <code>RedisRateLimiterAdapter</code>) stay
+(<code>RedisLockAdapter</code>, <code>RedisCacheAdapter</code>, <code>RedisRateLimiterAdapter</code>) stay
 public as escape hatches but rarely appear in user code.</p>
+<div class="admonition tip">
+<p class="admonition-title">Listing the Provider is optional</p>
+<p>A Provider held by a Component is discovered and lifecycled for you, so
+you can drop the top-level entry and let the Components carry it:</p>
+<div class="highlight"><pre><span></span><code><span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+<span class="p">])</span>
+</code></pre></div>
+<p>The shared <code>redis</code> opens once, before the Components that hold it.
+Listing it explicitly is still valid and lets you control where it sits
+in the lifecycle order.</p>
+</div>
 <h2 id="recipe-1-env-driven">Recipe 1: env-driven</h2>
 <p>Construct the Provider without arguments and let it read <code>REDIS_*</code> from
 the environment:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">()</span>  <span class="c1"># reads REDIS_URL or REDIS_HOST + REDIS_PORT + ...</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">redis</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
@@ -2240,7 +2344,7 @@ Each prefix gets its own Provider:</p>
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">cache_redis</span><span class="p">,</span>
     <span class="n">session_redis</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">session_redis</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">session_redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">cache_redis</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
@@ -2293,18 +2397,25 @@ client when the provider exits, useful in pytest fixtures:</p>
 </thead>
 <tbody>
 <tr>
-<td><code>.sync(**kwargs)</code></td>
-<td><code>SyncBackend</code> implementation</td>
+<td><code>.lock(**kwargs)</code></td>
+<td><code>LockBackend</code> implementation</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
+</tr>
+<tr>
+<td><code>.leader_election(**kwargs)</code></td>
+<td><code>LeaderElectionBackend</code> impl</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">N/A</td>
 </tr>
 <tr>
 <td><code>.cache(**kwargs)</code></td>
 <td><code>CacheBackend</code> implementation</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
-<td style="text-align: center;">—</td>
+<td style="text-align: center;">N/A</td>
 </tr>
 <tr>
 <td><code>.ratelimiter(**kwargs)</code></td>
@@ -2318,25 +2429,25 @@ client when the provider exits, useful in pytest fixtures:</p>
 <td><code>CircuitBreakerBackend</code> impl</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
-<td style="text-align: center;">—</td>
+<td style="text-align: center;">N/A</td>
 </tr>
 </tbody>
 </table>
 <p>Factories that do not apply raise <code>NotImplementedError</code> with a message
-pointing to the right alternative. <code>Sync(provider)</code>, <code>Cache(provider)</code>,
+pointing to the right alternative. <code>Coordination(provider)</code>, <code>Cache(provider)</code>,
 <code>RateLimiters(provider)</code>, and <code>CircuitBreakers(provider)</code> call these factories.</p>
 <h2 id="postgres">Postgres</h2>
-<p><code>PostgresProvider</code> ships the <code>.sync()</code> factory. The provider wraps an
-<code>asyncpg.Pool</code> and opens it lazily on <code>__aenter__</code>.</p>
+<p><code>PostgresProvider</code> ships the <code>.lock()</code> and <code>.leader_election()</code> factories. The
+provider wraps an <code>asyncpg.Pool</code> and opens it lazily on <code>__aenter__</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.postgres</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sync</span>
 
 <span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="s2">&quot;postgresql://localhost/app&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">postgres</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">postgres</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">postgres</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
 <p>Set <code>POSTGRES_URL</code> (or <code>POSTGRES_HOST</code> + <code>POSTGRES_PORT</code> + <code>POSTGRES_DB</code>
@@ -2348,8 +2459,8 @@ pointing to the right alternative. <code>Sync(provider)</code>, <code>Cache(prov
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">write</span><span class="p">,</span>
     <span class="n">read</span><span class="p">,</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">write</span><span class="p">),</span>
-    <span class="n">Sync</span><span class="p">(</span><span class="n">read</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;read&quot;</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">write</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">read</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;read&quot;</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
 <p>Construction forms:</p>
@@ -2363,7 +2474,7 @@ pointing to the right alternative. <code>Sync(provider)</code>, <code>Cache(prov
 <span class="n">PostgresProvider</span><span class="o">.</span><span class="n">from_client</span><span class="p">(</span><span class="n">pool</span><span class="p">)</span>              <span class="c1"># bring-your-own pool</span>
 </code></pre></div>
 <h2 id="sqlite">SQLite</h2>
-<p><code>SQLiteProvider</code> ships the <code>.sync()</code> and <code>.ratelimiter()</code> factories. The
+<p><code>SQLiteProvider</code> ships the <code>.lock()</code> and <code>.ratelimiter()</code> factories. The
 provider owns one <code>aiosqlite</code> connection (autocommit, WAL) and a shared
 lock that adapters borrow.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
@@ -2397,7 +2508,7 @@ Provider would access <code>provider.client</code> before the pool exists and ra
 <code>OutOfContextError</code>. <code>Grelmicro.__aenter__</code> warns on this ordering, but
 the correct fix is to list the Provider first.</p>
 <h2 id="memory-backends">Memory backends</h2>
-<p>In-memory backends (<code>MemorySyncAdapter</code>, <code>MemoryCacheAdapter</code>,
+<p>In-memory backends (<code>MemoryLockAdapter</code>, <code>MemoryCacheAdapter</code>,
 <code>MemoryRateLimiterAdapter</code>, <code>MemoryCircuitBreakerAdapter</code>) have no
 provider. Pass the adapter directly to its Component:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>

@@ -4,20 +4,24 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination, LeaderElection, Lock
+from grelmicro.coordination.memory import MemoryLeaderElectionBackend
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import CircuitBreaker, CircuitBreakers
 from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
 )
-from grelmicro.sync import LeaderElection, Lock, Sync
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
 
 # === grelmicro ===
 tasks = Tasks()
-leader_election = LeaderElection("leader-election")
+coordination_backend = MemoryLeaderElectionBackend()
+leader_election = LeaderElection(
+    "leader-election", backend=coordination_backend
+)
 tasks.add_task(leader_election)
 
 redis = RedisProvider("redis://localhost:6379/0")
@@ -25,13 +29,13 @@ redis = RedisProvider("redis://localhost:6379/0")
 # Patterns used inside FastAPI request handlers take an explicit backend:
 # handlers run in their own task, outside the app's ambient scope. Background
 # tasks run inside that scope, so they resolve their backend ambiently.
-sync_backend = redis.sync()
+lock_backend = redis.lock()
 breaker_backend = MemoryCircuitBreakerAdapter()
 
 micro = Grelmicro(
     uses=[
         redis,
-        Sync(sync_backend),
+        Coordination(lock=lock_backend, election=coordination_backend),
         CircuitBreakers(breaker_backend),
         tasks,
     ]
@@ -60,7 +64,7 @@ async def read_root():
 
 
 # --- Distributed Lock: synchronize access to a shared resource ---
-lock = Lock("shared-resource", backend=sync_backend)
+lock = Lock("shared-resource", backend=lock_backend)
 
 
 @app.get("/protected")

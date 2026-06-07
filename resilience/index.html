@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://grelinfo.github.io/grelmicro/resilience/">
       
       
-        <link rel="prev" href="../tracing/">
+        <link rel="prev" href="../metrics/">
       
       
         <link rel="next" href="shield/">
@@ -610,34 +610,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../json/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    JSON
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../logging/" class="md-nav__link">
         
   
@@ -674,6 +646,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
   
 
     
@@ -1006,14 +1006,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../sync/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Primitives
+    Coordination
   
 
     
@@ -1070,6 +1070,10 @@
   
     
     
+      
+        
+      
+        
       
         
       
@@ -1162,14 +1166,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../reference/clock/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health
+    Clock
   
 
     
@@ -1190,14 +1194,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/json/" class="md-nav__link">
+      <a href="../reference/health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JSON
+    Health
   
 
     
@@ -1246,6 +1250,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/resilience/" class="md-nav__link">
         
   
@@ -1274,14 +1306,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/sync/" class="md-nav__link">
+      <a href="../reference/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization
+    Coordination
   
 
     
@@ -1310,6 +1342,34 @@
     
   
     Task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
   
 
     
@@ -1369,6 +1429,8 @@
       
         
           
+        
+      
         
       
         
@@ -1593,6 +1655,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../architecture/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../architecture/multiple-apps/" class="md-nav__link">
         
   
@@ -1649,14 +1739,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sync/" class="md-nav__link">
+      <a href="../architecture/coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Synchronization Internals
+    Coordination Internals
   
 
     
@@ -1945,7 +2035,7 @@
 <li><a href="shield/"><strong>Shield</strong></a>: all-in-one outer-layer resilience for one async call to one dependency. Bundles per-attempt timeout, exponential-jittered retry with a consecutive-failure budget, and CUBIC-style adaptive throttling. One decorator, one knob. The recommended starting point.</li>
 <li><a href="circuit-breaker/"><strong>Circuit Breaker</strong></a>: detect repeated failures in a downstream call and stop sending requests long enough for it to recover. This prevents cascading failures.</li>
 <li><a href="fallback/"><strong>Fallback</strong></a>: return a safe default value when a call fails. Pluggable filter (any <code>Match</code>), static default or factory callable, decorator and block forms.</li>
-<li><a href="rate-limiter/"><strong>Rate Limiter</strong></a>: cap how many requests a client can make per window. Pluggable algorithm (<code>TokenBucketConfig</code> or <code>SlidingWindowConfig</code>), pluggable backend (<code>Memory</code> or <code>Redis</code>), with a result shape that maps directly to HTTP rate limit headers.</li>
+<li><a href="rate-limiter/"><strong>Rate Limiter</strong></a>: cap how many requests a client can make per window. Pluggable algorithm (<code>TokenBucketConfig</code> or <code>SlidingWindowConfig</code>), pluggable backend (<code>Memory</code>, <code>Redis</code>, <code>Postgres</code>, or <code>SQLite</code>), with a result shape that maps directly to HTTP rate limit headers.</li>
 <li><a href="retry/"><strong>Retry</strong></a>: repeat a failing call with backoff and jitter. Pluggable algorithm (<code>ExponentialBackoff</code>, <code>ConstantBackoff</code>, <code>LinearBackoff</code>, <code>FibonacciBackoff</code>, <code>RandomBackoff</code>), required exception filter, decorator and block forms.</li>
 <li><a href="timeout/"><strong>Timeout</strong></a>: bound how long an async call may run. Reconfigurable deadline, async context manager and decorator forms. Wraps <code>asyncio.timeout</code>.</li>
 <li><a href="bulkhead/"><strong>Bulkhead</strong></a>: cap concurrent in-flight calls and fail fast when saturated. Optional bounded wait for a permit and a dedicated thread pool for blocking work. Async context manager and decorator forms.</li>
@@ -1993,7 +2083,7 @@
 <p>For synchronous, in-process token-bucket rate limiting on a performance-critical sync path (the main example is the logging pipeline), see <a href="rate-limiter/#standalone-memorytokenbucket"><code>MemoryTokenBucket</code></a>. It powers <code>grelmicro.log.RateLimitFilter</code>.</p>
 <h2 id="with-faststream">With FastStream</h2>
 <p>The same primitives drop into a FastStream consumer without changes.
-The lifespan opens the shared Redis provider, <code>Sync</code>, and
+The lifespan opens the shared Redis provider, <code>Coordination</code>, and
 <code>RateLimiters</code> once. A handler can then hold a per-key <code>Lock</code> and
 consume rate-limit tokens before the actual work runs.</p>
 <div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;FastStream consumer protected by a distributed lock and rate limiter.</span>
@@ -2009,16 +2099,16 @@ consume rate-limit tokens before the actual work runs.</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">faststream.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisBroker</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">Lock</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">RateLimiter</span><span class="p">,</span>
     <span class="n">RateLimiters</span><span class="p">,</span>
     <span class="n">RateLimitExceededError</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.sync</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">Sync</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">,</span> <span class="n">Sync</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span> <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">,</span> <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span> <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
 
 <span class="n">per_user_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span><span class="s2">&quot;messages&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
