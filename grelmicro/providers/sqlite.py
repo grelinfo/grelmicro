@@ -17,7 +17,10 @@ if TYPE_CHECKING:
     from pathlib import Path
     from types import TracebackType
 
-    from grelmicro.coordination.sqlite import SQLiteLockAdapter
+    from grelmicro.coordination.sqlite import (
+        SQLiteLockAdapter,
+        SQLiteScheduleAdapter,
+    )
     from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
 
 
@@ -213,6 +216,17 @@ class SQLiteProvider(Provider):
         )
 
         return SQLiteLockAdapter(self._path, **kwargs)
+
+    def schedule(self, **kwargs: Any) -> SQLiteScheduleAdapter:  # noqa: ANN401
+        """Build a `SQLiteScheduleAdapter` for this provider's path.
+
+        The schedule adapter opens its own connection to the same file.
+        """
+        from grelmicro.coordination.sqlite import (  # noqa: PLC0415
+            SQLiteScheduleAdapter,
+        )
+
+        return SQLiteScheduleAdapter(self._path, **kwargs)
 
     async def __aenter__(self) -> Self:
         """Open the connection when the provider owns it."""

@@ -16,7 +16,11 @@ from grelmicro.providers._base import Provider
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
+    from grelmicro.coordination.abc import (
+        LeaderElectionBackend,
+        LockBackend,
+        ScheduleBackend,
+    )
 
 
 class Coordination:
@@ -26,9 +30,10 @@ class Coordination:
     Exposes `lock(...)`, `task_lock(...)`, and `leader_election(...)` so users do
     not need to pass `backend=` on every primitive.
 
-    A single positional `Provider` resolves both primitives: the component calls
-    `provider.lock()` for the lock backend and `provider.leaderelection()` for
-    the election backend. The `lock=` and `election=` keywords set each backend
+    A single positional `Provider` resolves every primitive: the component calls
+    `provider.lock()` for the lock backend, `provider.leaderelection()` for the
+    election backend, and `provider.schedule()` for the cron schedule backend.
+    The `lock=`, `election=`, and `schedule=` keywords set each backend
     independently, so locks can run on one vendor and leader election on another.
     Each accepts a `Provider`, a backend instance, or a zero-arg class.
 
@@ -93,6 +98,20 @@ class Coordination:
                 """,
             ),
         ] = None,
+        schedule: Annotated[
+            Provider
+            | ScheduleBackend
+            | type[Provider | ScheduleBackend]
+            | None,
+            Doc(
+                """
+                The cron schedule backend. A `Provider` resolves it via
+                `provider.schedule()`, a `ScheduleBackend` instance is used
+                directly, and a zero-arg class is instantiated for you.
+                Overrides the schedule backend resolved from `source`.
+                """,
+            ),
+        ] = None,
         name: Annotated[
             str,
             Doc(
@@ -107,11 +126,18 @@ class Coordination:
         self._name = name
         self._lock_backend: LockBackend | None = None
         self._election_backend: LeaderElectionBackend | None = None
+        self._schedule_backend: ScheduleBackend | None = None
 
         if source is not None:
             provider = instantiate_if_class(source)
             self._lock_backend = provider.lock()
             self._election_backend = provider.leaderelection()
+            # A provider may not ship a schedule adapter. Leave the backend
+            # unset so cron raises a clear error only when it is actually used.
+            try:
+                self._schedule_backend = provider.schedule()
+            except (AttributeError, NotImplementedError):
+                self._schedule_backend = None
 
         if lock is not None:
             resolved_lock = instantiate_if_class(lock)
@@ -127,6 +153,14 @@ class Coordination:
                 resolved_election.leaderelection()
                 if isinstance(resolved_election, Provider)
                 else resolved_election
+            )
+
+        if schedule is not None:
+            resolved_schedule = instantiate_if_class(schedule)
+            self._schedule_backend = (
+                resolved_schedule.schedule()
+                if isinstance(resolved_schedule, Provider)
+                else resolved_schedule
             )
 
     @property
@@ -166,6 +200,22 @@ class Coordination:
             raise CoordinationBackendError(msg)
         return self._election_backend
 
+    @property
+    def schedule_backend(self) -> ScheduleBackend:
+        """The underlying `ScheduleBackend`.
+
+        Raises:
+            CoordinationBackendError: If no schedule backend is wired.
+        """
+        if self._schedule_backend is None:
+            msg = (
+                "Coordination has no schedule backend. "
+                "Pass a schedule provider as Coordination(provider) or "
+                "Coordination(schedule=...)."
+            )
+            raise CoordinationBackendError(msg)
+        return self._schedule_backend
+
     def lock(self, name: str, **kwargs: Any) -> Lock:  # noqa: ANN401
         """Construct a `Lock` bound to this component's lock backend.
 
@@ -200,6 +250,8 @@ class Coordination:
             await self._lock_backend.__aenter__()
         if self._election_backend is not None:
             await self._election_backend.__aenter__()
+        if self._schedule_backend is not None:
+            await self._schedule_backend.__aenter__()
         return self
 
     async def __aexit__(
@@ -208,10 +260,14 @@ class Coordination:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        """Close whichever backends are set, closing both even if one raises."""
+        """Close whichever backends are set, closing all even if one raises."""
         try:
             if self._lock_backend is not None:
                 await self._lock_backend.__aexit__(exc_type, exc, tb)
         finally:
-            if self._election_backend is not None:
-                await self._election_backend.__aexit__(exc_type, exc, tb)
+            try:
+                if self._election_backend is not None:
+                    await self._election_backend.__aexit__(exc_type, exc, tb)
+            finally:
+                if self._schedule_backend is not None:
+                    await self._schedule_backend.__aexit__(exc_type, exc, tb)

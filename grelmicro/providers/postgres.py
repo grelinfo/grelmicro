@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination.postgres import (
         PostgresLeaderElectionBackend,
         PostgresLockAdapter,
+        PostgresScheduleAdapter,
     )
     from grelmicro.resilience.circuitbreaker.postgres import (
         PostgresCircuitBreakerAdapter,
@@ -268,6 +269,14 @@ class PostgresProvider(Provider):
         )
 
         return PostgresLeaderElectionBackend(provider=self, **kwargs)
+
+    def schedule(self, **kwargs: Any) -> PostgresScheduleAdapter:  # noqa: ANN401
+        """Build a `PostgresScheduleAdapter` bound to this provider."""
+        from grelmicro.coordination.postgres import (  # noqa: PLC0415
+            PostgresScheduleAdapter,
+        )
+
+        return PostgresScheduleAdapter(provider=self, **kwargs)
 
     def cache(self, **kwargs: Any) -> PostgresCacheAdapter:  # noqa: ANN401
         """Build a `PostgresCacheAdapter` bound to this provider."""

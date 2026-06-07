@@ -45,7 +45,7 @@ What you get from a single import:
 | Circuit breaker | `CircuitBreaker` | Redis, Memory, Postgres |
 | Retry | `Retry`, `@retry` | n/a (in-process) |
 | Health checks | `HealthChecks` + `/livez` `/readyz` `/healthz` router | n/a |
-| Scheduled tasks | `Tasks`, `TaskRouter`, `@interval` | n/a |
+| Scheduled tasks | `Tasks`, `TaskRouter`, `@interval`, `@cron` | n/a |
 | Structured logging | `grelmicro.log` (JSON, LOGFMT, PRETTY, AUTO) | n/a |
 | Tracing | `grelmicro.trace` (`@instrument`, `span`, `add_context`) | OpenTelemetry |
 
