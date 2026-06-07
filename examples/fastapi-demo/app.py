@@ -51,7 +51,7 @@ postgres = PostgresProvider(POSTGRES_URL)
 lock_backend = redis.lock()
 cache_backend = redis.cache()
 ratelimiter_backend = redis.ratelimiter()
-breaker_backend = postgres.breaker()
+breaker_backend = postgres.circuitbreaker()
 leader_backend = redis.leader_election()
 
 tasks = Tasks()

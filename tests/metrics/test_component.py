@@ -67,7 +67,7 @@ def test_metrics_name_is_read_only() -> None:
     """`Metrics.name` is a read-only property."""
     metrics = Metrics(exporter=MetricsExporterType.NONE)
     with pytest.raises(AttributeError):
-        metrics.name = "other"  # type: ignore[misc]
+        metrics.name = "other"  # ty: ignore[invalid-assignment]
 
 
 def test_metrics_config_unavailable_before_enter() -> None:

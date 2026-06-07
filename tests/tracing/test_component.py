@@ -64,7 +64,7 @@ def test_trace_name_is_read_only() -> None:
     """`Trace.name` is a read-only property."""
     trace = Trace(exporter=TracingExporterType.NONE)
     with pytest.raises(AttributeError):
-        trace.name = "other"  # type: ignore[misc]
+        trace.name = "other"  # ty: ignore[invalid-assignment]
 
 
 def test_trace_config_unavailable_before_enter() -> None:

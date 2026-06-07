@@ -33,7 +33,7 @@ def test_log_name_is_read_only() -> None:
     """`Log.name` is a read-only property."""
     log = Log()
     with pytest.raises(AttributeError):
-        log.name = "other"  # type: ignore[misc]
+        log.name = "other"  # ty: ignore[invalid-assignment]
 
 
 def test_log_config_unavailable_before_enter() -> None:
