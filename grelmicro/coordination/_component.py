@@ -174,7 +174,7 @@ class Coordination:
         """
         return Lock(name, backend=self.lock_backend, **kwargs)
 
-    def task_lock(self, name: str, **kwargs: Any) -> TaskLock:  # noqa: ANN401
+    def tasklock(self, name: str, **kwargs: Any) -> TaskLock:  # noqa: ANN401
         """Construct a `TaskLock` bound to this component's lock backend.
 
         Raises:
