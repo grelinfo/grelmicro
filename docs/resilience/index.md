@@ -5,7 +5,7 @@ The `resilience` package provides primitives that help your services handle fail
 - [**Shield**](shield.md): all-in-one outer-layer resilience for one async call to one dependency. Bundles per-attempt timeout, exponential-jittered retry with a consecutive-failure budget, and CUBIC-style adaptive throttling. One decorator, one knob. The recommended starting point.
 - [**Circuit Breaker**](circuit-breaker.md): detect repeated failures in a downstream call and stop sending requests long enough for it to recover. This prevents cascading failures.
 - [**Fallback**](fallback.md): return a safe default value when a call fails. Pluggable filter (any `Match`), static default or factory callable, decorator and block forms.
-- [**Rate Limiter**](rate-limiter.md): cap how many requests a client can make per window. Pluggable algorithm (`TokenBucketConfig` or `SlidingWindowConfig`), pluggable backend (`Memory` or `Redis`), with a result shape that maps directly to HTTP rate limit headers.
+- [**Rate Limiter**](rate-limiter.md): cap how many requests a client can make per window. Pluggable algorithm (`TokenBucketConfig` or `SlidingWindowConfig`), pluggable backend (`Memory`, `Redis`, `Postgres`, or `SQLite`), with a result shape that maps directly to HTTP rate limit headers.
 - [**Retry**](retry.md): repeat a failing call with backoff and jitter. Pluggable algorithm (`ExponentialBackoff`, `ConstantBackoff`, `LinearBackoff`, `FibonacciBackoff`, `RandomBackoff`), required exception filter, decorator and block forms.
 - [**Timeout**](timeout.md): bound how long an async call may run. Reconfigurable deadline, async context manager and decorator forms. Wraps `asyncio.timeout`.
 - [**Bulkhead**](bulkhead.md): cap concurrent in-flight calls and fail fast when saturated. Optional bounded wait for a permit and a dedicated thread pool for blocking work. Async context manager and decorator forms.
@@ -29,7 +29,7 @@ For synchronous, in-process token-bucket rate limiting on a performance-critical
 ## With FastStream
 
 The same primitives drop into a FastStream consumer without changes.
-The lifespan opens the shared Redis provider, `Sync`, and
+The lifespan opens the shared Redis provider, `Coordination`, and
 `RateLimiters` once. A handler can then hold a per-key `Lock` and
 consume rate-limit tokens before the actual work runs.
 

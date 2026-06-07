@@ -1,6 +1,7 @@
 """Interval Task."""
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from functools import partial
 from logging import getLogger
@@ -10,11 +11,12 @@ from uuid import UUID
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
+from grelmicro.coordination.abc import LockBackend, LockPrimitive
+from grelmicro.coordination.errors import LockNotOwnedError
+from grelmicro.coordination.leaderelection import LeaderElection
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError
-from grelmicro.sync.abc import SyncBackend, SyncPrimitive
-from grelmicro.sync.errors import LockNotOwnedError
-from grelmicro.sync.leaderelection import LeaderElection
-from grelmicro.sync.tasklock import TaskLock
+from grelmicro.metrics import _emit
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.abc import Task
 
@@ -42,9 +44,9 @@ class IntervalTask(Task):
         max_lock_seconds: float | None = None,
         min_lock_seconds: float | None = None,
         leader: LeaderElection | None = None,
-        backend: SyncBackend | None = None,
+        backend: LockBackend | None = None,
         worker: str | UUID | None = None,
-        sync: SyncPrimitive | None = None,
+        sync: LockPrimitive | None = None,
     ) -> None:
         """Initialize the IntervalTask.
 
@@ -102,7 +104,7 @@ class IntervalTask(Task):
                 min_lock_seconds=resolved_min_lock_seconds,
                 max_lock_seconds=resolved_max_lock_seconds,
             )
-            self._sync_primitives: list[SyncPrimitive] = _build_sync_list(
+            self._sync_primitives: list[LockPrimitive] = _build_sync_list(
                 leader=leader,
                 task_lock=task_lock,
                 resource_lock=sync,
@@ -162,7 +164,7 @@ class IntervalTask(Task):
             logger.info("Task stopped: %s", self.name)
 
     async def _run_with_sync(
-        self, primitives: list[SyncPrimitive], index: int = 0
+        self, primitives: list[LockPrimitive], index: int = 0
     ) -> None:
         """Enter sync primitives via recursive nesting, then run the task.
 
@@ -170,10 +172,35 @@ class IntervalTask(Task):
         overhead on every iteration.
         """
         if index >= len(primitives):
+            _emit.add_up_down(
+                "grelmicro.task.active", 1, **{"task.name": self.name}
+            )
+            start = time.perf_counter()
             try:
                 await self._async_function()
-            except Exception:
+                _emit.incr(
+                    "grelmicro.task.runs",
+                    **{"task.name": self.name, "outcome": "success"},
+                )
+            except Exception as exc:
                 logger.exception("Task execution error: %s", self.name)
+                _emit.incr(
+                    "grelmicro.task.runs",
+                    **{
+                        "task.name": self.name,
+                        "outcome": "error",
+                        "error.type": type(exc).__name__,
+                    },
+                )
+            finally:
+                _emit.record_duration(
+                    "grelmicro.task.duration",
+                    time.perf_counter() - start,
+                    **{"task.name": self.name},
+                )
+                _emit.add_up_down(
+                    "grelmicro.task.active", -1, **{"task.name": self.name}
+                )
             return
 
         async with primitives[index]:
@@ -195,8 +222,8 @@ def _build_sync_list(
     *,
     leader: LeaderElection | None,
     task_lock: TaskLock,
-    resource_lock: SyncPrimitive | None = None,
-) -> list[SyncPrimitive]:
+    resource_lock: LockPrimitive | None = None,
+) -> list[LockPrimitive]:
     """Build an ordered list of sync primitives.
 
     Acquisition order (outermost to innermost):
@@ -210,7 +237,7 @@ def _build_sync_list(
        Acquired last so the resource is held only during actual execution,
        minimizing contention on the shared resource.
     """
-    primitives: list[SyncPrimitive] = []
+    primitives: list[LockPrimitive] = []
     if leader is not None:
         primitives.append(leader.guard())
     primitives.append(task_lock)

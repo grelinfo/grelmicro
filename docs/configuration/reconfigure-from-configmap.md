@@ -25,8 +25,8 @@ import logging
 
 from kubernetes import client, config, watch
 
-from grelmicro.sync import Lock
-from grelmicro.sync.lock import LockConfig
+from grelmicro.coordination import Lock
+from grelmicro.coordination.lock import LockConfig
 
 logger = logging.getLogger("reconfigure")
 

@@ -223,3 +223,168 @@ class TestMemoryCacheAdapterContextManager:
                 raise RuntimeError(msg)
 
         assert await backend.get(key="k") is None
+
+
+class TestMemoryCacheAdapterTags:
+    """Tests for tag membership in MemoryCacheAdapter."""
+
+    async def test_set_with_tags_tracks_forward_and_reverse(self) -> None:
+        """Test that set records both forward and reverse tag maps."""
+        backend = MemoryCacheAdapter()
+
+        await backend.set(key="k", value=b"v", ttl=60, tags=["t1", "t2"])
+
+        assert backend._tag_keys["t1"] == {"k"}
+        assert backend._tag_keys["t2"] == {"k"}
+        assert backend._key_tags["k"] == {"t1", "t2"}
+
+    async def test_set_without_tags_records_nothing(self) -> None:
+        """Test that a tagless set leaves the tag maps empty."""
+        backend = MemoryCacheAdapter()
+
+        await backend.set(key="k", value=b"v", ttl=60)
+
+        assert backend._tag_keys == {}
+        assert backend._key_tags == {}
+
+    async def test_set_overwrite_replaces_tags(self) -> None:
+        """Test that re-setting a key drops its old tag membership."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="k", value=b"v", ttl=60, tags=["old"])
+
+        await backend.set(key="k", value=b"v2", ttl=60, tags=["new"])
+
+        assert "old" not in backend._tag_keys
+        assert backend._tag_keys["new"] == {"k"}
+        assert backend._key_tags["k"] == {"new"}
+
+    async def test_set_overwrite_with_no_tags_clears_tags(self) -> None:
+        """Test that re-setting a key with no tags clears its membership."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="k", value=b"v", ttl=60, tags=["t"])
+
+        await backend.set(key="k", value=b"v2", ttl=60)
+
+        assert backend._tag_keys == {}
+        assert backend._key_tags == {}
+
+    async def test_delete_removes_key_from_tags(self) -> None:
+        """Test that delete cleans the key out of every tag it belonged to."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=60, tags=["shared"])
+        await backend.set(key="b", value=b"b", ttl=60, tags=["shared"])
+
+        await backend.delete(key="a")
+
+        assert backend._tag_keys["shared"] == {"b"}
+        assert "a" not in backend._key_tags
+
+    async def test_delete_prunes_empty_tag(self) -> None:
+        """Test that deleting the last member drops the tag entry."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=60, tags=["solo"])
+
+        await backend.delete(key="a")
+
+        assert "solo" not in backend._tag_keys
+
+    async def test_lazy_expiry_cleans_tags(self) -> None:
+        """Test that a lazily expired key is removed from its tags."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=0.05, tags=["t"])
+
+        await sleep(0.1)
+        assert await backend.get(key="a") is None
+
+        assert "t" not in backend._tag_keys
+        assert "a" not in backend._key_tags
+
+    async def test_delete_tags_removes_all_members(self) -> None:
+        """Test that delete_tags deletes every key under the tag."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=60, tags=["group"])
+        await backend.set(key="b", value=b"b", ttl=60, tags=["group"])
+        await backend.set(key="c", value=b"c", ttl=60, tags=["other"])
+
+        await backend.delete_tags(tags=["group"])
+
+        assert await backend.get(key="a") is None
+        assert await backend.get(key="b") is None
+        assert await backend.get(key="c") == b"c"
+        assert "group" not in backend._tag_keys
+
+    async def test_delete_tags_unknown_tag_is_no_op(self) -> None:
+        """Test that deleting an unknown tag does not raise."""
+        backend = MemoryCacheAdapter()
+
+        await backend.delete_tags(tags=["ghost"])
+
+    async def test_delete_tags_cascades_reverse_for_multitag_key(self) -> None:
+        """Test that deleting via one tag also clears the key's other tags."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=60, tags=["t1", "t2"])
+
+        await backend.delete_tags(tags=["t1"])
+
+        assert await backend.get(key="a") is None
+        assert "t2" not in backend._tag_keys
+        assert "a" not in backend._key_tags
+
+    async def test_clear_resets_tag_maps(self) -> None:
+        """Test that clear empties the tag maps too."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=60, tags=["t"])
+
+        await backend.clear()
+
+        assert backend._tag_keys == {}
+        assert backend._key_tags == {}
+
+
+class TestMemoryCacheAdapterBatch:
+    """Tests for batch operations in MemoryCacheAdapter."""
+
+    async def test_get_many_returns_found_only(self) -> None:
+        """Test that get_many omits missing keys."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=60)
+        await backend.set(key="b", value=b"b", ttl=60)
+
+        result = await backend.get_many(keys=["a", "b", "missing"])
+
+        assert result == {"a": b"a", "b": b"b"}
+
+    async def test_get_many_drops_expired(self) -> None:
+        """Test that get_many lazily drops an expired key."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=0.05, tags=["t"])
+        await backend.set(key="b", value=b"b", ttl=60)
+
+        await sleep(0.1)
+        result = await backend.get_many(keys=["a", "b"])
+
+        assert result == {"b": b"b"}
+        assert "a" not in backend._data
+        assert "t" not in backend._tag_keys
+
+    async def test_set_many_stores_all_with_tags(self) -> None:
+        """Test that set_many writes every key and associates tags."""
+        backend = MemoryCacheAdapter()
+
+        await backend.set_many(items={"a": b"a", "b": b"b"}, ttl=60, tags=["g"])
+
+        assert await backend.get(key="a") == b"a"
+        assert await backend.get(key="b") == b"b"
+        assert backend._tag_keys["g"] == {"a", "b"}
+
+    async def test_delete_many_removes_all(self) -> None:
+        """Test that delete_many deletes every listed key."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=60, tags=["t"])
+        await backend.set(key="b", value=b"b", ttl=60)
+
+        await backend.delete_many(keys=["a", "b", "missing"])
+
+        assert await backend.get(key="a") is None
+        assert await backend.get(key="b") is None
+        assert "t" not in backend._tag_keys

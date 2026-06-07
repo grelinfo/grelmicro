@@ -9,8 +9,8 @@ from typing_extensions import Doc
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
-    from grelmicro.sync.abc import SyncBackend, SyncPrimitive
-    from grelmicro.sync.leaderelection import LeaderElection
+    from grelmicro.coordination.abc import LockBackend, LockPrimitive
+    from grelmicro.coordination.leaderelection import LeaderElection
     from grelmicro.task.abc import Task
 
 
@@ -114,13 +114,14 @@ class TaskRouter:
             ),
         ] = None,
         backend: Annotated[
-            "SyncBackend | None",
+            "LockBackend | None",
             Doc(
                 """
                 The distributed lock backend.
 
                 By default, resolves through the active `Grelmicro` app's
-                `Sync` component. Only used when distributed locking is enabled.
+                `Coordination` component. Only used when distributed locking
+                is enabled.
                 """,
             ),
         ] = None,
@@ -136,7 +137,7 @@ class TaskRouter:
             ),
         ] = None,
         sync: Annotated[
-            "SyncPrimitive | None",
+            "LockPrimitive | None",
             Doc(
                 """
                 Optional resource-level synchronization primitive.

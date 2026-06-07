@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from grelmicro.sync.abc import SyncBackend
+from grelmicro.coordination.abc import LockBackend
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
 from tests.task.conftest import TaskFactory
@@ -19,7 +19,7 @@ INTERVAL = 0.1
 
 
 async def test_tasklock_basic_execution(
-    backend: SyncBackend, task_factory: TaskFactory
+    backend: LockBackend, task_factory: TaskFactory
 ) -> None:
     """Test IntervalTask executes with TaskLock."""
     task = task_factory(
@@ -39,7 +39,7 @@ async def test_tasklock_basic_execution(
 
 
 async def test_tasklock_two_workers(
-    backend: SyncBackend, task_factory: TaskFactory
+    backend: LockBackend, task_factory: TaskFactory
 ) -> None:
     """Test only one worker executes when both use TaskLock on the same resource."""
     task_1 = task_factory(
@@ -73,7 +73,7 @@ async def test_tasklock_two_workers(
 
 
 async def test_tasklock_min_lock_seconds(
-    backend: SyncBackend, task_factory: TaskFactory
+    backend: LockBackend, task_factory: TaskFactory
 ) -> None:
     """Test min_lock_seconds prevents re-execution on another worker."""
     min_lock = 0.5
@@ -114,7 +114,7 @@ async def test_tasklock_min_lock_seconds(
 
 
 async def test_tasklock_max_lock_seconds(
-    backend: SyncBackend, task_factory: TaskFactory
+    backend: LockBackend, task_factory: TaskFactory
 ) -> None:
     """Test max_lock_seconds auto-expires when task takes too long."""
     max_lock = 0.2
@@ -152,7 +152,7 @@ async def test_tasklock_max_lock_seconds(
 
 
 async def test_tasklock_would_block_debug_log(
-    backend: SyncBackend,
+    backend: LockBackend,
     task_factory: TaskFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -197,7 +197,7 @@ async def test_tasklock_would_block_debug_log(
 
 
 async def test_tasklock_same_worker_blocked_by_min_lock(
-    backend: SyncBackend, task_factory: TaskFactory
+    backend: LockBackend, task_factory: TaskFactory
 ) -> None:
     """Test same worker cannot re-acquire before min_lock_seconds expires.
 
@@ -228,7 +228,7 @@ async def test_tasklock_same_worker_blocked_by_min_lock(
 
 
 async def test_tasklock_sequential_executions(
-    backend: SyncBackend, task_factory: TaskFactory
+    backend: LockBackend, task_factory: TaskFactory
 ) -> None:
     """Test same worker executes again after min_lock_seconds expires."""
     task = task_factory(

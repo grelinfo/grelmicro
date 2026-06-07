@@ -4,7 +4,7 @@ A simple scheduler that runs tasks periodically. Use it for lightweight recurrin
 
 - **Fast and easy**: simple decorators to define and schedule tasks with minimal boilerplate.
 - **Interval tasks**: run tasks at fixed intervals, locally or across a cluster.
-- **Synchronization**: control concurrency with distributed primitives (see [Synchronization Primitives](sync.md)).
+- **Coordination**: control concurrency with distributed primitives (see [Coordination primitives](coordination.md)).
 - **Dependency injection**: use [FastDepends](https://lancetnik.github.io/FastDepends/) to inject dependencies into tasks.
 - **Error handling**: errors are caught and logged, so a failing task does not stop the scheduler.
 
@@ -28,7 +28,7 @@ async with micro:
 ```
 
 !!! warning "Per-process by default"
-    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](sync.md#task-lock) or [`LeaderElection`](sync.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.interval(...)` three times per tick.
+    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](coordination.md#task-lock) or [`LeaderElection`](coordination.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.interval(...)` three times per tick.
 
 !!! note
     This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
@@ -83,7 +83,7 @@ Use the `interval` decorator to run a task at a fixed interval:
 
 ### Distributed Lock
 
-Set `max_lock_seconds` to enable distributed locking: the task runs at most once per interval across all workers. This uses a built-in [`TaskLock`](sync.md#task-lock) automatically.
+Set `max_lock_seconds` to enable distributed locking: the task runs at most once per interval across all workers. This uses a built-in [`TaskLock`](coordination.md#task-lock) automatically.
 
 ```python
 --8<-- "task/interval_lock.py"
@@ -97,7 +97,7 @@ Set `max_lock_seconds` to enable distributed locking: the task runs at most once
 
 ### Leader Gating
 
-Restrict the task to the leader worker with a [Leader Election](sync.md#leader-election), so only one worker executes it. Setting `leader` also enables distributed locking, with `max_lock_seconds` defaulting to `seconds * 5`:
+Restrict the task to the leader worker with a [Leader Election](coordination.md#leader-election), so only one worker executes it. Setting `leader` also enables distributed locking, with `max_lock_seconds` defaulting to `seconds * 5`:
 
 ```python
 --8<-- "task/interval_leader.py"
@@ -113,7 +113,7 @@ For long-running tasks, customize both `max_lock_seconds` and `min_lock_seconds`
 
 ### Resource Lock
 
-Combine distributed locking with a [`Lock`](sync.md#lock) to synchronize access to a shared resource during task execution. Pass the `Lock` via the `sync` parameter:
+Combine distributed locking with a [`Lock`](coordination.md#lock) to synchronize access to a shared resource during task execution. Pass the `Lock` via the `sync` parameter:
 
 ```python
 --8<-- "task/interval_lock_resource.py"
@@ -132,9 +132,9 @@ When combining leader gating, distributed locking, and a resource lock, the sync
 
 | Order | Primitive | Purpose |
 |-------|-----------|---------|
-| 1 | [`LeaderElection`](sync.md#leader-election) | Rejects non-leader workers immediately without acquiring any lock, which avoids unnecessary contention. |
-| 2 | [`TaskLock`](sync.md#task-lock) | Guarantees at-most-once execution per interval. It is acquired after leadership is confirmed so the TTL window stays short. |
-| 3 | [`Lock`](sync.md#lock) | User-provided lock for shared-resource access. It is acquired last so the resource is held only during actual execution. |
+| 1 | [`LeaderElection`](coordination.md#leader-election) | Rejects non-leader workers immediately without acquiring any lock, which avoids unnecessary contention. |
+| 2 | [`TaskLock`](coordination.md#task-lock) | Guarantees at-most-once execution per interval. It is acquired after leadership is confirmed so the TTL window stays short. |
+| 3 | [`Lock`](coordination.md#lock) | User-provided lock for shared-resource access. It is acquired last so the resource is held only during actual execution. |
 
 Each primitive is only acquired if the previous one succeeded. For example, a non-leader worker is rejected at step 1 and never touches the task lock or resource lock.
 
@@ -155,4 +155,4 @@ Then include the `TaskRouter` into the `Tasks` or other routers:
 !!! tip
     The `TaskRouter` follows the same philosophy as the `APIRouter` in FastAPI or the **Router** in FastStream.
 
-See [Synchronization Primitives](sync.md) for more details.
+See [Coordination primitives](coordination.md) for more details.

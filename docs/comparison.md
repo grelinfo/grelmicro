@@ -8,8 +8,6 @@ Most Python libraries in this space are **point solutions**: one library for cac
 
 If you only need a single Pattern, a focused library is often the right pick and this page will say so. If you need two or more, the toolkit story wins by removing four or five config dialects from your codebase.
 
-Tone: factual. Where the focused alternative is the better fit, this page says so.
-
 ## What should I pick?
 
 A short decision tree before the detailed tables:
@@ -24,9 +22,9 @@ A short decision tree before the detailed tables:
 
 | If you only need this | Use this | Pick grelmicro when you also need |
 |---|---|---|
-| Async cache decorator over Redis | [`aiocache`](https://github.com/aio-libs/aiocache) or [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | Three-layer stampede menu (`stampede="local"`/`"distributed"`, `early=`), type-safe `TTLCache[T]`, Postgres backend |
+| Async cache decorator over Redis | [`aiocache`](https://github.com/aio-libs/aiocache) or [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | Stampede protection (`lock=True` folds misses across replicas, `early=` XFetch refresh), type-safe `TTLCache[T]`, Postgres backend |
 | FastAPI rate limiter | [`slowapi`](https://github.com/laurentS/slowapi) or [`fastapi-limiter`](https://github.com/long2ice/fastapi-limiter) | Sliding-window algorithm, structured `RateLimitResult` for retry-after headers, swap Memory and Redis with the same API |
-| Async circuit breaker | [`pybreaker`](https://github.com/danielfm/pybreaker) or [`aiobreaker`](https://github.com/arlyon/aiobreaker) | Reconfigurable thresholds, frozen Pydantic config, structured logging context, distributed backend (planned, see [#163](https://github.com/grelinfo/grelmicro/issues/163)) |
+| Async circuit breaker | [`pybreaker`](https://github.com/danielfm/pybreaker) or [`aiobreaker`](https://github.com/arlyon/aiobreaker) | Reconfigurable thresholds, frozen Pydantic config, structured logging context, fleet-wide state on Redis or Postgres |
 | Retry with `@retry(stop=, wait=)` | [`tenacity`](https://github.com/jd/tenacity) | A `Retry` that shares the same config + reconfigure shape as the rest of grelmicro |
 | Redis distributed lock | [`aioredlock`](https://github.com/joanvila/aioredlock) | Same Lock primitive across Redis, PostgreSQL, SQLite, Kubernetes, in-memory. Adapter-agnostic protocol |
 | `/healthz` endpoint | hand-rolled FastAPI handler | Concurrent check execution, per-check TTL cache, `/livez` + `/readyz` + `/healthz` triple, critical vs non-critical, FastAPI router included |
@@ -42,9 +40,9 @@ What you get from a single import:
 | Distributed lock | `Lock` | Redis, PostgreSQL, SQLite, Kubernetes Lease, Memory |
 | Leader election | `LeaderElection` | same as `Lock` |
 | Scheduled-task lock | `TaskLock` | same as `Lock` |
-| Cache decorator + TTL store | `Cache`, `TTLCache[T]`, `@cached` | Redis, Memory (Postgres planned) |
-| Rate limiter | `RateLimiter` (token bucket, sliding window) | Redis, Memory |
-| Circuit breaker | `CircuitBreaker` | Redis, Memory |
+| Cache decorator + TTL store | `Cache`, `TTLCache[T]`, `@cached` | Redis, Memory, Postgres |
+| Rate limiter | `RateLimiter` (token bucket, sliding window) | Redis, Memory, Postgres, SQLite |
+| Circuit breaker | `CircuitBreaker` | Redis, Memory, Postgres |
 | Retry | `Retry`, `@retry` | n/a (in-process) |
 | Health checks | `HealthChecks` + `/livez` `/readyz` `/healthz` router | n/a |
 | Scheduled tasks | `Tasks`, `TaskRouter`, `@interval` | n/a |
@@ -55,7 +53,7 @@ All of them share:
 
 - **One config contract.** Every Pattern reads `GREL_{PATTERN}_{NAME}_*` env vars, or accepts a kwargs constructor, or accepts a Pydantic `Config`. Three paths, identical shape across Patterns.
 - **One lifecycle.** `async with Grelmicro(uses=[...]):` opens every backend, every component, every Pattern. No per-library `startup()`/`shutdown()` ceremony.
-- **One Redis / Postgres / SQLite client.** Cache, Lock, RateLimiter on the same Redis don't open three connections. The shared client is a Provider; Patterns receive Adapters.
+- **One Redis / Postgres / SQLite client.** Cache, Lock, RateLimiter on the same Redis don't open three connections. The shared client is a Provider. Patterns receive Adapters.
 - **One reconfigure protocol.** Every Pattern that owns runtime thresholds (`CircuitBreaker`, `RateLimiter`, `Retry`, `Lock`) supports `reconfigure(new_config)` without restart.
 - **One logging context.** Every Pattern logs through the same structured format, with the same field names.
 
@@ -72,7 +70,7 @@ If you build microservices on FastAPI today, grelmicro is the missing batteries.
 | Backends | Memory, Redis, Memcached | Memory, Redis, Memcached, DynamoDB | Memory, Redis, Postgres |
 | Decorator | `@cached` | `@cache` | `@cached` |
 | Type-safe `Cache[T]` | no | no | yes (`TTLCache[T]` plus `PydanticSerializer(T)`) |
-| Stampede protection | local lock via `lock_value` | none | three-layer menu: `stampede="local"` (default), `stampede="distributed"` (cross-replica), `early=` (XFetch refresh) |
+| Stampede protection | local lock via `lock_value` | none | `lock=True` (folds across replicas when a `Coordination` backend is set), `lock="local"` (in-process only), `early=` (XFetch refresh) |
 | Serializers | several built-in | json, binary | `JsonSerializer`, `PydanticSerializer`, `PickleSerializer` |
 | FastAPI integration | manual | first-class | works with any async framework, no FastAPI coupling |
 
@@ -85,7 +83,7 @@ Cap requests per window with token bucket or sliding window, per key.
 | Axis | [`slowapi`](https://github.com/laurentS/slowapi) | [`fastapi-limiter`](https://github.com/long2ice/fastapi-limiter) | [`aiolimiter`](https://github.com/mjpieters/aiolimiter) | grelmicro `RateLimiter` |
 |---|---|---|---|---|
 | Algorithm | fixed/sliding window | fixed window | token bucket | token bucket, sliding window |
-| Backends | Memory, Redis, Memcached, MongoDB | Redis only | in-process only | Memory, Redis (Postgres + SQLite at 1.0, see [#164](https://github.com/grelinfo/grelmicro/issues/164), [#173](https://github.com/grelinfo/grelmicro/issues/173)) |
+| Backends | Memory, Redis, Memcached, MongoDB | Redis only | in-process only | Memory, Redis, Postgres, SQLite |
 | Async-first | partial (Flask-Limiter port) | yes | yes | yes |
 | Result shape for retry-after | string parsing | string parsing | none | `RateLimitResult(allowed, limit, remaining, retry_after, reset_after)` |
 | Reconfigurable at runtime | no | no | no | yes (`reconfigure(new_config)`) |
@@ -100,12 +98,12 @@ Half-open / open / closed states, with thresholds and ignore lists.
 | Axis | [`pybreaker`](https://github.com/danielfm/pybreaker) | [`aiobreaker`](https://github.com/arlyon/aiobreaker) | grelmicro `CircuitBreaker` |
 |---|---|---|---|
 | Async-first | sync-first, has async wrapper | yes | yes |
-| Storage | in-memory, Redis (via plugin) | in-memory | in-memory (Memory backend), distributed protocol at 1.0 (see [#163](https://github.com/grelinfo/grelmicro/issues/163)) |
+| Storage | in-memory, Redis (via plugin) | in-memory | in-memory, Redis, Postgres (fleet-wide state) |
 | Decorator + async CM | decorator + sync CM | decorator + async CM | decorator + async CM |
 | Frozen Pydantic config | no | no | yes (`CircuitBreakerConfig`) |
 | Live reconfigure | no | no | yes (`reconfigure(new_config)`) |
 | Structured logging context | no | no | yes (the breaker logs name, state, last_error) |
-| Listener hooks | yes (`add_listener`) | basic | structured logs are first-class, explicit listener API post-1.0 |
+| Listener hooks | yes (`add_listener`) | basic | structured logs are first-class (name, state, last_error) |
 
 Pick `pybreaker` if you have a sync-first codebase or want listener hooks today. Pick `aiobreaker` if you want a small async-only breaker with no other dependencies. Pick grelmicro when you also need a Retry or Lock that shares the same config story, or when you need to swap thresholds at runtime without restart.
 

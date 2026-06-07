@@ -6,10 +6,13 @@ from asyncio import sleep
 import pytest
 from pytest_mock import MockFixture
 
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.leaderelection import LeaderElection
-from grelmicro.sync.lock import Lock
-from grelmicro.sync.memory import MemorySyncAdapter
+from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
+from grelmicro.coordination.leaderelection import LeaderElection
+from grelmicro.coordination.lock import Lock
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionBackend,
+    MemoryLockAdapter,
+)
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
@@ -34,7 +37,7 @@ SLEEP = 0.01
 def test_interval_task_with_lock_init() -> None:
     """Test IntervalTask with lock initialization."""
     # Arrange
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
         seconds=1, function=test1, max_lock_seconds=5, backend=backend
@@ -46,7 +49,7 @@ def test_interval_task_with_lock_init() -> None:
 def test_interval_task_with_lock_init_with_name() -> None:
     """Test IntervalTask with lock initialization with name."""
     # Arrange
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
         seconds=1,
@@ -62,7 +65,7 @@ def test_interval_task_with_lock_init_with_name() -> None:
 def test_interval_task_with_lock_init_invalid_seconds() -> None:
     """Test IntervalTask with lock initialization with invalid seconds."""
     # Arrange
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     # Act / Assert
     with pytest.raises(ValueError, match="seconds must be greater than 0"):
         IntervalTask(
@@ -73,8 +76,10 @@ def test_interval_task_with_lock_init_invalid_seconds() -> None:
 def test_interval_task_with_lock_default_max_lock_seconds() -> None:
     """Test IntervalTask with leader uses default max_lock_seconds."""
     # Arrange
-    backend = MemorySyncAdapter()
-    leader = LeaderElection("test-leader", backend=backend)
+    backend = MemoryLockAdapter()
+    leader = LeaderElection(
+        "test-leader", backend=MemoryLeaderElectionBackend()
+    )
     # Act - leader implies lock, max_lock_seconds defaults to interval * 5
     task = IntervalTask(
         seconds=10, function=test1, leader=leader, backend=backend
@@ -86,7 +91,7 @@ def test_interval_task_with_lock_default_max_lock_seconds() -> None:
 def test_interval_task_with_lock_custom_max_lock_seconds() -> None:
     """Test IntervalTask with custom max_lock_seconds."""
     # Arrange
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
         seconds=10, function=test1, max_lock_seconds=100, backend=backend
@@ -98,7 +103,7 @@ def test_interval_task_with_lock_custom_max_lock_seconds() -> None:
 def test_interval_task_with_max_lock_seconds_validation() -> None:
     """Test IntervalTask max_lock_seconds validation."""
     # Arrange
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     # Act / Assert
     with pytest.raises(
         ValueError,
@@ -120,7 +125,7 @@ def test_interval_task_min_lock_seconds_without_lock() -> None:
 
 def test_interval_task_min_lock_seconds_validation() -> None:
     """Test min_lock_seconds must be <= max_lock_seconds."""
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     with pytest.raises(
         ValueError,
         match="min_lock_seconds must be less than or equal to max_lock_seconds",
@@ -135,7 +140,7 @@ def test_interval_task_min_lock_seconds_validation() -> None:
 
 
 async def test_interval_task_with_lock_and_resource_lock(
-    backend: SyncBackend,
+    backend: LockBackend,
 ) -> None:
     """Test IntervalTask with Lock (resource sync) + distributed lock."""
     resource_lock = Lock(name="shared-resource", backend=backend)
@@ -155,7 +160,7 @@ async def test_interval_task_with_lock_and_resource_lock(
 
 def test_interval_task_custom_min_lock_seconds() -> None:
     """Test IntervalTask with custom min_lock_seconds."""
-    backend = MemorySyncAdapter()
+    backend = MemoryLockAdapter()
     # Act - should not raise
     task = IntervalTask(
         seconds=10,
@@ -167,7 +172,7 @@ def test_interval_task_custom_min_lock_seconds() -> None:
     assert task.name == "tests.task.samples:test1"
 
 
-async def test_interval_task_with_lock_start(backend: SyncBackend) -> None:
+async def test_interval_task_with_lock_start(backend: LockBackend) -> None:
     """Test IntervalTask with lock start."""
     # Arrange
     task = IntervalTask(
@@ -185,7 +190,7 @@ async def test_interval_task_with_lock_start(backend: SyncBackend) -> None:
 
 
 async def test_interval_task_with_lock_execution_error(
-    backend: SyncBackend,
+    backend: LockBackend,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test IntervalTask with lock execution error."""
@@ -211,7 +216,7 @@ async def test_interval_task_with_lock_execution_error(
 
 
 async def test_interval_task_with_lock_synchronization_error(
-    backend: SyncBackend,
+    backend: LockBackend,
     caplog: pytest.LogCaptureFixture,
     mocker: MockFixture,
 ) -> None:
@@ -242,7 +247,7 @@ async def test_interval_task_with_lock_synchronization_error(
 
 
 async def test_interval_task_with_lock_stop(
-    backend: SyncBackend,
+    backend: LockBackend,
     caplog: pytest.LogCaptureFixture,
     mocker: MockFixture,
 ) -> None:
@@ -285,11 +290,14 @@ async def test_interval_task_with_lock_stop(
 
 
 async def test_interval_task_with_leader_executes(
-    backend: SyncBackend,
+    backend: LockBackend,
+    leader_backend: LeaderElectionBackend,
 ) -> None:
     """Test IntervalTask executes when worker is leader."""
     # Arrange
-    leader = LeaderElection("test-leader", backend=backend, worker="worker_1")
+    leader = LeaderElection(
+        "test-leader", backend=leader_backend, worker="worker_1"
+    )
     task = IntervalTask(
         seconds=SECONDS,
         function=samples.set_event_1,
@@ -308,14 +316,19 @@ async def test_interval_task_with_leader_executes(
 
 
 async def test_interval_task_with_leader_skips_when_not_leader(
-    backend: SyncBackend,
+    backend: LockBackend,
+    leader_backend: LeaderElectionBackend,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test IntervalTask skips when worker is not leader."""
     # Arrange
     caplog.set_level("DEBUG")
-    leader_1 = LeaderElection("test-leader", backend=backend, worker="worker_1")
-    leader_2 = LeaderElection("test-leader", backend=backend, worker="worker_2")
+    leader_1 = LeaderElection(
+        "test-leader", backend=leader_backend, worker="worker_1"
+    )
+    leader_2 = LeaderElection(
+        "test-leader", backend=leader_backend, worker="worker_2"
+    )
     task = IntervalTask(
         seconds=SECONDS,
         function=samples.set_event_1,

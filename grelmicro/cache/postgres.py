@@ -12,6 +12,7 @@ from typing_extensions import Doc
 from grelmicro.providers.postgres import PostgresProvider
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from types import TracebackType
 
 
@@ -20,8 +21,14 @@ class PostgresCacheAdapter:
 
     Wraps a `PostgresProvider` and implements the cache protocol:
     `get`, `set` (with per-entry TTL via `expires_at`), `delete`,
-    and a prefix-scoped `clear`. Entries live in a single table
-    keyed on `key` with `value BYTEA` and `expires_at TIMESTAMPTZ`.
+    batch operations, tag-based invalidation, and a prefix-scoped
+    `clear`. Entries live in a single table keyed on `key` with
+    `value BYTEA` and `expires_at TIMESTAMPTZ`.
+
+    Tags live in a companion table that maps each key to its tags. A
+    foreign key with `ON DELETE CASCADE` removes a key's tag rows
+    whenever the key row goes away, so deleting by tag, by key, or by
+    janitor never leaves an orphan tag row behind.
 
     Pass an explicit `provider=` to share a pool with other
     components, or rely on the default `env_prefix=` to build one
@@ -51,10 +58,22 @@ class PostgresCacheAdapter:
         );
         CREATE INDEX IF NOT EXISTS {table_name}_expires_at_idx
             ON {table_name} (expires_at);
+        CREATE TABLE IF NOT EXISTS {table_name}_tags (
+            key TEXT REFERENCES {table_name} (key) ON DELETE CASCADE,
+            tag TEXT,
+            PRIMARY KEY (key, tag)
+        );
+        CREATE INDEX IF NOT EXISTS {table_name}_tags_tag_idx
+            ON {table_name}_tags (tag);
     """
 
     _SQL_GET = (
         "SELECT value FROM {table_name} WHERE key = $1 AND expires_at > NOW();"
+    )
+
+    _SQL_GET_MANY = (
+        "SELECT key, value FROM {table_name} "
+        "WHERE key = ANY($1) AND expires_at > NOW();"
     )
 
     _SQL_SET = (
@@ -64,7 +83,21 @@ class PostgresCacheAdapter:
         "SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at;"
     )
 
+    _SQL_DELETE_TAGS_OF_KEY = "DELETE FROM {table_name}_tags WHERE key = $1;"
+
+    _SQL_INSERT_TAG = (
+        "INSERT INTO {table_name}_tags (key, tag) VALUES ($1, $2) "
+        "ON CONFLICT (key, tag) DO NOTHING;"
+    )
+
     _SQL_DELETE = "DELETE FROM {table_name} WHERE key = $1;"
+
+    _SQL_DELETE_MANY = "DELETE FROM {table_name} WHERE key = ANY($1);"
+
+    _SQL_DELETE_BY_TAGS = (
+        "DELETE FROM {table_name} WHERE key IN "
+        "(SELECT key FROM {table_name}_tags WHERE tag = ANY($1));"
+    )
 
     _SQL_CLEAR_PREFIX = "DELETE FROM {table_name} WHERE key LIKE $1;"
 
@@ -153,8 +186,21 @@ class PostgresCacheAdapter:
         self._auto_migrate = auto_migrate
         self._cleanup_interval = cleanup_interval
         self._get_sql = self._SQL_GET.format(table_name=table_name)
+        self._get_many_sql = self._SQL_GET_MANY.format(table_name=table_name)
         self._set_sql = self._SQL_SET.format(table_name=table_name)
+        self._delete_tags_of_key_sql = self._SQL_DELETE_TAGS_OF_KEY.format(
+            table_name=table_name
+        )
+        self._insert_tag_sql = self._SQL_INSERT_TAG.format(
+            table_name=table_name
+        )
         self._delete_sql = self._SQL_DELETE.format(table_name=table_name)
+        self._delete_many_sql = self._SQL_DELETE_MANY.format(
+            table_name=table_name
+        )
+        self._delete_by_tags_sql = self._SQL_DELETE_BY_TAGS.format(
+            table_name=table_name
+        )
         self._clear_prefix_sql = self._SQL_CLEAR_PREFIX.format(
             table_name=table_name
         )
@@ -211,25 +257,95 @@ class PostgresCacheAdapter:
         )
         return row["value"] if row is not None else None
 
-    async def set(self, *, key: str, value: bytes, ttl: float) -> None:
-        """Store raw bytes with a TTL in seconds."""
-        await self._provider.client.execute(
-            self._set_sql,
-            f"{self._key_prefix}{key}",
-            value,
-            float(ttl),
-        )
+    async def set(
+        self,
+        *,
+        key: str,
+        value: bytes,
+        ttl: float,
+        tags: Sequence[str] = (),
+    ) -> None:
+        """Store raw bytes with a TTL in seconds and optional tags.
+
+        The value upsert and the tag rows commit in one transaction.
+        """
+        full_key = f"{self._key_prefix}{key}"
+        async with self._provider.client.acquire() as conn, conn.transaction():
+            await conn.execute(self._set_sql, full_key, value, float(ttl))
+            await conn.execute(self._delete_tags_of_key_sql, full_key)
+            if tags:
+                await conn.executemany(
+                    self._insert_tag_sql,
+                    [(full_key, tag) for tag in tags],
+                )
+
+    async def get_many(self, *, keys: Sequence[str]) -> dict[str, bytes]:
+        """Get raw bytes for many keys, returning only found entries."""
+        full_keys = [f"{self._key_prefix}{key}" for key in keys]
+        if not full_keys:
+            return {}
+        rows = await self._provider.client.fetch(self._get_many_sql, full_keys)
+        plen = len(self._key_prefix)
+        return {row["key"][plen:]: row["value"] for row in rows}
+
+    async def set_many(
+        self,
+        *,
+        items: Mapping[str, bytes],
+        ttl: float,
+        tags: Sequence[str] = (),
+    ) -> None:
+        """Store many keys with one TTL and optional tags.
+
+        Every value upsert and its tag rows commit in one transaction.
+        """
+        if not items:
+            return
+        ttl_f = float(ttl)
+        async with self._provider.client.acquire() as conn, conn.transaction():
+            for key, value in items.items():
+                full_key = f"{self._key_prefix}{key}"
+                await conn.execute(self._set_sql, full_key, value, ttl_f)
+                await conn.execute(self._delete_tags_of_key_sql, full_key)
+                if tags:
+                    await conn.executemany(
+                        self._insert_tag_sql,
+                        [(full_key, tag) for tag in tags],
+                    )
 
     async def delete(self, *, key: str) -> None:
-        """Delete a key (no-op if absent)."""
+        """Delete a key (no-op if absent).
+
+        The cascade removes the key's tag rows.
+        """
         await self._provider.client.execute(
             self._delete_sql, f"{self._key_prefix}{key}"
+        )
+
+    async def delete_many(self, *, keys: Sequence[str]) -> None:
+        """Delete many keys. The cascade removes their tag rows."""
+        full_keys = [f"{self._key_prefix}{key}" for key in keys]
+        if not full_keys:
+            return
+        await self._provider.client.execute(self._delete_many_sql, full_keys)
+
+    async def delete_tags(self, *, tags: Sequence[str]) -> None:
+        """Delete every key associated with any of the given tags.
+
+        One statement deletes the matching value rows, and the cascade
+        cleans their tag rows.
+        """
+        if not tags:
+            return
+        await self._provider.client.execute(
+            self._delete_by_tags_sql, list(tags)
         )
 
     async def clear(self) -> None:
         """Remove all entries matching the configured prefix.
 
-        Falls back to a full table delete when no prefix is set.
+        Falls back to a full table delete when no prefix is set. The
+        cascade cleans the matching tag rows.
         """
         if self._key_prefix:
             await self._provider.client.execute(

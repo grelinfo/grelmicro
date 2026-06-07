@@ -6,6 +6,7 @@ implementation. Concrete backends (`RedisCacheAdapter`,
 `MemoryCacheAdapter`, `PostgresCacheAdapter`) provide the bodies.
 """
 
+from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import Annotated, Protocol, Self, runtime_checkable
 
@@ -70,8 +71,49 @@ class CacheBackend(Protocol):
                 " this many seconds have elapsed since the write."
             ),
         ],
+        tags: Annotated[
+            Sequence[str],
+            Doc(
+                "Tags to associate with the key. The backend writes the value"
+                " and the tag membership in one atomic operation."
+            ),
+        ] = (),
     ) -> None:
-        """Store raw bytes with a TTL in seconds."""
+        """Store raw bytes with a TTL in seconds and optional tags."""
+        ...
+
+    async def get_many(
+        self,
+        *,
+        keys: Annotated[
+            Sequence[str],
+            Doc("Fully qualified cache keys to read."),
+        ],
+    ) -> dict[str, bytes]:
+        """Get raw bytes for many keys at once.
+
+        Returns a dict holding only the keys that were found. Missing or
+        expired keys are absent from the result.
+        """
+        ...
+
+    async def set_many(
+        self,
+        *,
+        items: Annotated[
+            Mapping[str, bytes],
+            Doc("Fully qualified key to serialized payload."),
+        ],
+        ttl: Annotated[
+            float,
+            Doc("Time-to-live in seconds applied to every written key."),
+        ],
+        tags: Annotated[
+            Sequence[str],
+            Doc("Tags to associate with every written key."),
+        ] = (),
+    ) -> None:
+        """Store many keys with one TTL and optional tags."""
         ...
 
     async def delete(
@@ -82,7 +124,29 @@ class CacheBackend(Protocol):
             Doc("Fully qualified cache key. No-op if absent."),
         ],
     ) -> None:
-        """Delete a key (no-op if absent)."""
+        """Delete a key and clean its tag membership (no-op if absent)."""
+        ...
+
+    async def delete_many(
+        self,
+        *,
+        keys: Annotated[
+            Sequence[str],
+            Doc("Fully qualified cache keys to delete."),
+        ],
+    ) -> None:
+        """Delete many keys and clean their tag membership."""
+        ...
+
+    async def delete_tags(
+        self,
+        *,
+        tags: Annotated[
+            Sequence[str],
+            Doc("Tags whose every member key should be deleted."),
+        ],
+    ) -> None:
+        """Delete every key associated with any of the given tags."""
         ...
 
     async def clear(self) -> None:
