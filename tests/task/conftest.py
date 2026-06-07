@@ -6,9 +6,12 @@ from collections.abc import AsyncGenerator, Callable
 
 import pytest
 
-from grelmicro.sync.abc import SyncBackend
-from grelmicro.sync.memory import MemorySyncAdapter
-from grelmicro.sync.tasklock import TaskLock
+from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionBackend,
+    MemoryLockAdapter,
+)
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 
@@ -22,7 +25,7 @@ def _create_task_deprecated_api(
     seconds: float,
     function: Callable[..., object],
     name: str,
-    backend: SyncBackend,
+    backend: LockBackend,
     worker: str,
     min_lock_seconds: float,
     max_lock_seconds: float,
@@ -50,7 +53,7 @@ def _create_task_new_api(
     seconds: float,
     function: Callable[..., object],
     name: str,
-    backend: SyncBackend,
+    backend: LockBackend,
     worker: str,
     min_lock_seconds: float,
     max_lock_seconds: float,
@@ -76,9 +79,16 @@ def task_factory(request: pytest.FixtureRequest) -> TaskFactory:
 
 
 @pytest.fixture
-async def backend() -> AsyncGenerator[SyncBackend]:
+async def backend() -> AsyncGenerator[LockBackend]:
     """Return Memory Synchronization Backend."""
-    async with MemorySyncAdapter() as backend:
+    async with MemoryLockAdapter() as backend:
+        yield backend
+
+
+@pytest.fixture
+async def leader_backend() -> AsyncGenerator[LeaderElectionBackend]:
+    """Return Memory Leader Election Backend."""
+    async with MemoryLeaderElectionBackend() as backend:
         yield backend
 
 

@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from pathlib import Path
     from types import TracebackType
 
+    from grelmicro.coordination.sqlite import SQLiteLockAdapter
     from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
-    from grelmicro.sync.sqlite import SQLiteSyncAdapter
 
 
 class SQLiteConfig(BaseModel):
@@ -191,7 +191,7 @@ class SQLiteProvider(Provider):
         return self._conn
 
     @property
-    def lock(self) -> asyncio.Lock:
+    def connection_lock(self) -> asyncio.Lock:
         """Shared lock serializing access to the single connection."""
         return self._lock
 
@@ -203,14 +203,16 @@ class SQLiteProvider(Provider):
 
         return SQLiteRateLimiterAdapter(provider=self, **kwargs)
 
-    def sync(self, **kwargs: Any) -> SQLiteSyncAdapter:  # noqa: ANN401
-        """Build a `SQLiteSyncAdapter` for this provider's path.
+    def lock(self, **kwargs: Any) -> SQLiteLockAdapter:  # noqa: ANN401
+        """Build a `SQLiteLockAdapter` for this provider's path.
 
-        The sync adapter opens its own connection to the same file.
+        The lock adapter opens its own connection to the same file.
         """
-        from grelmicro.sync.sqlite import SQLiteSyncAdapter  # noqa: PLC0415
+        from grelmicro.coordination.sqlite import (  # noqa: PLC0415
+            SQLiteLockAdapter,
+        )
 
-        return SQLiteSyncAdapter(self._path, **kwargs)
+        return SQLiteLockAdapter(self._path, **kwargs)
 
     async def __aenter__(self) -> Self:
         """Open the connection when the provider owns it."""

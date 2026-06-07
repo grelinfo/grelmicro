@@ -71,6 +71,7 @@ nav:
     - json.md
     - logging.md
     - tracing.md
+    - metrics.md
     - Resilience:
         - resilience/index.md
         - resilience/shield.md
@@ -81,16 +82,18 @@ nav:
         - resilience/retry.md
         - resilience/timeout.md
         - resilience/composition.md
-    - sync.md
+    - coordination.md
     - task.md
 - API Reference:
     - reference/cache.md
     - reference/health.md
     - reference/json.md
     - reference/logging.md
+    - reference/metrics.md
     - reference/resilience.md
-    - reference/sync.md
+    - reference/coordination.md
     - reference/task.md
+    - reference/testing.md
     - reference/trace.md
 - Architecture:
     - architecture/index.md
@@ -102,7 +105,7 @@ nav:
     - architecture/plugins.md
     - architecture/multiple-apps.md
     - architecture/sync-from-thread.md
-    - architecture/sync.md
+    - architecture/coordination.md
     - architecture/graceful-shutdown.md
     - architecture/kubernetes.md
     - architecture/sqlite.md

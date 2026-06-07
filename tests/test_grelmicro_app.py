@@ -389,7 +389,7 @@ async def test_use_partial_startup_failure_unwinds() -> None:
 def test_runtime_type_hints_resolve_without_loading_submodules() -> None:
     """`typing.get_type_hints(Grelmicro)` does not raise even with TYPE_CHECKING imports.
 
-    The runtime fallback `Cache = Any` / `Sync = Any` keeps `sync` / `cache`
+    The runtime fallback `Cache = Any` / `Coordination = Any` keeps `coordination` / `cache`
     property annotations resolvable for docs tooling and frameworks that
     introspect annotations.
     """
@@ -517,8 +517,8 @@ async def test_provider_public_export() -> None:
     assert issubclass(RedisProvider, Provider)
 
 
-async def test_provider_base_sync_raises_not_implemented() -> None:
-    """`Provider.sync()` raises when a subclass does not override it."""
+async def test_provider_base_lock_raises_not_implemented() -> None:
+    """`Provider.lock()` raises when a subclass does not override it."""
     from grelmicro.providers import Provider  # noqa: PLC0415
 
     class _BareProvider(Provider):
@@ -536,19 +536,42 @@ async def test_provider_base_sync_raises_not_implemented() -> None:
             return None
 
     bare = _BareProvider()
-    with pytest.raises(NotImplementedError, match="no sync adapter"):
-        bare.sync()
+    with pytest.raises(NotImplementedError, match="no lock adapter"):
+        bare.lock()
+
+
+async def test_provider_base_leader_election_raises_not_implemented() -> None:
+    """`Provider.leader_election()` raises when a subclass does not override it."""
+    from grelmicro.providers import Provider  # noqa: PLC0415
+
+    class _BareProvider(Provider):
+        short_name = "bare"
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            return None
+
+    bare = _BareProvider()
+    with pytest.raises(NotImplementedError, match="no leader election adapter"):
+        bare.leader_election()
 
 
 async def test_warns_when_component_provider_not_in_uses(
     recwarn: pytest.WarningsRecorder,
 ) -> None:
-    """`Sync(redis)` without `redis` in `uses=` warns at startup."""
+    """`Coordination(redis)` without `redis` in `uses=` warns at startup."""
+    from grelmicro.coordination import Coordination  # noqa: PLC0415
     from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
 
     redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[Sync(redis)])
+    micro = Grelmicro(uses=[Coordination(redis)])
     async with micro:
         pass
 
@@ -562,12 +585,12 @@ async def test_warns_when_component_provider_not_in_uses(
 async def test_no_warning_when_provider_in_uses(
     recwarn: pytest.WarningsRecorder,
 ) -> None:
-    """`Sync(redis)` with `redis` in `uses=` does not warn."""
+    """`Coordination(redis)` with `redis` in `uses=` does not warn."""
+    from grelmicro.coordination import Coordination  # noqa: PLC0415
     from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
 
     redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[redis, Sync(redis)])
+    micro = Grelmicro(uses=[redis, Coordination(redis)])
     async with micro:
         pass
 
@@ -582,11 +605,11 @@ async def test_warns_when_provider_listed_after_component(
     recwarn: pytest.WarningsRecorder,
 ) -> None:
     """A provider listed after the Component triggers the ordering warning."""
+    from grelmicro.coordination import Coordination  # noqa: PLC0415
     from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
 
     redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[Sync(redis), redis])
+    micro = Grelmicro(uses=[Coordination(redis), redis])
     async with micro:
         pass
 
@@ -598,11 +621,11 @@ async def test_warns_when_provider_listed_after_component(
 
 async def test_strict_raises_when_provider_missing_from_uses() -> None:
     """`strict=True` turns the missing-provider warning into an error."""
+    from grelmicro.coordination import Coordination  # noqa: PLC0415
     from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
 
     redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[Sync(redis)], strict=True)
+    micro = Grelmicro(uses=[Coordination(redis)], strict=True)
     with pytest.raises(LifecycleOrderError, match="not listed in"):
         async with micro:
             pass
@@ -610,11 +633,11 @@ async def test_strict_raises_when_provider_missing_from_uses() -> None:
 
 async def test_strict_raises_when_provider_listed_after_component() -> None:
     """`strict=True` turns the ordering warning into an error."""
+    from grelmicro.coordination import Coordination  # noqa: PLC0415
     from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
 
     redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[Sync(redis), redis], strict=True)
+    micro = Grelmicro(uses=[Coordination(redis), redis], strict=True)
     with pytest.raises(LifecycleOrderError, match="listed after"):
         async with micro:
             pass
@@ -622,11 +645,11 @@ async def test_strict_raises_when_provider_listed_after_component() -> None:
 
 async def test_strict_accepts_well_ordered_app() -> None:
     """`strict=True` is a no-op when provider/component order is correct."""
+    from grelmicro.coordination import Coordination  # noqa: PLC0415
     from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-    from grelmicro.sync import Sync  # noqa: PLC0415
 
     redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[redis, Sync(redis)], strict=True)
+    micro = Grelmicro(uses=[redis, Coordination(redis)], strict=True)
     async with micro:
         pass
 

@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 
-class MongoSyncAdapter:
-    """A `SyncBackend` backed by MongoDB (stubbed)."""
+class MongoLockAdapter:
+    """A `LockBackend` backed by MongoDB (stubbed)."""
 
     def __init__(self, provider: MongoProvider) -> None:
         """Bind the adapter to the provider it borrows."""
@@ -36,8 +36,14 @@ class MongoSyncAdapter:
     ) -> None:
         """Close the adapter."""
 
-    async def acquire(self, *, name: str, token: str, duration: float) -> bool:
-        """Acquire the lock (implement with a MongoDB upsert + TTL index)."""
+    async def acquire(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire the lock (implement with a MongoDB upsert + TTL index).
+
+        Returns the fencing token when granted, `None` when another token
+        already holds the lock.
+        """
         raise NotImplementedError
 
     async def release(self, *, name: str, token: str) -> bool:
@@ -62,9 +68,9 @@ class MongoProvider(Provider):
         """Store the connection URL (open the real client in `__aenter__`)."""
         self._url = url
 
-    def sync(self, **kwargs: Any) -> MongoSyncAdapter:  # noqa: ANN401, ARG002
-        """Build the matching sync adapter bound to this provider."""
-        return MongoSyncAdapter(self)
+    def lock(self, **kwargs: Any) -> MongoLockAdapter:  # noqa: ANN401, ARG002
+        """Build the matching lock adapter bound to this provider."""
+        return MongoLockAdapter(self)
 
     async def __aenter__(self) -> Self:
         """Open the MongoDB client."""

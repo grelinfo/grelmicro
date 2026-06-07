@@ -43,7 +43,7 @@ class Component(
     closes them in reverse order on exit.
 
     Attributes:
-        kind: Stable identifier for the component category (`"sync"`,
+        kind: Stable identifier for the component category (`"coordination"`,
             `"cache"`, `"task"`, `"health"`, ...). The app exposes the
             component on `micro.<kind>` after registration.
         name: Registration name. Multiple components of the same `kind` may

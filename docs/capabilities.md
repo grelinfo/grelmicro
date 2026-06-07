@@ -1,14 +1,14 @@
 # Capability matrix
 
-Which Pattern × Adapter combinations ship today, and which gaps the `1.0.0` milestone closes.
+Which Pattern × Adapter combinations ship today, and which gaps remain.
 
-The [roadmap](https://github.com/grelinfo/grelmicro/issues/124) and the [milestones](https://github.com/grelinfo/grelmicro/milestones) carry the live state. This page is the at-a-glance view.
+The [roadmap](https://github.com/grelinfo/grelmicro/issues/124) carries the live state. This page is the at-a-glance view.
 
 ## Vocabulary
 
 - **Pattern**: user-facing class. `Lock`, `LeaderElection`, `TaskLock`, `TTLCache`, `RateLimiter`, `CircuitBreaker`, `Retry`, `Bulkhead`, `Fallback`, `Timeout`.
-- **Adapter**: concrete implementation of a Backend Protocol. `RedisSyncAdapter`, `PostgresSyncAdapter`, `MemoryCacheAdapter`, `SQLiteSyncAdapter`, `KubernetesSyncAdapter`, and so on.
-- **Backend**: the Protocol class an Adapter satisfies. `SyncBackend`, `CacheBackend`, `RateLimiterBackend`, `CircuitBreakerBackend`.
+- **Adapter**: concrete implementation of a Backend Protocol. `RedisLockAdapter`, `PostgresLockAdapter`, `MemoryCacheAdapter`, `SQLiteLockAdapter`, `KubernetesLockAdapter`, and so on.
+- **Backend**: the Protocol class an Adapter satisfies. `LockBackend`, `LeaderElectionBackend`, `CacheBackend`, `RateLimiterBackend`, `CircuitBreakerBackend`.
 - **Provider**: vendor configuration plus native client, shared by Adapters that talk to the same service. `RedisProvider`, `PostgresProvider`, `SQLiteProvider`. Memory and Kubernetes Adapters do not use a Provider.
 
 See [Backends and Adapters](architecture/backends.md) for the full model.
@@ -31,13 +31,8 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 Legend:
 
 - ✅ ships today.
-- `#N` planned for `1.0.0`, tracked by the linked issue.
-- `Future` planned past `1.0.0`.
+- `Future` planned for a later release.
 - `N/A` does not apply. `Retry`, `Bulkhead`, `Fallback`, and `Timeout` are in-process Patterns with no remote state to share.
-
-## What `1.0.0` commits to
-
-Closing every gap above that links to an issue. Anything marked `Future` is out of scope for `1.0.0`.
 
 ## Picking an Adapter
 

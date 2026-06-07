@@ -10,13 +10,14 @@ Adapters use the very same path: there is no special case.
 | Group | Maps | Example |
 |---|---|---|
 | `grelmicro.providers` | a vendor short name to a `Provider` class | `redis = "grelmicro.providers.redis:RedisProvider"` |
-| `grelmicro.{kind}.adapters` | a short name to an Adapter class for one component kind | `redis = "grelmicro.sync.redis:RedisSyncAdapter"` |
+| `grelmicro.{kind}.adapters` | a short name to an Adapter class for one component kind | `redis = "grelmicro.coordination.redis:RedisLockAdapter"` |
 
 A Provider covers the vendor axis: one Provider per vendor. An Adapter covers
 the algorithm axis within a kind, so several adapters can share one Provider
 (a Redis lock and a Redis cache both run on `RedisProvider`).
 
-The component kinds are `sync`, `cache`, `ratelimiter`, and `circuitbreaker`.
+The component kinds are `coordination`, `coordination.election`, `cache`,
+`ratelimiter`, and `circuitbreaker`.
 
 ## Publish a third-party adapter
 
@@ -27,21 +28,21 @@ and the Adapter, then declare them in your package's `pyproject.toml`:
 [project.entry-points."grelmicro.providers"]
 mongo = "grelmicro_mongo:MongoProvider"
 
-[project.entry-points."grelmicro.sync.adapters"]
-mongo = "grelmicro_mongo:MongoSyncAdapter"
+[project.entry-points."grelmicro.coordination.adapters"]
+mongo = "grelmicro_mongo:MongoLockAdapter"
 ```
 
-Once your package is installed alongside grelmicro, the names `mongo` resolve
+Once your package is installed alongside grelmicro, the name `mongo` resolves
 through the same loader grelmicro uses for its own backends. Users wire it up
 exactly like a first-party backend:
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.sync import Sync
+from grelmicro.coordination import Coordination
 from grelmicro_mongo import MongoProvider
 
 mongo = MongoProvider("mongodb://localhost:27017")
-micro = Grelmicro(uses=[Sync(mongo)])
+micro = Grelmicro(uses=[Coordination(mongo)])
 ```
 
 A worked skeleton lives in
@@ -55,7 +56,8 @@ unknown name raises `ProviderNotRegisteredError` or `AdapterNotRegisteredError`
 with the requested name and the names that are installed:
 
 ```text
-No sync adapter registered as 'mongo' in the 'grelmicro.sync.adapters'
-entry-point group. Available: kubernetes, memory, postgres, redis, sqlite.
-Install the package that ships it, or check the name.
+No coordination adapter registered as 'mongo' in the
+'grelmicro.coordination.adapters' entry-point group. Available: kubernetes,
+memory, postgres, redis, sqlite. Install the package that ships it, or check
+the name.
 ```

@@ -12,8 +12,8 @@ docs for the full contract.
 [project.entry-points."grelmicro.providers"]
 mongo = "grelmicro_mongo:MongoProvider"
 
-[project.entry-points."grelmicro.sync.adapters"]
-mongo = "grelmicro_mongo:MongoSyncAdapter"
+[project.entry-points."grelmicro.coordination.adapters"]
+mongo = "grelmicro_mongo:MongoLockAdapter"
 ```
 
 Once installed alongside grelmicro, the short name `mongo` resolves through the
@@ -23,11 +23,11 @@ same loader grelmicro uses for its own backends.
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.sync import Sync
+from grelmicro.coordination import Coordination
 from grelmicro_mongo import MongoProvider
 
 mongo = MongoProvider("mongodb://localhost:27017")
-micro = Grelmicro(uses=[Sync(mongo)])
+micro = Grelmicro(uses=[Coordination(mongo)])
 ```
 
 The lock methods in `grelmicro_mongo.py` are stubs. Implement `acquire`,

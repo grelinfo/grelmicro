@@ -7,12 +7,12 @@ dependencies = ["grelmicro"]
 
 # These entry points are what make `mongo` resolvable by grelmicro. Once this
 # package is installed alongside grelmicro, `load_provider("mongo")` and
-# `load_adapter("sync", "mongo")` find the classes below.
+# `load_adapter("coordination", "mongo")` find the classes below.
 [project.entry-points."grelmicro.providers"]
 mongo = "grelmicro_mongo:MongoProvider"
 
-[project.entry-points."grelmicro.sync.adapters"]
-mongo = "grelmicro_mongo:MongoSyncAdapter"
+[project.entry-points."grelmicro.coordination.adapters"]
+mongo = "grelmicro_mongo:MongoLockAdapter"
 
 [build-system]
 requires = ["hatchling"]

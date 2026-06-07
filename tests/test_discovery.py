@@ -17,7 +17,7 @@ from grelmicro.errors import (
 
 def test_adapter_group_name() -> None:
     """The adapter group name is derived from the component kind."""
-    assert adapter_group("sync") == "grelmicro.sync.adapters"
+    assert adapter_group("coordination") == "grelmicro.coordination.adapters"
 
 
 @pytest.mark.parametrize(
@@ -47,9 +47,11 @@ def test_load_provider_unknown_raises() -> None:
 @pytest.mark.parametrize(
     ("kind", "short_name", "qualname"),
     [
-        ("sync", "memory", "MemorySyncAdapter"),
-        ("sync", "redis", "RedisSyncAdapter"),
-        ("sync", "kubernetes", "KubernetesSyncAdapter"),
+        ("coordination", "memory", "MemoryLockAdapter"),
+        ("coordination", "redis", "RedisLockAdapter"),
+        ("coordination", "kubernetes", "KubernetesLockAdapter"),
+        ("coordination.election", "memory", "MemoryLeaderElectionBackend"),
+        ("coordination.election", "kubernetes", "KubernetesLeaderElectionBackend"),
         ("cache", "postgres", "PostgresCacheAdapter"),
         ("ratelimiter", "sqlite", "SQLiteRateLimiterAdapter"),
         ("circuitbreaker", "memory", "MemoryCircuitBreakerAdapter"),
@@ -65,10 +67,10 @@ def test_load_adapter_resolves_first_party(
 def test_load_adapter_unknown_raises() -> None:
     """An unknown adapter name names the kind, group, and installed names."""
     with pytest.raises(AdapterNotRegisteredError) as exc:
-        load_adapter("sync", "mongo")
+        load_adapter("coordination", "mongo")
     message = str(exc.value)
     assert "'mongo'" in message
-    assert "grelmicro.sync.adapters" in message
+    assert "grelmicro.coordination.adapters" in message
     assert "redis" in message
 
 

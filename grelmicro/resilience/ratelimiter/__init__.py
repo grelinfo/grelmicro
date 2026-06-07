@@ -11,6 +11,7 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable
+from grelmicro.metrics import _emit
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
@@ -364,12 +365,20 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         _validate_cost(cost, _config_limit(config))
         strategy = state.strategy or self._resolve_strategy(state)
         try:
-            return await strategy.acquire(key=self._full_key(key), cost=cost)
+            result = await strategy.acquire(key=self._full_key(key), cost=cost)
         except Exception as exc:
             if config.fail_open:
                 self._log_fail_open(key, exc)
                 return _build_fallback(config)
             raise
+        _emit.incr(
+            "grelmicro.rate_limiter.decisions",
+            **{
+                "rate_limiter.name": self._name,
+                "decision": "allowed" if result.allowed else "limited",
+            },
+        )
+        return result
 
     async def acquire_or_raise(
         self,

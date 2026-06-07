@@ -15,6 +15,7 @@ from typing_extensions import Doc
 from grelmicro._app import Grelmicro, _active_bulkhead
 from grelmicro._component import Component
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
+from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import BulkheadFullError
 
 if TYPE_CHECKING:
@@ -213,6 +214,10 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 async with asyncio.timeout(wait):
                     await semaphore.acquire()
             except TimeoutError:
+                _emit.incr(
+                    "grelmicro.bulkhead.rejections",
+                    **{"bulkhead.name": self._name},
+                )
                 # A semaphore exists only when `max_concurrent` is set,
                 # so the value is never `None` on this branch.
                 raise BulkheadFullError(
@@ -237,6 +242,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             self._scopes[task] = [scope]
         else:
             stack.append(scope)
+        _emit.add_up_down(
+            "grelmicro.bulkhead.active", 1, **{"bulkhead.name": self._name}
+        )
         return self
 
     async def __aexit__(
@@ -255,6 +263,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             _active_bulkhead.reset(token)
         if semaphore is not None:
             semaphore.release()
+        _emit.add_up_down(
+            "grelmicro.bulkhead.active", -1, **{"bulkhead.name": self._name}
+        )
         return None
 
     async def _open_uses(self) -> None:
