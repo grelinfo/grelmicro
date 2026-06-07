@@ -24,6 +24,18 @@ a cluster (see the [Task Scheduler](task.md)).
     adapters, which dispatch operations to the event loop. Do not share instances
     across event loops or threads without the adapter.
 
+## Quick start
+
+Guard a shared resource with a distributed `Lock`. The Memory backend needs no
+extra service, so this runs as-is. Swap in Redis, Postgres, SQLite, or Kubernetes
+for production:
+
+```python
+--8<-- "coordination/quickstart_lock.py"
+```
+
+One caller holds `cart` at a time. The next caller waits for the release.
+
 ## Backends
 
 Load a backend before using any primitive. A `Coordination` component wraps the

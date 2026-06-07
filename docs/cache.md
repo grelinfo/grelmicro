@@ -1,13 +1,32 @@
 # Cache
 
-The `cache` module provides caching with swappable backends and a `@cached` decorator for caching function results.
+The `cache` module caches function results and arbitrary values behind a swappable backend. Use it to avoid recomputing expensive calls.
 
-The cache is technology-agnostic, supporting multiple backends (see more in the Backend section).
+- **[TTLCache](#ttlcache)**: cache with per-entry TTL, optional maxsize with LRU eviction, and serialization.
+- **[@cached](#cached-decorator)**: decorator that caches function results automatically with stampede protection.
 
-- **[TTLCache](#ttlcache)**: Cache with per-entry TTL, optional maxsize with LRU eviction, and serialization.
-- **[@cached](#cached-decorator)**: Decorator that caches function results automatically with stampede protection.
+## Quick start
+
+Cache an async function's result with `@cached`. The Memory backend needs no extra service, so this runs as-is. Swap in Redis or Postgres for production:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache, JsonSerializer, TTLCache, cached
+from grelmicro.cache.memory import MemoryCacheAdapter
+
+micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+
+cache = TTLCache(ttl=300, serializer=JsonSerializer())
+
+
+@cached(cache)
+async def get_user(user_id: int) -> dict:
+    return await db.fetch_user(user_id)
+```
 
 ## Backend
+
+The cache is technology-agnostic and supports multiple backends.
 
 You must load a cache backend before using `TTLCache`. Wire the backend
 into a `Grelmicro` app via the `Cache` component. For Redis, pass the

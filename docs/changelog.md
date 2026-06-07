@@ -7,6 +7,7 @@
 * 💥 Replace `@cached(stampede="local" | "distributed" | None)` with `@cached(lock=False | True | "local")`. `lock=True` folds concurrent misses and picks the cross-replica path automatically when the active app has a `Sync` backend (in-process otherwise), `lock="local"` forces the in-process path, and the default is now `lock=False` (no protection, opt in explicitly). Migrate `stampede="local"` to `lock="local"`, `stampede="distributed"` to `lock=True`, and `stampede=None` to `lock=False`. Issue [#235](https://github.com/grelinfo/grelmicro/issues/235).
 * 💥 Move `LeaderElection` out of `grelmicro.sync` into a new `grelmicro.coordination` package. Import it from `grelmicro.coordination`. `Sync.leader_election()` is removed: register a `Coordination` component and call `micro.coordination.leader_election(...)`. Leader election now runs on a dedicated `LeaderElectionBackend`, not the lock `SyncBackend`, so it can use a different vendor than `Lock` (Redis for `Lock`, a Kubernetes Lease for leader election). Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
 * 💥 Unify `grelmicro.sync` into `grelmicro.coordination` and delete `grelmicro.sync`. Import `Lock`, `TaskLock`, `LeaderElection`, and `Coordination` from `grelmicro.coordination`. The `Sync` component is gone: use one `Coordination` component, which exposes `.lock(...)`, `.task_lock(...)`, and `.leader_election(...)`, and reach it on `micro.coordination`. The `SyncBackend` protocol is now `LockBackend`, the `*SyncAdapter` backends are now `*LockAdapter`, and the provider factory `.sync()` is renamed to `.lock()`. Issue [#223](https://github.com/grelinfo/grelmicro/issues/223).
+* 💥 Make the JSON utilities internal. The `grelmicro.json` module is removed. Use `JsonSerializer` from `grelmicro.cache` for cache JSON, or `orjson` directly if you need raw fast JSON.
 
 ### Features
 
@@ -20,6 +21,10 @@
 * ✨ Discover Providers and Adapters through entry-point groups. Third-party packages register under `grelmicro.providers` and `grelmicro.{kind}.adapters` (`coordination`, `cache`, `ratelimiter`, `circuitbreaker`) and resolve by short name, the same path first-party backends use. Unknown names raise `ProviderNotRegisteredError` or `AdapterNotRegisteredError` listing the installed names. New `docs/architecture/plugins.md` and an `examples/third-party-adapter/` skeleton. Issue [#234](https://github.com/grelinfo/grelmicro/issues/234).
 * ✨ Add `VirtualClock` for deterministic time in tests. Time-dependent primitives (`Retry` backoff, `CircuitBreaker` half-open window, `RateLimiter` refill, `Shield` adaptive gate) read time through a clock seam (`grelmicro.clock.monotonic` / `sleep`). Install a `VirtualClock` (`Grelmicro(uses=[clock, ...])` or `async with VirtualClock()`) and call `clock.advance(seconds)` to drive that behavior with no real waiting. With no clock registered, the seam forwards to `time.monotonic` and `asyncio.sleep`, so production keeps real time. Issue [#272](https://github.com/grelinfo/grelmicro/issues/272).
 * ✨ Auto-discover shared Providers in `Grelmicro(uses=[...])`. A Provider held by a Component (`Coordination(redis)`, `Cache(redis)`) no longer has to be listed separately: it is adopted and lifecycled exactly once, opened before the Components that hold it. Listing it explicitly stays valid and keeps control over lifecycle order. Issue [#263](https://github.com/grelinfo/grelmicro/issues/263).
+
+### Docs
+
+* 📝 Lead every feature page with the simplest runnable example, then explain, moving deep theory into collapsible sections. Covers the resilience patterns and the cache, coordination, logging, health, tracing, task, and json guides.
 
 ## 0.26.0 - 2026-06-05
 

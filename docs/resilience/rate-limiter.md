@@ -1,6 +1,6 @@
 # Rate Limiter
 
-A **Rate Limiter** caps how many requests a client can make inside a time window. `RateLimiter` is algorithm-agnostic. Pass an algorithm config to choose semantics. Everything else (API, `RateLimitResult`, backend registry, `fail_open`) is shared.
+A **Rate Limiter** caps how many requests a client can make inside a time window. Use it to protect a service from overload and to enforce fair usage across clients.
 
 **Why**
 
@@ -8,9 +8,17 @@ A **Rate Limiter** caps how many requests a client can make inside a time window
 - Enforce fair usage across clients.
 - Produce HTTP 429 responses with [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) `RateLimit-*` or legacy `X-RateLimit-*` headers.
 
-## Construction
+`RateLimiter` is algorithm-agnostic. Pass an algorithm config to choose semantics. Everything else (API, `RateLimitResult`, backend registry, `fail_open`) is shared.
 
-For day-to-day Python code, use the factory classmethods. They keep the call site explicit and short:
+## Usage
+
+Load a backend, build a limiter with a factory classmethod, then call `acquire`:
+
+```python
+--8<-- "resilience/ratelimiter.py"
+```
+
+The factory classmethods keep the call site explicit and short:
 
 ```python
 --8<-- "resilience/ratelimiter_factories.py"
@@ -28,35 +36,39 @@ Use `RateLimiter.from_config(name, config)` when the algorithm config already co
 
 Pick the algorithm whose behaviour matches how **operators describe the limit** in runbooks and API docs. Both algorithms share the same Python API, backends, and `RateLimitResult` shape, so you can switch later.
 
-### Decision guide
+- Throttling an HTTP API with `RateLimit-*` headers? Use [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig].
+- Want "allow a burst of N, then 1 per second sustained"? Use [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig].
 
-1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]. It matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
-2. **Do you want "allow a burst of N, then 1 per second sustained"?** Use [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]. The `capacity` and `refill_rate` parameters describe exactly that.
-3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]. The capacity absorbs the spike.
-4. **Did you search for "leaky bucket"?** Use [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]. It is the leaky-bucket-as-meter formulation.
+??? note "Decision guide, side-by-side, and worked scenarios"
 
-### Side-by-side
+    ### Decision guide
 
-| | **SlidingWindowConfig** | **TokenBucketConfig** |
-|---|---|---|
-| **Mental model** | "N requests per sliding T-second window" | "A bucket holding N tokens that refills at R tokens/sec" |
-| **Parameters** | `limit`, `window` | `capacity`, `refill_rate` |
-| **Burst behaviour** | Up to `limit` requests if the window is empty | Up to `capacity` if the bucket is full |
-| **Sustained rate** | `limit / window` requests per second | `refill_rate` tokens per second |
-| **HTTP header fit** | Strong. `reset_after` is a true window boundary and maps directly to `RateLimit-Reset`. | Workable. `retry_after` is the time until the next token (continuous refill), not a window reset. |
+    1. **Are you throttling an HTTP API with `RateLimit-*` or `X-RateLimit-*` headers?** Use [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]. It matches the IETF RateLimit headers directly and produces precise `limit`, `remaining`, and `reset_after` values.
+    2. **Do you want "allow a burst of N, then 1 per second sustained"?** Use [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]. The `capacity` and `refill_rate` parameters describe exactly that.
+    3. **Does a client need to send occasional spikes above the average rate?** Use [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]. The capacity absorbs the spike.
+    4. **Did you search for "leaky bucket"?** Use [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]. It is the leaky-bucket-as-meter formulation.
+
+    ### Side-by-side
+
+    | | **SlidingWindowConfig** | **TokenBucketConfig** |
+    |---|---|---|
+    | **Mental model** | "N requests per sliding T-second window" | "A bucket holding N tokens that refills at R tokens/sec" |
+    | **Parameters** | `limit`, `window` | `capacity`, `refill_rate` |
+    | **Burst behaviour** | Up to `limit` requests if the window is empty | Up to `capacity` if the bucket is full |
+    | **Sustained rate** | `limit / window` requests per second | `refill_rate` tokens per second |
+    | **HTTP header fit** | Strong. `reset_after` is a true window boundary and maps directly to `RateLimit-Reset`. | Workable. `retry_after` is the time until the next token (continuous refill), not a window reset. |
+
+    ### Worked scenarios
+
+    - **"Limit each user to 100 API calls per minute."** Use `SlidingWindowConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into `RateLimit-Reset`.
+    - **"Allow a burst of 20 uploads, then 2 per second."** Use `TokenBucketConfig(capacity=20, refill_rate=2)`. Each word in the sentence maps to one parameter.
+    - **"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."** Use `TokenBucketConfig(capacity=5, refill_rate=0.1)`.
+    - **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `SlidingWindowConfig(limit=10, window=60)`.
+
+    There is no separate `LeakyBucket` algorithm. `SlidingWindowConfig` is the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `SlidingWindowConfig`.
 
 !!! note "Performance"
     Both algorithms run in O(1) per operation. End-to-end latency is dominated by the backend: a Redis round-trip costs far more than the algorithm itself. Per-key memory on the Memory backend differs by about 15 MB per million keys. Choose based on behaviour, not compute cost.
-
-### Worked scenarios
-
-- **"Limit each user to 100 API calls per minute."** Use `SlidingWindowConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into `RateLimit-Reset`.
-- **"Allow a burst of 20 uploads, then 2 per second."** Use `TokenBucketConfig(capacity=20, refill_rate=2)`. Each word in the sentence maps to one parameter.
-- **"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."** Use `TokenBucketConfig(capacity=5, refill_rate=0.1)`.
-- **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `SlidingWindowConfig(limit=10, window=60)`.
-
-!!! note
-    There is no separate `LeakyBucket` algorithm. `SlidingWindowConfig` is the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `SlidingWindowConfig`.
 
 ## Backend
 
@@ -94,23 +106,22 @@ Load a backend before using `RateLimiter`. The same backend serves every algorit
 | **Multi-node** | Yes | Yes | No | No |
 | **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | Yes (file-backed) | No |
 
-The Postgres adapter stores state in a single `grelmicro_rate_limiter` table. `acquire` and `peek` each run one round-trip to a PL/pgSQL function. Concurrent writes for the same key are serialized with `pg_advisory_xact_lock`. `reset` clears the key with a plain `DELETE`. The table and functions are created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema.
-
-SQLite uses a `SQLiteProvider`, the same provider-first shape as Redis and Postgres. Pass the path to the provider or set the `SQLITE_PATH` environment variable. State lives in a single `grelmicro_rate_limiter` table in the file. Each `acquire` runs a read-modify-write inside a `BEGIN IMMEDIATE` transaction. The provider's lock serializes the single connection within the process, and the transaction's write lock serializes across processes sharing the file. Use it for a single host that wants durability without running a separate service.
-
 ### Choosing a backend
 
 Use **Redis** in production when you already run Redis and want the lowest-latency distributed limiter. Use **Postgres** when Postgres is your only stateful dependency and you want one fewer service to run. Use **SQLite** for a single host that needs limits to survive restarts. Use **Memory** for tests and single-process apps. Redis and Postgres coordinate across replicas. SQLite and Memory do not.
 
-The backend compiles the algorithm into a bound strategy at `RateLimiter.__init__` through `backend.bind(config)`. Runtime `acquire`, `peek`, and `reset` calls invoke that strategy directly. **There is no algorithm dispatch on the request path.**
+??? note "How each backend stores state"
 
-## Usage
+    The Postgres adapter stores state in a single `grelmicro_rate_limiter` table. `acquire` and `peek` each run one round-trip to a PL/pgSQL function. Concurrent writes for the same key are serialized with `pg_advisory_xact_lock`. `reset` clears the key with a plain `DELETE`. The table and functions are created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema.
 
-```python
---8<-- "resilience/ratelimiter.py"
-```
+    SQLite uses a `SQLiteProvider`, the same provider-first shape as Redis and Postgres. Pass the path to the provider or set the `SQLITE_PATH` environment variable. State lives in a single `grelmicro_rate_limiter` table in the file. Each `acquire` runs a read-modify-write inside a `BEGIN IMMEDIATE` transaction. The provider's lock serializes the single connection within the process, and the transaction's write lock serializes across processes sharing the file. Use it for a single host that wants durability without running a separate service.
 
-### Result fields
+    The backend compiles the algorithm into a bound strategy at `RateLimiter.__init__` through `backend.bind(config)`. Runtime `acquire`, `peek`, and `reset` calls invoke that strategy directly. **There is no algorithm dispatch on the request path.**
+
+!!! tip
+    The rate limiter uses the same backend registry pattern as the synchronization primitives. See [Backend Architecture](../architecture/backends.md) for details.
+
+## Result fields
 
 `RateLimitResult` is the same across algorithms and carries everything needed for HTTP rate limit headers. The `HTTP header` column shows the [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) name first and the legacy `X-RateLimit-*` name second. Pick whichever convention your API already uses.
 
@@ -157,9 +168,6 @@ Use `fail_open=True` when availability matters more than strictness. On backend 
 
 !!! warning
     Fail-open mode only catches backend infrastructure errors. Legitimate rate-limit rejections still work normally.
-
-!!! tip
-    The rate limiter uses the same backend registry pattern as the synchronization primitives. See [Backend Architecture](../architecture/backends.md) for details.
 
 ## Standalone `MemoryTokenBucket`
 
