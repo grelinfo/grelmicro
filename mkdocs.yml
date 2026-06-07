@@ -102,6 +102,7 @@ nav:
     - architecture/config.md
     - architecture/reconfigure.md
     - architecture/imports.md
+    - architecture/plugins.md
     - architecture/multiple-apps.md
     - architecture/sync-from-thread.md
     - architecture/coordination.md
