@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, ClassVar, Self
 import pytest
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from types import TracebackType
+
+    from grelmicro.coordination.abc import LeaderRecord
 
 from grelmicro import (
     Component,
@@ -19,7 +22,9 @@ from grelmicro import (
     MultipleActiveAppsError,
     NoActiveAppError,
 )
+from grelmicro.coordination import Coordination
 from grelmicro.errors import OutOfContextError
+from grelmicro.providers import Provider
 
 _BOOM = "boom"
 _RAISED = "raised"
@@ -66,6 +71,119 @@ class _RaisingComponent(_RecordingComponent):
     async def __aenter__(self) -> Self:
         self.log.append(f"enter:{self.name}")
         raise RuntimeError(_BOOM)
+
+
+class _RecordingLockAdapter:
+    """A `LockBackend` that borrows a provider it does not own.
+
+    Only the lifecycle hooks run in these tests; the lock methods are
+    stubs present to satisfy the `LockBackend` protocol.
+    """
+
+    def __init__(self, provider: _RecordingProvider) -> None:
+        self._provider = provider
+        self._owns_provider = False
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    async def acquire(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        raise NotImplementedError
+
+    async def release(self, *, name: str, token: str) -> bool:
+        raise NotImplementedError
+
+    async def locked(self, *, name: str) -> bool:
+        raise NotImplementedError
+
+    async def owned(self, *, name: str, token: str) -> bool:
+        raise NotImplementedError
+
+
+class _RecordingElectionAdapter:
+    """A `LeaderElectionBackend` that borrows a provider it does not own.
+
+    Only the lifecycle hooks run in these tests; the election methods are
+    stubs present to satisfy the `LeaderElectionBackend` protocol.
+    """
+
+    def __init__(self, provider: _RecordingProvider) -> None:
+        self._provider = provider
+        self._owns_provider = False
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    async def acquire_or_renew(
+        self,
+        *,
+        name: str,
+        token: str,
+        duration: float,
+        metadata: Mapping[str, str] | None = None,
+    ) -> LeaderRecord:
+        raise NotImplementedError
+
+    async def release(self, *, name: str, token: str) -> bool:
+        raise NotImplementedError
+
+    async def get(self, *, name: str) -> LeaderRecord | None:
+        raise NotImplementedError
+
+
+class _RecordingProvider(Provider):
+    """A Provider that records its enter/exit lifecycle for discovery tests.
+
+    `Coordination(provider)` asks for both a lock backend and an election
+    backend, so this Provider ships both. The two adapters borrow the same
+    Provider instance, so discovery walks both backends and still adopts the
+    Provider exactly once.
+    """
+
+    short_name: ClassVar[str] = "rec"
+
+    def __init__(self) -> None:
+        self.entered = 0
+        self.exited = 0
+
+    def lock(self, **kwargs: object) -> _RecordingLockAdapter:  # noqa: ARG002
+        return _RecordingLockAdapter(self)
+
+    def leader_election(
+        self,
+        **kwargs: object,  # noqa: ARG002
+    ) -> _RecordingElectionAdapter:
+        return _RecordingElectionAdapter(self)
+
+    async def __aenter__(self) -> Self:
+        self.entered += 1
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.exited += 1
 
 
 # --- Component protocol ---
@@ -563,42 +681,64 @@ async def test_provider_base_leader_election_raises_not_implemented() -> None:
         bare.leader_election()
 
 
-async def test_warns_when_component_provider_not_in_uses(
+async def test_discovers_provider_not_in_uses(
     recwarn: pytest.WarningsRecorder,
 ) -> None:
-    """`Coordination(redis)` without `redis` in `uses=` warns at startup."""
-    from grelmicro.coordination import Coordination  # noqa: PLC0415
-    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-
-    redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[Coordination(redis)])
+    """`Coordination(provider)` without the provider in `uses=` adopts and lifecycles it."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(uses=[Coordination(provider)])
     async with micro:
         pass
 
-    assert any(
-        issubclass(w.category, UserWarning)
-        and "not listed in" in str(w.message)
-        for w in recwarn
-    )
-
-
-async def test_no_warning_when_provider_in_uses(
-    recwarn: pytest.WarningsRecorder,
-) -> None:
-    """`Coordination(redis)` with `redis` in `uses=` does not warn."""
-    from grelmicro.coordination import Coordination  # noqa: PLC0415
-    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
-
-    redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[redis, Coordination(redis)])
-    async with micro:
-        pass
-
+    assert provider.entered == 1
+    assert provider.exited == 1
     assert not any(
-        issubclass(w.category, UserWarning)
-        and "not listed in" in str(w.message)
+        issubclass(w.category, UserWarning) and "listed" in str(w.message)
         for w in recwarn
     )
+
+
+async def test_discovers_shared_provider_only_once() -> None:
+    """A provider held by several components is lifecycled exactly once."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(
+        uses=[
+            Coordination(provider, name="a"),
+            Coordination(provider, name="b"),
+        ]
+    )
+    async with micro:
+        pass
+
+    assert provider.entered == 1
+    assert provider.exited == 1
+
+
+async def test_discovers_both_providers_of_a_coordination() -> None:
+    """A `Coordination` holding two providers adopts both, each lifecycled once."""
+    lock_provider = _RecordingProvider()
+    election_provider = _RecordingProvider()
+    micro = Grelmicro(
+        uses=[Coordination(lock=lock_provider, election=election_provider)]
+    )
+    async with micro:
+        pass
+
+    assert lock_provider.entered == 1
+    assert lock_provider.exited == 1
+    assert election_provider.entered == 1
+    assert election_provider.exited == 1
+
+
+async def test_explicit_provider_takes_precedence_over_discovery() -> None:
+    """A provider listed in `uses=` is lifecycled once, not adopted again."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(uses=[provider, Coordination(provider)])
+    async with micro:
+        pass
+
+    assert provider.entered == 1
+    assert provider.exited == 1
 
 
 async def test_warns_when_provider_listed_after_component(
@@ -619,16 +759,15 @@ async def test_warns_when_provider_listed_after_component(
     )
 
 
-async def test_strict_raises_when_provider_missing_from_uses() -> None:
-    """`strict=True` turns the missing-provider warning into an error."""
-    from grelmicro.coordination import Coordination  # noqa: PLC0415
-    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+async def test_strict_adopts_provider_missing_from_uses() -> None:
+    """`strict=True` adopts a provider absent from `uses=` without erroring."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(uses=[Coordination(provider)], strict=True)
+    async with micro:
+        pass
 
-    redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[Coordination(redis)], strict=True)
-    with pytest.raises(LifecycleOrderError, match="not listed in"):
-        async with micro:
-            pass
+    assert provider.entered == 1
+    assert provider.exited == 1
 
 
 async def test_strict_raises_when_provider_listed_after_component() -> None:

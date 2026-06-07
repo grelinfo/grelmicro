@@ -474,6 +474,7 @@ class Grelmicro:
             and any(app._owns_global_state() for app in _active_apps)  # noqa: SLF001
         ):
             raise MultipleActiveAppsError
+        self._discover_shared_providers()
         self._warn_unlifecycled_providers()
         self._resolve_provider_sharing()
         self._exit_stack = AsyncExitStack()
@@ -513,6 +514,47 @@ class Grelmicro:
                 _active_apps.remove(self)
             self._exit_stack = None
 
+    def _discover_shared_providers(self) -> None:
+        """Adopt Providers reachable from components but absent from `uses=`.
+
+        A Component built as `Coordination(provider)` borrows the provider's
+        client but does not own its lifecycle. When that provider is not listed
+        in `uses=`, discover it here and lifecycle it once, inserted just before
+        the first Component that holds it. One Provider feeds many Components
+        without the user repeating it in `uses=`:
+
+        ```python
+        micro = Grelmicro(uses=[Coordination(redis), Cache(redis)])  # adopted
+        ```
+
+        A `Coordination` holds two backends (a lock backend and an election
+        backend), each able to borrow its own Provider, so both are walked and
+        each borrowed Provider is adopted.
+
+        Providers the user already listed are left untouched, so their declared
+        order still applies and the ordering check in
+        `_warn_unlifecycled_providers` still fires on a late listing. Adapters
+        that own their provider (built from env, no user instance) are handled
+        by `_resolve_provider_sharing`.
+        """
+        listed = {id(item) for item in self._items}
+        discovered: dict[int, AbstractAsyncContextManager[object]] = {}
+        rebuilt: list[AbstractAsyncContextManager[object]] = []
+        for item in self._items:
+            for target in _iter_provider_backends(item):
+                provider = getattr(target, "_provider", None)
+                owns = getattr(target, "_owns_provider", True)
+                if (
+                    provider is not None
+                    and not owns
+                    and id(provider) not in listed
+                    and id(provider) not in discovered
+                ):
+                    discovered[id(provider)] = provider
+                    rebuilt.append(provider)
+            rebuilt.append(item)
+        self._items = rebuilt
+
     def _resolve_provider_sharing(self) -> None:
         """Dedupe implicitly-owned providers by `(class, env_prefix)`.
 
@@ -539,21 +581,18 @@ class Grelmicro:
                     target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
 
     def _warn_unlifecycled_providers(self) -> None:
-        """Warn when a Component holds a Provider that is not lifecycled correctly.
+        """Warn when a user-listed Provider is ordered after its Component.
 
-        Components built with `Coordination(provider)` borrow the provider's client
-        but do not lifecycle it. The user must list the provider in `uses=`
-        *before* the Component so the provider opens first.
+        A Component built with `Coordination(provider)` borrows the provider's
+        client but does not lifecycle it. `Grelmicro.__aenter__` enters items in
+        declaration order, so a Provider listed *after* the Component that
+        depends on it opens too late. Providers with lazy resources
+        (`PostgresProvider` builds its pool on `__aenter__`) then raise
+        `OutOfContextError` when the Component opens first.
 
-        Two issues are reported:
-
-        1. The provider is missing from `uses=`. The provider is never opened
-           or closed, so its client leaks on shutdown.
-        2. The provider is in `uses=` but listed after the dependent
-           Component. `Grelmicro.__aenter__` enters items in declaration
-           order. Providers with lazy resources (`PostgresProvider` builds
-           its pool on `__aenter__`) raise `OutOfContextError` when the
-           Component opens first.
+        Providers absent from `uses=` are adopted by
+        `_discover_shared_providers` and inserted ahead of their Component, so
+        only the explicit-but-misordered listing reaches this check.
 
         Reported as `UserWarning` by default, or as `LifecycleOrderError`
         when the app was built with `strict=True`.
@@ -574,25 +613,15 @@ class Grelmicro:
         provider: object,
         index: int,
     ) -> None:
-        """Warn or raise for a single misordered or missing provider."""
+        """Warn or raise when a user-listed Provider is ordered after its Component.
+
+        Discovery adopts Providers missing from `uses=` and inserts them ahead
+        of their Component, so the Provider is always present in `self._items`
+        and only the explicit-but-misordered listing reaches this check.
+        """
         import warnings  # noqa: PLC0415
 
-        try:
-            provider_index = self._items.index(provider)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-        except ValueError:
-            msg = (
-                f"{type(target).__name__} holds a "
-                f"{type(provider).__name__} that is not listed in "
-                f"Grelmicro(uses=[...]). The provider will not be "
-                f"lifecycled with the app and its connection will "
-                f"leak. Add the provider to uses= so it is opened "
-                f"and closed with the components that depend on it."
-            )
-            if self._strict:
-                raise LifecycleOrderError(msg) from None
-            warnings.warn(msg, UserWarning, stacklevel=3)
-            return
-        if provider_index > index:
+        if self._items.index(provider) > index:  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             msg = (
                 f"{type(provider).__name__} is listed after "
                 f"{type(target).__name__} in Grelmicro(uses=[...]). "
