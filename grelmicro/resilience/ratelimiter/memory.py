@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import math
 from threading import Lock
-from time import monotonic
 from typing import TYPE_CHECKING, Annotated, Self, assert_never
 
 from typing_extensions import Doc
 
+from grelmicro.clock import monotonic
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
