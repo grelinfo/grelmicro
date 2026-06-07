@@ -64,13 +64,23 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
     micro = Grelmicro(uses=[postgres, Cache(postgres)])
     ```
 
+=== "SQLite"
+    ```python
+    from grelmicro import Grelmicro
+    from grelmicro.cache import Cache
+    from grelmicro.providers.sqlite import SQLiteProvider
+
+    sqlite = SQLiteProvider("app.db")
+    micro = Grelmicro(uses=[sqlite, Cache(sqlite)])
+    ```
+
 `async with micro:` opens the provider and the cache backend together.
 
-| | Redis | Postgres | Memory |
-|---|---|---|---|
-| **Use case** | Production | Production (when Postgres is already deployed) | Testing / single-process |
-| **Multi-node** | Yes | Yes | No |
-| **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | No |
+| | Redis | Postgres | SQLite | Memory |
+|---|---|---|---|---|
+| **Use case** | Production | Production (when Postgres is already deployed) | Single-host with restart durability | Testing / single-process |
+| **Multi-node** | Yes | Yes | No (single file) | No |
+| **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | Yes (file-backed) | No |
 
 The Postgres adapter stores entries in a single `grelmicro_cache` table keyed on `key TEXT PRIMARY KEY` with `value BYTEA` and `expires_at TIMESTAMPTZ`. `get` filters expired rows with `WHERE expires_at > NOW()`, `set` is one `INSERT ... ON CONFLICT DO UPDATE`, `delete` and `clear` are single statements. The table is created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema. Set `cleanup_interval=` to enable a background janitor that reclaims rows expired for more than one hour.
 
@@ -81,6 +91,7 @@ Pick the backend that matches your deployment, not the fastest one on paper.
 - **Memory**: use for tests and single-process apps. Entries live in the process and disappear on restart. Each node keeps its own copy, so it does not share a cache across nodes.
 - **Redis**: use for a distributed cache shared by many nodes. Keys auto-expire and reads stay fast, so this is the default for production. Reach for it when you already run or can add Redis.
 - **PostgreSQL**: use when Postgres is already in your stack or you want table-backed persistence. It needs no extra infrastructure and survives restarts. Slightly slower than Redis, but the right default when you want one fewer moving part.
+- **SQLite**: use for a single-host app that wants a cache surviving restarts with no extra service. Entries live in one file, so it does not share a cache across hosts.
 
 ## TTLCache
 

@@ -14,9 +14,11 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.postgres import PostgresCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
+from grelmicro.cache.sqlite import SQLiteCacheAdapter
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.sqlite import SQLiteProvider
 
 pytestmark = [pytest.mark.timeout(30)]
 
@@ -27,6 +29,7 @@ pytestmark = [pytest.mark.timeout(30)]
 @pytest.fixture(
     params=[
         "memory",
+        "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("postgres", marks=[pytest.mark.integration]),
     ],
@@ -54,7 +57,9 @@ def container(
 
 @pytest.fixture(scope="module")
 async def backend(
-    backend_name: str, container: DockerContainer | None
+    backend_name: str,
+    container: DockerContainer | None,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> AsyncGenerator[CacheBackend]:
     """Cache backend instance."""
     if backend_name == "redis" and container:
@@ -76,6 +81,15 @@ async def backend(
             ) as pg_backend,
         ):
             yield pg_backend
+    elif backend_name == "sqlite":
+        path = tmp_path_factory.mktemp("cache") / "cache.db"
+        async with (
+            SQLiteProvider(str(path)) as provider,
+            SQLiteCacheAdapter(
+                provider=provider, prefix="test:"
+            ) as sqlite_backend,
+        ):
+            yield sqlite_backend
     elif backend_name == "memory":
         async with MemoryCacheAdapter() as memory_backend:
             yield memory_backend

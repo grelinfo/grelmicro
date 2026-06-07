@@ -17,9 +17,13 @@ if TYPE_CHECKING:
     from pathlib import Path
     from types import TracebackType
 
+    from grelmicro.cache.sqlite import SQLiteCacheAdapter
     from grelmicro.coordination.sqlite import (
         SQLiteLockAdapter,
         SQLiteScheduleAdapter,
+    )
+    from grelmicro.resilience.circuitbreaker.sqlite import (
+        SQLiteCircuitBreakerAdapter,
     )
     from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
 
@@ -227,6 +231,22 @@ class SQLiteProvider(Provider):
         )
 
         return SQLiteScheduleAdapter(self._path, **kwargs)
+
+    def cache(self, **kwargs: Any) -> SQLiteCacheAdapter:  # noqa: ANN401
+        """Build a `SQLiteCacheAdapter` bound to this provider."""
+        from grelmicro.cache.sqlite import (  # noqa: PLC0415
+            SQLiteCacheAdapter,
+        )
+
+        return SQLiteCacheAdapter(provider=self, **kwargs)
+
+    def circuitbreaker(self, **kwargs: Any) -> SQLiteCircuitBreakerAdapter:  # noqa: ANN401
+        """Build a `SQLiteCircuitBreakerAdapter` bound to this provider."""
+        from grelmicro.resilience.circuitbreaker.sqlite import (  # noqa: PLC0415
+            SQLiteCircuitBreakerAdapter,
+        )
+
+        return SQLiteCircuitBreakerAdapter(provider=self, **kwargs)
 
     async def __aenter__(self) -> Self:
         """Open the connection when the provider owns it."""
