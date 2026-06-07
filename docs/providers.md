@@ -149,7 +149,7 @@ Each Provider exposes factory methods that return its matching adapter:
 | `.leader_election(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |        ✓         |      N/A       |
 | `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |        ✓         |      N/A       |
 | `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |        ✓         |       ✓        |
-| `.breaker(**kwargs)`        | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |      N/A       |
+| `.circuitbreaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |        ✓         |      N/A       |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,

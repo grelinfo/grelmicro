@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro._component import instantiate_if_class
-from grelmicro.coordination.errors import CoordinationError
+from grelmicro.coordination.errors import CoordinationBackendError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.tasklock import TaskLock
@@ -17,14 +17,6 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
-
-
-class CoordinationBackendError(CoordinationError):
-    """Coordination Backend Error.
-
-    Raised when a primitive is requested from a `Coordination` component that
-    has no backend wired for that primitive.
-    """
 
 
 class Coordination:
@@ -112,7 +104,7 @@ class Coordination:
         ] = "default",
     ) -> None:
         """Initialize the component with the wrapped backends."""
-        self.name = name
+        self._name = name
         self._lock_backend: LockBackend | None = None
         self._election_backend: LeaderElectionBackend | None = None
 
@@ -136,6 +128,11 @@ class Coordination:
                 if isinstance(resolved_election, Provider)
                 else resolved_election
             )
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     @property
     def lock_backend(self) -> LockBackend:

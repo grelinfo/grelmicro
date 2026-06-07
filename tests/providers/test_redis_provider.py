@@ -269,11 +269,11 @@ class TestBuilders:
         assert adapter.provider is provider
         assert adapter._prefix == "rl:"
 
-    def test_breaker_factory(self) -> None:
-        """`provider.breaker()` returns the matching Redis adapter borrowing the provider."""
+    def test_circuitbreaker_factory(self) -> None:
+        """`provider.circuitbreaker()` returns the matching Redis adapter borrowing the provider."""
         provider = RedisProvider(URL)
 
-        adapter = provider.breaker(prefix="cb:")
+        adapter = provider.circuitbreaker(prefix="cb:")
 
         assert isinstance(adapter, RedisCircuitBreakerAdapter)
         assert adapter.provider is provider

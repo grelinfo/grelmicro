@@ -1,8 +1,13 @@
 """Coordination Errors."""
 
-from grelmicro.errors import GrelmicroError, SettingsValidationError
+from grelmicro.errors import (
+    GrelmicroError,
+    SettingsValidationError,
+    WouldBlockError,
+)
 
 __all__ = [
+    "CoordinationBackendError",
     "CoordinationError",
     "CoordinationSettingsValidationError",
     "LockAcquireError",
@@ -12,6 +17,7 @@ __all__ = [
     "LockOwnedCheckError",
     "LockReentrantError",
     "LockReleaseError",
+    "WouldBlockError",
 ]
 
 
@@ -19,6 +25,14 @@ class CoordinationError(GrelmicroError):
     """Coordination Primitive Error.
 
     This is the base class for all coordination errors.
+    """
+
+
+class CoordinationBackendError(CoordinationError):
+    """Coordination Backend Error.
+
+    Raised when a primitive is requested from a `Coordination` component that
+    has no backend wired for that primitive.
     """
 
 

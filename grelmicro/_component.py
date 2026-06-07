@@ -46,9 +46,13 @@ class Component(
         kind: Stable identifier for the component category (`"coordination"`,
             `"cache"`, `"task"`, `"health"`, ...). The app exposes the
             component on `micro.<kind>` after registration.
-        name: Registration name. Multiple components of the same `kind` may
-            coexist under different names. The composite key for resolution
-            is `(kind, name)`.
+        name: Read-only registration name. Multiple components of the same
+            `kind` may coexist under different names. The composite key for
+            resolution is `(kind, name)`.
+        singleton: Optional class flag. When `True`, the app refuses to
+            register a second component of the same `kind`. Set it on
+            components that configure process-global state (the root logger,
+            an OTel provider). Absent means `False`.
 
     Example:
         ```python
@@ -56,7 +60,11 @@ class Component(
             kind = "task"
 
             def __init__(self, *, name: str = "default") -> None:
-                self.name = name
+                self._name = name
+
+            @property
+            def name(self) -> str:
+                return self._name
 
             async def __aenter__(self) -> Self: ...
             async def __aexit__(self, exc_type, exc, tb) -> bool | None: ...

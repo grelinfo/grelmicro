@@ -69,12 +69,17 @@ class RateLimiters:
         ] = "default",
     ) -> None:
         """Initialize the Component with the wrapped backend."""
-        self.name = name
+        self._name = name
         source = instantiate_if_class(source)
         if isinstance(source, Provider):
             self._backend = source.ratelimiter()
         else:
             self._backend = source
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     @property
     def backend(self) -> RateLimiterBackend:
@@ -104,7 +109,7 @@ class CircuitBreakers:
     backend on every call.
 
     Accepts a `Provider` or a `CircuitBreakerBackend`. When given a Provider,
-    the component calls `provider.breaker()` to build the matching adapter.
+    the component calls `provider.circuitbreaker()` to build the matching adapter.
 
     Example:
         ```python
@@ -133,8 +138,8 @@ class CircuitBreakers:
             Doc(
                 """
                 A `Provider` or a `CircuitBreakerBackend` instance. When a
-                Provider is given, the component calls `provider.breaker()` to
-                build the matching adapter.
+                Provider is given, the component calls `provider.circuitbreaker()`
+                to build the matching adapter.
                 """,
             ),
         ],
@@ -150,12 +155,17 @@ class CircuitBreakers:
         ] = "default",
     ) -> None:
         """Initialize the Component with the wrapped backend."""
-        self.name = name
+        self._name = name
         source = instantiate_if_class(source)
         if isinstance(source, Provider):
-            self._backend = source.breaker()
+            self._backend = source.circuitbreaker()
         else:
             self._backend = source
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     @property
     def backend(self) -> CircuitBreakerBackend:

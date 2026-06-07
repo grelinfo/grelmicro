@@ -24,8 +24,13 @@ class RealClock:
 
     def __init__(self, *, name: str = "default") -> None:
         """Initialize the clock."""
-        self.name = name
+        self._name = name
         self._token: Any = None
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
 
     def monotonic(self) -> float:
         """Return `time.monotonic()`."""

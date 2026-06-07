@@ -262,6 +262,16 @@ class Grelmicro:
                 f"Construct a new Grelmicro or pick a different name."
             )
             raise ComponentAlreadyRegisteredError(msg)
+        if getattr(component, "singleton", False):
+            for other in self._by_key.values():
+                if other.kind == component.kind:
+                    msg = (
+                        f"component kind {component.kind!r} is a singleton "
+                        f"and is already registered as {other.name!r}. It "
+                        f"configures process-global state, so only one may "
+                        f"exist per Grelmicro app."
+                    )
+                    raise ComponentAlreadyRegisteredError(msg)
         self._by_key[key] = component
         # `micro.<kind>` prefers the entry named `"default"`. Only update the
         # kind-default index when this registration is the default one.

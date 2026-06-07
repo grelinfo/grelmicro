@@ -93,7 +93,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         )
         raise NotImplementedError(msg)
 
-    def breaker(self, **kwargs: Any) -> CircuitBreakerBackend:  # noqa: ANN401
+    def circuitbreaker(self, **kwargs: Any) -> CircuitBreakerBackend:  # noqa: ANN401
         """Return the matching `CircuitBreakerBackend` adapter for this Provider.
 
         Raises:

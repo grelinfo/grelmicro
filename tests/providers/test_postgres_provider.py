@@ -303,20 +303,20 @@ class TestBuilders:
         with pytest.raises(NotImplementedError, match="no cache adapter"):
             Provider.cache(provider)
 
-    def test_breaker_factory_builds_postgres_adapter(self) -> None:
-        """`provider.breaker()` builds a `PostgresCircuitBreakerAdapter`."""
+    def test_circuitbreaker_factory_builds_postgres_adapter(self) -> None:
+        """`provider.circuitbreaker()` builds a `PostgresCircuitBreakerAdapter`."""
         provider = PostgresProvider(URL)
-        adapter = provider.breaker()
+        adapter = provider.circuitbreaker()
         assert isinstance(adapter, PostgresCircuitBreakerAdapter)
         assert adapter.provider is provider
 
-    def test_base_breaker_factory_raises_not_implemented(self) -> None:
-        """The base `Provider.breaker` raises for providers that don't override it."""
+    def test_base_circuitbreaker_factory_raises_not_implemented(self) -> None:
+        """The base `Provider.circuitbreaker` raises for providers that don't override it."""
         provider = PostgresProvider(URL)
         with pytest.raises(
             NotImplementedError, match="no circuit breaker adapter"
         ):
-            Provider.breaker(provider)
+            Provider.circuitbreaker(provider)
 
 
 class TestRebindProvider:

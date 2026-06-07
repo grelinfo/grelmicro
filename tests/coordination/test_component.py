@@ -9,11 +9,11 @@ import pytest
 from grelmicro import Component, Grelmicro
 from grelmicro.coordination import (
     Coordination,
+    CoordinationBackendError,
     LeaderElection,
     Lock,
     TaskLock,
 )
-from grelmicro.coordination._component import CoordinationBackendError
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionBackend,
     MemoryLockAdapter,
