@@ -23,6 +23,8 @@ WORKERS = 4
 WORKER_1 = 0
 WORKER_2 = 1
 TEST_TIMEOUT = 1
+LEASE_DURATION = 0.02
+RENEW_DEADLINE = 0.015
 
 pytestmark = [pytest.mark.timeout(TEST_TIMEOUT)]
 
@@ -39,8 +41,8 @@ def configs() -> list[LeaderElectionConfig]:
     return [
         LeaderElectionConfig(
             worker=f"worker_{i}",
-            lease_duration=0.02,
-            renew_deadline=0.015,
+            lease_duration=LEASE_DURATION,
+            renew_deadline=RENEW_DEADLINE,
             retry_interval=0.005,
             error_interval=0.01,
             backend_timeout=0.005,
@@ -434,8 +436,14 @@ async def test_only_one_leader(leader_elections: list[LeaderElection]) -> None:
         for leader_election in leader_elections:
             await start_task(tg, leader_election)
         await wait_first_leader(leader_elections)
+        # Count confirmed leaders, not the advisory `is_leader()`. During a
+        # lease handoff a just-demoted worker still reports `is_leader()` True
+        # until its renew deadline elapses, so two could appear at once. A
+        # worker that lost the lease has a confirmation at least one
+        # `lease_duration` old, which `is_leader_confirmed_within` excludes.
         leaders_after_start = [
-            leader_election.is_leader() for leader_election in leader_elections
+            leader_election.is_leader_confirmed_within(RENEW_DEADLINE)
+            for leader_election in leader_elections
         ]
         cancel_group(tg)
     for leader_election in leader_elections:

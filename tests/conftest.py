@@ -1,6 +1,23 @@
 """grelmicro Test Config."""
 
+from collections.abc import AsyncIterator
+
 import pytest
+
+from grelmicro.clock import VirtualClock
+
+
+@pytest.fixture
+async def clock() -> AsyncIterator[VirtualClock]:
+    """Install a `VirtualClock` for the test and yield it.
+
+    Time-dependent primitives read `grelmicro.clock.monotonic` and `sleep`
+    through the clock seam, so under this fixture they advance only when the
+    test calls `clock.advance(...)`, with no real waiting. Use it instead of
+    `async with VirtualClock() as clock:`.
+    """
+    async with VirtualClock() as virtual_clock:
+        yield virtual_clock
 
 
 @pytest.fixture(autouse=True)

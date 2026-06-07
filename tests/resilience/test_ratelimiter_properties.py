@@ -21,6 +21,7 @@ from hypothesis import strategies as st
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
+from grelmicro.clock import VirtualClock
 from grelmicro.resilience.ratelimiter.memory import (
     MemoryRateLimiterAdapter,
     MemoryTokenBucket,
@@ -173,23 +174,26 @@ def test_strategy_gcra_burst_never_exceeds_limit(
     """A fresh GCRA key allows exactly `limit` requests in a burst."""
 
     async def run() -> None:
-        adapter = MemoryRateLimiterAdapter()
-        async with adapter:
-            strategy = adapter.bind(
-                SlidingWindowConfig(limit=limit, window=window)
-            )
-            allowed = 0
-            for _ in range(limit + 5):
-                result = await strategy.acquire(key="k", cost=1)
-                if result.allowed:
-                    allowed += 1
-                    assert result.retry_after == 0
-                else:
-                    assert result.retry_after >= 0
-                    assert result.reset_after >= 0
-            # GCRA admits `limit` then denies; round-trip math may
-            # let one extra through depending on monotonic clock drift.
-            assert limit <= allowed <= limit + 1
+        # Freeze time so the whole burst lands at one instant. With a real
+        # clock, a wide window refills one emission interval mid-loop and
+        # admits an extra request, which made the bound flaky.
+        async with VirtualClock():
+            adapter = MemoryRateLimiterAdapter()
+            async with adapter:
+                strategy = adapter.bind(
+                    SlidingWindowConfig(limit=limit, window=window)
+                )
+                allowed = 0
+                for _ in range(limit + 5):
+                    result = await strategy.acquire(key="k", cost=1)
+                    if result.allowed:
+                        allowed += 1
+                        assert result.retry_after == 0
+                    else:
+                        assert result.retry_after >= 0
+                        assert result.reset_after >= 0
+                # A fresh GCRA key admits exactly `limit` in an instant burst.
+                assert allowed == limit
 
     _run(run())
 
