@@ -27,6 +27,11 @@ if TYPE_CHECKING:
 
 logger = getLogger("grelmicro.task")
 
+# Wall-clock seam for the current time. Tests pin it to a fixed instant so
+# cron matching is deterministic and never straddles a real minute boundary.
+# Mirrors the `_now` seam in the cache.
+_now = datetime.now
+
 # Maximum number of years to search for the next matching datetime before
 # giving up. Covers Feb-29 schedules (every 4 years) with margin so an
 # impossible date such as ``30 2 31 2 *`` (Feb 31) raises instead of looping.
@@ -365,7 +370,7 @@ class CronTask(Task):
             # mode there is no past state, so startup is the baseline.
             await self._tick_guarded(catchup=True)
             while True:
-                now = datetime.now(self._tz)
+                now = _now(self._tz)
                 next_fire = self._expr.next_after(now)
                 delay = (next_fire - now).total_seconds()
                 # Wait until the next fire instant, waking early on stop.
@@ -405,7 +410,7 @@ class CronTask(Task):
         durable ``last_fired`` and runs only on a won claim, dropping coalesced
         or out-of-grace fires.
         """
-        now = datetime.now(self._tz)
+        now = _now(self._tz)
         due_dt = self._expr.previous_or_equal(now)
         if due_dt is None:  # pragma: no cover - schedule always has a past fire
             return
