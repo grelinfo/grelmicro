@@ -411,6 +411,37 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             )
         return result
 
+    async def allow(
+        self,
+        *,
+        key: Annotated[
+            str,
+            Doc(
+                "Identifier for rate limiting"
+                " (e.g. IP address, user ID, session)."
+            ),
+        ],
+        cost: Annotated[
+            int,
+            Doc("Number of tokens to consume."),
+        ] = 1,
+    ) -> bool:
+        """Consume tokens and return whether the request is within the limit.
+
+        The boolean shortcut over `acquire`, for the common branch:
+
+        ```python
+        if await limiter.allow(key="user-1"):
+            ...  # served
+        else:
+            ...  # throttled
+        ```
+
+        Use `acquire` instead when you need the `retry_after` or `remaining`
+        metadata on the deny branch.
+        """
+        return (await self.acquire(key=key, cost=cost)).allowed
+
     async def peek(
         self,
         *,

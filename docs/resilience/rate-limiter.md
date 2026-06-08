@@ -18,6 +18,28 @@ Load a backend, build a limiter with a factory classmethod, then call `acquire`:
 --8<-- "resilience/ratelimiter.py"
 ```
 
+### Checking the limit
+
+The simplest form is a boolean:
+
+```python
+if await limiter.allow(key="user-1"):
+    ...  # served
+else:
+    ...  # throttled
+```
+
+`acquire` returns the full `RateLimitResult` when you need the metadata. It reads as a boolean too, so you branch on it directly and still keep `retry_after`/`remaining` on the deny side:
+
+```python
+result = await limiter.acquire(key="user-1")
+if not result:
+    # reject with a 429 and a Retry-After of result.retry_after seconds
+    ...
+```
+
+Use `acquire_or_raise` when a surrounding layer should turn the rejection into a response: it raises `RateLimitExceededError`, which is an [`AdmissionError`][grelmicro.AdmissionError] (the shared base for every "turned away" rejection: rate limiter, bulkhead, open circuit breaker, non-blocking lock), so one `except AdmissionError` catches them all.
+
 The factory classmethods keep the call site explicit and short:
 
 ```python

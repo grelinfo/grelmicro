@@ -7,7 +7,30 @@ import pytest
 import grelmicro.resilience as resilience_mod
 import grelmicro.resilience.circuitbreaker as cb_mod
 import grelmicro.resilience.ratelimiter as rl_mod
-from grelmicro.resilience.errors import CircuitBreakerError
+from grelmicro import AdmissionError, GrelmicroError
+from grelmicro.errors import WouldBlockError
+from grelmicro.resilience.errors import (
+    BulkheadFullError,
+    CircuitBreakerError,
+    RateLimitExceededError,
+)
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        RateLimitExceededError,
+        BulkheadFullError,
+        CircuitBreakerError,
+        WouldBlockError,
+    ],
+)
+def test_rejection_errors_share_admission_base(
+    error_type: type[Exception],
+) -> None:
+    """Every gatekeeping rejection is catchable as `AdmissionError`."""
+    assert issubclass(error_type, AdmissionError)
+    assert issubclass(error_type, GrelmicroError)
 
 
 def test_circuit_breaker_error() -> None:

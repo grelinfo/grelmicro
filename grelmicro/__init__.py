@@ -10,6 +10,7 @@ from grelmicro._app import (
 from grelmicro._component import Component
 from grelmicro.errors import (
     AdapterNotRegisteredError,
+    AdmissionError,
     DependencyNotFoundError,
     GrelmicroError,
     MultipleActiveAppsError,
@@ -20,6 +21,7 @@ from grelmicro.errors import (
 
 __all__ = [
     "AdapterNotRegisteredError",
+    "AdmissionError",
     "Component",
     "ComponentAlreadyRegisteredError",
     "ComponentNotRegisteredError",
