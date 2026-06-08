@@ -185,6 +185,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         ] = None,
     ) -> None:
         """Initialize the lock."""
+        resolved_env_prefix = env_prefix or f"GREL_LOCK_{env_segment(name)}_"
         config = resolve_config(
             LockConfig,
             explicit=None,
@@ -193,10 +194,11 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 "lease_duration": lease_duration,
                 "retry_interval": retry_interval,
             },
-            env_prefix=env_prefix or f"GREL_LOCK_{env_segment(name)}_",
+            env_prefix=resolved_env_prefix,
             env_load=env_load,
         )
         self._setup(name, config, backend)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(

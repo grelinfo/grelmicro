@@ -8,6 +8,7 @@ from grelmicro._app import (
     NoActiveAppError,
 )
 from grelmicro._component import Component
+from grelmicro.config import ExternalConfig
 from grelmicro.errors import (
     AdapterNotRegisteredError,
     AdmissionError,
@@ -26,6 +27,7 @@ __all__ = [
     "ComponentAlreadyRegisteredError",
     "ComponentNotRegisteredError",
     "DependencyNotFoundError",
+    "ExternalConfig",
     "Grelmicro",
     "GrelmicroError",
     "LifecycleOrderError",
