@@ -75,7 +75,9 @@ def _run_fast(mocker: MockFixture) -> None:
     """Patch the loop sleep so every iteration runs almost immediately.
 
     Keeps a tiny real sleep so the loop yields to the event loop and never
-    starves the awaiting test coroutine.
+    starves the awaiting test coroutine. Also pins the cron wall clock to a
+    fixed instant so the spinning loop never straddles a real minute boundary,
+    which would otherwise add a second, legitimate fire and flake the count.
     """
 
     async def fast_sleep(seconds: float, stop: object) -> bool:
@@ -86,6 +88,11 @@ def _run_fast(mocker: MockFixture) -> None:
     mocker.patch(
         "grelmicro.task._cron.sleep_or_stop",
         side_effect=fast_sleep,
+    )
+    frozen = datetime.now(UTC).replace(second=30, microsecond=0)
+    mocker.patch(
+        "grelmicro.task._cron._now",
+        side_effect=frozen.astimezone,
     )
 
 
