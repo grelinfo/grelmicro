@@ -90,6 +90,15 @@ class RateLimitResult(NamedTuple):
     reset_after: float
     """Seconds until the full quota resets."""
 
+    def __bool__(self) -> bool:
+        """Return whether the request was allowed.
+
+        Lets a result read like a decision: `if await limiter.acquire(...):`
+        is allowed, while the metadata (`retry_after`, `remaining`) stays
+        available on the same object.
+        """
+        return self.allowed
+
 
 class RateLimiterStrategy(Protocol):
     """A rate-limiter strategy for a specific algorithm and backend.

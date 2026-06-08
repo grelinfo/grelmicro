@@ -2,7 +2,11 @@
 
 from datetime import datetime
 
-from grelmicro.errors import GrelmicroError, SettingsValidationError
+from grelmicro.errors import (
+    AdmissionError,
+    GrelmicroError,
+    SettingsValidationError,
+)
 
 
 class ResilienceError(GrelmicroError):
@@ -19,7 +23,7 @@ class ResilienceSettingsValidationError(
     """Resilience Settings Validation Error."""
 
 
-class BulkheadFullError(ResilienceError):
+class BulkheadFullError(ResilienceError, AdmissionError):
     """Bulkhead full error.
 
     Raised when a bulkhead has no free permit and the caller's
@@ -40,7 +44,7 @@ class BulkheadFullError(ResilienceError):
         )
 
 
-class RateLimitExceededError(ResilienceError):
+class RateLimitExceededError(ResilienceError, AdmissionError):
     """Rate limit exceeded error.
 
     Raised when a rate limit check fails (too many requests).
@@ -61,7 +65,7 @@ class RateLimitExceededError(ResilienceError):
         )
 
 
-class CircuitBreakerError(ResilienceError):
+class CircuitBreakerError(ResilienceError, AdmissionError):
     """Circuit breaker error.
 
     Raised when calls are not permitted by the circuit breaker.

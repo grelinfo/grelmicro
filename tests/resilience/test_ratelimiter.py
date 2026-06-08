@@ -177,6 +177,34 @@ async def test_acquire_rejected_when_limit_exceeded(
 
 
 @pytest.mark.usefixtures("_backend")
+async def test_result_is_truthy_by_allowed(limiter: RateLimiter) -> None:
+    """A result reads as truthy when allowed and falsy when denied."""
+    # Act / Assert: first call is allowed
+    assert bool(await limiter.acquire(key="user:1")) is True
+
+    # Arrange: exhaust a second key
+    for _ in range(LIMIT):
+        await limiter.acquire(key="user:2")
+
+    # Act / Assert: the next is denied, and metadata stays available
+    denied = await limiter.acquire(key="user:2")
+    assert bool(denied) is False
+    assert denied.retry_after > 0.0
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_allow_returns_bool(limiter: RateLimiter) -> None:
+    """`allow` returns True within the limit and False once exceeded."""
+    # Act / Assert
+    assert await limiter.allow(key="user:1") is True
+
+    for _ in range(LIMIT):
+        await limiter.allow(key="user:2")
+
+    assert await limiter.allow(key="user:2") is False
+
+
+@pytest.mark.usefixtures("_backend")
 async def test_acquire_independent_keys(limiter: RateLimiter) -> None:
     """Test different keys are rate limited independently."""
     # Arrange

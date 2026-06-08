@@ -7,7 +7,18 @@ class GrelmicroError(Exception):
     """Base grelmicro error."""
 
 
-class WouldBlockError(GrelmicroError, RuntimeError):
+class AdmissionError(GrelmicroError):
+    """Raised when a gatekeeping primitive refuses a call.
+
+    The shared base for every "turned away" rejection: a rate limiter over
+    budget (`RateLimitExceededError`), a full bulkhead (`BulkheadFullError`),
+    an open circuit breaker (`CircuitBreakerError`), or a non-blocking lock
+    acquire that would block (`WouldBlockError`). Catch `AdmissionError` to
+    handle any admission rejection with one `except`.
+    """
+
+
+class WouldBlockError(AdmissionError, RuntimeError):
     """Raised by a non-blocking acquire that would have blocked."""
 
 
