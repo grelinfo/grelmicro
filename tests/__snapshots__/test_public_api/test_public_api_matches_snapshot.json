@@ -39,7 +39,7 @@
   "grelmicro.cache": {
     "Cache": {
       "()": "(source, *, name=...)",
-      ".cached": "(cache, *, key_maker=..., skip=..., typed=..., lock=..., early=..., stale_ttl=..., tags=...)"
+      ".cached": "(cache=..., *, ttl=..., maxsize=..., key_maker=..., skip=..., typed=..., lock=..., early=..., stale_ttl=..., tags=...)"
     },
     "CacheBackend": {
       "()": "(*args, **kwargs)"
@@ -70,7 +70,7 @@
       "()": "(*, maxsize=..., ttl=...)"
     },
     "cached": {
-      "()": "(cache, *, key_maker=..., skip=..., typed=..., lock=..., early=..., stale_ttl=..., tags=...)"
+      "()": "(cache=..., *, ttl=..., maxsize=..., key_maker=..., skip=..., typed=..., lock=..., early=..., stale_ttl=..., tags=...)"
     }
   },
   "grelmicro.clock": {

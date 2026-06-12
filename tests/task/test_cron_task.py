@@ -14,6 +14,7 @@ from grelmicro.coordination import Coordination
 from grelmicro.coordination.abc import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.memory import MemoryScheduleAdapter
+from grelmicro.errors import OutOfContextError
 from grelmicro.task._cron import CronTask, FireInfo
 from grelmicro.task.errors import CronError
 from tests.task import samples
@@ -535,3 +536,19 @@ async def test_cron_task_resolves_backend_from_active_app() -> None:
 
     async with micro:
         assert task.backend is schedule
+
+
+async def test_cron_task_backend_none_without_app() -> None:
+    """With no app and no explicit backend, the task runs on every worker."""
+    task = CronTask(expr=EVERY_MINUTE, function=count_execution)
+    assert task.backend is None
+
+
+async def test_cron_task_backend_out_of_context_without_coordination() -> None:
+    """An app without a `Coordination` component raises `OutOfContextError`."""
+    micro = Grelmicro()
+    task = CronTask(expr=EVERY_MINUTE, function=count_execution)
+
+    async with micro:
+        with pytest.raises(OutOfContextError, match="Cron task"):
+            _ = task.backend

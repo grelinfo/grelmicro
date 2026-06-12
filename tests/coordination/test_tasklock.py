@@ -22,6 +22,7 @@ from grelmicro.coordination.errors import (
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
+from grelmicro.errors import OutOfContextError
 from grelmicro.errors import WouldBlockError as WouldBlock
 
 pytestmark = [pytest.mark.timeout(10)]
@@ -854,3 +855,17 @@ async def test_tasklock_refresh_lease_lost_raises(
 
     with pytest.raises(LockNotOwnedError):
         await task_lock.refresh()
+
+
+async def test_tasklock_backend_out_of_context() -> None:
+    """A `TaskLock` with no backend and no active app raises `OutOfContextError`."""
+    task_lock = TaskLock(
+        "out-of-context",
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+    with pytest.raises(
+        OutOfContextError, match="TaskLock\\('out-of-context'\\)"
+    ):
+        _ = task_lock.backend

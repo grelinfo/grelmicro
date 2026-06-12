@@ -40,6 +40,20 @@ if not result:
 
 Use `acquire_or_raise` when a surrounding layer should turn the rejection into a response: it raises `RateLimitExceededError`, which is an `AdmissionError` (the shared base, exported from the top-level `grelmicro` package for every "turned away" rejection: rate limiter, bulkhead, open circuit breaker, non-blocking lock), so one `except AdmissionError` catches them all.
 
+### One fleet-wide limit
+
+When the limiter protects a service with one shared budget (no per-user or per-IP split), omit `key`. It defaults to `"default"`, and the limiter's own `name` already namespaces the bucket on the backend:
+
+```python
+api_limiter = RateLimiter.token_bucket("api", capacity=5, refill_rate=1)
+
+await api_limiter.acquire()             # one fleet-wide bucket
+await api_limiter.allow()
+await api_limiter.acquire_or_raise()
+
+await api_limiter.acquire(key=user_id)  # per-subject stays explicit
+```
+
 The factory classmethods keep the call site explicit and short:
 
 ```python

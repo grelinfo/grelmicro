@@ -123,7 +123,11 @@ class _Block(Generic[T]):
             replay = await self._idempotency._replay(  # noqa: SLF001
                 self._key, self._fingerprint
             )
-        except (NoActiveAppError, ComponentNotRegisteredError):
+        except (
+            NoActiveAppError,
+            ComponentNotRegisteredError,
+            OutOfContextError,
+        ):
             msg = (
                 f"Idempotency({self._idempotency.name!r}) resolved no "
                 f"cache backend. Pass cache=, register a Cache "

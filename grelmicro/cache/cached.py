@@ -21,6 +21,8 @@ from grelmicro.cache._stampede import (
     _stampede_lock_name,
     compute_with_stampede,
 )
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.coordination.lock import Lock
 from grelmicro.metrics import _emit
@@ -91,16 +93,98 @@ def _evict_idle_locks_sync(
             return
 
 
+class _PrivateMemoryCacheAdapter(MemoryCacheAdapter):
+    """Memory backend for a private `@cached(ttl=...)` cache.
+
+    The cache is built at decoration without an app or an explicit
+    `async with`, so the running event loop is captured on the first
+    async access instead. `_loop` lets the sync `@cached` wrapper
+    dispatch coroutines back into that loop, so a sync function reaches
+    a private cache only after one async access has primed the loop.
+    """
+
+    async def get(self, *, key: str) -> bytes | None:
+        """Capture the running loop on first read, then read by key."""
+        if self._loop is None:
+            self._loop = asyncio.get_running_loop()
+        return await super().get(key=key)
+
+
+def _resolve_cache(
+    cache: TTLCache | None, ttl: float | None, maxsize: int
+) -> TTLCache:
+    """Return the cache to use, building a private one for `ttl=`.
+
+    Passing both `cache` and `ttl`, or neither, raises `TypeError`.
+    """
+    if cache is not None:
+        if ttl is not None:
+            msg = (
+                "cached() takes either a cache or ttl=, not both. Pass a "
+                "TTLCache to share a store, or ttl= for a private "
+                "process-local cache."
+            )
+            raise TypeError(msg)
+        return cache
+    if ttl is None:
+        msg = (
+            "cached() needs a cache or a ttl=. Pass a TTLCache, or "
+            "ttl= for a private process-local cache (e.g. "
+            "@cached(ttl=30))."
+        )
+        raise TypeError(msg)
+    return TTLCache(
+        maxsize=maxsize,
+        ttl=ttl,
+        backend=_PrivateMemoryCacheAdapter(),
+        serializer=PickleSerializer(),
+    )
+
+
 def cached(
     cache: Annotated[
-        TTLCache,
+        TTLCache | None,
         Doc(
             """
             The TTLCache instance to store results in.
+
+            Omit it and pass `ttl=` instead for the plain memoize case.
+            The decorator then builds a private process-local
+            `TTLCache` on a `MemoryCacheAdapter` owned by this
+            function. That private cache never resolves the active app,
+            so its entries live only in this process and are not shared
+            across replicas. Pass a `TTLCache` when you want a shared
+            backend, tag invalidation, or to reuse one cache across
+            functions.
             """,
         ),
-    ],
+    ] = None,
     *,
+    ttl: Annotated[
+        float | None,
+        Doc(
+            """
+            TTL in seconds for the private process-local cache.
+
+            Only valid when `cache` is omitted. It builds a private
+            `TTLCache(maxsize=maxsize, ttl=ttl)` on a
+            `MemoryCacheAdapter` for plain in-process memoization
+            (the `functools.lru_cache` case). To share results across
+            replicas, pass a `TTLCache` instead. Passing both `cache`
+            and `ttl` raises `TypeError`.
+            """,
+        ),
+    ] = None,
+    maxsize: Annotated[
+        int,
+        Doc(
+            """
+            Maximum number of entries in the private process-local
+            cache. `0` (the default) means unlimited. Only used when
+            `cache` is omitted and `ttl` is given.
+            """,
+        ),
+    ] = 0,
     key_maker: Annotated[
         Callable[[Callable[..., Any], tuple[Any, ...], dict[str, Any]], str]
         | None,
@@ -206,7 +290,15 @@ def cached(
     ``cache_clear()`` helpers (matching ``functools.lru_cache``).
     ``cache_clear()`` is always a coroutine (must be awaited).
 
+    Pass a ``TTLCache`` as ``cache`` to share one store across
+    functions, invalidate by tag, or override it in tests. For the
+    plain memoize case, omit ``cache`` and pass ``ttl=`` instead. The
+    decorator then builds a private process-local cache for this
+    function alone.
+
     Raises:
+        TypeError: If both ``cache`` and ``ttl`` are given, or if
+            neither is given.
         ValueError: If ``lock`` is not ``True``, ``False``, or ``"local"``,
             if ``early`` is outside ``[0, 1)``, or if ``stale_ttl`` is not
             positive.
@@ -214,6 +306,7 @@ def cached(
     Returns:
         A decorator that caches function results.
     """
+    cache = _resolve_cache(cache, ttl, maxsize)
     if lock not in (True, False, "local"):
         msg = f"Invalid lock {lock!r}: use True, False, or 'local'."
         raise ValueError(msg)

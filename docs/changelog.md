@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 Raise `OutOfContextError` with an actionable message on every ambient backend miss: `Lock`, `TaskLock`, `LeaderElection`, `TTLCache`, `@cached`, the cron schedule resolution, and `Idempotency` now match `CircuitBreaker` and `RateLimiter`. `NoActiveAppError` stays the low-level error raised by `Grelmicro.current()` itself.
 * 💥 Remove the implicit memory fallback on `CircuitBreaker` and `RateLimiter`. Backend resolution is now one rule on every pattern: explicit `backend=` wins, else the active app's component, else `OutOfContextError`. For a per-process limiter or breaker without an app, pass `backend=MemoryRateLimiterAdapter()` or `backend=MemoryCircuitBreakerAdapter()`. Inside FastAPI handlers, add `GrelmicroMiddleware` so ambient resolution works there. `RateLimiter.reconfigure` now publishes the config and rebinds the strategy lazily on the next call, matching `CircuitBreaker`.
 * 💥 Add positional argument capture to `grelmicro.testing`: `Call` is now `Call(method, args=..., kwargs=...)` and `CallLog.count` matches positional arguments too. Update direct `Call(...)` constructions.
 * 💥 Align the leader election and task lock env var prefixes with their single-token names: `GREL_LEADER_ELECTION_{NAME}_` becomes `GREL_LEADERELECTION_{NAME}_` and `GREL_TASK_LOCK_{NAME}_` becomes `GREL_TASKLOCK_{NAME}_`. Update any environment variables set for these components. PR [#346](https://github.com/grelinfo/grelmicro/pull/346).
@@ -19,6 +20,9 @@
 
 ### Features
 
+* ✨ Default the rate limiter `key` to `"default"` on `acquire`, `acquire_or_raise`, `allow`, `peek`, and `reset`, so the single-bucket case is `await limiter.allow()`. The limiter `name` already namespaces the backend key.
+* ✨ Add the zero-object `@cached(ttl=30)` form for plain memoization: it binds a private process-local `TTLCache` at decoration, never resolves the active app, and never shares across replicas. Pass a `TTLCache` for shared state. Passing both `cache` and `ttl` raises `TypeError`.
+* ✨ Add the OpenSSF Scorecard workflow and badge.
 * ✨ Make `Grelmicro(uses=[...])` and `micro.use(...)` forgiving: a bare Component class is constructed for you, a bare adapter (class or instance) is wrapped in its matching Component, and a bare Provider with no Components auto-registers one default Component per kind it serves. The explicit form always wins, so any explicit Component turns provider auto-registration off entirely.
 * ✨ Add `AmbiguousProviderError`, raised when `uses=[...]` lists two bare Providers with no Components, so the default Component for a shared kind would be ambiguous. Wrap each Provider in the Components it should serve to resolve it.
 * ✨ Add the Idempotency pattern: a new `grelmicro.idempotency` module with an `Idempotency` primitive and `@idempotent` decorator. A caller-provided key (an `Idempotency-Key` header) executes the operation once, stores the response for `ttl` seconds, and replays it on repeats. Duplicates arriving mid-flight fold into the first execution, across replicas when a Coordination lock backend is configured. A failure stores nothing, so a retry executes fresh. An optional `fingerprint=` rejects a reused key with a different payload via `IdempotencyConflictError`. Storage rides the cache layer (`cache=` or the active app's `Cache` component).

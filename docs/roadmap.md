@@ -11,3 +11,7 @@ Post-1.0 items planned for future releases. All are purely additive. No dates ar
 - **Observability depth**: provider pool metrics, lock acquire latency, optional provider health auto-registration, metric exemplars.
 - **More backends**: MySQL/MariaDB, MongoDB, etcd/ZooKeeper.
 - **Multi-window rate limits and task pause/resume**: additive features with lower urgency.
+- **Uniform admission guard**: a `@guard(on_reject=...)` decorator over the shared `AdmissionError` base (was issue #356).
+- **Saga and transactional outbox helpers**: docs-first recipes on `Tasks` plus `TaskLock`, then a helper if demand shows (was issue #175).
+- **RFC 9457 problem-detail responses**: error-to-response mapping for the FastAPI integration (was issue #78).
+- **Project starter template**: a `copier` or `cookiecutter` starter wiring one provider, health, and one pattern (was issue #179).

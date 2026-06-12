@@ -21,6 +21,7 @@ from grelmicro.coordination.errors import (
 )
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.errors import OutOfContextError
 from grelmicro.errors import WouldBlockError as WouldBlock
 from tests._faults import cancel_midflight
 
@@ -1147,3 +1148,9 @@ async def test_from_thread_extend_lost_lease(
             lock.from_thread.extend()
 
     await asyncio.to_thread(sync)
+
+
+async def test_lock_backend_out_of_context() -> None:
+    """A `Lock` with no backend and no active app raises `OutOfContextError`."""
+    with pytest.raises(OutOfContextError, match="Lock\\('out-of-context'\\)"):
+        _ = Lock("out-of-context").backend

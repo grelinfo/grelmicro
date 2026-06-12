@@ -1639,3 +1639,73 @@ class TestSyncCachedNoLoop:
 
         with pytest.raises(RuntimeError, match="async with"):
             compute(5)
+
+
+# ---------------------------------------------------------------------------
+# Zero-object @cached(ttl=...) private-cache form
+# ---------------------------------------------------------------------------
+
+
+class TestPrivateCacheForm:
+    """Test @cached(ttl=...) building a private process-local cache."""
+
+    async def test_async_memoizes_with_ttl(self) -> None:
+        """@cached(ttl=...) on an async function memoizes results."""
+        call_count = 0
+
+        @cached(ttl=30)
+        async def get_rates() -> dict:
+            nonlocal call_count
+            call_count += 1
+            return {"usd": 1.0}
+
+        assert await get_rates() == {"usd": 1.0}
+        assert await get_rates() == {"usd": 1.0}
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_private_cache_exposes_helpers(self) -> None:
+        """The private form still exposes cache_info and cache_clear."""
+        expected_value = 7
+
+        @cached(ttl=30)
+        async def get_value() -> int:
+            return expected_value
+
+        assert await get_value() == expected_value
+        info = get_value.cache_info()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        assert info.hits == 0
+        assert info.misses == EXPECTED_MISSES_1
+        await get_value.cache_clear()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+
+    async def test_maxsize_bounds_private_cache(self) -> None:
+        """maxsize= bounds the private cache and evicts the oldest entry."""
+        call_count = 0
+        expected_calls = 3
+
+        @cached(ttl=30, maxsize=1)
+        async def square(n: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return n * n
+
+        assert await square(2) == 2 * 2
+        assert await square(3) == 3 * 3
+        # The first entry was evicted, so recomputing it counts a third call.
+        assert await square(2) == 2 * 2
+        assert call_count == expected_calls
+
+    def test_both_cache_and_ttl_raises(self) -> None:
+        """Passing both cache and ttl raises TypeError."""
+        with pytest.raises(TypeError, match="not both"):
+
+            @cached(TTLCache(ttl=5), ttl=5)
+            async def f() -> int:
+                return 1
+
+    def test_neither_cache_nor_ttl_raises(self) -> None:
+        """Bare @cached() with neither cache nor ttl raises TypeError."""
+        with pytest.raises(TypeError, match="needs a cache or a ttl="):
+
+            @cached()
+            async def f() -> int:
+                return 1

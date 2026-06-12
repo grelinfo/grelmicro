@@ -135,6 +135,41 @@ async def test_bind_called_once_on_first_use() -> None:
 
 
 @pytest.mark.usefixtures("_backend")
+async def test_acquire_defaults_to_single_bucket(
+    limiter: RateLimiter,
+) -> None:
+    """`acquire`, `allow`, `peek`, and `reset` default `key` to the single bucket."""
+    # Act: the single-bucket path needs no explicit key.
+    result = await limiter.acquire()
+    peeked = await limiter.peek()
+    allowed = await limiter.allow()
+    await limiter.reset()
+
+    # Assert: the default bucket is namespaced by the limiter name.
+    assert result.allowed is True
+    assert peeked.allowed is True
+    assert allowed is True
+    full_key = limiter._full_key("default")
+    assert full_key == f"{limiter.name}:default"
+
+
+@pytest.mark.usefixtures("_backend")
+async def test_acquire_or_raise_defaults_to_single_bucket(
+    limiter: RateLimiter,
+) -> None:
+    """`acquire_or_raise` defaults `key` to the single bucket."""
+    # Act & Assert: no key needed, and the deny branch carries the default key.
+    result = await limiter.acquire_or_raise()
+    assert result.allowed is True
+
+    for _ in range(LIMIT - 1):
+        await limiter.acquire()
+    with pytest.raises(RateLimitExceededError) as exc:
+        await limiter.acquire_or_raise()
+    assert exc.value.key == "default"
+
+
+@pytest.mark.usefixtures("_backend")
 async def test_acquire_allowed(limiter: RateLimiter) -> None:
     """Test acquire returns allowed result within limit."""
     # Act

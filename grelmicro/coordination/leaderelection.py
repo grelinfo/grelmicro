@@ -420,12 +420,35 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         `micro.override(Coordination(...))` blocks take effect. The
         backend comes from the `Coordination` component, whose election
         backend can point at a different vendor than its lock backend.
+
+        Raises:
+            OutOfContextError: No backend resolved in this scope. Pass
+                `backend=` (a `MemoryLeaderElectionBackend()` for a
+                per-process election), register a `Coordination`
+                Component, or run the call under the app context (for
+                FastAPI, add `GrelmicroMiddleware`).
         """
         if self._backend is not None:
             return self._backend
-        coordination = Grelmicro.current().get(
-            "coordination", self._backend_name or "default"
+        from grelmicro._app import (  # noqa: PLC0415
+            ComponentNotRegisteredError,
+            NoActiveAppError,
         )
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+
+        try:
+            coordination = Grelmicro.current().get(
+                "coordination", self._backend_name or "default"
+            )
+        except (NoActiveAppError, ComponentNotRegisteredError):
+            msg = (
+                f"LeaderElection({self._name!r}) resolved no backend. Pass "
+                f"backend= (MemoryLeaderElectionBackend() for a per-process "
+                f"election), register a Coordination component, or run the "
+                f"call under the app context (for FastAPI add "
+                f"GrelmicroMiddleware)."
+            )
+            raise OutOfContextError(msg) from None
         return coordination.election_backend
 
     def is_running(self) -> bool:
