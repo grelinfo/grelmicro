@@ -140,7 +140,7 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         ] = None,
     ) -> None:
         """Initialize the rate limiter."""
-        self._setup(name, config, backend, register=True)
+        self._setup(name, config, backend, register=False)
 
     def _setup(
         self,
@@ -153,9 +153,9 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         """Wire the config and runtime deps onto the instance.
 
         Registers the instance for external reload under
-        `GREL_RATELIMITER_{NAME}_` when `register` is true. The
-        declarative `from_config` path passes `register=False` and stays
-        static.
+        `GREL_RATELIMITER_{NAME}_` when `register` is true. The factory
+        classmethods register. The declarative paths (a pre-built config
+        passed to the constructor, or `from_config`) stay static.
         """
         self._name = name
         self._backend: RateLimiterBackend | None = (
@@ -303,7 +303,9 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             refill_rate=refill_rate,
             fail_open=fail_open,
         )
-        return cls(name, config, backend=backend)
+        self = cls.__new__(cls)
+        self._setup(name, config, backend, register=True)
+        return self
 
     @classmethod
     def sliding_window(
@@ -349,7 +351,9 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         config = SlidingWindowConfig(
             limit=limit, window=window, fail_open=fail_open
         )
-        return cls(name, config, backend=backend)
+        self = cls.__new__(cls)
+        self._setup(name, config, backend, register=True)
+        return self
 
     def _log_fail_open(
         self,

@@ -18,7 +18,7 @@ pytestmark = [pytest.mark.timeout(30), pytest.mark.integration]
 @pytest.fixture(scope="module")
 def container() -> Generator[RedisContainer, None, None]:
     """Valkey test container using the official `valkey/valkey` image."""
-    with RedisContainer(image="valkey/valkey:latest") as container:
+    with RedisContainer(image="valkey/valkey:8.1") as container:
         yield container
 
 

@@ -45,7 +45,10 @@ def sentinel_provider(
 ) -> Generator[RedisProvider]:
     """Yield a `RedisProvider` resolved through a real Sentinel."""
     master = (
-        DockerContainer("bitnami/redis:latest")
+        # Bitnami publishes only `latest` plus digests, so pin the digest.
+        DockerContainer(
+            "bitnami/redis@sha256:4f041bfd31d9be9711b3dc1300b4c1f90dca58c13216c84aa47fa4898945e491"
+        )
         .with_env("ALLOW_EMPTY_PASSWORD", "yes")
         .with_env("REDIS_PORT_NUMBER", str(_MASTER_PORT))
         .with_network(network)
@@ -53,7 +56,9 @@ def sentinel_provider(
         .with_bind_ports(_MASTER_PORT, _MASTER_PORT)
     )
     sentinel = (
-        DockerContainer("bitnami/redis-sentinel:latest")
+        DockerContainer(
+            "bitnami/redis-sentinel@sha256:eaf106336a4e8b1eb5c11efa9cf5315387c42129669c88f3653351617e703229"
+        )
         .with_env("ALLOW_EMPTY_PASSWORD", "yes")
         .with_env("REDIS_MASTER_HOST", "redis-master")
         .with_env("REDIS_MASTER_PORT_NUMBER", str(_MASTER_PORT))

@@ -191,6 +191,7 @@ class ValkeyProvider(RedisProvider):
         sentinel, auth, testcontainers fixture, ...) and want
         grelmicro components to use it.
         """
+        cls._bind_valkey_classes()
         self = cls.__new__(cls)
         self._env_prefix = "VALKEY_"
         self._url = ""

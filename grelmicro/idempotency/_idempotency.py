@@ -105,10 +105,32 @@ class _Block(Generic[T]):
         self._distributed_lock: Lock | None = None
 
     async def __aenter__(self) -> Operation[T]:
-        """Return an `Operation`, replaying or starting a first execution."""
-        replay = await self._idempotency._replay(  # noqa: SLF001
-            self._key, self._fingerprint
+        """Return an `Operation`, replaying or starting a first execution.
+
+        Raises:
+            OutOfContextError: No cache backend resolved in this scope.
+                Pass `cache=`, register a `Cache` Component, or run the
+                call under the app context (for FastAPI, add
+                `GrelmicroMiddleware`).
+        """
+        from grelmicro._app import (  # noqa: PLC0415
+            ComponentNotRegisteredError,
+            NoActiveAppError,
         )
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+
+        try:
+            replay = await self._idempotency._replay(  # noqa: SLF001
+                self._key, self._fingerprint
+            )
+        except (NoActiveAppError, ComponentNotRegisteredError):
+            msg = (
+                f"Idempotency({self._idempotency.name!r}) resolved no "
+                f"cache backend. Pass cache=, register a Cache "
+                f"component, or run the call under the app context (for "
+                f"FastAPI add GrelmicroMiddleware)."
+            )
+            raise OutOfContextError(msg) from None
         if replay is not _SENTINEL:
             _emit.incr(
                 "grelmicro.idempotency.operations",

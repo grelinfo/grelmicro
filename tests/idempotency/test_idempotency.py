@@ -10,13 +10,13 @@ from unittest.mock import patch
 import pytest
 
 from grelmicro import Grelmicro
-from grelmicro._app import NoActiveAppError
 from grelmicro._config import reconfigurable_instances, reconfigure_all
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.errors import OutOfContextError
 from grelmicro.idempotency import (
     Idempotency,
     IdempotencyConfig,
@@ -365,7 +365,7 @@ class TestBackendResolution:
         """No explicit cache and no active app raises out of context."""
         idem = Idempotency("charge", ttl=3600)
 
-        with pytest.raises(NoActiveAppError):
+        with pytest.raises(OutOfContextError, match="GrelmicroMiddleware"):
             async with idem("key-1"):
                 pass
 
