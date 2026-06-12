@@ -45,7 +45,7 @@ async def test_records_public_async_calls() -> None:
     await backend.release(name="cart")
 
     assert log.methods() == ["acquire", "release"]
-    assert log.calls[0] == Call("acquire", {"name": "cart", "token": "t1"})
+    assert log.calls[0] == Call("acquire", (), {"name": "cart", "token": "t1"})
 
 
 async def test_forwards_to_the_original_method() -> None:
@@ -101,6 +101,40 @@ async def test_reset_clears_recorded_calls() -> None:
 def test_call_log_default_is_empty() -> None:
     """A fresh `CallLog` records nothing."""
     assert CallLog().calls == []
+
+
+class _PosBackend:
+    """Backend with a method that accepts positional arguments."""
+
+    async def fetch(self, resource: str, *, version: int = 1) -> str:
+        return f"{resource}:{version}"
+
+
+async def test_records_positional_args() -> None:
+    """Positional arguments appear in `call.args`, keyword args in `call.kwargs`."""
+    backend = _PosBackend()
+    log = record(backend)
+
+    await backend.fetch("items", version=2)
+
+    assert len(log.calls) == 1
+    assert log.calls[0].args == ("items",)
+    assert log.calls[0].kwargs == {"version": 2}
+
+
+async def test_count_filters_by_args() -> None:
+    """`count` with `args=` matches only calls whose positional args match."""
+    backend = _PosBackend()
+    log = record(backend)
+
+    await backend.fetch("items")
+    await backend.fetch("orders")
+
+    expected = 2
+    assert log.count("fetch", args=("items",)) == 1
+    assert log.count("fetch", args=("orders",)) == 1
+    assert log.count("fetch", args=("missing",)) == 0
+    assert log.count("fetch") == expected
 
 
 async def test_records_calls_through_a_component() -> None:

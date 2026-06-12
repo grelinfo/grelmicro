@@ -3,6 +3,9 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from redis.asyncio.client import Redis
+from redis.asyncio.cluster import RedisCluster
+from redis.asyncio.sentinel import Sentinel
 
 from grelmicro import Grelmicro
 from grelmicro.cache.redis import RedisCacheAdapter
@@ -20,6 +23,8 @@ from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 pytestmark = [pytest.mark.timeout(1)]
 
 URL = "redis://:test_password@test_host:1234/0"
+_TWO_HOSTS = 2
+_DEFAULT_SENTINEL_PORT = 26379
 
 
 class TestConstruction:
@@ -279,6 +284,32 @@ class TestBuilders:
         assert adapter.provider is provider
         assert adapter._prefix == "cb:"
 
+    def test_leaderelection_builder_binds_provider(self) -> None:
+        """`provider.leaderelection()` returns a backend borrowing it."""
+        from grelmicro.coordination.redis import (  # noqa: PLC0415
+            RedisLeaderElectionBackend,
+        )
+
+        provider = RedisProvider(URL)
+
+        adapter = provider.leaderelection()
+
+        assert isinstance(adapter, RedisLeaderElectionBackend)
+        assert adapter.provider is provider
+
+    def test_schedule_builder_binds_provider(self) -> None:
+        """`provider.schedule()` returns a `RedisScheduleAdapter`."""
+        from grelmicro.coordination.redis import (  # noqa: PLC0415
+            RedisScheduleAdapter,
+        )
+
+        provider = RedisProvider(URL)
+
+        adapter = provider.schedule()
+
+        assert isinstance(adapter, RedisScheduleAdapter)
+        assert adapter.provider is provider
+
 
 class TestRebindProvider:
     """`_rebind_provider` swaps the bound provider on every Redis adapter."""
@@ -423,3 +454,203 @@ class TestSharingCache:
         )
         async with micro:
             assert cache_adapter.provider is not sync_adapter.provider
+
+
+class TestSentinelUrl:
+    """`redis+sentinel://` URLs build a Sentinel master proxy."""
+
+    def test_sentinel_url_builds_master_proxy(self) -> None:
+        """The scheme opens a Sentinel and returns a plain `Redis` client."""
+        provider = RedisProvider(
+            "redis+sentinel://h1:26379,h2:26379/mymaster/0"
+        )
+
+        assert isinstance(provider.client, Redis)
+        assert not isinstance(provider.client, RedisCluster)
+        assert provider.is_cluster is False
+        assert isinstance(provider._sentinel, Sentinel)
+        assert [str(s) for s in provider._sentinel.sentinels] != []
+        assert sum(1 for _ in provider._sentinel.sentinels) == _TWO_HOSTS
+
+    def test_sentinel_url_default_port(self) -> None:
+        """Hosts without a port default to the Sentinel port."""
+        provider = RedisProvider("redis+sentinel://h1,h2/mymaster")
+
+        assert isinstance(provider._sentinel, Sentinel)
+        ports = {
+            s.connection_pool.connection_kwargs["port"]
+            for s in provider._sentinel.sentinels
+        }
+        assert ports == {_DEFAULT_SENTINEL_PORT}
+
+    def test_sentinel_url_requires_service_name(self) -> None:
+        """A sentinel URL with no path segment raises."""
+        with pytest.raises(RedisProviderConfigError, match="master service"):
+            RedisProvider("redis+sentinel://h1:26379,h2:26379")
+
+    def test_sentinel_url_invalid_db(self) -> None:
+        """A non-integer db segment raises."""
+        with pytest.raises(RedisProviderConfigError, match="database index"):
+            RedisProvider("redis+sentinel://h1:26379/mymaster/abc")
+
+    def test_sentinel_url_no_host(self) -> None:
+        """An authority with an empty host entry raises."""
+        with pytest.raises(RedisProviderConfigError):
+            RedisProvider("redis+sentinel://:26379/mymaster")
+
+    def test_sentinel_url_safe_redacts_password(self) -> None:
+        """`safe_url` redacts the multi-host userinfo password."""
+        provider = RedisProvider(
+            "redis+sentinel://:secret@h1:26379,h2:26379/mymaster/0"
+        )
+
+        assert provider.safe_url == (
+            "redis+sentinel://:***@h1:26379,h2:26379/mymaster/0"
+        )
+        assert "secret" not in repr(provider)
+
+    def test_sentinel_url_skips_empty_authority_item(self) -> None:
+        """A trailing comma in the authority is ignored."""
+        provider = RedisProvider("redis+sentinel://h1:26379,/mymaster")
+
+        assert isinstance(provider._sentinel, Sentinel)
+        assert sum(1 for _ in provider._sentinel.sentinels) == 1
+
+    def test_cluster_url_with_no_hosts_raises(self) -> None:
+        """An authority with only separators raises."""
+        with pytest.raises(RedisProviderConfigError, match="at least one host"):
+            RedisProvider("redis+cluster://,")
+
+    async def test_sentinel_provider_closes_sentinels_on_exit(self) -> None:
+        """Owned sentinel providers close every Sentinel connection on exit."""
+        provider = RedisProvider.sentinel(
+            sentinels=[("a", 26379), ("b", 26379)], service_name="svc"
+        )
+        provider._client = MagicMock(aclose=AsyncMock())
+        sentinel_mocks = [MagicMock(aclose=AsyncMock()) for _ in range(2)]
+        provider._sentinel = MagicMock(sentinels=sentinel_mocks)
+
+        async with provider:
+            pass
+
+        provider._client.aclose.assert_awaited_once()
+        for sentinel in sentinel_mocks:
+            sentinel.aclose.assert_awaited_once()
+
+
+class TestClusterUrl:
+    """`redis+cluster://` URLs build a `RedisCluster` client."""
+
+    def test_cluster_url_builds_cluster_client(self) -> None:
+        """The scheme returns a `RedisCluster` and flags `is_cluster`."""
+        provider = RedisProvider("redis+cluster://h1:6379,h2:6379")
+
+        assert isinstance(provider.client, RedisCluster)
+        assert provider.is_cluster is True
+
+    def test_cluster_url_safe_redacts_password(self) -> None:
+        """`safe_url` redacts the multi-host userinfo password."""
+        provider = RedisProvider("redis+cluster://:secret@h1:6379,h2:6379")
+
+        assert provider.safe_url == "redis+cluster://:***@h1:6379,h2:6379"
+        assert "secret" not in repr(provider)
+
+
+class TestSentinelFactory:
+    """`RedisProvider.sentinel(...)` composes the URL and client."""
+
+    def test_factory_composes_url_and_client(self) -> None:
+        """The factory builds the URL and a Sentinel master proxy."""
+        provider = RedisProvider.sentinel(
+            sentinels=[("a", 26379), ("b", 26379)],
+            service_name="svc",
+            db=2,
+            password="secret",
+        )
+
+        assert provider.url == (
+            "redis+sentinel://:secret@a:26379,b:26379/svc/2"
+        )
+        assert provider.safe_url == (
+            "redis+sentinel://:***@a:26379,b:26379/svc/2"
+        )
+        assert isinstance(provider.client, Redis)
+        assert isinstance(provider._sentinel, Sentinel)
+
+    def test_factory_passes_sentinel_kwargs(self) -> None:
+        """`sentinel_kwargs` reaches the Sentinel connections."""
+        provider = RedisProvider.sentinel(
+            sentinels=[("a", 26379)],
+            service_name="svc",
+            sentinel_kwargs={"password": "sentinel_pw"},
+        )
+
+        assert isinstance(provider._sentinel, Sentinel)
+        assert provider._sentinel.sentinel_kwargs == {"password": "sentinel_pw"}
+
+
+class TestClusterFactory:
+    """`RedisProvider.cluster(...)` composes the URL and client."""
+
+    def test_factory_composes_url_and_client(self) -> None:
+        """The factory builds the URL and a `RedisCluster` client."""
+        provider = RedisProvider.cluster(
+            nodes=[("a", 6379), ("b", 6379)],
+            password="secret",
+        )
+
+        assert provider.url == "redis+cluster://:secret@a:6379,b:6379"
+        assert provider.safe_url == "redis+cluster://:***@a:6379,b:6379"
+        assert isinstance(provider.client, RedisCluster)
+        assert provider.is_cluster is True
+
+
+class TestClusterHashTagGuard:
+    """Multi-key adapters demand a hash-tag prefix on Cluster."""
+
+    @pytest.fixture
+    def cluster_provider(self) -> RedisProvider:
+        """Return a provider whose client is a `RedisCluster`."""
+        return RedisProvider("redis+cluster://h1:6379,h2:6379")
+
+    def test_cache_without_hash_tag_raises(
+        self, cluster_provider: RedisProvider
+    ) -> None:
+        """The cache adapter rejects a tag-less prefix on Cluster."""
+        with pytest.raises(ValueError, match="hash tag"):
+            RedisCacheAdapter(provider=cluster_provider, prefix="cache")
+
+    def test_cache_with_hash_tag_passes(
+        self, cluster_provider: RedisProvider
+    ) -> None:
+        """A prefix carrying a hash tag is accepted on Cluster."""
+        adapter = RedisCacheAdapter(
+            provider=cluster_provider, prefix="{myapp}cache"
+        )
+
+        assert adapter.provider is cluster_provider
+
+    def test_lock_without_hash_tag_raises(
+        self, cluster_provider: RedisProvider
+    ) -> None:
+        """The lock adapter rejects a tag-less prefix on Cluster."""
+        with pytest.raises(ValueError, match="hash tag"):
+            RedisLockAdapter(provider=cluster_provider, prefix="lock:")
+
+    def test_lock_with_hash_tag_passes(
+        self, cluster_provider: RedisProvider
+    ) -> None:
+        """A prefix carrying a hash tag is accepted on Cluster."""
+        adapter = RedisLockAdapter(provider=cluster_provider, prefix="{app}")
+
+        assert adapter.provider is cluster_provider
+
+    def test_standalone_needs_no_hash_tag(self) -> None:
+        """Standalone clients skip the guard entirely."""
+        provider = RedisProvider(URL)
+
+        cache = RedisCacheAdapter(provider=provider, prefix="cache")
+        lock = RedisLockAdapter(provider=provider, prefix="lock:")
+
+        assert cache.provider is provider
+        assert lock.provider is provider

@@ -38,7 +38,7 @@ if not result:
     ...
 ```
 
-Use `acquire_or_raise` when a surrounding layer should turn the rejection into a response: it raises `RateLimitExceededError`, which is an [`AdmissionError`][grelmicro.AdmissionError] (the shared base for every "turned away" rejection: rate limiter, bulkhead, open circuit breaker, non-blocking lock), so one `except AdmissionError` catches them all.
+Use `acquire_or_raise` when a surrounding layer should turn the rejection into a response: it raises `RateLimitExceededError`, which is an `AdmissionError` (the shared base, exported from the top-level `grelmicro` package for every "turned away" rejection: rate limiter, bulkhead, open circuit breaker, non-blocking lock), so one `except AdmissionError` catches them all.
 
 The factory classmethods keep the call site explicit and short:
 

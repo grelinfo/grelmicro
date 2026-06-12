@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Annotated, Self, assert_never
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
-from grelmicro._config import Reconfigurable
+from grelmicro._config import Reconfigurable, env_segment
 from grelmicro.metrics import _emit
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -140,6 +140,23 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         ] = None,
     ) -> None:
         """Initialize the rate limiter."""
+        self._setup(name, config, backend, register=True)
+
+    def _setup(
+        self,
+        name: str,
+        config: RateLimiterConfig,
+        backend: RateLimiterBackend | str | None,
+        *,
+        register: bool = False,
+    ) -> None:
+        """Wire the config and runtime deps onto the instance.
+
+        Registers the instance for external reload under
+        `GREL_RATELIMITER_{NAME}_` when `register` is true. The
+        declarative `from_config` path passes `register=False` and stays
+        static.
+        """
         self._name = name
         self._backend: RateLimiterBackend | None = (
             backend if not isinstance(backend, str) else None
@@ -150,6 +167,8 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         self._reconfigure_lock = asyncio.Lock()
         self._config = config
         self._state = _State(config=config, strategy=None)
+        if register:
+            self._track_reconfigure(f"GREL_RATELIMITER_{env_segment(name)}_")
 
     @property
     def name(self) -> str:
@@ -165,11 +184,13 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         2. The active `Grelmicro` app is consulted via
            `Grelmicro.current()` so that `micro.override(...)` blocks
            take effect.
-        3. If no app is active or no `RateLimiters` Component is
-           registered, fall back to a process-global implicit
-           `MemoryRateLimiterAdapter`. For multi-replica production
-           you almost certainly want an explicit `RateLimiters(redis)`
-           Component to share quotas across the fleet.
+
+        Raises:
+            OutOfContextError: No backend resolved in this scope. Pass
+                `backend=` (a `MemoryRateLimiterAdapter()` for a
+                per-process limiter), register a `RateLimiters`
+                Component, or run the call under the app context (for
+                FastAPI, add `GrelmicroMiddleware`).
         """
         if self._backend is not None:
             return self._backend
@@ -177,13 +198,21 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             ComponentNotRegisteredError,
             NoActiveAppError,
         )
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
 
         try:
             component = Grelmicro.current().get(
                 "ratelimiter", self._backend_name or "default"
             )
         except (NoActiveAppError, ComponentNotRegisteredError):
-            return _implicit_backend()
+            msg = (
+                f"RateLimiter({self._name!r}) resolved no backend. Pass "
+                f"backend= (MemoryRateLimiterAdapter() for a per-process "
+                f"limiter), register a RateLimiters component, or run the "
+                f"call under the app context (for FastAPI add "
+                f"GrelmicroMiddleware)."
+            )
+            raise OutOfContextError(msg) from None
         return component.backend
 
     def _resolve_strategy(self, state: _State) -> RateLimiterStrategy:
@@ -216,12 +245,15 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
     ) -> Self:
         """Construct a `RateLimiter` from a name and a pre-built config.
 
-        Equivalent to ``RateLimiter(name, config, backend=backend)``.
         Use this when configuration is assembled declaratively at
         startup and the simple factory classmethods are not the right
-        fit.
+        fit. This declarative path opts out of live reload: the instance
+        is not addressable by `ExternalConfig` and stays on the config it
+        was built with.
         """
-        return cls(name, config, backend=backend)
+        instance = cls.__new__(cls)
+        instance._setup(name, config, backend)  # noqa: SLF001
+        return instance
 
     @classmethod
     def token_bucket(
@@ -500,9 +532,12 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         self,
         new_config: RateLimiterConfig,
     ) -> None:
-        """Bind the new strategy and publish a fresh snapshot in one assignment."""
-        new_strategy = self.backend.bind(new_config)
-        self._state = _State(config=new_config, strategy=new_strategy)
+        """Publish the new config and clear the cached strategy.
+
+        The next call rebinds the strategy through `_resolve_strategy`
+        with the freshly published config, matching the circuit breaker.
+        """
+        self._state = _State(config=new_config, strategy=None)
 
 
 def _config_limit(config: RateLimiterConfig) -> int:
@@ -533,24 +568,3 @@ def _validate_cost(cost: int, limit: int) -> None:
     if cost < 1 or cost > limit:
         msg = f"cost must be between 1 and {limit}, got {cost}"
         raise ValueError(msg)
-
-
-_IMPLICIT_BACKEND: RateLimiterBackend | None = None
-
-
-def _implicit_backend() -> RateLimiterBackend:
-    """Return the process-global implicit memory adapter.
-
-    Built lazily on first access. Used when no `RateLimiters`
-    Component is registered. For multi-replica production, prefer an
-    explicit `RateLimiters(redis)` Component so quotas are enforced
-    across the fleet rather than per-replica.
-    """
-    global _IMPLICIT_BACKEND  # noqa: PLW0603
-    if _IMPLICIT_BACKEND is None:  # pragma: no branch
-        from grelmicro.resilience.ratelimiter.memory import (  # noqa: PLC0415
-            MemoryRateLimiterAdapter,
-        )
-
-        _IMPLICIT_BACKEND = MemoryRateLimiterAdapter()
-    return _IMPLICIT_BACKEND

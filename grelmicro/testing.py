@@ -44,10 +44,14 @@ class Call:
     """One recorded protocol call."""
 
     method: Annotated[str, Doc("Name of the method that was called.")]
+    args: Annotated[
+        tuple,  # type: ignore[type-arg]
+        Doc("Positional arguments the method was called with."),
+    ] = field(default_factory=tuple)
     kwargs: Annotated[
         Mapping[str, Any],
         Doc("Keyword arguments the method was called with."),
-    ]
+    ] = field(default_factory=dict)
 
 
 @dataclass
@@ -69,17 +73,23 @@ class CallLog:
             str | None,
             Doc("Method name to match, or `None` to count every call."),
         ] = None,
+        args: Annotated[
+            tuple | None,  # type: ignore[type-arg]
+            Doc("Positional arguments to match, or `None` to skip the check."),
+        ] = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> int:
-        """Return how many recorded calls match `method` and `kwargs`.
+        """Return how many recorded calls match `method`, `args`, and `kwargs`.
 
-        A call matches when its method equals `method` (when given) and every
-        item in `kwargs` equals the recorded keyword argument of the same name.
+        A call matches when its method equals `method` (when given), its
+        positional arguments equal `args` (when given), and every item in
+        `kwargs` equals the recorded keyword argument of the same name.
         """
         return sum(
             1
             for call in self.calls
             if (method is None or call.method == method)
+            and (args is None or call.args == args)
             and all(
                 call.kwargs.get(key) == value for key, value in kwargs.items()
             )
@@ -130,7 +140,7 @@ def _wrap(
 
     @functools.wraps(method)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        log.calls.append(Call(name, dict(kwargs)))
+        log.calls.append(Call(name, args, dict(kwargs)))
         return await method(*args, **kwargs)
 
     return wrapper

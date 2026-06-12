@@ -102,6 +102,17 @@ class ExternalConfig:
     field the source omits keep their value. An invalid value is logged and
     skipped, leaving the running config in place. List the component last in
     `uses=` so the components it reconfigures open first.
+
+    Every named component is addressable by its `GREL_...` prefix
+    (`GREL_RATELIMITER_API_*`, `GREL_CIRCUITBREAKER_PAYMENTS_*`, ...),
+    whether or not it loaded any value from the environment. A component
+    built through its `from_config` classmethod opts out of live reload and
+    stays on the config it was constructed with.
+
+    A bad poll never crashes the app or stops future polls: an adapter that
+    raises on an unreadable source is logged and the last good config is
+    kept. Call [`reload`][grelmicro.config.ExternalConfig.reload] for a
+    deterministic load-and-apply pass instead of waiting for the next poll.
     """
 
     def __init__(
@@ -165,7 +176,7 @@ class ExternalConfig:
         if self._secrets_src is not None:
             await stack.enter_async_context(self._secrets_src)  # ty: ignore[invalid-argument-type]
         self._stack = stack
-        await self._apply()
+        await self.reload()
         self._task = asyncio.create_task(self._poll())
         return self
 
@@ -185,21 +196,36 @@ class ExternalConfig:
             await self._stack.__aexit__(exc_type, exc_value, traceback)
             self._stack = None
 
+    async def reload(self) -> None:
+        """Load the sources once and reconfigure every live component.
+
+        Performs one immediate load-and-apply pass, the same pass the
+        poll loop runs on each interval. Use it for a deterministic
+        trigger in tests and ops runbooks instead of waiting for the next
+        poll.
+
+        An adapter that raises on an unreadable source is logged and the
+        last good config is kept, so a single failed reload never raises.
+        Values rejected by a component are logged and skipped by
+        `reconfigure_all`, leaving the running config in place.
+        """
+        try:
+            merged = await self._load_merged()
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "External config reload failed, keeping last good config",
+                exc_info=True,
+            )
+            return
+        if merged is None:
+            return
+        await reconfigure_all(merged)
+
     async def _poll(self) -> None:
         """Re-apply the sources on every interval until cancelled."""
         while True:
             await asyncio.sleep(self._interval)
-            try:
-                await self._apply()
-            except Exception:
-                logger.exception("External config poll failed")
-
-    async def _apply(self) -> None:
-        """Load the sources and reconfigure every live component."""
-        merged = await self._load_merged()
-        if merged is None:
-            return
-        await reconfigure_all(merged)
+            await self.reload()
 
     async def _load_merged(self) -> Mapping[str, str] | None:
         """Return the merged mapping, or `None` when no source has data yet.

@@ -1,6 +1,7 @@
 """Tests for the three-paths Lock construction."""
 
 import pytest
+from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
@@ -168,3 +169,42 @@ def test_name_with_dots_normalises_env_prefix(
     monkeypatch.setenv("GREL_LOCK_CART_V2_LEASE_DURATION", str(LEASE_ENV))
     lock = Lock("cart.v2", backend=backend)
     assert lock.config.lease_duration == LEASE_ENV
+
+
+# --- retry_jitter validation ---
+
+
+def test_lockconfig_retry_jitter_default() -> None:
+    """LockConfig default retry_jitter is 0.1."""
+    cfg = LockConfig(worker="test")
+    assert cfg.retry_jitter == 0.1  # noqa: PLR2004
+
+
+def test_lockconfig_retry_jitter_zero_accepted() -> None:
+    """LockConfig accepts retry_jitter=0 to disable jitter."""
+    cfg = LockConfig(worker="test", retry_jitter=0.0)
+    assert cfg.retry_jitter == 0.0
+
+
+def test_lockconfig_retry_jitter_max_accepted() -> None:
+    """LockConfig accepts retry_jitter close to 1 (exclusive)."""
+    cfg = LockConfig(worker="test", retry_jitter=0.99)
+    assert cfg.retry_jitter == 0.99  # noqa: PLR2004
+
+
+def test_lockconfig_retry_jitter_one_rejected() -> None:
+    """LockConfig rejects retry_jitter=1."""
+    with pytest.raises(ValidationError, match="retry_jitter must be"):
+        LockConfig(worker="test", retry_jitter=1.0)
+
+
+def test_lockconfig_retry_jitter_above_one_rejected() -> None:
+    """LockConfig rejects retry_jitter > 1."""
+    with pytest.raises(ValidationError, match="retry_jitter must be"):
+        LockConfig(worker="test", retry_jitter=1.5)
+
+
+def test_lockconfig_retry_jitter_negative_rejected() -> None:
+    """LockConfig rejects retry_jitter < 0."""
+    with pytest.raises(ValidationError, match="retry_jitter must be"):
+        LockConfig(worker="test", retry_jitter=-0.1)

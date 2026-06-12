@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 from logging import getLogger
@@ -26,6 +27,16 @@ if TYPE_CHECKING:
     from grelmicro.coordination.abc import LockPrimitive, ScheduleBackend
 
 logger = getLogger("grelmicro.task")
+
+
+@dataclass(frozen=True)
+class FireInfo:
+    """Information about a task fire."""
+
+    started_at: datetime
+    outcome: str
+    duration: float
+
 
 # Wall-clock seam for the current time. Tests pin it to a fixed instant so
 # cron matching is deterministic and never straddles a real minute boundary.
@@ -320,10 +331,23 @@ class CronTask(Task):
         self._backend = backend
         self._sync = sync
 
+        self._next_fire_time: datetime | None = None
+        self._last_fire: FireInfo | None = None
+
     @property
     def name(self) -> str:
         """Return the task name."""
         return self._name
+
+    @property
+    def next_fire_time(self) -> datetime | None:
+        """The next scheduled fire time, or None when not started."""
+        return self._next_fire_time
+
+    @property
+    def last_fire(self) -> FireInfo | None:
+        """The most recent fire info, or None before the first fire."""
+        return self._last_fire
 
     @property
     def backend(self) -> ScheduleBackend | None:
@@ -372,6 +396,7 @@ class CronTask(Task):
             while True:
                 now = _now(self._tz)
                 next_fire = self._expr.next_after(now)
+                self._next_fire_time = next_fire
                 delay = (next_fire - now).total_seconds()
                 # Wait until the next fire instant, waking early on stop.
                 if await sleep_or_stop(delay, stop):
@@ -387,6 +412,11 @@ class CronTask(Task):
         except asyncio.CancelledError:
             raise
         except WouldBlockError as exc:
+            self._last_fire = FireInfo(
+                started_at=_now(self._tz),
+                outcome="skipped",
+                duration=0.0,
+            )
             logger.debug("Task skipped: %s (%s)", self.name, exc)
         except LockNotOwnedError:
             logger.warning(
@@ -457,9 +487,12 @@ class CronTask(Task):
         _emit.add_up_down(
             "grelmicro.task.active", 1, **{"task.name": self.name}
         )
-        start = time.perf_counter()
+        started_at = _now(self._tz)
+        start_monotonic = time.perf_counter()
+        outcome = "error"
         try:
             await self._async_function()
+            outcome = "success"
             _emit.incr(
                 "grelmicro.task.runs",
                 **{"task.name": self.name, "outcome": "success"},
@@ -475,9 +508,15 @@ class CronTask(Task):
                 },
             )
         finally:
+            duration = time.perf_counter() - start_monotonic
+            self._last_fire = FireInfo(
+                started_at=started_at,
+                outcome=outcome,
+                duration=duration,
+            )
             _emit.record_duration(
                 "grelmicro.task.duration",
-                time.perf_counter() - start,
+                duration,
                 **{"task.name": self.name},
             )
             _emit.add_up_down(

@@ -60,3 +60,55 @@ If the process crashes without exiting the context manager, expired locks remain
 
 - **SQLite / PostgreSQL**: A single bulk `DELETE ... WHERE expire_at < now` removes all stale rows before closing the connection.
 - **Kubernetes**: Lists all Lease resources labeled `app.kubernetes.io/managed-by: grelmicro` and deletes each expired lease individually. The Kubernetes API does not support bulk conditional deletion. `NOT_FOUND` errors are silently ignored to handle concurrent deletions.
+
+## Fencing token guarantees
+
+A fencing token is a strictly increasing integer that grelmicro mints on each
+free-to-held transition. The token is per-name, per-backend, and survives
+release and re-acquire cycles: it only grows, never repeats.
+
+### Monotonicity by backend
+
+| Backend | Monotonicity scope | Guarantee |
+|---|---|---|
+| Memory | Per adapter instance (process lifetime) | Strictly increasing per name within one process. The `_fences` counter persists for the adapter lifetime and is never reset, even across release cycles. |
+| Redis | Per lock name, per Redis master | Strictly increasing per name against the master. A separate `fence:<name>` counter key is incremented atomically inside the acquire Lua script on every free-to-held transition and is never deleted. |
+| PostgreSQL | Per lock name, per database | Strictly increasing per name within the database. A `fence BIGINT` column is incremented via `fence + 1` on every free-to-held transition. Release clears the holder but keeps the row and its fence value. |
+| SQLite | Per lock name, per database file | Strictly increasing per name within one database file. The `fence INTEGER` column follows the same bump-on-transition pattern as PostgreSQL, inside a `BEGIN IMMEDIATE` transaction. |
+| Kubernetes | Per lock name, per Kubernetes cluster | Strictly increasing per name. The `spec.leaseTransitions` counter is incremented on every free-to-held transition. Release vacates the holder in place but keeps the Lease object, so the counter survives across release and re-acquire cycles. |
+
+### Resource-side fencing check
+
+grelmicro mints and returns the token. The resource that you write to must check
+it. The pattern: store the highest token accepted alongside the resource and
+reject writes that arrive with a lower or equal token.
+
+Example with a SQL database:
+
+```sql
+-- On the resource table:
+ALTER TABLE orders ADD COLUMN lock_fence bigint NOT NULL DEFAULT 0;
+
+-- Every write from the lock holder passes the fencing token:
+UPDATE orders
+SET    data = :data,
+       lock_fence = :token
+WHERE  id = :order_id
+AND    lock_fence < :token;
+```
+
+If the `UPDATE` affects zero rows, the write was rejected. An old holder that
+resumed after a partition cannot overwrite a newer holder's data.
+
+Python side:
+
+```python
+async with Lock("order:{order_id}") as held:
+    rows = await db.execute(
+        "UPDATE orders SET data=:data, lock_fence=:token "
+        "WHERE id=:id AND lock_fence < :token",
+        {"data": payload, "id": order_id, "token": held.fencing_token},
+    )
+    if rows.rowcount == 0:
+        raise RuntimeError("Write rejected: fencing token too low")
+```

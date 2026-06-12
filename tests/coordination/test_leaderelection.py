@@ -108,6 +108,7 @@ def test_leader_election_config() -> None:
         "retry_interval": 0.001,
         "error_interval": 0.01,
         "backend_timeout": 0.007,
+        "retry_jitter": 0.1,
     }
 
 
@@ -124,6 +125,7 @@ def test_leader_election_config_defaults() -> None:
         "retry_interval": 2,
         "error_interval": 30,
         "backend_timeout": 5,
+        "retry_jitter": 0.1,
     }
 
 
@@ -711,3 +713,30 @@ async def test_leader_election_stops_gracefully_on_stop_event(
         duration=1,
     )
     assert record.holder == "other"
+
+
+async def test_leader_election_without_jitter(
+    backend: LeaderElectionBackend,
+) -> None:
+    """A zero `retry_jitter` renews on the fixed interval."""
+    # Arrange
+    election = LeaderElection(
+        "test-no-jitter",
+        backend=backend,
+        worker="worker_nj",
+        lease_duration=LEASE_DURATION,
+        renew_deadline=LEASE_DURATION * 0.66,
+        retry_interval=LEASE_DURATION * 0.33,
+        retry_jitter=0,
+        backend_timeout=LEASE_DURATION * 0.5,
+    )
+
+    # Act
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, election)
+        is_leader_inside = election.is_leader()
+        cancel_group(tg)
+    await election.wait_lose_leader()
+
+    # Assert
+    assert is_leader_inside is True

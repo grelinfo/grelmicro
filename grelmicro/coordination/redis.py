@@ -14,7 +14,7 @@ from grelmicro.coordination.abc import (
     LockBackend,
     ScheduleBackend,
 )
-from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -122,6 +122,9 @@ class RedisLockAdapter(LockBackend):
 
     def _bind_scripts(self) -> None:
         """(Re)register the Lua scripts against the current client."""
+        require_cluster_hash_tag(
+            self._provider, self._key_prefix, adapter="RedisLockAdapter"
+        )
         client = self._provider.client
         self._lua_release = client.register_script(self._LUA_RELEASE)
         self._lua_acquire = client.register_script(self._LUA_ACQUIRE_OR_EXTEND)

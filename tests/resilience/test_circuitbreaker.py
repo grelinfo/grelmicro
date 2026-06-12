@@ -206,16 +206,32 @@ async def test_memory_strategy_get_snapshot_returns_default_when_unused() -> (
     assert snapshot.consecutive_success_count == 0
 
 
-async def test_circuit_falls_back_to_implicit_memory_adapter_when_no_component() -> (
+def test_circuit_raises_out_of_context_on_ambient_miss_with_active_component() -> (
     None
 ):
-    """Resolves to the implicit memory adapter when no Component is registered."""
-    # No `CircuitBreakers` Component on this app:
-    async with Grelmicro():
-        cb = CircuitBreaker("ad-hoc")
-        async with cb:
-            pass
-        assert cb.state is CircuitBreakerState.CLOSED
+    """An ambient miss raises when a CircuitBreakers component is active in the process.
+
+    The autouse `_cb_app` fixture keeps a `CircuitBreakers` component
+    active process-wide. A breaker resolved from a context that does not
+    see that app must refuse rather than silently degrade to the implicit
+    per-process memory adapter.
+    """
+    import contextvars  # noqa: PLC0415
+
+    from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+
+    cb = CircuitBreaker("ad-hoc")
+
+    def resolve() -> None:
+        # A fresh context has no `current()` binding, mimicking a request
+        # handler running outside `async with micro:`.
+        _ = cb.backend
+
+    # `Context.run` executes `resolve` in a context where `_current_micro`
+    # is unset, so `Grelmicro.current()` raises and the ambient-miss guard
+    # fires even though the autouse app is active in the process.
+    with pytest.raises(OutOfContextError, match="add GrelmicroMiddleware"):
+        contextvars.Context().run(resolve)
 
 
 async def test_circuit_initial_state() -> None:
@@ -241,6 +257,20 @@ async def test_circuit_from_thread_protect_success() -> None:
     cb = CircuitBreaker("test")
 
     def sync() -> None:
+        with cb.from_thread:
+            pass
+
+    # Act
+    await asyncio.to_thread(sync)
+
+
+async def test_circuit_from_thread_reenters_same_thread() -> None:
+    """A second from_thread entry on the same thread reuses its stack."""
+    cb = CircuitBreaker("test")
+
+    def sync() -> None:
+        with cb.from_thread:
+            pass
         with cb.from_thread:
             pass
 

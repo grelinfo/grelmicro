@@ -181,6 +181,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         ] = None,
     ) -> None:
         """Initialize the task lock."""
+        resolved_env_prefix = (
+            env_prefix or f"GREL_TASKLOCK_{env_segment(name)}_"
+        )
         config = resolve_config(
             TaskLockConfig,
             explicit=None,
@@ -189,10 +192,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 "min_lock_seconds": min_lock_seconds,
                 "max_lock_seconds": max_lock_seconds,
             },
-            env_prefix=env_prefix or f"GREL_TASKLOCK_{env_segment(name)}_",
+            env_prefix=resolved_env_prefix,
             env_load=env_load,
         )
         self._setup(name, config, backend)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(
@@ -323,6 +327,21 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         if self._from_thread is None:
             self._from_thread = ThreadTaskLockAdapter(task_lock=self)
         return self._from_thread
+
+    async def refresh(self) -> None:
+        """Renew the lease for another `max_lock_seconds` without releasing.
+
+        Raises:
+            LockNotOwnedError: If this task does not hold the lock or the lease was lost.
+            LockAcquireError: If the backend call fails.
+        """
+        config = self._config
+        if self._acquired_at is None:
+            raise LockNotOwnedError(name=self._name)
+        token = generate_task_token(config.worker, self._token_nonce)
+        renewed = await self.do_reacquire(token, config.max_lock_seconds)
+        if not renewed:
+            raise LockNotOwnedError(name=self._name)
 
     async def locked(self) -> bool:
         """Check if the lock is acquired.

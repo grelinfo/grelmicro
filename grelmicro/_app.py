@@ -47,6 +47,7 @@ list so `Grelmicro.__aenter__` can refuse to open a second overlapping app
 whose `Log`/`Trace` would clobber the active app's global-state snapshots.
 """
 
+
 _GLOBAL_STATE_KINDS = frozenset({"log", "trace"})
 """Component kinds that own process-global state (root logger, tracer).
 
@@ -461,6 +462,20 @@ class Grelmicro:
         Use `micro.get(kind, name)` for explicit name-based resolution.
         """
         return self._resolve_kind(name)
+
+    def _bind_current(self) -> Any:  # noqa: ANN401
+        """Set this app as `current()` for the running task, return a reset token.
+
+        Used by an integration (the FastAPI middleware) to propagate the
+        active app into a request task that runs outside the
+        `async with micro:` block. Pair every call with `_reset_current`.
+        """
+        return _current_micro.set(self)
+
+    @staticmethod
+    def _reset_current(token: Any) -> None:  # noqa: ANN401
+        """Reset the `current()` binding from a `_bind_current` token."""
+        _current_micro.reset(token)
 
     def _owns_global_state(self) -> bool:
         """Return True if any registered item configures process-global state."""

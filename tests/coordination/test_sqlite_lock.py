@@ -1,5 +1,7 @@
 """Tests for SQLite Backends."""
 
+from pathlib import Path
+
 import pytest
 
 from grelmicro.coordination.errors import CoordinationSettingsValidationError
@@ -77,3 +79,28 @@ def test_sync_backend_custom_table_name() -> None:
 
     # Assert
     assert backend._table_name == "my_locks"
+
+
+async def test_acquire_rolls_back_on_error(tmp_path: Path) -> None:
+    """A failing acquire rolls back the open transaction and re-raises."""
+    # Arrange
+    backend = SQLiteLockAdapter(tmp_path / "locks.db")
+    async with backend:
+        conn = backend._conn
+        assert conn is not None
+        await conn.execute("DROP TABLE locks;")
+        await conn.commit()
+
+        # Act / Assert
+        with pytest.raises(Exception, match="no such table"):
+            await backend.acquire(name="lock", token="token", duration=1)
+
+        assert conn.in_transaction is False
+
+        # Restore the schema so the context manager exit can run cleanly.
+        await conn.execute(
+            SQLiteLockAdapter._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
+                table_name="locks"
+            )
+        )
+        await conn.commit()

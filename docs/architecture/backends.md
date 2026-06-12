@@ -88,6 +88,18 @@ Resolution order, in priority:
 3. When the requested name is `"default"` and exactly one Component of that kind is registered: that sole entry.
 4. Otherwise raise `ComponentNotRegisteredError`.
 
+## Request handlers and the ambient scope
+
+Ambient resolution reads `Grelmicro.current()`, which is per asyncio task. A FastAPI request handler runs in its own task, outside the `async with micro:` block, so a bare `Lock("cart")` cannot see the app there and raises `OutOfContextError`. Add the middleware to extend the app scope to every request:
+
+```python
+from grelmicro.fastapi import GrelmicroMiddleware
+
+app.add_middleware(GrelmicroMiddleware, micro=micro)
+```
+
+The middleware is pure ASGI, binds on `http` and `websocket` scopes, and works with any ASGI framework. Background `Tasks` already run inside the app scope and need nothing.
+
 ## Test-time overrides
 
 `micro.override(...)` installs scoped Component swaps for the duration of a block:

@@ -222,12 +222,14 @@ class Reconfigurable[ConfigT: BaseModel]:
     def _track_reconfigure(self, env_prefix: str) -> None:
         """Record the env prefix and register for external reload.
 
-        Called from a component's setup once its config has resolved
-        from the environment. The recorded `env_prefix` lets
+        Called from a component's constructor under its derived
+        name-as-namespace `env_prefix`. The recorded prefix lets
         `ExternalConfig` re-resolve this instance from a mounted
-        ConfigMap or Secret using the same keys the environment uses.
-        Instances built from a pre-built config (the declarative
-        `from_config` path) skip this and stay static.
+        ConfigMap or Secret using the same keys the environment uses,
+        whether or not the instance loaded any value from the
+        environment at construction. Instances built from a pre-built
+        config (the declarative `from_config` path) skip this and stay
+        static.
         """
         self._env_prefix = env_prefix
         _reconfigurables.add(self)
@@ -271,7 +273,7 @@ class Reconfigurable[ConfigT: BaseModel]:
 
 
 _reconfigurables: WeakSet[Reconfigurable[Any]] = WeakSet()
-"""Live `Reconfigurable` instances that resolved from the environment.
+"""Live `Reconfigurable` instances registered under a name-as-namespace prefix.
 
 Process-global and weakly held: an instance drops out when it is garbage
 collected, so a module-level `Lock("ledger")` is tracked for as long as it
@@ -309,16 +311,42 @@ def resolve_config_from_mapping[C: BaseModel](
     """
     cls = type(current)
     fields = cls.model_fields
+    prefix_len = len(env_prefix)
     prefix_upper = env_prefix.upper()
-    overrides = {
-        key[len(env_prefix) :].lower(): value
-        for key, value in mapping.items()
-        if key.upper().startswith(prefix_upper)
-        and key[len(env_prefix) :].lower() in fields
-    }
+    overrides: dict[str, str] = {}
+    unmatched: list[str] = []
+    for key, value in mapping.items():
+        if not key.upper().startswith(prefix_upper):
+            continue
+        field = key[prefix_len:].lower()
+        if field in fields:
+            overrides[field] = value
+        else:
+            unmatched.append(key)
+    if unmatched:
+        logger.debug(
+            "External config keys under %s match no field on %s: %s",
+            env_prefix,
+            cls.__name__,
+            ", ".join(sorted(unmatched)),
+        )
     if not overrides:
         return current
     return cls.model_validate({**current.model_dump(), **overrides})
+
+
+def _redact_validation_error(exc: ValidationError) -> str:
+    """Summarize a `ValidationError` without ever echoing input values.
+
+    Returns one `field: error_type` entry per error, joined with commas.
+    The offending input is never included, so a Secret value patched in
+    from a mounted source cannot leak into the logs.
+    """
+    parts = []
+    for error in exc.errors(include_url=False):
+        location = ".".join(str(loc) for loc in error["loc"]) or "(root)"
+        parts.append(f"{location}: {error['type']}")
+    return ", ".join(parts)
 
 
 async def reconfigure_all(mapping: Mapping[str, str]) -> None:
@@ -329,6 +357,9 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
     value the instance rejects (an invalid value, or an attempt to change an
     immutable field) is logged and skipped so one bad key never stops the
     others from updating.
+
+    Validation failures log only field locations and error types, never the
+    offending value, so a secret patched from a mounted source cannot leak.
     """
     for instance in list(_reconfigurables):
         env_prefix = instance._env_prefix  # noqa: SLF001
@@ -342,7 +373,9 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
             )
         except ValidationError as exc:
             logger.warning(
-                "Ignoring invalid external config for %s: %s", env_prefix, exc
+                "Ignoring invalid external config for %s: %s",
+                env_prefix,
+                _redact_validation_error(exc),
             )
             continue
         try:

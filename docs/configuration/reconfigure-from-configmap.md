@@ -1,116 +1,123 @@
 # Reconfigure from a ConfigMap
 
-[`reconfigure(new_config)`](../architecture/reconfigure.md) swaps a live component's configuration without rebuilding it. This page is the worked example: a Kubernetes `ConfigMap` watcher that reloads a `Lock`'s lease settings at runtime, plus a `SIGHUP` variant for non-Kubernetes hosts.
-
-The example uses the official `kubernetes` client. grelmicro does not depend on it, so install it in your app: `pip install kubernetes`.
+[`reconfigure(new_config)`](../architecture/reconfigure.md) swaps a live component's configuration without rebuilding it. The `ExternalConfig` component automates the whole loop: it reads a mounted `ConfigMap`, `Secret`, `.env`, or JSON file, and reapplies every changed value to the live components, with no per-component wiring.
 
 ## The ConfigMap
+
+Keys are the same `GREL_...` names the [Environmental path](../config.md) reads from the environment:
 
 ```yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ledger-lock
+  name: grelmicro-config
 data:
-  lease_duration: "30"
-  retry_interval: "0.5"
+  GREL_LOCK_LEDGER_LEASE_DURATION: "30"
+  GREL_LOCK_LEDGER_RETRY_INTERVAL: "0.5"
+  GREL_RATELIMITER_API_LIMIT: "200"
 ```
 
-## Watch and reconfigure
+Mount it as a volume:
 
-A background task watches the `ConfigMap` and calls `reconfigure` only when the parsed config actually changes. A malformed update logs a warning and keeps the previous config: `reconfigure` validates the new config and leaves the live one untouched if validation fails.
+```yaml
+volumeMounts:
+  - name: config
+    mountPath: /etc/grelmicro
+volumes:
+  - name: config
+    configMap:
+      name: grelmicro-config
+```
+
+## The component
+
+Add `ExternalConfig` to the app and point it at the mount:
 
 ```python
-import logging
+from grelmicro import ExternalConfig, Grelmicro
+from grelmicro.coordination import Coordination, Lock
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience import RateLimiter, RateLimiters
 
-from kubernetes import client, config, watch
-
-from grelmicro.coordination import Lock
-from grelmicro.coordination.lock import LockConfig
-
-logger = logging.getLogger("reconfigure")
+redis = RedisProvider("redis://localhost:6379/0")
 
 ledger_lock = Lock("ledger")
+api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
-
-def parse(data: dict[str, str]) -> LockConfig:
-    """Build a validated LockConfig from the ConfigMap data."""
-    return LockConfig(
-        lease_duration=float(data["lease_duration"]),
-        retry_interval=float(data["retry_interval"]),
-    )
-
-
-async def watch_configmap(namespace: str = "default") -> None:
-    config.load_incluster_config()
-    api = client.CoreV1Api()
-    applied: LockConfig | None = None
-
-    for event in watch.Watch().stream(
-        api.list_namespaced_config_map,
-        namespace=namespace,
-        field_selector="metadata.name=ledger-lock",
-    ):
-        data = event["object"].data or {}
-        try:
-            new_config = parse(data)
-        except (KeyError, ValueError):
-            logger.warning("Ignoring malformed ledger-lock ConfigMap")
-            continue
-        # Debounce: skip no-op updates so we only reconfigure on change.
-        if new_config == applied:
-            continue
-        await ledger_lock.reconfigure(new_config)
-        applied = new_config
-        logger.info("Reapplied ledger-lock config: %s", new_config)
+micro = Grelmicro(uses=[
+    redis,
+    Coordination(redis),
+    RateLimiters(redis.ratelimiter()),
+    ExternalConfig("/etc/grelmicro"),
+])
 ```
 
-Run `watch_configmap` as a grelmicro background task:
+Editing the `ConfigMap` now updates the lock's lease and the limiter's quota on the next poll, without a restart. A held lease and in-flight acquires survive the swap. See [Live reconfiguration](../architecture/reconfigure.md) for the contract.
+
+## What reloads, and what does not
+
+- Every named pattern built programmatically or from the environment is addressable by its `GREL_{PATTERN}_{NAME}_` keys, including patterns that do not read env vars at construction (`GREL_RATELIMITER_{NAME}_`, `GREL_CIRCUITBREAKER_{NAME}_`).
+- Instances built with `from_config` stay static. The declarative path hands ownership of the config tree to your settings layer, so `ExternalConfig` leaves it alone.
+- Identity fields (a lock `worker`) and keys that match no config field are ignored.
+- A value that fails validation is logged (field names only, never values) and skipped. The component keeps the last good configuration.
+
+## Polling and tests
+
+`ExternalConfig` polls the source (default every 10 seconds) and skips the apply pass when nothing changed. Call `reload()` for a deterministic pass, which is what tests want:
 
 ```python
-from grelmicro.task import Tasks
+async def test_lease_reload(tmp_path):
+    (tmp_path / "GREL_LOCK_LEDGER_LEASE_DURATION").write_text("30")
+    external = ExternalConfig(tmp_path)
+    ledger_lock = Lock("ledger")
 
-tasks = Tasks()
-tasks.add_task(watch_configmap)
+    async with Grelmicro(uses=[external]):
+        await external.reload()
+        assert ledger_lock.config.lease_duration == 30
 ```
 
-`reconfigure` keeps runtime state (held leases, in-flight acquires) across the swap, so a config reload never drops a lock. See [Live reconfiguration](../architecture/reconfigure.md) for the full contract.
+## File formats
 
-## SIGHUP variant (no Kubernetes)
+A single file source is read by its extension. A directory mount stays one file per key.
 
-Outside Kubernetes, reload from a file on `SIGHUP`. The orchestrator (or an operator running `kill -HUP`) triggers the reload, and the same `reconfigure` contract applies.
+- `.json`, `.yaml`, `.yml`, and `.toml` files hold a mapping document.
+- Any other file is read as `.env` lines (`KEY=VALUE`, blanks and `#` comments ignored).
+
+A mapping document is either flat or nested. A flat mapping uses the `GREL_...` keys directly:
+
+```yaml
+GREL_LOCK_LEDGER_LEASE_DURATION: 30
+GREL_RATELIMITER_API_LIMIT: 200
+```
+
+A nested mapping joins its segments with `_` and uppercases them. The mapping below reads as `GREL_LOCK_LEDGER_LEASE_DURATION=30` and `GREL_RATELIMITER_API_LIMIT=200`:
+
+```yaml
+grel:
+  lock:
+    ledger:
+      lease_duration: 30
+  ratelimiter:
+    api:
+      limit: 200
+```
+
+Values are stringified. A bool becomes `true` or `false`. A number becomes its digits. A document that is not a mapping raises `ValueError`.
+
+YAML needs PyYAML. Install it with the `yaml` extra:
+
+```bash
+pip install "grelmicro[yaml]"
+```
+
+## Secrets
+
+A mounted `Secret` is a directory of files too, so the same adapter reads it. Pass it via `secrets=` to keep the two sources separate:
 
 ```python
-import asyncio
-import json
-import signal
-from pathlib import Path
-
-CONFIG_PATH = Path("/etc/ledger/lock.json")
-
-
-def _request_reload(reload: asyncio.Event) -> None:
-    reload.set()
-
-
-async def watch_sighup() -> None:
-    loop = asyncio.get_running_loop()
-    reload = asyncio.Event()
-    loop.add_signal_handler(signal.SIGHUP, _request_reload, reload)
-    applied: LockConfig | None = None
-
-    while True:
-        await reload.wait()
-        reload.clear()
-        try:
-            new_config = parse(json.loads(CONFIG_PATH.read_text()))
-        except (OSError, KeyError, ValueError):
-            logger.warning("Ignoring malformed lock config file")
-            continue
-        if new_config == applied:
-            continue
-        await ledger_lock.reconfigure(new_config)
-        applied = new_config
+ExternalConfig("/etc/grelmicro", secrets="/etc/grelmicro-secrets")
 ```
 
-The [FastAPI demo](https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo) is a good place to try the `SIGHUP` variant: it already runs background tasks, so adding `tasks.add_task(watch_sighup)` and sending `docker compose kill -s SIGHUP app` reloads the lock without a restart.
+## Manual control
+
+For a trigger the component does not cover (a `SIGHUP` handler, an admin endpoint), call `reload()` from your own code, or call `reconfigure(new_config)` directly on one component for full manual control. The [Live reconfiguration](../architecture/reconfigure.md) page documents the per-component contract.

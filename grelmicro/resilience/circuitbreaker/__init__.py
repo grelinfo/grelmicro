@@ -18,7 +18,7 @@ from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
-from grelmicro._config import Reconfigurable
+from grelmicro._config import Reconfigurable, env_segment
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import CircuitBreakerError
 
@@ -66,6 +66,8 @@ __all__ = [
     "ConsecutiveCountConfig",
     "ErrorDetails",
 ]
+
+logger = getLogger("grelmicro")
 
 
 def __getattr__(name: str) -> object:
@@ -216,21 +218,20 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
 
                 Accepts a backend instance, the name of a registered
                 backend (e.g. ``"analytics"``), or ``None`` to fall
-                back to the registered ``"default"`` Component or a
-                process-global implicit memory adapter when no
-                Component is registered.
+                back to the registered ``"default"`` Component.
                 """
             ),
         ] = None,
     ) -> None:
         """Initialize the circuit breaker, defaulting the algorithm to consecutive-count."""
+        register = config is None
         if config is None:
             from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
                 ConsecutiveCountConfig,
             )
 
             config = ConsecutiveCountConfig()
-        self._setup(name, config, backend)
+        self._setup(name, config, backend, register=register)
 
     @classmethod
     def from_config(
@@ -327,18 +328,30 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         config = ConsecutiveCountConfig.model_validate(
             {k: v for k, v in provided.items() if v is not None}
         )
-        return cls.from_config(name, config, backend=backend)
+        instance = cls.__new__(cls)
+        instance._setup(name, config, backend, register=True)  # noqa: SLF001
+        return instance
 
     def _setup(
         self,
         name: str,
         config: CircuitBreakerConfig,
         backend: CircuitBreakerBackend | str | None,
+        *,
+        register: bool = False,
     ) -> None:
-        """Wire the validated config and runtime deps onto the instance."""
+        """Wire the validated config and runtime deps onto the instance.
+
+        Registers the instance for external reload under
+        `GREL_CIRCUITBREAKER_{NAME}_` when `register` is true. The
+        declarative `from_config` path passes `register=False` and stays
+        static.
+        """
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
+        if register:
+            self._track_reconfigure(f"GREL_CIRCUITBREAKER_{env_segment(name)}_")
         self._backend: CircuitBreakerBackend | None = (
             backend if not isinstance(backend, str) else None
         )
@@ -403,11 +416,13 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         2. The active `Grelmicro` app is consulted via
            `Grelmicro.current()` so that `micro.override(...)` blocks
            take effect.
-        3. If no app is active or no `CircuitBreakers` Component is
-           registered, fall back to a process-global implicit
-           `MemoryCircuitBreakerAdapter`. Lets `CircuitBreaker("name")`
-           work without any Grelmicro setup for the per-replica
-           recommended default.
+
+        Raises:
+            OutOfContextError: No backend resolved in this scope. Pass
+                `backend=` (a `MemoryCircuitBreakerAdapter()` for a
+                per-replica breaker), register a `CircuitBreakers`
+                Component, or run the call under the app context (for
+                FastAPI, add `GrelmicroMiddleware`).
         """
         if self._backend is not None:  # pragma: no cover
             return self._backend
@@ -415,13 +430,21 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             ComponentNotRegisteredError,
             NoActiveAppError,
         )
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
 
         try:
             component = Grelmicro.current().get(
                 "circuitbreaker", self._backend_name or "default"
             )
         except (NoActiveAppError, ComponentNotRegisteredError):
-            return _implicit_backend()
+            msg = (
+                f"CircuitBreaker({self._name!r}) resolved no backend. Pass "
+                f"backend= (MemoryCircuitBreakerAdapter() for a per-replica "
+                f"breaker), register a CircuitBreakers component, or run "
+                f"the call under the app context (for FastAPI add "
+                f"GrelmicroMiddleware)."
+            )
+            raise OutOfContextError(msg) from None
         return component.backend
 
     @property
@@ -793,25 +816,3 @@ async def _async_handle_exit(
     else:  # pragma: no cover
         return
     cb._apply_snapshot(snapshot)  # noqa: SLF001
-
-
-_IMPLICIT_BACKEND: CircuitBreakerBackend | None = None
-
-
-def _implicit_backend() -> CircuitBreakerBackend:
-    """Return the process-global implicit memory adapter.
-
-    Built lazily on first access so that importing
-    `grelmicro.resilience.circuitbreaker` does not load the memory
-    adapter. Used when no `CircuitBreakers` Component is registered,
-    so `CircuitBreaker("name")` works without any `Grelmicro` setup
-    for the per-replica recommended default.
-    """
-    global _IMPLICIT_BACKEND  # noqa: PLW0603
-    if _IMPLICIT_BACKEND is None:
-        from grelmicro.resilience.circuitbreaker.memory import (  # noqa: PLC0415
-            MemoryCircuitBreakerAdapter,
-        )
-
-        _IMPLICIT_BACKEND = MemoryCircuitBreakerAdapter()
-    return _IMPLICIT_BACKEND

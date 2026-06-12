@@ -45,5 +45,16 @@ class ConfigBackend(Protocol):
         the first call and whenever the source changes. Returns `None` when
         nothing changed since the last call, so the caller can skip
         re-applying.
+
+        Error contract:
+
+        - Raise `OSError` (or a subclass) when the source is unreadable: a
+          missing mount, a permission error, or a network failure.
+        - Raise `ValueError` when the source is readable but its content is
+          not a valid flat mapping (for example malformed JSON).
+
+        `ExternalConfig` catches both, logs a warning, and keeps the last
+        good config, so one bad read never crashes the app or stops future
+        polls.
         """
         ...

@@ -37,7 +37,8 @@ Legend:
 ## Picking an Adapter
 
 - **Memory** for tests, single-process apps, and `Retry`, `Fallback`, `Timeout`, and `Bulkhead` (in-process Patterns).
-- **Redis** when you already run Redis and want the lowest-latency distributed option.
+- **Redis** when you already run Redis and want the lowest-latency distributed option. `RedisProvider` switches to Sentinel or Cluster from the URL scheme alone (see [Providers](providers.md)). On Cluster the cache and lock prefixes need a hash tag.
+- **Valkey** when you run a Valkey server. `ValkeyProvider` wraps the same Redis adapters via `valkey-py`, so coverage and behavior match Redis exactly.
 - **Postgres** when Postgres is your only stateful dependency and you want one fewer service to run.
 - **SQLite** for single-host deployments that still need durability across restarts. The SQLite circuit breaker coordinates state across processes sharing one file on a single host, not across hosts. For fleet-wide state, use Redis or Postgres.
 - **Kubernetes** for `Lock` and `LeaderElection` when you want the cluster API as the coordination plane and no extra infrastructure.

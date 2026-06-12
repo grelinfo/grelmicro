@@ -106,17 +106,20 @@ class Timeout(Reconfigurable[TimeoutConfig]):
     ) -> None:
         """Initialize the timeout policy."""
         self._name = name
+        env_prefix = f"GREL_TIMEOUT_{env_segment(name)}_"
         resolved = resolve_config(
             TimeoutConfig,
             explicit=config,
             kwargs={"seconds": seconds},
-            env_prefix=f"GREL_TIMEOUT_{env_segment(name)}_",
+            env_prefix=env_prefix,
             env_load=env_load,
         )
         self._config = resolved
         self._state = _State(config=resolved)
         self._reconfigure_lock = asyncio.Lock()
         self._scopes: dict[asyncio.Task[Any], list[asyncio.Timeout]] = {}
+        if config is None:
+            self._track_reconfigure(env_prefix)
 
     @property
     def name(self) -> str:

@@ -1618,3 +1618,24 @@ class TestSyncCachedStaleOnError:
 
         with pytest.raises(RuntimeError, match="down"):
             await asyncio.to_thread(fetch)
+
+
+class TestSyncCachedNoLoop:
+    """Test the error raised when the sync wrapper is called without an open backend."""
+
+    def test_raises_runtime_error_when_loop_is_none(self) -> None:
+        """Calling a sync cached function before the backend is opened raises RuntimeError."""
+        backend = MemoryCacheAdapter()
+        cache = TTLCache(
+            maxsize=10,
+            ttl=60,
+            backend=backend,
+            serializer=PickleSerializer(),
+        )
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            return x * 2
+
+        with pytest.raises(RuntimeError, match="async with"):
+            compute(5)

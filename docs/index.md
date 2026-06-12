@@ -53,6 +53,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | Module | Summary |
 |---|---|
 | [**Cache**](cache.md) | `@cached` decorator with local and distributed stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
+| [**Idempotency**](idempotency.md) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
 | [**Coordination**](coordination.md) | Distributed `Lock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Task Scheduler**](task.md) | Interval and cron tasks with durable, distributed at-most-once execution. A modern, lightweight alternative to APScheduler and Celery beat. |
 | [**Resilience**](resilience/index.md) | [Circuit Breaker](resilience/circuit-breaker.md) and [Rate Limiter](resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
@@ -89,10 +90,16 @@ The smallest grelmicro program: a FastAPI route protected by a process-local rat
 ```python
 from fastapi import FastAPI
 
-from grelmicro.resilience import RateLimitExceededError, RateLimiter
+from grelmicro.resilience import (
+    MemoryRateLimiterAdapter,
+    RateLimitExceededError,
+    RateLimiter,
+)
 
 app = FastAPI()
-api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
+api_limiter = RateLimiter.sliding_window(
+    "api", limit=100, window=60, backend=MemoryRateLimiterAdapter()
+)
 
 
 @app.get("/ping")
@@ -104,11 +111,11 @@ async def ping() -> dict[str, str]:
     return {"status": "ok"}
 ```
 
-That is the whole thing. Pick a primitive, name it, call it. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[RateLimiters(redis)])` as shown below.
+That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory adapter says per-process on purpose. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[RateLimiters(redis)])` as shown below.
 
 ### Lifespan with one provider and one component
 
-To make the rate limiter fleet-wide, wrap it in a `Grelmicro` container with one provider and one component, then bind it to FastAPI's lifespan.
+To make the rate limiter fleet-wide, wrap it in a `Grelmicro` container with one provider and one component, bind it to FastAPI's lifespan, and add the middleware so request handlers see the app.
 
 ```python
 from contextlib import asynccontextmanager
@@ -116,6 +123,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
+from grelmicro.fastapi import GrelmicroMiddleware
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     RateLimitExceededError,
@@ -136,6 +144,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(GrelmicroMiddleware, micro=micro)
 
 
 @app.get("/ping")
@@ -161,6 +170,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache, cached
+from grelmicro.fastapi import GrelmicroMiddleware
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider
@@ -183,38 +193,27 @@ health = HealthChecks()
 
 redis = RedisProvider("redis://localhost:6379/0")
 
-# Patterns used inside FastAPI request handlers take an explicit backend:
-# handlers run in their own task, outside the app's ambient scope. Background
-# tasks run inside that scope, so they resolve their backend ambiently.
-lock_backend = redis.lock()
-cache_backend = redis.cache()
-ratelimiter_backend = redis.ratelimiter()
-breaker_backend = MemoryCircuitBreakerAdapter()
-leader_backend = redis.leaderelection()
-
-leader = LeaderElection("leader-election", backend=leader_backend)
+leader = LeaderElection("leader-election")
 tasks.add_task(leader)
 
 micro = Grelmicro(uses=[
     redis,
-    Coordination(lock=lock_backend, election=leader_backend),
-    Cache(cache_backend),
-    RateLimiters(ratelimiter_backend),
-    CircuitBreakers(breaker_backend),
+    Coordination(lock=redis.lock(), election=redis.leaderelection()),
+    Cache(redis.cache()),
+    RateLimiters(redis.ratelimiter()),
+    CircuitBreakers(MemoryCircuitBreakerAdapter()),
     tasks,
     health,
 ])
 
-# === Patterns declared once at module load ===
-ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer(), backend=cache_backend)
-lock = Lock("shared-resource", backend=lock_backend)
-cb = CircuitBreaker("my-service", backend=breaker_backend)
-api_limiter = RateLimiter.sliding_window(
-    "api", limit=100, window=60, backend=ratelimiter_backend
-)
+# === Patterns declared once at module load, no backend wiring ===
+ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer())
+lock = Lock("shared-resource")
+cb = CircuitBreaker("my-service")
+api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
 
-# === FastAPI lifespan ===
+# === FastAPI lifespan and middleware ===
 @asynccontextmanager
 async def lifespan(app):
     configure_logging()
@@ -223,6 +222,7 @@ async def lifespan(app):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(GrelmicroMiddleware, micro=micro)
 
 
 # --- Cache: avoid redundant database queries ---
@@ -286,7 +286,7 @@ The key shape:
 
 - **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Provider, Component, and active manager. `async with micro:` opens them all in order, closes in reverse.
 - **One Provider, many Components.** `Coordination(redis)`, `Cache(redis)`, `RateLimiters(redis)` all share the same `RedisProvider` pool. The Provider holds the connection, the Components attach to it.
-- **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`. The same `Lock` works in production with Redis and in tests with `MemoryLockAdapter`, no rewiring.
+- **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`, and `GrelmicroMiddleware` extends that scope to request handlers. The same `Lock` works in production with Redis and in tests with `MemoryLockAdapter`, no rewiring.
 - **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
 
 For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelinfo.github.io/grelmicro/).

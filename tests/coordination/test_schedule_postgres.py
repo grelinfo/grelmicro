@@ -1,6 +1,9 @@
 """Tests for the Postgres Schedule Adapter."""
 
 from collections.abc import AsyncGenerator
+from types import TracebackType
+from typing import Self
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -144,6 +147,56 @@ def test_rebind_provider_borrows_new_provider() -> None:
 
     assert adapter.provider is shared
     assert adapter._owns_provider is False
+
+
+class _StubProvider:
+    """Minimal `PostgresProvider`-shaped stub tracking enter/exit calls."""
+
+    def __init__(self) -> None:
+        self.client = MagicMock()
+        self.client.execute = AsyncMock()
+        self.enter_count = 0
+        self.exit_count = 0
+
+    async def __aenter__(self) -> Self:
+        self.enter_count += 1
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.exit_count += 1
+
+
+@pytest.mark.timeout(1)
+async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
+    """When owned, the adapter opens, migrates, and closes its provider."""
+    stub = _StubProvider()
+    adapter = PostgresScheduleAdapter(provider=stub)  # ty: ignore[invalid-argument-type]
+    adapter._owns_provider = True
+
+    async with adapter:
+        pass
+
+    assert stub.enter_count == 1
+    assert stub.exit_count == 1
+    stub.client.execute.assert_awaited()
+
+
+@pytest.mark.timeout(1)
+async def test_aenter_aexit_borrowed_provider_left_alone() -> None:
+    """An external provider is migrated but not entered or exited."""
+    stub = _StubProvider()
+    adapter = PostgresScheduleAdapter(provider=stub)  # ty: ignore[invalid-argument-type]
+
+    async with adapter:
+        pass
+
+    assert stub.enter_count == 0
+    assert stub.exit_count == 0
 
 
 # Integration tests.

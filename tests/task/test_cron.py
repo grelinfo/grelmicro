@@ -164,12 +164,50 @@ def test_previous_or_equal_from_feb_29_does_not_crash() -> None:
         "5-2 * * * *",  # reversed range
         "1,,2 * * * *",  # empty list element
         "*/ * * * *",  # missing step value
+        "*/x * * * *",  # non-numeric step
+        "1-x * * * *",  # non-numeric range bound
+        "5/2 * * * *",  # step without '*' or a range
     ],
 )
 def test_invalid_expression(expr: str) -> None:
     """Test malformed expressions raise CronError."""
     with pytest.raises(CronError):
         CronExpression(expr)
+
+
+def test_repr_returns_source_expression() -> None:
+    """`repr` echoes the source expression."""
+    assert repr(CronExpression("*/15 9-17 * * 1-5")) == (
+        "CronExpression('*/15 9-17 * * 1-5')"
+    )
+
+
+def test_previous_or_equal_at_match_returns_same_minute() -> None:
+    """A start instant that matches is returned truncated to the minute."""
+    expr = CronExpression("* * * * *")
+    assert expr.previous_or_equal(dt(2026, 1, 1, 10, 30, 45)) == dt(
+        2026, 1, 1, 10, 30
+    )
+
+
+def test_previous_or_equal_retreats_across_months() -> None:
+    """The backward search skips a non-matching month to the prior month."""
+    expr = CronExpression("0 0 1 3 *")
+    # From April, the most recent March-1 fire is in the current year.
+    assert expr.previous_or_equal(dt(2026, 4, 10)) == dt(2026, 3, 1)
+
+
+def test_previous_or_equal_retreats_across_days_and_hours() -> None:
+    """The backward search rewinds day and hour to the prior daily fire."""
+    expr = CronExpression("0 2 * * *")
+    # 01:00 is before today's 02:00 fire, so the match is yesterday 02:00.
+    assert expr.previous_or_equal(dt(2026, 1, 5, 1, 0)) == dt(2026, 1, 4, 2, 0)
+
+
+def test_previous_or_equal_returns_none_when_unreachable() -> None:
+    """An impossible schedule yields `None` within the backward window."""
+    expr = CronExpression("30 2 31 2 *")  # February never has 31 days
+    assert expr.previous_or_equal(dt(2026, 6, 1)) is None
 
 
 def test_cron_error_is_value_error() -> None:
