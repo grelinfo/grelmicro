@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.0a1 - 2026-06-12
+
 ### Breaking
 
 * 💥 Raise `OutOfContextError` with an actionable message on every ambient backend miss: `Lock`, `TaskLock`, `LeaderElection`, `TTLCache`, `@cached`, the cron schedule resolution, and `Idempotency` now match `CircuitBreaker` and `RateLimiter`. `NoActiveAppError` stays the low-level error raised by `Grelmicro.current()` itself.
