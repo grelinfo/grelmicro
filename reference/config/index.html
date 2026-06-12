@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/configuration/reconfigure-from-configmap/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/reference/config/">
       
       
-        <link rel="prev" href="../../config/">
+        <link rel="prev" href="../clock/">
       
       
-        <link rel="next" href="../../cache/">
+        <link rel="next" href="../fastapi/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Reconfigure from a ConfigMap - grelmicro</title>
+        <title>Config - grelmicro</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#reconfigure-from-a-configmap" class="md-skip">
+        <a href="#config" class="md-skip">
           Skip to content
         </a>
       
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Reconfigure from a ConfigMap
+              Config
             
           </span>
         </div>
@@ -421,10 +421,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -456,11 +454,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
         
           
           <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
@@ -481,7 +479,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -524,37 +522,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Reconfigure from a ConfigMap
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../configuration/reconfigure-from-configmap/" class="md-nav__link">
         
   
   
@@ -570,103 +541,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#the-configmap" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The ConfigMap
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-component" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The component
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-reloads-and-what-does-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What reloads, and what does not
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#polling-and-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Polling and tests
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#file-formats" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        File formats
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#secrets" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Secrets
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#manual-control" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Manual control
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1245,8 +1119,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -1280,11 +1156,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
         
           
           <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
@@ -1305,7 +1181,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_8">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1323,7 +1199,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/cache/" class="md-nav__link">
+      <a href="../cache/" class="md-nav__link">
         
   
   
@@ -1351,7 +1227,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/clock/" class="md-nav__link">
+      <a href="../clock/" class="md-nav__link">
         
   
   
@@ -1376,10 +1252,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../reference/config/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1395,6 +1298,127 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#grelmicro.config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;config
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.ExternalConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ExternalConfig
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" ExternalConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.ExternalConfig.reload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;reload
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.ConfigBackend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ConfigBackend
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" ConfigBackend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.ConfigBackend.load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;load
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.FileConfigAdapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;FileConfigAdapter
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" FileConfigAdapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.FileConfigAdapter.load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;load
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1407,7 +1431,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/fastapi/" class="md-nav__link">
+      <a href="../fastapi/" class="md-nav__link">
         
   
   
@@ -1435,7 +1459,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/health/" class="md-nav__link">
+      <a href="../health/" class="md-nav__link">
         
   
   
@@ -1463,7 +1487,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/idempotency/" class="md-nav__link">
+      <a href="../idempotency/" class="md-nav__link">
         
   
   
@@ -1491,7 +1515,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/logging/" class="md-nav__link">
+      <a href="../logging/" class="md-nav__link">
         
   
   
@@ -1519,7 +1543,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/metrics/" class="md-nav__link">
+      <a href="../metrics/" class="md-nav__link">
         
   
   
@@ -1547,7 +1571,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/resilience/" class="md-nav__link">
+      <a href="../resilience/" class="md-nav__link">
         
   
   
@@ -1575,7 +1599,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/coordination/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
@@ -1603,7 +1627,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/task/" class="md-nav__link">
+      <a href="../task/" class="md-nav__link">
         
   
   
@@ -1631,7 +1655,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/testing/" class="md-nav__link">
+      <a href="../testing/" class="md-nav__link">
         
   
   
@@ -1659,7 +1683,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/trace/" class="md-nav__link">
+      <a href="../trace/" class="md-nav__link">
         
   
   
@@ -2287,79 +2311,103 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-configmap" class="md-nav__link">
+  <a href="#grelmicro.config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The ConfigMap
+        <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;config
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.ExternalConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ExternalConfig
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" ExternalConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.ExternalConfig.reload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;reload
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#the-component" class="md-nav__link">
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.ConfigBackend" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The component
+        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ConfigBackend
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" ConfigBackend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.ConfigBackend.load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;load
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#what-reloads-and-what-does-not" class="md-nav__link">
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.FileConfigAdapter" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What reloads, and what does not
+        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;FileConfigAdapter
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" FileConfigAdapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.config.FileConfigAdapter.load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;load
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#polling-and-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Polling and tests
-      
-    </span>
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#file-formats" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        File formats
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#secrets" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Secrets
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#manual-control" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Manual control
-      
-    </span>
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2383,95 +2431,567 @@
   
 
 
-<h1 id="reconfigure-from-a-configmap">Reconfigure from a ConfigMap</h1>
-<p><a href="../../architecture/reconfigure/"><code>reconfigure(new_config)</code></a> swaps a live component's configuration without rebuilding it. The <code>ExternalConfig</code> component automates the whole loop: it reads a mounted <code>ConfigMap</code>, <code>Secret</code>, <code>.env</code>, or JSON file, and reapplies every changed value to the live components, with no per-component wiring.</p>
-<h2 id="the-configmap">The ConfigMap</h2>
-<p>Keys are the same <code>GREL_...</code> names the <a href="../../config/">Environmental path</a> reads from the environment:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1</span>
-<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ConfigMap</span>
-<span class="nt">metadata</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grelmicro-config</span>
-<span class="nt">data</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">GREL_LOCK_LEDGER_LEASE_DURATION</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;30&quot;</span>
-<span class="w">  </span><span class="nt">GREL_LOCK_LEDGER_RETRY_INTERVAL</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.5&quot;</span>
-<span class="w">  </span><span class="nt">GREL_RATELIMITER_API_LIMIT</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;200&quot;</span>
-</code></pre></div>
-<p>Mount it as a volume:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">volumeMounts</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">config</span>
-<span class="w">    </span><span class="nt">mountPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/grelmicro</span>
-<span class="nt">volumes</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">config</span>
-<span class="w">    </span><span class="nt">configMap</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grelmicro-config</span>
-</code></pre></div>
-<h2 id="the-component">The component</h2>
-<p>Add <code>ExternalConfig</code> to the app and point it at the mount:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExternalConfig</span><span class="p">,</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">Lock</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span><span class="p">,</span> <span class="n">RateLimiters</span>
+<h1 id="config">Config</h1>
+<ul>
+<li><strong>Start here</strong>: <a href="../../configuration/reconfigure-from-configmap/">Reconfigure from a ConfigMap</a></li>
+<li><strong>Common recipes</strong>: add <code>ExternalConfig("/etc/grelmicro")</code> to <code>Grelmicro(uses=[...])</code> to keep live components in sync with a mounted ConfigMap or Secret. Call <code>reload()</code> in tests for a deterministic apply pass.</li>
+</ul>
 
-<span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="grelmicro.config" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">grelmicro.config</span>
+
+
+</h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Externalized configuration: reconfigure live components from a source.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="grelmicro.config.ExternalConfig" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">ExternalConfig</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ExternalConfig</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config.abc.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a></span>
+    <span class="o">|</span> <span class="n"><span title="str">str</span></span>
+    <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
+    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">secrets</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config.abc.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a></span>
+    <span class="o">|</span> <span class="n"><span title="str">str</span></span>
+    <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
+    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">interval</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">=</span> <span class="n"><span title="grelmicro.config._external._DEFAULT_INTERVAL">_DEFAULT_INTERVAL</span></span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Reconfigure live components from an external source.</p>
+<p>Implements the Externalized Configuration pattern: configuration lives
+outside the image and is applied at runtime. Add it to a <code>Grelmicro</code>
+app and every component that resolves from the environment is kept in
+sync with a mounted ConfigMap, Secret, or any other
+<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt;" href="#grelmicro.config.ConfigBackend"><code>ConfigBackend</code></a>, with no
+per-component wiring.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span><span class="p">,</span> <span class="n">ExternalConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">Lock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisLockAdapter</span>
 
 <span class="n">ledger_lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;ledger&quot;</span><span class="p">)</span>
-<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">redis</span><span class="p">,</span>
-    <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="o">.</span><span class="n">ratelimiter</span><span class="p">()),</span>
-    <span class="n">ExternalConfig</span><span class="p">(</span><span class="s2">&quot;/etc/grelmicro&quot;</span><span class="p">),</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">RedisLockAdapter</span><span class="p">()),</span>
+    <span class="n">ExternalConfig</span><span class="p">(</span>
+        <span class="n">config</span><span class="o">=</span><span class="s2">&quot;/etc/grelmicro/config&quot;</span><span class="p">,</span>
+        <span class="n">secrets</span><span class="o">=</span><span class="s2">&quot;/etc/grelmicro/secrets&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
-<p>Editing the <code>ConfigMap</code> now updates the lock's lease and the limiter's quota on the next poll, without a restart. A held lease and in-flight acquires survive the swap. See <a href="../../architecture/reconfigure/">Live reconfiguration</a> for the contract.</p>
-<h2 id="what-reloads-and-what-does-not">What reloads, and what does not</h2>
-<ul>
-<li>Every named pattern built programmatically or from the environment is addressable by its <code>GREL_{PATTERN}_{NAME}_</code> keys, including patterns that do not read env vars at construction (<code>GREL_RATELIMITER_{NAME}_</code>, <code>GREL_CIRCUITBREAKER_{NAME}_</code>).</li>
-<li>Instances built with <code>from_config</code> stay static. The declarative path hands ownership of the config tree to your settings layer, so <code>ExternalConfig</code> leaves it alone.</li>
-<li>Identity fields (a lock <code>worker</code>) and keys that match no config field are ignored.</li>
-<li>A value that fails validation is logged (field names only, never values) and skipped. The component keeps the last good configuration.</li>
-</ul>
-<h2 id="polling-and-tests">Polling and tests</h2>
-<p><code>ExternalConfig</code> polls the source (default every 10 seconds) and skips the apply pass when nothing changed. Call <code>reload()</code> for a deterministic pass, which is what tests want:</p>
-<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_lease_reload</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">):</span>
-    <span class="p">(</span><span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;GREL_LOCK_LEDGER_LEASE_DURATION&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="s2">&quot;30&quot;</span><span class="p">)</span>
-    <span class="n">external</span> <span class="o">=</span> <span class="n">ExternalConfig</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">)</span>
-    <span class="n">ledger_lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;ledger&quot;</span><span class="p">)</span>
+<p>Config and secrets are separate sources so sensitive values live in a
+Secret and the rest in a ConfigMap, the same split the platform makes.
+Both carry the same <code>GREL_...</code> keys components read from the
+environment. On a key collision the secret wins.</p>
+<p>A <code>str</code> or path is routed by scheme: a local path uses
+<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;FileConfigAdapter&lt;/span&gt;" href="#grelmicro.config.FileConfigAdapter"><code>FileConfigAdapter</code></a>, an
+<code>http(s)://</code> or git URL uses the matching adapter.</p>
+<p>The source is applied once when the app opens, then polled. Only keys
+present in the source are applied, so a generated lock <code>worker</code> and any
+field the source omits keep their value. An invalid value is logged and
+skipped, leaving the running config in place. List the component last in
+<code>uses=</code> so the components it reconfigures open first.</p>
+<p>Every named component is addressable by its <code>GREL_...</code> prefix
+(<code>GREL_RATELIMITER_API_*</code>, <code>GREL_CIRCUITBREAKER_PAYMENTS_*</code>, ...),
+whether or not it loaded any value from the environment. A component
+built through its <code>from_config</code> classmethod opts out of live reload and
+stays on the config it was constructed with.</p>
+<p>A bad poll never crashes the app or stops future polls: an adapter that
+raises on an unreadable source is logged and the last good config is
+kept. Call <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;reload&lt;/span&gt;
 
-    <span class="k">async</span> <span class="k">with</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">external</span><span class="p">]):</span>
-        <span class="k">await</span> <span class="n">external</span><span class="o">.</span><span class="n">reload</span><span class="p">()</span>
-        <span class="k">assert</span> <span class="n">ledger_lock</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">lease_duration</span> <span class="o">==</span> <span class="mi">30</span>
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-async&quot;&gt;&lt;code&gt;async&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt;" href="#grelmicro.config.ExternalConfig.reload"><code>reload</code></a> for a
+deterministic load-and-apply pass instead of waiting for the next poll.</p>
+
+        <p>Initialize the external config reloader.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The configuration source: a mounted ConfigMap directory, a
+<code>.env</code> or <code>.json</code> file, a URL, or a <code>ConfigBackend</code>. Holds
+the non-sensitive <code>GREL_...</code> keys.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config.abc.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a> | <span title="str">str</span> | <span title="os.PathLike">PathLike</span>[<span title="str">str</span>] | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>secrets</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The secrets source: a mounted Secret directory or any other
+<code>ConfigBackend</code>. Its keys override <code>config</code> on collision.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config.abc.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a> | <span title="str">str</span> | <span title="os.PathLike">PathLike</span>[<span title="str">str</span>] | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>interval</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Seconds between polls of the sources. Each poll re-applies
+only what changed.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="float">float</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code><span title="grelmicro.config._external._DEFAULT_INTERVAL">_DEFAULT_INTERVAL</span></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">RAISES</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+              <span class="doc-raises-annotation">
+                  <code><span title="ValueError">ValueError</span></code>
+              </span>
+            </td>
+            <td class="doc-raises-details">
+              <div class="doc-md-description">
+                <p>If neither <code>config</code> nor <code>secrets</code> is given.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.config.ExternalConfig.reload" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">reload</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reload</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
-<h2 id="file-formats">File formats</h2>
-<p>A single file source is read by its extension. A directory mount stays one file per key.</p>
+
+    <div class="doc doc-contents ">
+
+        <p>Load the sources once and reconfigure every live component.</p>
+<p>Performs one immediate load-and-apply pass, the same pass the
+poll loop runs on each interval. Use it for a deterministic
+trigger in tests and ops runbooks instead of waiting for the next
+poll.</p>
+<p>An adapter that raises on an unreadable source is logged and the
+last good config is kept, so a single failed reload never raises.
+Values rejected by a component are logged and skipped by
+<code>reconfigure_all</code>, leaving the running config in place.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="grelmicro.config.ConfigBackend" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">ConfigBackend</span>
+
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="typing.Protocol">Protocol</span></code></p>
+
+
+
+        <p>Config Backend Protocol.</p>
+<p>A config backend is the pluggable source <code>ExternalConfig</code> reads. It
+returns a flat mapping of environment-style keys to string values,
+the same <code>GREL_...</code> keys components resolve from the environment. A
+mounted ConfigMap directory, a single <code>.env</code> file, an HTTP config
+server, or a git repository each implement this one protocol, so any
+of them can drive live reconfiguration.</p>
+<p>The backend tracks what it last returned so it can report "nothing
+changed" cheaply: <code>load</code> returns <code>None</code> when the source is unchanged
+since the previous call.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.config.ConfigBackend.load" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">load</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Read the current configuration from the source.</p>
+<p>Returns a flat mapping of environment-style keys to string values on
+the first call and whenever the source changes. Returns <code>None</code> when
+nothing changed since the last call, so the caller can skip
+re-applying.</p>
+<p>Error contract:</p>
 <ul>
-<li><code>.json</code>, <code>.yaml</code>, <code>.yml</code>, and <code>.toml</code> files hold a mapping document.</li>
-<li>Any other file is read as <code>.env</code> lines (<code>KEY=VALUE</code>, blanks and <code>#</code> comments ignored).</li>
+<li>Raise <code>OSError</code> (or a subclass) when the source is unreadable: a
+  missing mount, a permission error, or a network failure.</li>
+<li>Raise <code>ValueError</code> when the source is readable but its content is
+  not a valid flat mapping (for example malformed JSON).</li>
 </ul>
-<p>A mapping document is either flat or nested. A flat mapping uses the <code>GREL_...</code> keys directly:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">GREL_LOCK_LEDGER_LEASE_DURATION</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
-<span class="nt">GREL_RATELIMITER_API_LIMIT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+<p><code>ExternalConfig</code> catches both, logs a warning, and keeps the last
+good config, so one bad read never crashes the app or stops future
+polls.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="grelmicro.config.FileConfigAdapter" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">FileConfigAdapter</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">FileConfigAdapter</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">])</span>
 </code></pre></div>
-<p>A nested mapping joins its segments with <code>_</code> and uppercases them. The mapping below reads as <code>GREL_LOCK_LEDGER_LEASE_DURATION=30</code> and <code>GREL_RATELIMITER_API_LIMIT=200</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">grel</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">lock</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">ledger</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">lease_duration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
-<span class="w">  </span><span class="nt">ratelimiter</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">api</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Read configuration from the filesystem.</p>
+<p>Built for mounted configuration: a Kubernetes ConfigMap or Secret, a
+Docker config or secret, or any directory a sidecar writes to. The
+shape is picked from what is on disk:</p>
+<ul>
+<li>A directory: every file is one key, the filename is the key and the
+  file content is the value. This is how Kubernetes mounts a ConfigMap
+  or Secret as a volume. Entries whose name starts with <code>..</code> are
+  skipped, so the <code>..data</code> symlink Kubernetes maintains is ignored.</li>
+<li>A <code>.json</code>, <code>.yaml</code>, <code>.yml</code>, or <code>.toml</code> file: a mapping document.
+  Either a flat mapping of <code>GREL_...</code> keys to scalar values, or a
+  nested mapping whose segments join with <code>_</code> and uppercase, so
+  <code>grel: {lock: {cart: {lease_duration: 30}}}</code> reads as
+  <code>GREL_LOCK_CART_LEASE_DURATION=30</code>.</li>
+<li>Any other file: <code>KEY=VALUE</code> lines, blank lines and <code>#</code> comments
+  ignored, matching a <code>.env</code> file.</li>
+</ul>
+<p>Keys are the same <code>GREL_...</code> names components resolve from the
+environment. The adapter remembers what it last read and returns
+<code>None</code> from <code>load</code> when nothing changed, so an unchanged mount costs
+one read and no reconfiguration.</p>
+<p>An absent path reads as an empty mapping rather than an error, so a
+mount that is not present yet is not a failure. A path that exists but
+cannot be read raises <code>OSError</code>, and a mapping document whose content
+is not a mapping raises <code>ValueError</code>. <code>ExternalConfig</code> catches both
+and keeps the last good config.</p>
+<p>Reading <code>.yaml</code> or <code>.yml</code> needs PyYAML, installed with the <code>yaml</code>
+extra. The import is lazy, so a <code>DependencyNotFoundError</code> is raised
+only when a YAML file is actually read.</p>
+
+        <p>Initialize the filesystem config backend.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>path</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The directory or file to read. A mounted ConfigMap or Secret
+is a directory. A single <code>.env</code>, <code>.json</code>, <code>.yaml</code>, <code>.yml</code>, or
+<code>.toml</code> file works too.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span> | <span title="os.PathLike">PathLike</span>[<span title="str">str</span>]</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.config.FileConfigAdapter.load" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">load</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
-<p>Values are stringified. A bool becomes <code>true</code> or <code>false</code>. A number becomes its digits. A document that is not a mapping raises <code>ValueError</code>.</p>
-<p>YAML needs PyYAML. Install it with the <code>yaml</code> extra:</p>
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[yaml]&quot;</span>
-</code></pre></div>
-<h2 id="secrets">Secrets</h2>
-<p>A mounted <code>Secret</code> is a directory of files too, so the same adapter reads it. Pass it via <code>secrets=</code> to keep the two sources separate:</p>
-<div class="highlight"><pre><span></span><code><span class="n">ExternalConfig</span><span class="p">(</span><span class="s2">&quot;/etc/grelmicro&quot;</span><span class="p">,</span> <span class="n">secrets</span><span class="o">=</span><span class="s2">&quot;/etc/grelmicro-secrets&quot;</span><span class="p">)</span>
-</code></pre></div>
-<h2 id="manual-control">Manual control</h2>
-<p>For a trigger the component does not cover (a <code>SIGHUP</code> handler, an admin endpoint), call <code>reload()</code> from your own code, or call <code>reconfigure(new_config)</code> directly on one component for full manual control. The <a href="../../architecture/reconfigure/">Live reconfiguration</a> page documents the per-component contract.</p>
+
+    <div class="doc doc-contents ">
+
+        <p>Read the current mapping, or <code>None</code> when unchanged.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">RAISES</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+              <span class="doc-raises-annotation">
+                  <code><span title="OSError">OSError</span></code>
+              </span>
+            </td>
+            <td class="doc-raises-details">
+              <div class="doc-md-description">
+                <p>The path exists but cannot be read.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+              <span class="doc-raises-annotation">
+                  <code><span title="ValueError">ValueError</span></code>
+              </span>
+            </td>
+            <td class="doc-raises-details">
+              <div class="doc-md-description">
+                <p>A mapping document does not hold a mapping.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+              <span class="doc-raises-annotation">
+                  <code><span title="grelmicro.errors.DependencyNotFoundError">DependencyNotFoundError</span></code>
+              </span>
+            </td>
+            <td class="doc-raises-details">
+              <div class="doc-md-description">
+                <p>A <code>.yaml</code> or <code>.yml</code> file is read
+without PyYAML installed.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
 
 
 
