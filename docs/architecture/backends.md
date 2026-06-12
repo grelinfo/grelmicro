@@ -60,10 +60,10 @@ async with micro:
 
 `Grelmicro(uses=[...])` and `micro.use(...)` accept three shorthands so you write less ceremony. Each one expands to a precise explicit form. The explicit form is always legal and always wins.
 
-**Bare Component class.** A Component class is constructed with its defaults.
+**Bare Component class.** A Component class that constructs with no arguments is instantiated with its defaults. A class with a required argument (`Cache` needs its source) must be passed as an instance.
 
 ```python
-Grelmicro(uses=[Cache])  # same as Grelmicro(uses=[Cache()])
+Grelmicro(uses=[Tasks, HealthChecks])  # same as Grelmicro(uses=[Tasks(), HealthChecks()])
 ```
 
 **Bare Adapter, class or instance.** An adapter is wrapped in its matching Component. A class is constructed first.
@@ -84,7 +84,7 @@ Grelmicro(uses=[redis])
 # registers Coordination, Cache, RateLimiters, CircuitBreakers, all on redis
 ```
 
-A Provider serves a kind when its factory for that kind is implemented. `RedisProvider` and `PostgresProvider` serve all four kinds. `SQLiteProvider` skips leader election. A served kind that the Provider cannot build is skipped, never registered empty.
+A Provider serves a kind when its factory for that kind is implemented. `RedisProvider` and `PostgresProvider` serve all four kinds. `SQLiteProvider` skips leader election. An unserved kind (the factory raises `NotImplementedError`) is skipped. Any other factory error propagates, a misconfigured Provider fails loudly instead of registering a partial app.
 
 This auto-registration is all-or-nothing. The moment you list **any** explicit Component, every Provider in the list becomes lifecycle-only and registers nothing. The list then reads the way it runs: a lone Provider is a full default app, a Provider beside Components is just a shared connection the Components wire themselves.
 
