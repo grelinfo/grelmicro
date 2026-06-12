@@ -97,15 +97,14 @@ Components that cache derived state override `_apply_reconfigure` and rebuild th
 ```python
 class RateLimiter(Reconfigurable[RateLimiterConfig]):
     async def _apply_reconfigure(self, new_config):
-        new_strategy = self.backend.bind(new_config)
-        self._state = _State(config=new_config, strategy=new_strategy)
+        self._state = _State(config=new_config, strategy=None)
 ```
 
-Build new derived values into locals first, then publish them all in one frozen-snapshot assignment. If any step raises (for example `backend.bind`), the snapshot has not been mutated and the previous state is preserved exactly.
+Publish the new snapshot in one assignment. `RateLimiter` and `CircuitBreaker` clear the cached strategy and rebind it lazily on the next call, so a reconfigure never needs the backend to be resolvable from the reconfiguring task.
 
 ## Out of scope
 
-The library does not ship file watchers, signal handlers, or ConfigMap pollers. Wiring `reconfigure` to a SIGHUP handler or a Kubernetes informer is application-level work. See [Configuration](../config.md) for one worked example.
+The `ExternalConfig` component covers the common loop: poll a mounted ConfigMap, Secret, or file, and reapply changed values to the live components. See [Reconfigure from a ConfigMap](../configuration/reconfigure-from-configmap.md). Anything beyond that (a SIGHUP handler, an admin endpoint, a custom informer) is application-level work that calls `reconfigure` or `ExternalConfig.reload()` directly.
 
 Hot-swapping the backend from the new config is also out of scope. `_apply_reconfigure` does not read the backend identity from `new_config`. The component continues to resolve its backend the same way it did before reconfigure: a backend instance passed at construction is reused as-is, while a backend resolved through the registry is re-resolved on each call so that task-scoped overrides keep working. `reconfigure` accepts a new config of the same runtime type only, not a different config subclass.
 

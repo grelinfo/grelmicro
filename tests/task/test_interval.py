@@ -2,10 +2,12 @@
 
 import asyncio
 from asyncio import sleep
+from datetime import datetime
 
 import pytest
 from pytest_mock import MockFixture
 
+from grelmicro.task._cron import FireInfo
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
@@ -162,3 +164,71 @@ async def test_interval_stop(
         for record in caplog.records
         if record.levelname == "INFO"
     )
+
+
+# --- Introspection ---
+
+
+def test_interval_task_next_fire_time_none_before_start() -> None:
+    """next_fire_time is None before the loop starts."""
+    task = IntervalTask(seconds=1, function=test1)
+    assert task.next_fire_time is None
+
+
+def test_interval_task_last_fire_none_before_start() -> None:
+    """last_fire is None before the first fire."""
+    task = IntervalTask(seconds=1, function=test1)
+    assert task.last_fire is None
+
+
+async def test_interval_task_next_fire_time_after_loop_starts() -> None:
+    """next_fire_time is a timezone-aware datetime after the loop starts running."""
+    task = IntervalTask(seconds=1, function=notify)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        async with samples.condition:
+            await samples.condition.wait()
+        # Give the loop one tick so _last_loop_start is recorded.
+        await sleep(SLEEP)
+        cancel_group(tg)
+    nft = task.next_fire_time
+    assert nft is not None
+    assert isinstance(nft, datetime)
+    assert nft.tzinfo is not None
+
+
+async def test_interval_task_last_fire_success() -> None:
+    """last_fire.outcome is 'success' after a successful run."""
+    task = IntervalTask(seconds=1, function=notify)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        async with samples.condition:
+            await samples.condition.wait()
+        assert task.last_fire is not None
+        assert isinstance(task.last_fire, FireInfo)
+        assert task.last_fire.outcome == "success"
+        assert task.last_fire.duration >= 0
+        cancel_group(tg)
+
+
+async def test_interval_task_last_fire_error() -> None:
+    """last_fire.outcome is 'error' after a failed run."""
+    task = IntervalTask(seconds=1, function=always_fail)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await sleep(SLEEP)
+        assert task.last_fire is not None
+        assert task.last_fire.outcome == "error"
+        cancel_group(tg)
+
+
+async def test_interval_task_last_fire_skipped() -> None:
+    """last_fire.outcome is 'skipped' when WouldBlockError is raised."""
+    task = IntervalTask(seconds=1, function=notify, sync=WouldBlockLock())
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await sleep(SLEEP)
+        assert task.last_fire is not None
+        assert task.last_fire.outcome == "skipped"
+        assert task.last_fire.duration == 0.0
+        cancel_group(tg)

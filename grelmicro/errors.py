@@ -28,11 +28,19 @@ class OutOfContextError(GrelmicroError, RuntimeError):
     Raised when a method is called outside of the context manager.
     """
 
-    def __init__(self, cls: object, method_name: str) -> None:
-        """Initialize the error."""
-        super().__init__(
-            f"Could not call {cls.__class__.__name__}.{method_name} outside of the context manager"
-        )
+    def __init__(self, cls: object, method_name: str | None = None) -> None:
+        """Initialize the error.
+
+        Pass a context object and a method name for the default message,
+        or a single ready-made message string.
+        """
+        if method_name is None:
+            super().__init__(str(cls))
+        else:
+            super().__init__(
+                f"Could not call {cls.__class__.__name__}.{method_name} "
+                "outside of the context manager"
+            )
 
 
 class DependencyNotFoundError(GrelmicroError, ImportError):

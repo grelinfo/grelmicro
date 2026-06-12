@@ -12,6 +12,9 @@
     "DependencyNotFoundError": {
       "()": "(*, module)"
     },
+    "ExternalConfig": {
+      "()": "(config=..., *, secrets=..., interval=...)"
+    },
     "Grelmicro": {
       "()": "(*, uses=..., strict=..., allow_multiple=...)",
       ".current": "()"
@@ -23,7 +26,7 @@
     },
     "NoActiveAppError": null,
     "OutOfContextError": {
-      "()": "(cls, method_name)"
+      "()": "(cls, method_name=...)"
     },
     "ProviderNotRegisteredError": {
       "()": "(short_name, available)"
@@ -86,6 +89,17 @@
       "()": "(seconds)"
     }
   },
+  "grelmicro.config": {
+    "ConfigBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "ExternalConfig": {
+      "()": "(config=..., *, secrets=..., interval=...)"
+    },
+    "FileConfigAdapter": {
+      "()": "(path)"
+    }
+  },
   "grelmicro.coordination": {
     "Coordination": {
       "()": "(source=..., *, lock=..., election=..., schedule=..., name=...)"
@@ -96,20 +110,20 @@
       "()": "(error)"
     },
     "LeaderElection": {
-      "()": "(name, *, backend=..., worker=..., lease_duration=..., renew_deadline=..., retry_interval=..., backend_timeout=..., error_interval=..., env_prefix=..., env_load=..., metadata=...)",
+      "()": "(name, *, backend=..., worker=..., lease_duration=..., renew_deadline=..., retry_interval=..., retry_jitter=..., backend_timeout=..., error_interval=..., env_prefix=..., env_load=..., metadata=...)",
       ".from_config": "(name, config, *, backend=..., metadata=...)"
     },
     "LeaderElectionBackend": {
       "()": "(*args, **kwargs)"
     },
     "LeaderElectionConfig": {
-      "()": "(*, worker=..., lease_duration=..., renew_deadline=..., retry_interval=..., backend_timeout=..., error_interval=...)"
+      "()": "(*, worker=..., lease_duration=..., renew_deadline=..., retry_interval=..., backend_timeout=..., error_interval=..., retry_jitter=...)"
     },
     "LeaderRecord": {
       "()": "(holder, lease_duration, acquired_at, renewed_at, transitions, metadata=...)"
     },
     "Lock": {
-      "()": "(name, *, backend=..., worker=..., lease_duration=..., retry_interval=..., env_prefix=..., env_load=...)",
+      "()": "(name, *, backend=..., worker=..., lease_duration=..., retry_interval=..., retry_jitter=..., env_prefix=..., env_load=...)",
       ".from_config": "(name, config, *, backend=...)"
     },
     "LockAcquireError": {
@@ -149,6 +163,11 @@
     },
     "WouldBlockError": null
   },
+  "grelmicro.fastapi": {
+    "GrelmicroMiddleware": {
+      "()": "(app, *, micro)"
+    }
+  },
   "grelmicro.health": {
     "CheckResult": null,
     "HealthCheckFunc": null,
@@ -166,6 +185,25 @@
     "HealthReport": null,
     "HealthStatus": {
       "()": "(*values)"
+    }
+  },
+  "grelmicro.idempotency": {
+    "Idempotency": {
+      "()": "(name, *, ttl=..., fingerprint=..., cache=..., serializer=..., env_prefix=..., env_load=...)",
+      ".from_config": "(name, config, *, fingerprint=..., cache=..., serializer=...)"
+    },
+    "IdempotencyConfig": {
+      "()": "(*, ttl=...)"
+    },
+    "IdempotencyConflictError": {
+      "()": "(*, name, key)"
+    },
+    "IdempotencyError": null,
+    "Operation": {
+      "()": "(*, replayed, response)"
+    },
+    "idempotent": {
+      "()": "(idempotency, *, key, fingerprint=...)"
     }
   },
   "grelmicro.log": {
@@ -524,6 +562,9 @@
     "CronError": {
       "()": "(reason)"
     },
+    "FireInfo": {
+      "()": "(started_at, outcome, duration)"
+    },
     "FunctionTypeError": {
       "()": "(reference)"
     },
@@ -540,7 +581,7 @@
   },
   "grelmicro.testing": {
     "Call": {
-      "()": "(method, kwargs)"
+      "()": "(method, args=..., kwargs=...)"
     },
     "CallLog": {
       "()": "(calls=...)"

@@ -408,6 +408,8 @@ class Fallback(Reconfigurable[FallbackConfig]):
         self._config = resolved
         self._state = _State(config=resolved, matcher=resolved.when)
         self._reconfigure_lock = asyncio.Lock()
+        if config is None:
+            self._track_reconfigure(f"GREL_FALLBACK_{env_segment(name)}_")
 
     @property
     def name(self) -> str:

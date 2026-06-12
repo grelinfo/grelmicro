@@ -4,11 +4,13 @@ import asyncio
 import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
+from time import monotonic
 
 import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
+from grelmicro.coordination._tokens import generate_task_token
 from grelmicro.coordination.abc import LockBackend
 from grelmicro.coordination.errors import (
     LockAcquireError,
@@ -789,3 +791,66 @@ async def test_tasklock_reconfigure_rejects_different_config_type(
 
     with pytest.raises(TypeError, match="TaskLockConfig"):
         await task_lock.reconfigure(LockConfig(worker=WORKER_1))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+# --- refresh ---
+
+
+async def test_tasklock_refresh_when_holding(backend: LockBackend) -> None:
+    """`refresh()` renews the lease when the task is still holding."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+
+    async with task_lock:
+        # Refresh while holding
+        await task_lock.refresh()
+        locked = await backend.locked(name=BACKEND_LOCK_NAME)
+
+    assert locked is True
+
+
+async def test_tasklock_refresh_not_holding_raises(
+    backend: LockBackend,
+) -> None:
+    """`refresh()` raises LockNotOwnedError when not holding the lock."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+
+    with pytest.raises(LockNotOwnedError):
+        await task_lock.refresh()
+
+
+async def test_tasklock_refresh_lease_lost_raises(
+    backend: LockBackend, mocker: MockerFixture
+) -> None:
+    """`refresh()` raises LockNotOwnedError when the backend reports the lease is gone."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_lock_seconds=1,
+        max_lock_seconds=10,
+    )
+
+    # Acquire via the lower-level method so __aexit__ is never called.
+    token = generate_task_token(task_lock.config.worker, task_lock._token_nonce)
+    await task_lock.do_acquire(
+        token, duration=task_lock.config.max_lock_seconds
+    )
+    task_lock._acquired_at = monotonic()
+
+    # Now patch acquire to return None to simulate a lost lease.
+    mocker.patch.object(backend, "acquire", return_value=None)
+
+    with pytest.raises(LockNotOwnedError):
+        await task_lock.refresh()

@@ -234,6 +234,11 @@ async def test_delete_many_empty_is_no_op(backend: CacheBackend) -> None:
 # --- Tags (run against all backends) ---
 
 
+async def test_delete_tags_empty_is_no_op(backend: CacheBackend) -> None:
+    """Test that delete_tags with no tags does not raise."""
+    await backend.delete_tags(tags=[])
+
+
 async def test_set_with_tags_then_delete_tags(backend: CacheBackend) -> None:
     """Test that delete_tags invalidates every key sharing a tag."""
     await backend.set(key="tg_a", value=b"a", ttl=60, tags=["group"])

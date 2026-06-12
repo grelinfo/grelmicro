@@ -69,6 +69,41 @@ def test_is_shared() -> None:
     assert SQLiteCircuitBreakerAdapter.is_shared is True
 
 
+def test_rebind_provider_borrows_it() -> None:
+    """`_rebind_provider` swaps the provider and marks it as not owned."""
+    backend = SQLiteCircuitBreakerAdapter(provider=SQLiteProvider("a.db"))
+    other = SQLiteProvider("b.db")
+
+    backend._rebind_provider(other)
+
+    assert backend.provider is other
+    assert backend._owns_provider is False
+
+
+async def test_owned_provider_is_opened_and_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When owned, the adapter opens and closes its provider itself."""
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "owned.db"))
+    backend = SQLiteCircuitBreakerAdapter()
+    assert backend._owns_provider is True
+
+    async with backend:
+        strategy = backend.bind(
+            name="api",
+            config=ConsecutiveCountConfig(
+                error_threshold=1,
+                success_threshold=1,
+                reset_timeout=1,
+                half_open_capacity=1,
+            ),
+        )
+        assert await strategy.try_acquire() is True
+
+    with pytest.raises(Exception, match="outside of the context manager"):
+        _ = backend.provider.client
+
+
 def test_bind_rejects_unknown_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     """`bind` raises NotImplementedError on an unknown algorithm kind."""
     monkeypatch.setenv("SQLITE_PATH", PATH)
@@ -279,6 +314,94 @@ async def test_circuit_breaker_end_to_end(
             pass
 
     assert cb.state is CircuitBreakerState.OPEN
+
+
+async def test_closed_success_stays_closed(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A success in CLOSED resets the error count and stays closed."""
+    strategy = _bind(backend)
+
+    snapshot = await strategy.record_outcome(success=True)
+
+    assert snapshot.state is CircuitBreakerState.CLOSED
+    assert snapshot.consecutive_error_count == 0
+
+
+async def test_half_open_success_below_threshold_stays_half_open(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A HALF_OPEN success short of the threshold releases its admit slot."""
+    strategy = _bind(
+        backend, success_threshold=2, half_open_capacity=2, reset_timeout=0.1
+    )
+    await strategy.transition(desired=CircuitBreakerState.OPEN)
+    await asyncio.sleep(0.15)
+    assert await strategy.try_acquire() is True  # consumes one admit slot
+
+    snapshot = await strategy.record_outcome(success=True)
+
+    assert snapshot.state is CircuitBreakerState.HALF_OPEN
+    assert snapshot.consecutive_success_count == 1
+
+
+async def test_half_open_failure_releases_admit_slot(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A HALF_OPEN failure short of the threshold releases its admit slot."""
+    strategy = _bind(
+        backend, error_threshold=2, half_open_capacity=2, reset_timeout=0.1
+    )
+    await strategy.transition(desired=CircuitBreakerState.OPEN)
+    await asyncio.sleep(0.15)
+    assert await strategy.try_acquire() is True  # consumes one admit slot
+
+    snapshot = await strategy.record_outcome(success=False)
+
+    assert snapshot.state is CircuitBreakerState.HALF_OPEN
+    assert snapshot.consecutive_error_count == 1
+
+
+async def test_try_acquire_rolls_back_on_error(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A failing `try_acquire` rolls back and re-raises."""
+    strategy = _bind(backend)
+    conn = backend.provider.client
+    await conn.execute("DROP TABLE grelmicro_circuit_breaker;")
+
+    with pytest.raises(Exception, match="no such table"):
+        await strategy.try_acquire()
+
+    assert conn.in_transaction is False
+
+
+async def test_record_outcome_rolls_back_on_error(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A failing `record_outcome` rolls back and re-raises."""
+    strategy = _bind(backend)
+    conn = backend.provider.client
+    await conn.execute("DROP TABLE grelmicro_circuit_breaker;")
+
+    with pytest.raises(Exception, match="no such table"):
+        await strategy.record_outcome(success=False)
+
+    assert conn.in_transaction is False
+
+
+async def test_transition_rolls_back_on_error(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A failing `transition` rolls back and re-raises."""
+    strategy = _bind(backend)
+    conn = backend.provider.client
+    await conn.execute("DROP TABLE grelmicro_circuit_breaker;")
+
+    with pytest.raises(Exception, match="no such table"):
+        await strategy.transition(desired=CircuitBreakerState.OPEN)
+
+    assert conn.in_transaction is False
 
 
 async def test_two_breakers_share_state(

@@ -187,13 +187,46 @@ async def hourly_rollup():
 A fire more than 600 seconds late is dropped instead of replayed. The default is `None`, which replays any missed fire however late.
 
 !!! warning "Make the body idempotent"
-    The guarantee is at-most-once. A worker that claims a fire and then crashes mid-run does not retry it, because the last-fire state already advanced. Make the body idempotent, or wrap it with [`@retry`](resilience.md), when correctness depends on completion.
+    The guarantee is at-most-once. A worker that claims a fire and then crashes mid-run does not retry it, because the last-fire state already advanced. Make the body idempotent, or wrap it with [`@retry`](resilience/retry.md), when correctness depends on completion.
 
 ### Cron in distributed systems
 
 On Kubernetes, when the task is a batch job and you can define manifests, prefer a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) that runs a one-shot command. It is the platform's job and the least code. Grelmicro does not create CronJob resources and should not, since that needs cluster-write permissions an application should not hold.
 
 Use grelmicro `@cron` when you want the task to run inside the live service with its warm connections and dependencies, or want one scheduling model across Redis, Postgres, SQLite, and bare metal.
+
+## Task Introspection
+
+Each task exposes two read-only properties for observability:
+
+- **`next_fire_time`**: the next scheduled fire as a timezone-aware `datetime`,
+  or `None` when the task has not started yet. For interval tasks, this is
+  computed from the last loop instant. For cron tasks, it comes from the
+  parsed expression.
+- **`last_fire`**: a `FireInfo` with the started time, outcome
+  (`"success"`, `"error"`, or `"skipped"`), and duration in seconds. `None`
+  before the first fire.
+
+Access the task object via `tasks.tasks`:
+
+```python
+from grelmicro.task import FireInfo, Tasks
+
+tasks = Tasks()
+
+@tasks.interval(seconds=60)
+async def cleanup() -> None:
+    ...
+
+# After startup: tasks.tasks holds IntervalTask and CronTask objects.
+# The decorator returns the original function unchanged.
+task = tasks.tasks[-1]
+info: FireInfo | None = task.last_fire
+if info is not None:
+    print(info.outcome, info.duration)
+
+next_fire = task.next_fire_time  # None until the first loop iteration
+```
 
 ## Task Router
 

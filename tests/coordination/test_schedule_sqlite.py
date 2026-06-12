@@ -172,3 +172,16 @@ async def test_state_survives_reopen(tmp_path: Path) -> None:
         await backend.claim("job", OLD)
     async with SQLiteScheduleAdapter(path) as backend:
         assert await backend.last_fired("job") == OLD
+
+
+async def test_claim_rolls_back_on_error(tmp_path: Path) -> None:
+    """A failing claim rolls back the open transaction and re-raises."""
+    async with SQLiteScheduleAdapter(tmp_path / "schedule.db") as backend:
+        conn = backend._conn
+        assert conn is not None
+        await conn.execute("DROP TABLE schedules;")
+
+        with pytest.raises(Exception, match="no such table"):
+            await backend.claim("job", OLD)
+
+        assert conn.in_transaction is False

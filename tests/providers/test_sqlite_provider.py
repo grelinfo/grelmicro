@@ -5,9 +5,16 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from grelmicro.coordination.sqlite import SQLiteLockAdapter
+from grelmicro.cache.sqlite import SQLiteCacheAdapter
+from grelmicro.coordination.sqlite import (
+    SQLiteLockAdapter,
+    SQLiteScheduleAdapter,
+)
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteConfig, SQLiteProvider
+from grelmicro.resilience.circuitbreaker.sqlite import (
+    SQLiteCircuitBreakerAdapter,
+)
 from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
 
 
@@ -59,10 +66,13 @@ def test_client_before_open_raises() -> None:
 
 
 def test_factories_return_adapters() -> None:
-    """The provider builds rate limiter and lock adapters."""
+    """The provider builds an adapter for every supported component."""
     provider = SQLiteProvider("x.db")
     assert isinstance(provider.ratelimiter(), SQLiteRateLimiterAdapter)
     assert isinstance(provider.lock(), SQLiteLockAdapter)
+    assert isinstance(provider.schedule(), SQLiteScheduleAdapter)
+    assert isinstance(provider.cache(), SQLiteCacheAdapter)
+    assert isinstance(provider.circuitbreaker(), SQLiteCircuitBreakerAdapter)
 
 
 async def test_open_and_close(tmp_path: Path) -> None:

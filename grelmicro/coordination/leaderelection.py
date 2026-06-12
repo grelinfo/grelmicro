@@ -1,6 +1,7 @@
 """Leader Election."""
 
 import asyncio
+import random
 from collections.abc import Mapping
 from logging import getLogger
 from time import monotonic
@@ -25,6 +26,9 @@ from grelmicro.errors import WouldBlockError
 from grelmicro.task.abc import Task
 
 logger = getLogger("grelmicro.leader_election")
+
+# Seam for randomness in retry jitter. Tests pin it to a fixed value.
+_random = random.random
 
 
 class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
@@ -73,6 +77,17 @@ class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: 
             """,
         ),
     ] = 30
+    retry_jitter: Annotated[
+        float,
+        Doc(
+            """
+            Factor for randomized jitter applied to each retry sleep.
+
+            Each sleep becomes retry_interval * uniform(1 - retry_jitter, 1 + retry_jitter).
+            Set to 0 to disable jitter. Must be >= 0 and < 1.
+            """,
+        ),
+    ] = 0.1
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -84,6 +99,9 @@ class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: 
             raise ValueError(msg)
         if self.backend_timeout >= self.renew_deadline:
             msg = "Backend timeout must be shorter than renew deadline"
+            raise ValueError(msg)
+        if not (0 <= self.retry_jitter < 1):
+            msg = "retry_jitter must be >= 0 and < 1"
             raise ValueError(msg)
         return self
 
@@ -183,6 +201,20 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 """,
             ),
         ] = None,
+        retry_jitter: Annotated[
+            float | None,
+            Doc(
+                """
+                The jitter factor applied to the retry interval.
+
+                Default: 0.1. Each sleep becomes `retry_interval *
+                uniform(1 - retry_jitter, 1 + retry_jitter)`, so
+                contending workers spread their attempts instead of
+                retrying in lockstep. Set 0 to disable. Must be >= 0
+                and < 1.
+                """,
+            ),
+        ] = None,
         backend_timeout: Annotated[
             Seconds | None,
             Doc(
@@ -242,6 +274,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         ] = None,
     ) -> None:
         """Initialize the leader election."""
+        resolved_env_prefix = (
+            env_prefix or f"GREL_LEADERELECTION_{env_segment(name)}_"
+        )
         config = resolve_config(
             LeaderElectionConfig,
             explicit=None,
@@ -250,14 +285,15 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 "lease_duration": lease_duration,
                 "renew_deadline": renew_deadline,
                 "retry_interval": retry_interval,
+                "retry_jitter": retry_jitter,
                 "backend_timeout": backend_timeout,
                 "error_interval": error_interval,
             },
-            env_prefix=env_prefix
-            or f"GREL_LEADERELECTION_{env_segment(name)}_",
+            env_prefix=resolved_env_prefix,
             env_load=env_load,
         )
         self._setup(name, config, backend, metadata)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(
@@ -490,7 +526,14 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 await self._try_acquire_or_renew(config)
                 # On a graceful stop, break and let the finally block
                 # release leadership on the backend before unwinding.
-                if await sleep_or_stop(config.retry_interval, stop):
+                jitter = config.retry_jitter
+                if jitter:
+                    interval = config.retry_interval * (
+                        1.0 + jitter * (2.0 * _random() - 1.0)
+                    )
+                else:
+                    interval = config.retry_interval
+                if await sleep_or_stop(interval, stop):
                     break
         except asyncio.CancelledError:
             logger.info("Leader Election stopped: %s", self.name)

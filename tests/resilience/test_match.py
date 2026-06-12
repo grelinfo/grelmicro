@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 import pytest
@@ -272,6 +273,92 @@ def test_not_exception_cause_scoped_to_raised() -> None:
     assert not f(Outcome.from_exception(outer))
     assert f(Outcome.from_exception(RuntimeError("no cause")))
     assert not f(Outcome.from_result(42))
+
+
+# --- explain() -------------------------------------------------------------
+
+
+def test_explain_returns_repr() -> None:
+    """``explain()`` returns the same string as ``repr()``."""
+    m = Match.exception(ValueError)
+    assert m.explain() == repr(m)
+
+
+def test_explain_on_composite() -> None:
+    """``explain()`` includes both branches for a composed matcher."""
+    m = Match.exception(ValueError) | Match.result(None)
+    text = m.explain()
+    assert "exception(ValueError)" in text
+    assert "result(None)" in text
+
+
+# --- Non-bool predicate coercion -------------------------------------------
+
+
+def test_predicate_non_bool_coerces_truthy() -> None:
+    """A predicate returning a truthy non-bool value still engages the match."""
+    f = Match.exception(lambda _exc: 1)  # ty: ignore[invalid-argument-type]
+    assert f(Outcome.from_exception(ValueError("x")))
+
+
+def test_predicate_non_bool_coerces_falsy() -> None:
+    """A predicate returning a falsy non-bool value does not engage the match."""
+    f = Match.exception(lambda _exc: 0)  # ty: ignore[invalid-argument-type]
+    assert not f(Outcome.from_exception(ValueError("x")))
+
+
+def test_predicate_non_bool_warns(caplog: pytest.LogCaptureFixture) -> None:
+    """A predicate returning a non-bool value logs a warning on first call."""
+    import grelmicro.resilience._match as match_mod  # noqa: PLC0415
+
+    def truthy_int(_exc: Exception) -> int:  # type: ignore[return]
+        return 1
+
+    match_mod._warned_predicates.discard(id(truthy_int))
+
+    f = Match.exception(truthy_int)  # ty: ignore[invalid-argument-type]
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        f(Outcome.from_exception(ValueError("x")))
+
+    assert any("non-bool" in record.message for record in caplog.records)
+
+
+def test_predicate_non_bool_warns_only_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The non-bool warning fires at most once per predicate."""
+    import grelmicro.resilience._match as match_mod  # noqa: PLC0415
+
+    def truthy_int(_exc: Exception) -> int:  # type: ignore[return]
+        return 1
+
+    match_mod._warned_predicates.discard(id(truthy_int))
+
+    f = Match.exception(truthy_int)  # ty: ignore[invalid-argument-type]
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        f(Outcome.from_exception(ValueError("x")))
+        f(Outcome.from_exception(ValueError("y")))
+
+    warning_count = sum(
+        1 for record in caplog.records if "non-bool" in record.message
+    )
+    assert warning_count == 1
+
+
+def test_result_predicate_non_bool_coerces() -> None:
+    """``Match.result`` with a non-bool predicate still coerces correctly."""
+    f = Match.result(lambda r: 1 if r > 0 else 0)
+    assert f(Outcome.from_result(5))
+    assert not f(Outcome.from_result(-1))
+
+
+def test_exception_cause_predicate_non_bool_coerces() -> None:
+    """``Match.exception_cause`` with a non-bool predicate still coerces."""
+    inner = ValueError("cause")
+    outer = RuntimeError("outer")
+    outer.__cause__ = inner
+    f = Match.exception_cause(lambda c: 1 if c is not None else 0)  # ty: ignore[invalid-argument-type]
+    assert f(Outcome.from_exception(outer))
 
 
 # --- Repr ------------------------------------------------------------------

@@ -18,12 +18,14 @@ name-as-namespace convention, is documented in
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar
+from weakref import WeakSet
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from grelmicro._json import json_loads
@@ -34,6 +36,8 @@ if TYPE_CHECKING:
 
 C = TypeVar("C", bound=BaseModel)
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
+
+logger = logging.getLogger("grelmicro")
 
 _NON_ENV_CHARS = re.compile(r"[^A-Z0-9_]+")
 _REPEATED_UNDERSCORES = re.compile(r"_+")
@@ -208,11 +212,27 @@ class Reconfigurable[ConfigT: BaseModel]:
 
     _config: ConfigT
     _reconfigure_lock: asyncio.Lock
+    _env_prefix: str | None = None
 
     @property
     def config(self) -> ConfigT:
         """Return the current configuration."""
         return self._config
+
+    def _track_reconfigure(self, env_prefix: str) -> None:
+        """Record the env prefix and register for external reload.
+
+        Called from a component's constructor under its derived
+        name-as-namespace `env_prefix`. The recorded prefix lets
+        `ExternalConfig` re-resolve this instance from a mounted
+        ConfigMap or Secret using the same keys the environment uses,
+        whether or not the instance loaded any value from the
+        environment at construction. Instances built from a pre-built
+        config (the declarative `from_config` path) skip this and stay
+        static.
+        """
+        self._env_prefix = env_prefix
+        _reconfigurables.add(self)
 
     async def reconfigure(self, new_config: ConfigT) -> None:
         """Atomically swap to `new_config`.
@@ -250,3 +270,120 @@ class Reconfigurable[ConfigT: BaseModel]:
         Runs under `self._reconfigure_lock`. Must not assign
         `self._config`. The default does nothing.
         """
+
+
+_reconfigurables: WeakSet[Reconfigurable[Any]] = WeakSet()
+"""Live `Reconfigurable` instances registered under a name-as-namespace prefix.
+
+Process-global and weakly held: an instance drops out when it is garbage
+collected, so a module-level `Lock("ledger")` is tracked for as long as it
+lives without pinning it. `ExternalConfig` reads this set to reconfigure
+every live instance from a mounted ConfigMap or Secret.
+"""
+
+
+def reconfigurable_instances() -> list[Reconfigurable[Any]]:
+    """Return the live `Reconfigurable` instances registered for reload."""
+    return list(_reconfigurables)
+
+
+def resolve_config_from_mapping[C: BaseModel](
+    current: C,
+    *,
+    env_prefix: str,
+    mapping: Mapping[str, str],
+) -> C:
+    """Patch `current` with values from a flat env-style `mapping`.
+
+    Keys are matched case-insensitively against `env_prefix`. Only keys
+    whose suffix names a field on the config are applied, so unrelated
+    keys in a shared ConfigMap are ignored and every field the mapping
+    omits keeps its current value. The immutable identity fields a
+    component generates (a lock `worker`) are therefore preserved.
+
+    Present values are coerced through the model's own validators, so a
+    CSV or JSON-array string resolves into a list exactly as it does
+    from the environment. Returns `current` unchanged when the mapping
+    carries nothing for this prefix.
+
+    Raises:
+        pydantic.ValidationError: If a present value fails validation.
+    """
+    cls = type(current)
+    fields = cls.model_fields
+    prefix_len = len(env_prefix)
+    prefix_upper = env_prefix.upper()
+    overrides: dict[str, str] = {}
+    unmatched = 0
+    for key, value in mapping.items():
+        if not key.upper().startswith(prefix_upper):
+            continue
+        field = key[prefix_len:].lower()
+        if field in fields:
+            overrides[field] = value
+        else:
+            unmatched += 1
+    if unmatched:
+        # Key names are not logged: in a directory-mounted Secret the
+        # filename is the key, so a name itself can be sensitive.
+        logger.debug(
+            "External config carries %d key(s) under %s that match no "
+            "field on %s",
+            unmatched,
+            env_prefix,
+            cls.__name__,
+        )
+    if not overrides:
+        return current
+    return cls.model_validate({**current.model_dump(), **overrides})
+
+
+def _redact_validation_error(exc: ValidationError) -> str:
+    """Summarize a `ValidationError` without ever echoing input values.
+
+    Returns one `field: error_type` entry per error, joined with commas.
+    The offending input is never included, so a Secret value patched in
+    from a mounted source cannot leak into the logs.
+    """
+    parts = []
+    for error in exc.errors(include_url=False):
+        location = ".".join(str(loc) for loc in error["loc"]) or "(root)"
+        parts.append(f"{location}: {error['type']}")
+    return ", ".join(parts)
+
+
+async def reconfigure_all(mapping: Mapping[str, str]) -> None:
+    """Reconfigure every live registered instance from `mapping`.
+
+    Patches each instance from the flat env-style `mapping` and applies it
+    through `reconfigure`, which is a no-op when the config is unchanged. A
+    value the instance rejects (an invalid value, or an attempt to change an
+    immutable field) is logged and skipped so one bad key never stops the
+    others from updating.
+
+    Validation failures log only field locations and error types, never the
+    offending value, so a secret patched from a mounted source cannot leak.
+    """
+    for instance in list(_reconfigurables):
+        env_prefix = instance._env_prefix  # noqa: SLF001
+        if env_prefix is None:  # pragma: no cover
+            continue
+        try:
+            new_config = resolve_config_from_mapping(
+                instance._config,  # noqa: SLF001
+                env_prefix=env_prefix,
+                mapping=mapping,
+            )
+        except ValidationError as exc:
+            logger.warning(
+                "Ignoring invalid external config for %s: %s",
+                env_prefix,
+                _redact_validation_error(exc),
+            )
+            continue
+        try:
+            await instance.reconfigure(new_config)
+        except (ValueError, TypeError) as exc:
+            logger.warning(
+                "External config rejected for %s: %s", env_prefix, exc
+            )

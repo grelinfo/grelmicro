@@ -1,6 +1,7 @@
 """Tests for the three-paths LeaderElection construction."""
 
 import pytest
+from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
@@ -174,3 +175,36 @@ def test_worker_kwarg_passed_through(backend: LeaderElectionBackend) -> None:
     """An explicit worker kwarg overrides the default factory."""
     le = LeaderElection("cron", backend=backend, worker="web-1")
     assert le.config.worker == "web-1"
+
+
+# --- retry_jitter validation ---
+
+
+def test_leaderelectionconfig_retry_jitter_default() -> None:
+    """LeaderElectionConfig default retry_jitter is 0.1."""
+    cfg = LeaderElectionConfig(worker="test")
+    assert cfg.retry_jitter == 0.1  # noqa: PLR2004
+
+
+def test_leaderelectionconfig_retry_jitter_zero_accepted() -> None:
+    """LeaderElectionConfig accepts retry_jitter=0 to disable jitter."""
+    cfg = LeaderElectionConfig(worker="test", retry_jitter=0.0)
+    assert cfg.retry_jitter == 0.0
+
+
+def test_leaderelectionconfig_retry_jitter_one_rejected() -> None:
+    """LeaderElectionConfig rejects retry_jitter=1."""
+    with pytest.raises(ValidationError, match="retry_jitter must be"):
+        LeaderElectionConfig(worker="test", retry_jitter=1.0)
+
+
+def test_leaderelectionconfig_retry_jitter_above_one_rejected() -> None:
+    """LeaderElectionConfig rejects retry_jitter > 1."""
+    with pytest.raises(ValidationError, match="retry_jitter must be"):
+        LeaderElectionConfig(worker="test", retry_jitter=1.5)
+
+
+def test_leaderelectionconfig_retry_jitter_negative_rejected() -> None:
+    """LeaderElectionConfig rejects retry_jitter < 0."""
+    with pytest.raises(ValidationError, match="retry_jitter must be"):
+        LeaderElectionConfig(worker="test", retry_jitter=-0.1)

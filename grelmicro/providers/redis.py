@@ -9,12 +9,15 @@ from pydantic import BaseModel, RedisDsn, ValidationError
 from pydantic_core import Url
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio.client import Redis
+from redis.asyncio.cluster import RedisCluster
+from redis.asyncio.sentinel import Sentinel
 from typing_extensions import Doc
 
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from types import TracebackType
 
     from grelmicro.cache.redis import RedisCacheAdapter
@@ -87,6 +90,10 @@ class RedisProvider(Provider):
 
     short_name: ClassVar[str] = "redis"
 
+    _redis_class: ClassVar[type[Any]] = Redis
+    _cluster_class: ClassVar[type[Any]] = RedisCluster
+    _sentinel_class: ClassVar[type[Any]] = Sentinel
+
     def __init__(
         self,
         url: Annotated[
@@ -137,8 +144,57 @@ class RedisProvider(Provider):
             env_prefix=env_prefix,
             env_load=env_load,
         )
-        self._client: Redis[bytes] = Redis.from_url(self._url)
+        self._sentinel: Sentinel | None = None
+        self._client = self._build_client(self._url)
         self._own = True
+
+    def _build_client(
+        self,
+        url: str,
+        *,
+        sentinel_kwargs: Mapping[str, Any] | None = None,
+    ) -> Any:  # noqa: ANN401
+        """Build the async client matching the URL scheme.
+
+        `redis://`, `rediss://`, and `unix://` open a plain client.
+        `redis+sentinel://` opens a `Sentinel` and returns its master
+        proxy. `redis+cluster://` opens a `RedisCluster`.
+        """
+        scheme = url.split("://", 1)[0].lower() if "://" in url else ""
+        if scheme == _SENTINEL_SCHEME:
+            parts = _parse_multihost_url(url)
+            self._sentinel = self._sentinel_class(
+                parts.hosts,
+                username=parts.username,
+                password=parts.password,
+                sentinel_kwargs=dict(sentinel_kwargs)
+                if sentinel_kwargs is not None
+                else None,
+            )
+            return self._sentinel.master_for(
+                parts.service_name,
+                db=parts.db,
+                username=parts.username,
+                password=parts.password,
+            )
+        if scheme == _CLUSTER_SCHEME:
+            import importlib  # noqa: PLC0415
+
+            cluster_node = importlib.import_module(
+                self._cluster_class.__module__
+            ).ClusterNode
+            parts = _parse_multihost_url(url)
+            first_host, first_port = parts.hosts[0]
+            return self._cluster_class(
+                host=first_host,
+                port=first_port,
+                startup_nodes=[
+                    cluster_node(host, port) for host, port in parts.hosts
+                ],
+                username=parts.username,
+                password=parts.password,
+            )
+        return self._redis_class.from_url(url)
 
     @classmethod
     def from_config(
@@ -192,8 +248,100 @@ class RedisProvider(Provider):
         self = cls.__new__(cls)
         self._env_prefix = "REDIS_"
         self._url = ""
+        self._sentinel = None
         self._client = client
         self._own = own
+        return self
+
+    @classmethod
+    def sentinel(
+        cls,
+        *,
+        sentinels: Annotated[
+            Sequence[tuple[str, int]],
+            Doc("Sentinel `(host, port)` pairs to query for the master."),
+        ],
+        service_name: Annotated[
+            str,
+            Doc("The Sentinel master group name to resolve."),
+        ],
+        db: Annotated[int, Doc("Database index for data connections.")] = 0,
+        password: Annotated[
+            str | None,
+            Doc(
+                """
+                Password for both the Sentinel and data connections. Use
+                `sentinel_kwargs` when the Sentinel password differs.
+                """,
+            ),
+        ] = None,
+        sentinel_kwargs: Annotated[
+            Mapping[str, Any] | None,
+            Doc(
+                """
+                Extra keyword arguments passed to the Sentinel
+                connections only (not the data connections). Use it for a
+                distinct Sentinel password or TLS settings.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc("Environment variable prefix recorded on the provider."),
+        ] = "REDIS_",
+    ) -> Self:
+        """Build a provider backed by Redis Sentinel.
+
+        Resolves the master through Sentinel and routes every command to
+        it. The client re-resolves the master on failover, so wrap calls
+        in the resilience patterns to survive the brief window where
+        in-flight commands can error.
+        """
+        url = _compose_sentinel_url(
+            sentinels=sentinels,
+            service_name=service_name,
+            db=db,
+            password=password,
+        )
+        self = cls.__new__(cls)
+        self._env_prefix = env_prefix
+        self._url = url
+        self._sentinel = None
+        self._client = self._build_client(url, sentinel_kwargs=sentinel_kwargs)
+        self._own = True
+        return self
+
+    @classmethod
+    def cluster(
+        cls,
+        *,
+        nodes: Annotated[
+            Sequence[tuple[str, int]],
+            Doc("Cluster seed `(host, port)` pairs for node discovery."),
+        ],
+        password: Annotated[
+            str | None,
+            Doc("Password applied to every cluster connection."),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc("Environment variable prefix recorded on the provider."),
+        ] = "REDIS_",
+    ) -> Self:
+        """Build a provider backed by a Redis Cluster.
+
+        The cluster client discovers the full topology from the seed
+        nodes and routes each key to its owning slot. Multi-key
+        operations must land in one slot: see the cache hash-tag rule in
+        the [Providers](../providers.md) docs.
+        """
+        url = _compose_cluster_url(nodes=nodes, password=password)
+        self = cls.__new__(cls)
+        self._env_prefix = env_prefix
+        self._url = url
+        self._sentinel = None
+        self._client = self._build_client(url)
+        self._own = True
         return self
 
     @property
@@ -227,8 +375,22 @@ class RedisProvider(Provider):
         return self._env_prefix
 
     @property
-    def client(self) -> Redis[bytes]:
-        """The underlying `redis.asyncio.Redis` client."""
+    def is_cluster(self) -> bool:
+        """Whether the underlying client is a Redis Cluster client.
+
+        Adapters that run multi-key commands check this to enforce the
+        single-slot hash-tag rule on Cluster.
+        """
+        return isinstance(self._client, RedisCluster)
+
+    @property
+    def client(self) -> Any:  # noqa: ANN401
+        """The underlying async Redis client.
+
+        A `redis.asyncio.Redis` for standalone and Sentinel URLs (the
+        Sentinel form returns the master proxy), or a
+        `redis.asyncio.cluster.RedisCluster` for cluster URLs.
+        """
         return self._client
 
     def lock(self, **kwargs: Any) -> RedisLockAdapter:  # noqa: ANN401
@@ -293,6 +455,9 @@ class RedisProvider(Provider):
         """Close the client when the provider owns it."""
         if self._own:
             await self._client.aclose()
+            if self._sentinel is not None:
+                for sentinel in self._sentinel.sentinels:
+                    await sentinel.aclose()
 
 
 def _resolve_url(
@@ -355,6 +520,129 @@ def _compose_url(*, host: str, port: int, db: int, password: str | None) -> str:
         path=str(db),
         password=password,
     ).unicode_string()
+
+
+_SENTINEL_SCHEME = "redis+sentinel"
+_CLUSTER_SCHEME = "redis+cluster"
+_DEFAULT_SENTINEL_PORT = 26379
+_DEFAULT_REDIS_PORT = 6379
+
+
+class _MultiHostUrl:
+    """Parsed parts of a multi-host `redis+sentinel`/`redis+cluster` URL."""
+
+    __slots__ = ("db", "hosts", "password", "service_name", "username")
+
+    def __init__(
+        self,
+        *,
+        hosts: list[tuple[str, int]],
+        username: str | None,
+        password: str | None,
+        service_name: str,
+        db: int,
+    ) -> None:
+        self.hosts = hosts
+        self.username = username
+        self.password = password
+        self.service_name = service_name
+        self.db = db
+
+
+def _parse_multihost_url(url: str) -> _MultiHostUrl:
+    """Parse a `redis+sentinel`/`redis+cluster` multi-host URL.
+
+    Authority is a comma-separated `host:port` list. For sentinel the
+    first path segment is the master service name and an optional second
+    segment is the database index. Userinfo credentials apply to every
+    connection.
+    """
+    from urllib.parse import unquote, urlsplit  # noqa: PLC0415
+
+    scheme, _, rest = url.partition("://")
+    scheme = scheme.lower()
+    default_port = (
+        _DEFAULT_SENTINEL_PORT
+        if scheme == _SENTINEL_SCHEME
+        else _DEFAULT_REDIS_PORT
+    )
+
+    authority, _, path = rest.partition("/")
+    username: str | None = None
+    password: str | None = None
+    if "@" in authority:
+        userinfo, _, authority = authority.rpartition("@")
+        user_part, sep, pass_part = userinfo.partition(":")
+        username = unquote(user_part) or None
+        password = unquote(pass_part) if sep else None
+
+    hosts: list[tuple[str, int]] = []
+    for item in authority.split(","):
+        if not item:
+            continue
+        parsed = urlsplit(f"//{item}")
+        host = parsed.hostname
+        if not host:
+            msg = f"missing host in {scheme} URL authority: {item!r}"
+            raise RedisProviderConfigError(msg)
+        hosts.append((host, parsed.port or default_port))
+    if not hosts:
+        msg = f"{scheme} URL must list at least one host"
+        raise RedisProviderConfigError(msg)
+
+    service_name = ""
+    db = 0
+    if scheme == _SENTINEL_SCHEME:
+        segments = [seg for seg in path.split("/") if seg]
+        if not segments:
+            msg = "redis+sentinel URL must name the master service"
+            raise RedisProviderConfigError(msg)
+        service_name = segments[0]
+        if len(segments) > 1:
+            try:
+                db = int(segments[1])
+            except ValueError:
+                msg = f"invalid database index in URL: {segments[1]!r}"
+                raise RedisProviderConfigError(msg) from None
+
+    return _MultiHostUrl(
+        hosts=hosts,
+        username=username,
+        password=password,
+        service_name=service_name,
+        db=db,
+    )
+
+
+def _compose_sentinel_url(
+    *,
+    sentinels: Sequence[tuple[str, int]],
+    service_name: str,
+    db: int,
+    password: str | None,
+) -> str:
+    """Compose a `redis+sentinel://` URL from decomposed parts."""
+    authority = ",".join(f"{host}:{port}" for host, port in sentinels)
+    userinfo = f":{_quote_credential(password)}@" if password else ""
+    return f"{_SENTINEL_SCHEME}://{userinfo}{authority}/{service_name}/{db}"
+
+
+def _compose_cluster_url(
+    *,
+    nodes: Sequence[tuple[str, int]],
+    password: str | None,
+) -> str:
+    """Compose a `redis+cluster://` URL from decomposed parts."""
+    authority = ",".join(f"{host}:{port}" for host, port in nodes)
+    userinfo = f":{_quote_credential(password)}@" if password else ""
+    return f"{_CLUSTER_SCHEME}://{userinfo}{authority}"
+
+
+def _quote_credential(value: str) -> str:
+    """Percent-encode a credential for safe inclusion in URL userinfo."""
+    from urllib.parse import quote  # noqa: PLC0415
+
+    return quote(value, safe="")
 
 
 _USERINFO_RE = re.compile(r"(://[^/?#@]*:)([^@/?#]+)(@)")
@@ -424,6 +712,29 @@ def _redact_url(url: str) -> str:
         query=redacted_query,
         fragment=parsed.fragment,
     ).unicode_string()
+
+
+_HASH_TAG_RE = re.compile(r"\{[^}]+\}")
+
+
+def require_cluster_hash_tag(
+    provider: RedisProvider, prefix: str, *, adapter: str
+) -> None:
+    """Validate that a multi-key adapter is cluster-safe.
+
+    On a Redis Cluster, an adapter that touches several keys in one
+    command or script must keep them in one slot. A hash tag in the
+    prefix (`{myapp}cache`) forces every key under it into the same
+    slot. Raises `ValueError` when the client is a cluster and the
+    prefix has no `{...}` hash tag. No-op for standalone and Sentinel.
+    """
+    if provider.is_cluster and not _HASH_TAG_RE.search(prefix):
+        msg = (
+            f"{adapter} runs multi-key operations that fail cross-slot on a "
+            f"Redis Cluster. Add a hash tag to the prefix so every key lands "
+            f'in one slot, e.g. prefix="{{myapp}}{prefix or "cache"}".'
+        )
+        raise ValueError(msg)
 
 
 class RedisProviderConfigError(SettingsValidationError):

@@ -7,6 +7,7 @@ from opentelemetry import metrics as otel_metrics
 from opentelemetry.sdk.metrics import MeterProvider
 
 from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
+from grelmicro.health import HealthChecks
 from grelmicro.metrics import (
     Metrics,
     MetricsConfig,
@@ -238,3 +239,14 @@ async def test_metrics_raises_when_private_otel_global_missing(
     with pytest.raises(MetricsError, match="_METER_PROVIDER"):
         async with micro:
             pass
+
+
+def test_metrics_singleton_skips_other_kinds() -> None:
+    """The singleton check passes over components of a different kind."""
+    micro = Grelmicro(
+        uses=[
+            HealthChecks(),
+            Metrics(exporter=MetricsExporterType.NONE),
+        ]
+    )
+    assert micro is not None

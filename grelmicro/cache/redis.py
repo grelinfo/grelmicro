@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from typing_extensions import Doc
 
-from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -126,6 +126,9 @@ class RedisCacheAdapter:
         self._env_prefix = env_prefix
         self._key_prefix = prefix
         self._loop: asyncio.AbstractEventLoop | None = None
+        require_cluster_hash_tag(
+            self._provider, prefix, adapter="RedisCacheAdapter"
+        )
 
     @property
     def provider(self) -> RedisProvider:
@@ -136,6 +139,9 @@ class RedisCacheAdapter:
         """Swap the underlying provider (used by `Grelmicro` for sharing)."""
         self._provider = provider
         self._owns_provider = False
+        require_cluster_hash_tag(
+            provider, self._key_prefix, adapter="RedisCacheAdapter"
+        )
 
     async def __aenter__(self) -> Self:
         """Open the cache connection."""

@@ -157,6 +157,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
     ) -> None:
         """Initialize the bulkhead."""
         self._name = name
+        env_prefix = f"GREL_BULKHEAD_{env_segment(name)}_"
         resolved = resolve_config(
             BulkheadConfig,
             explicit=config,
@@ -165,7 +166,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 "max_wait": max_wait,
                 "max_workers": max_workers,
             },
-            env_prefix=f"GREL_BULKHEAD_{env_segment(name)}_",
+            env_prefix=env_prefix,
             env_load=env_load,
         )
         self._config = resolved
@@ -186,6 +187,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             asyncio.Task[Any],
             list[tuple[asyncio.Semaphore | None, Token[Any] | None]],
         ] = {}
+        if config is None:
+            self._track_reconfigure(env_prefix)
 
     @property
     def name(self) -> str:

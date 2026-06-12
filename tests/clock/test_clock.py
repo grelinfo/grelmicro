@@ -31,6 +31,12 @@ def test_clocks_are_components() -> None:
     assert VirtualClock(name="test").name == "test"
 
 
+def test_real_clock_name() -> None:
+    """`RealClock` exposes its registration name."""
+    assert RealClock().name == "default"
+    assert RealClock(name="wall").name == "wall"
+
+
 async def test_seam_defaults_to_real_time() -> None:
     """With no clock installed the seam uses real time."""
     assert abs(monotonic() - time.monotonic()) < _TOLERANCE

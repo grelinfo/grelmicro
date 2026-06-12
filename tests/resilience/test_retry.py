@@ -2,9 +2,11 @@
 
 import asyncio as _asyncio
 import time as _time
+from itertools import count
 
 import pytest
 from pydantic import ValidationError
+from pytest_mock import MockerFixture
 
 from grelmicro.resilience import (
     ConstantBackoff,
@@ -804,3 +806,67 @@ async def test_env_when_rejects_unknown_attribute(
     monkeypatch.setenv("GREL_RETRY_BAD4_WHEN", "builtins.NoSuchClass")
     with pytest.raises((ValidationError, ValueError), match="has no attribute"):
         Retry("bad4")  # type: ignore[call-arg]
+
+
+async def test_async_budget_elapsed_note(mocker: MockerFixture) -> None:
+    """The budget-elapsed note names the time budget on the async path."""
+    # Arrange: each clock read advances far past the 1 second budget.
+    mocker.patch(
+        "grelmicro.resilience.retry.clock_monotonic",
+        side_effect=count(0.0, 100.0).__next__,
+    )
+    policy = Retry.constant(
+        "budget-async", when=ValueError, attempts=5, max_seconds=1.0
+    )
+
+    @policy
+    async def boom() -> None:
+        msg = "persistent"
+        raise ValueError(msg)
+
+    # Act & Assert
+    with pytest.raises(ValueError, match="persistent") as excinfo:
+        await boom()
+    assert any("budget elapsed" in note for note in excinfo.value.__notes__)
+
+
+def test_sync_budget_elapsed_note(mocker: MockerFixture) -> None:
+    """The budget-elapsed note names the time budget on the sync path."""
+    # Arrange
+    mocker.patch(
+        "grelmicro.resilience.retry.clock_monotonic",
+        side_effect=count(0.0, 100.0).__next__,
+    )
+    policy = Retry.constant(
+        "budget-sync", when=ValueError, attempts=5, max_seconds=1.0
+    )
+
+    @policy
+    def boom() -> None:
+        msg = "persistent"
+        raise ValueError(msg)
+
+    # Act & Assert
+    with pytest.raises(ValueError, match="persistent") as excinfo:
+        boom()
+    assert any("budget elapsed" in note for note in excinfo.value.__notes__)
+
+
+async def test_block_form_budget_elapsed_note(mocker: MockerFixture) -> None:
+    """The budget-elapsed note names the time budget on the block form."""
+    # Arrange
+    mocker.patch(
+        "grelmicro.resilience.retry.clock_monotonic",
+        side_effect=count(0.0, 100.0).__next__,
+    )
+    policy = Retry.constant(
+        "budget-block", when=ValueError, attempts=5, max_seconds=1.0
+    )
+
+    # Act & Assert
+    with pytest.raises(ValueError, match="persistent") as excinfo:  # noqa: PT012
+        async for attempt in policy:
+            async with attempt:
+                msg = "persistent"
+                raise ValueError(msg)
+    assert any("budget elapsed" in note for note in excinfo.value.__notes__)

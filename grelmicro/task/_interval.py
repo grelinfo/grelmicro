@@ -3,6 +3,7 @@
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from logging import getLogger
 from typing import Any
@@ -17,6 +18,7 @@ from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
+from grelmicro.task._cron import FireInfo
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.abc import Task
 
@@ -114,10 +116,27 @@ class IntervalTask(Task):
         else:
             self._sync_primitives = []
 
+        self._last_fire: FireInfo | None = None
+        self._last_loop_start: float | None = None
+
     @property
     def name(self) -> str:
         """Return the task name."""
         return self._name
+
+    @property
+    def next_fire_time(self) -> datetime | None:
+        """The computed next fire time based on last loop instant, or None when not started."""
+        if self._last_loop_start is None:
+            return None
+        elapsed = time.monotonic() - self._last_loop_start
+        remaining = max(self._seconds - elapsed, 0)
+        return datetime.now(UTC) + timedelta(seconds=remaining)
+
+    @property
+    def last_fire(self) -> FireInfo | None:
+        """The most recent fire info, or None before the first fire."""
+        return self._last_fire
 
     async def __call__(
         self,
@@ -138,6 +157,11 @@ class IntervalTask(Task):
                 except asyncio.CancelledError:
                     raise
                 except WouldBlockError as exc:
+                    self._last_fire = FireInfo(
+                        started_at=datetime.now(UTC),
+                        outcome="skipped",
+                        duration=0.0,
+                    )
                     logger.debug("Task skipped: %s (%s)", self.name, exc)
                 except LockNotOwnedError:
                     logger.warning(
@@ -158,6 +182,7 @@ class IntervalTask(Task):
                 # The current iteration finished. Break here on a graceful
                 # stop so in-flight work is never interrupted; otherwise
                 # sleep until the next interval (waking early on stop).
+                self._last_loop_start = time.monotonic()
                 if await sleep_or_stop(self._seconds, stop):
                     break
         finally:
@@ -175,9 +200,12 @@ class IntervalTask(Task):
             _emit.add_up_down(
                 "grelmicro.task.active", 1, **{"task.name": self.name}
             )
-            start = time.perf_counter()
+            started_at = datetime.now(UTC)
+            start_monotonic = time.perf_counter()
+            outcome = "error"
             try:
                 await self._async_function()
+                outcome = "success"
                 _emit.incr(
                     "grelmicro.task.runs",
                     **{"task.name": self.name, "outcome": "success"},
@@ -193,9 +221,15 @@ class IntervalTask(Task):
                     },
                 )
             finally:
+                duration = time.perf_counter() - start_monotonic
+                self._last_fire = FireInfo(
+                    started_at=started_at,
+                    outcome=outcome,
+                    duration=duration,
+                )
                 _emit.record_duration(
                     "grelmicro.task.duration",
-                    time.perf_counter() - start,
+                    duration,
                     **{"task.name": self.name},
                 )
                 _emit.add_up_down(

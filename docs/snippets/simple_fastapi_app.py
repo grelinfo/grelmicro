@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination, LeaderElection, Lock
 from grelmicro.coordination.memory import MemoryLeaderElectionBackend
+from grelmicro.fastapi import GrelmicroMiddleware
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import CircuitBreaker, CircuitBreakers
@@ -18,25 +19,16 @@ logger = logging.getLogger(__name__)
 
 # === grelmicro ===
 tasks = Tasks()
-coordination_backend = MemoryLeaderElectionBackend()
-leader_election = LeaderElection(
-    "leader-election", backend=coordination_backend
-)
+leader_election = LeaderElection("leader-election")
 tasks.add_task(leader_election)
 
 redis = RedisProvider("redis://localhost:6379/0")
 
-# Patterns used inside FastAPI request handlers take an explicit backend:
-# handlers run in their own task, outside the app's ambient scope. Background
-# tasks run inside that scope, so they resolve their backend ambiently.
-lock_backend = redis.lock()
-breaker_backend = MemoryCircuitBreakerAdapter()
-
 micro = Grelmicro(
     uses=[
         redis,
-        Coordination(lock=lock_backend, election=coordination_backend),
-        CircuitBreakers(breaker_backend),
+        Coordination(lock=redis.lock(), election=MemoryLeaderElectionBackend()),
+        CircuitBreakers(MemoryCircuitBreakerAdapter()),
         tasks,
     ]
 )
@@ -51,10 +43,11 @@ async def lifespan(app):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(GrelmicroMiddleware, micro=micro)
 
 
 # --- Circuit Breaker: protect calls to an unreliable service ---
-cb = CircuitBreaker("my-service", backend=breaker_backend)
+cb = CircuitBreaker("my-service")
 
 
 @app.get("/")
@@ -64,7 +57,7 @@ async def read_root():
 
 
 # --- Distributed Lock: synchronize access to a shared resource ---
-lock = Lock("shared-resource", backend=lock_backend)
+lock = Lock("shared-resource")
 
 
 @app.get("/protected")

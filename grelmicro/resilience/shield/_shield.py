@@ -310,6 +310,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             ),
             time_source=time_source,
             random_source=random_source,
+            register=config is None,
         )
 
     def _setup(
@@ -319,11 +320,19 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         config: _BaseShieldConfig,
         time_source: Callable[[], float] | None,
         random_source: Callable[[], float] | None,
+        register: bool = False,
     ) -> None:
-        """Wire the resolved config and helpers onto the instance."""
+        """Wire the resolved config and helpers onto the instance.
+
+        Registers the instance for external reload under its
+        name-as-namespace prefix when `register` is true. The declarative
+        `from_config` path passes `register=False` and stays static.
+        """
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
+        if register:
+            self._track_reconfigure(f"GREL_SHIELD_{env_segment(name)}_")
         self._time = time_source or monotonic
         self._random = random_source or random.random
         self._pending_tasks: set[asyncio.Task[Any]] = set()
@@ -455,6 +464,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             config=config,
             time_source=None,
             random_source=None,
+            register=True,
         )
         return instance
 

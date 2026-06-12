@@ -196,6 +196,7 @@ Prefix: `GREL_LOCK_{NAME_UPPER}_`
 | `GREL_LOCK_{NAME_UPPER}_WORKER`              | `worker`         | `str \| UUID`   | generated UUID   |
 | `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION`      | `lease_duration` | `float` (> 0)   | `60`             |
 | `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL`      | `retry_interval` | `float` (>= 0.001) | `0.1`         |
+| `GREL_LOCK_{NAME_UPPER}_RETRY_JITTER`        | `retry_jitter`   | `float` [0, 1)     | `0.1`         |
 
 Concrete example for `Lock("cart")`:
 
@@ -203,6 +204,7 @@ Concrete example for `Lock("cart")`:
 GREL_LOCK_CART_WORKER=web-1
 GREL_LOCK_CART_LEASE_DURATION=120
 GREL_LOCK_CART_RETRY_INTERVAL=0.2
+GREL_LOCK_CART_RETRY_JITTER=0.2
 ```
 
 !!! tip "Override the env prefix"
@@ -282,6 +284,36 @@ database round-trip, can keep using `Lock(name)` directly. Reach for
 - the deployment has `GREL_ENV_LOAD=true` and you want to skip the env path on
   per-request construction
 
+### Bounded acquire
+
+Pass `timeout=` to `acquire()` to limit how long the call waits. When the
+deadline passes without winning the lock, `TimeoutError` is raised:
+
+```python
+# Wait up to 5 seconds, then raise TimeoutError.
+held = await lock.acquire(timeout=5.0)
+```
+
+The context manager (`async with lock`) calls `acquire()` with no timeout and
+waits indefinitely. Use `acquire(timeout=...)` directly when you need a
+bounded wait and want to handle the failure yourself.
+
+### Extending the lease
+
+Call `extend()` on a `Lock` to renew the TTL without releasing the lock. The
+fencing token stays the same - only the expiry time advances:
+
+```python
+lock = Lock("cart")
+async with lock as held:
+    token_before = held.fencing_token
+    extended = await lock.extend()
+    assert extended.fencing_token == token_before  # same token, new TTL
+```
+
+`extend()` raises `LockNotOwnedError` when the lease was lost on the backend
+(expired or taken over by another holder).
+
 ### Fencing tokens
 
 A fencing token is a strictly increasing integer the backend mints for a lock
@@ -333,6 +365,16 @@ TTL (`max_lock_seconds`) set at acquire time. If the task runs longer than
   completes. Stops another node from re-executing too soon.
 - **`max_lock_seconds`**: maximum duration to hold the lock. Acts as a TTL for
   crash and deadlock protection.
+
+Call `refresh()` on a `TaskLock` to renew the lease while the task body is
+still running. Raises `LockNotOwnedError` when the lease was lost:
+
+```python
+async with task_lock:
+    await long_operation_part1()
+    await task_lock.refresh()  # extend before max_lock_seconds elapses
+    await long_operation_part2()
+```
 
 !!! tip
     For scheduled tasks, prefer the
@@ -429,10 +471,10 @@ directly inside an `asyncio.TaskGroup`:
 ### Configuration
 
 `LeaderElection` follows the three-paths configuration contract. The lease timing
-fields (`lease_duration`, `renew_deadline`, `retry_interval`, `backend_timeout`,
-`error_interval`) resolve programmatically, from `GREL_LEADERELECTION_{NAME}_*`
-environment variables, or from a pre-built `LeaderElectionConfig`. See
-[Configuration](config.md) for the shared rules.
+fields (`lease_duration`, `renew_deadline`, `retry_interval`, `retry_jitter`,
+`backend_timeout`, `error_interval`) resolve programmatically, from
+`GREL_LEADERELECTION_{NAME}_*` environment variables, or from a pre-built
+`LeaderElectionConfig`. See [Configuration](config.md) for the shared rules.
 
 ### Live reconfiguration
 

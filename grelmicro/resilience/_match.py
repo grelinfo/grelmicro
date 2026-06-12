@@ -21,11 +21,35 @@ policy = Retry(
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from typing import Any, cast
 
 from grelmicro.resilience._outcome import Outcome
+
+_log = logging.getLogger("grelmicro.resilience")
+_warned_predicates: set[int] = set()
+
+
+def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
+    """Return ``bool(result)``, warning once if ``result`` was not already ``bool``.
+
+    The warning fires at most once per unique predicate object to avoid log
+    spam in tight retry loops.
+    """
+    if type(result) is not bool:
+        pred_id = id(predicate)
+        if pred_id not in _warned_predicates:
+            _warned_predicates.add(pred_id)
+            _log.warning(
+                "Match predicate %r returned non-bool %r; coercing to bool. "
+                "Return an explicit bool to suppress this warning.",
+                getattr(predicate, "__name__", repr(predicate)),
+                result,
+            )
+    return bool(result)
+
 
 Matcher = Callable[[Outcome[Any]], bool]
 """Callable signature every Match resolves to.
@@ -56,6 +80,10 @@ class Match:
 
     def __repr__(self) -> str:
         return f"Match.{self._repr}"
+
+    def explain(self) -> str:
+        """Return the human-readable matcher tree for debugging."""
+        return repr(self)
 
     def __or__(self, other: Match) -> Match:
         """Return a Match that engages when either side engages."""
@@ -100,7 +128,7 @@ class Match:
                 exc = outcome.exception
                 if not outcome.raised or exc is None:
                     return False
-                return bool(predicate(exc))  # type: ignore[arg-type]
+                return _coerce_bool(predicate(exc), predicate)  # type: ignore[arg-type]
 
             return cls(
                 _check_predicate,
@@ -143,7 +171,9 @@ class Match:
             predicate = value_or_predicate
 
             def _check_predicate(outcome: Outcome[Any]) -> bool:
-                return not outcome.raised and bool(predicate(outcome.result))
+                return not outcome.raised and _coerce_bool(
+                    predicate(outcome.result), predicate
+                )
 
             return cls(
                 _check_predicate,
@@ -226,7 +256,7 @@ class Match:
                 exc = outcome.exception
                 if not outcome.raised or exc is None:
                     return False
-                return bool(predicate(exc.__cause__))  # type: ignore[arg-type]
+                return _coerce_bool(predicate(exc.__cause__), predicate)  # type: ignore[arg-type]
 
             return cls(
                 _check_predicate,

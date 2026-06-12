@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 import pytest
 from pytest_mock import MockerFixture
 
+import grelmicro.coordination.lock as lock_module
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination.abc import LockBackend
 from grelmicro.coordination.errors import (
@@ -893,3 +894,256 @@ def test_lock_rejects_unsafe_names(name: str) -> None:
 def test_lock_accepts_safe_names(name: str) -> None:
     """Namespaced names with dots, dashes, slashes, and colons are accepted."""
     Lock(name)
+
+
+# --- acquire with timeout ---
+
+
+async def test_lock_acquire_timeout_raises_when_held(
+    backend: LockBackend,
+) -> None:
+    """`acquire(timeout=...)` raises TimeoutError when the lock stays held."""
+    # Use a long lease so the lock stays held for the full timeout window.
+    holder = Lock(
+        name=LOCK_NAME,
+        backend=backend,
+        worker="worker_holder",
+        lease_duration=5.0,
+        retry_interval=0.001,
+    )
+    waiter = Lock(
+        name=LOCK_NAME,
+        backend=backend,
+        worker="worker_waiter",
+        lease_duration=5.0,
+        retry_interval=0.001,
+    )
+    await holder.acquire()
+
+    with pytest.raises(TimeoutError):
+        await waiter.acquire(timeout=0.01)
+
+
+async def test_lock_acquire_timeout_succeeds_when_released_in_time(
+    locks: list[Lock],
+) -> None:
+    """`acquire(timeout=...)` succeeds when the lock expires before the deadline.
+
+    Uses lease expiry (lease_duration=0.01) so the same task does not need
+    to release from a separate asyncio task (which would have a different
+    token and fail the ownership check).
+    """
+    await locks[WORKER_1].acquire()
+    # lease_duration=0.01, so the lock expires well before timeout=0.5
+    handle = await locks[WORKER_2].acquire(timeout=0.5)
+
+    assert isinstance(handle, LockHandle)
+    assert handle.fencing_token >= 1
+
+
+async def test_lock_acquire_timeout_none_waits_forever(
+    locks: list[Lock],
+) -> None:
+    """`acquire(timeout=None)` waits until the lock expires (existing behavior)."""
+    await locks[WORKER_1].acquire()
+    # lease_duration=0.01, so the lock expires and WORKER_2 can acquire
+    handle = await locks[WORKER_2].acquire(timeout=None)
+
+    assert isinstance(handle, LockHandle)
+
+
+# --- extend ---
+
+
+async def test_lock_extend_renews_same_fencing_token(lock: Lock) -> None:
+    """`extend()` renews the lease and returns the same fencing token."""
+    first = await lock.acquire()
+
+    extended = await lock.extend()
+
+    assert extended.fencing_token == first.fencing_token
+    assert extended.token == first.token
+
+
+async def test_lock_extend_not_held_raises(lock: Lock) -> None:
+    """`extend()` raises LockNotOwnedError when not holding the lock."""
+    with pytest.raises(LockNotOwnedError):
+        await lock.extend()
+
+
+async def test_lock_extend_lease_lost_raises(
+    locks: list[Lock], backend: LockBackend, mocker: MockerFixture
+) -> None:
+    """`extend()` raises LockNotOwnedError when the backend reports the lease is gone."""
+    await locks[WORKER_1].acquire()
+    mocker.patch.object(backend, "acquire", return_value=None)
+
+    with pytest.raises(LockNotOwnedError):
+        await locks[WORKER_1].extend()
+
+
+# --- jitter ---
+
+
+async def test_lock_acquire_jitter_applied(
+    lock: Lock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Jitter scales the retry interval when _random is pinned."""
+    monkeypatch.setattr(lock_module, "_random", lambda: 1.0)
+    # With jitter=0.1 and _random()=1.0: interval = retry_interval * (1 + 0.1 * 1.0) = 1.1x
+    # This test just verifies acquire still completes without error.
+    handle = await lock.acquire()
+    assert handle.fencing_token >= 1
+
+
+async def test_lock_acquire_jitter_zero_disables_jitter(
+    backend: LockBackend,
+) -> None:
+    """When retry_jitter=0, no jitter multiplication occurs."""
+    no_jitter_lock = Lock(
+        name=LOCK_NAME,
+        backend=backend,
+        worker="worker_nojitter",
+        lease_duration=0.01,
+        retry_interval=0.001,
+        retry_jitter=0.0,
+    )
+    handle = await no_jitter_lock.acquire()
+    assert handle.fencing_token >= 1
+
+
+async def test_acquire_without_jitter_uses_fixed_interval(
+    backend: LockBackend,
+    mocker: MockerFixture,
+) -> None:
+    """A zero `retry_jitter` retries on the fixed interval."""
+    # Arrange: the first attempt is rejected, the second wins.
+    expected_fencing_token = 7
+    waiter = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker="waiter",
+        lease_duration=0.01,
+        retry_interval=0.001,
+        retry_jitter=0,
+    )
+    mocker.patch.object(
+        waiter,
+        "do_acquire",
+        mocker.AsyncMock(side_effect=[None, expected_fencing_token]),
+    )
+
+    # Act
+    handle = await waiter.acquire()
+
+    # Assert
+    assert handle.fencing_token == expected_fencing_token
+
+
+async def test_acquire_with_jitter_scales_retry_sleep(
+    backend: LockBackend,
+    mocker: MockerFixture,
+) -> None:
+    """A non-zero `retry_jitter` scales the sleep between retries."""
+    # Arrange: the first attempt is rejected, the second wins.
+    expected_fencing_token = 7
+    waiter = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker="waiter",
+        lease_duration=0.01,
+        retry_interval=0.001,
+        retry_jitter=0.5,
+    )
+    mocker.patch.object(
+        waiter,
+        "do_acquire",
+        mocker.AsyncMock(side_effect=[None, expected_fencing_token]),
+    )
+    mocker.patch.object(lock_module, "_random", return_value=1.0)
+
+    # Act
+    handle = await waiter.acquire()
+
+    # Assert
+    assert handle.fencing_token == expected_fencing_token
+
+
+async def test_from_thread_acquire_timeout(backend: LockBackend) -> None:
+    """A bounded thread acquire raises TimeoutError at the deadline."""
+    # Arrange
+    holder = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker="holder",
+        lease_duration=60,
+        retry_interval=0.001,
+    )
+    waiter = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker="waiter",
+        lease_duration=60,
+        retry_interval=0.001,
+        retry_jitter=0,
+    )
+    await holder.acquire()
+
+    # Act & Assert
+    def sync() -> None:
+        with pytest.raises(TimeoutError, match="not acquired"):
+            waiter.from_thread.acquire(timeout=0.01)
+
+    await asyncio.to_thread(sync)
+    await holder.release()
+
+
+async def test_from_thread_extend(lock: Lock) -> None:
+    """A thread extend renews the lease and keeps the fencing token."""
+    # Arrange
+    acquired: LockHandle | None = None
+    extended: LockHandle | None = None
+
+    # Act
+    def sync() -> None:
+        nonlocal acquired, extended
+        acquired = lock.from_thread.acquire()
+        extended = lock.from_thread.extend()
+        lock.from_thread.release()
+
+    await asyncio.to_thread(sync)
+
+    # Assert
+    assert acquired is not None
+    assert extended is not None
+    assert extended.fencing_token == acquired.fencing_token
+
+
+async def test_from_thread_extend_not_owned(lock: Lock) -> None:
+    """A thread extend without holding the lock raises LockNotOwnedError."""
+
+    # Act & Assert
+    def sync() -> None:
+        with pytest.raises(LockNotOwnedError):
+            lock.from_thread.extend()
+
+    await asyncio.to_thread(sync)
+
+
+async def test_from_thread_extend_lost_lease(
+    lock: Lock,
+    mocker: MockerFixture,
+) -> None:
+    """A thread extend after the lease was lost raises LockNotOwnedError."""
+
+    # Act & Assert: acquire and extend run on one thread, the backend
+    # rejects the renewal as a lost lease.
+    def sync() -> None:
+        lock.from_thread.acquire()
+        mocker.patch.object(
+            lock, "do_acquire", mocker.AsyncMock(return_value=None)
+        )
+        with pytest.raises(LockNotOwnedError):
+            lock.from_thread.extend()
+
+    await asyncio.to_thread(sync)

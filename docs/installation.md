@@ -39,6 +39,7 @@ grelmicro is modular. Install only the extras you need.
 |---|---|---|
 | `standard` | `orjson` for fast JSON serialization. `uvloop` for a faster event loop. Activate with `uvloop.run(main())`. | `orjson` everywhere. `uvloop` only on Linux/macOS CPython (skipped on Windows and PyPy). |
 | `redis` | `redis-py` for the Redis backends. | All platforms. |
+| `valkey` | `valkey-py` for the Valkey backends. | All platforms. |
 | `postgres` | `asyncpg` for the PostgreSQL sync backend. | All platforms. |
 | `sqlite` | `aiosqlite` for the SQLite sync backend. | All platforms. |
 | `kubernetes` | `lightkube` for the Kubernetes Lease sync backend. | All platforms. |
@@ -49,6 +50,7 @@ grelmicro is modular. Install only the extras you need.
     ```bash
     pip install "grelmicro[standard]"
     pip install "grelmicro[redis]"
+    pip install "grelmicro[valkey]"
     pip install "grelmicro[postgres]"
     pip install "grelmicro[sqlite]"
     pip install "grelmicro[kubernetes]"
@@ -60,6 +62,7 @@ grelmicro is modular. Install only the extras you need.
     ```bash
     uv add "grelmicro[standard]"
     uv add "grelmicro[redis]"
+    uv add "grelmicro[valkey]"
     uv add "grelmicro[postgres]"
     uv add "grelmicro[sqlite]"
     uv add "grelmicro[kubernetes]"
@@ -71,6 +74,7 @@ grelmicro is modular. Install only the extras you need.
     ```bash
     poetry add "grelmicro[standard]"
     poetry add "grelmicro[redis]"
+    poetry add "grelmicro[valkey]"
     poetry add "grelmicro[postgres]"
     poetry add "grelmicro[sqlite]"
     poetry add "grelmicro[kubernetes]"
@@ -78,4 +82,4 @@ grelmicro is modular. Install only the extras you need.
     poetry add "grelmicro[structlog]"
     ```
 
-Combine multiple extras in one call, for example `pip install "grelmicro[redis,opentelemetry,structlog]"`.
+Combine multiple extras in one call, for example `pip install "grelmicro[redis,valkey,opentelemetry,structlog]"`.

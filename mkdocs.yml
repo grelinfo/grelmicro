@@ -61,11 +61,13 @@ nav:
 - installation.md
 - comparison.md
 - capabilities.md
+- roadmap.md
 - benchmarks.md
 - User Guide:
     - config.md
     - configuration/reconfigure-from-configmap.md
     - cache.md
+    - idempotency.md
     - providers.md
     - health.md
     - logging.md
@@ -86,7 +88,10 @@ nav:
 - API Reference:
     - reference/cache.md
     - reference/clock.md
+    - reference/config.md
+    - reference/fastapi.md
     - reference/health.md
+    - reference/idempotency.md
     - reference/logging.md
     - reference/metrics.md
     - reference/resilience.md

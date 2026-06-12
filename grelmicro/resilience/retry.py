@@ -615,6 +615,7 @@ class Retry(Reconfigurable[RetryConfig]):
     ) -> None:
         """Initialize the retry policy."""
         self._name = name
+        env_prefix = f"GREL_RETRY_{env_segment(name)}_"
         kwargs: dict[str, object | None] = {
             "attempts": attempts,
             "max_seconds": max_seconds,
@@ -625,12 +626,14 @@ class Retry(Reconfigurable[RetryConfig]):
             RetryConfig,
             explicit=config,
             kwargs=kwargs,
-            env_prefix=f"GREL_RETRY_{env_segment(name)}_",
+            env_prefix=env_prefix,
             env_load=env_load,
         )
         self._config = resolved
         self._state = _State(config=resolved, matcher=resolved.when)
         self._reconfigure_lock = asyncio.Lock()
+        if config is None:
+            self._track_reconfigure(env_prefix)
 
     @property
     def name(self) -> str:

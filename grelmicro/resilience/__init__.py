@@ -4,9 +4,8 @@ Pick the front door first, the algorithm second, the backend third.
 
 **Front doors** (start here):
 
-* `RateLimiter("name", limit=..., window=...)` or
-  `RateLimiter.token_bucket(...)` / `RateLimiter.sliding_window(...)`
-  for rate limiting.
+* `RateLimiter.token_bucket(...)` or
+  `RateLimiter.sliding_window(...)` for rate limiting.
 * `CircuitBreaker("name")` or
   `CircuitBreaker.consecutive_count(...)` for circuit breaking.
 * `Retry("name", backoff, when=...)` or the `@retry(...)` /
@@ -22,9 +21,9 @@ Pick the front door first, the algorithm second, the backend third.
 **Components** (wire the front doors into `Grelmicro(uses=[...])`):
 
 * `RateLimiters(backend)` and `CircuitBreakers(backend)`. They
-  register the shared storage. Without them, primitives fall back
-  to an implicit in-memory backend that is fine for tests and
-  single-replica services.
+  register the shared storage. Without them, pass `backend=` on the
+  primitive (a memory adapter is fine for tests and single-replica
+  services).
 
 **Adapters / backends** (one per storage choice, used inside
 `RateLimiters` / `CircuitBreakers`): `MemoryRateLimiterAdapter`,

@@ -248,7 +248,11 @@ def test_token_bucket_refill_is_monotonic_and_capped(
     bucket = MemoryTokenBucket(capacity=capacity, refill_rate=refill_rate)
     tokens = min(start_tokens, float(capacity))
     last = monotonic()
-    refilled = bucket._refill(tokens, last, last + elapsed)
-    expected = min(float(capacity), tokens + elapsed * refill_rate)
+    now = last + elapsed
+    refilled = bucket._refill(tokens, last, now)
+    # Derive the elapsed delta the same way `_refill` does (`now - last`),
+    # so a float cancellation on a large monotonic base cannot diverge
+    # from the formula under test.
+    expected = min(float(capacity), tokens + (now - last) * refill_rate)
     assert refilled <= float(capacity)
     assert math.isclose(refilled, expected, rel_tol=1e-9, abs_tol=1e-9)

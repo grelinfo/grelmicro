@@ -1,6 +1,7 @@
 """Test RateLimiter implementation."""
 
 import asyncio
+import contextvars
 from collections.abc import AsyncGenerator
 from time import monotonic
 from types import TracebackType
@@ -11,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from grelmicro import Grelmicro
+from grelmicro.errors import OutOfContextError
 from grelmicro.resilience import RateLimiters
 from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
@@ -297,18 +299,48 @@ async def test_acquire_or_raise_with_cost(limiter: RateLimiter) -> None:
         await limiter.acquire_or_raise(key="user:1", cost=1)
 
 
-# --- Implicit Memory fallback when no Component is registered ---
+# --- Backend resolution raises without a Component or explicit backend ---
 
 
-async def test_acquire_falls_back_to_implicit_memory_adapter() -> None:
-    """RateLimiter resolves to a process-global memory adapter when no Component is registered."""
+async def test_acquire_raises_out_of_context_without_component() -> None:
+    """RateLimiter refuses an ambient miss instead of degrading silently."""
     rl = RateLimiter("test", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
 
-    # No `Grelmicro` app open and no `RateLimiters` Component registered:
-    # the implicit per-process Memory adapter handles the call.
     async with Grelmicro():
-        result = await rl.acquire(key="k")
+        with pytest.raises(OutOfContextError, match="resolved no backend"):
+            await rl.acquire(key="k")
+
+
+async def test_acquire_with_explicit_memory_backend_needs_no_app() -> None:
+    """An explicit memory backend keeps the zero-config standalone path."""
+    rl = RateLimiter(
+        "test",
+        SlidingWindowConfig(limit=LIMIT, window=WINDOW),
+        backend=MemoryRateLimiterAdapter(),
+    )
+
+    result = await rl.acquire(key="k")
     assert result.allowed is True
+
+
+async def test_acquire_raises_out_of_context_when_component_active() -> None:
+    """An ambient miss raises when a RateLimiters component is active in the process.
+
+    A limiter resolved from a context that does not see the active app
+    must refuse rather than silently degrade to a per-process limiter
+    where a fleet-wide one is configured.
+    """
+    rl = RateLimiter("test", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
+
+    async with Grelmicro(uses=[RateLimiters(MemoryRateLimiterAdapter())]):
+
+        def resolve() -> None:
+            # Fresh context: `current()` is unset, the active app is not
+            # visible here, mimicking a FastAPI handler.
+            _ = rl.backend
+
+        with pytest.raises(OutOfContextError, match="add GrelmicroMiddleware"):
+            contextvars.Context().run(resolve)
 
 
 # --- Validation ---
@@ -719,12 +751,13 @@ async def test_reconfigure_rebuilds_fallback_and_strategy() -> None:
     )
     await rl.reconfigure(new_config)
 
-    # Assert: bind ran a second time on reconfigure
+    # Assert: the swap is lazy, the next call rebinds with the new config.
+    assert backend.bind.call_count == 1
+    result = await rl.acquire(key="k")
     assert backend.bind.call_count == 2  # noqa: PLR2004
     backend.bind.assert_called_with(new_config)
 
     # Fallback reflects the new capacity (fail-open path returns it).
-    result = await rl.acquire(key="k")
     assert result.allowed is True
     assert result.limit == CAPACITY * 3
 
@@ -756,8 +789,8 @@ async def test_reconfigure_rejects_different_config_type() -> None:
         )
 
 
-async def test_reconfigure_preserves_state_when_bind_fails() -> None:
-    """A bind failure during reconfigure leaves the previous state intact."""
+async def test_reconfigure_bind_failure_surfaces_on_next_call() -> None:
+    """A failing rebind raises on the next call, not during reconfigure."""
     # Arrange
     config = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
     strategy_old: Any = AsyncMock(spec=RateLimiterStrategy)
@@ -770,12 +803,13 @@ async def test_reconfigure_preserves_state_when_bind_fails() -> None:
         capacity=CAPACITY * 2, refill_rate=REFILL_RATE
     )
 
-    # Act
-    with pytest.raises(RuntimeError, match="nope"):
-        await rl.reconfigure(new_config)
+    # Act: the swap itself is config-only and always succeeds.
+    await rl.reconfigure(new_config)
 
-    # Assert: original config retained
-    assert rl.config == config
+    # Assert: the new config is published, the bind error hits the caller.
+    assert rl.config == new_config
+    with pytest.raises(RuntimeError, match="nope"):
+        await rl.acquire(key="k")
 
 
 @pytest.mark.usefixtures("_backend")
@@ -806,7 +840,7 @@ async def test_reconfigure_concurrent_with_acquire() -> None:
 
 
 async def test_reconfigure_inner_double_check_skips_rebuild() -> None:
-    """Two concurrent reconfigure calls with the same target rebuild once."""
+    """Two concurrent reconfigure calls with the same target bind once."""
     config = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
     backend: Any = MagicMock()
     backend.bind = MagicMock(return_value=AsyncMock(spec=RateLimiterStrategy))
@@ -820,6 +854,9 @@ async def test_reconfigure_inner_double_check_skips_rebuild() -> None:
         tg.create_task(rl.reconfigure(new_config))
         tg.create_task(rl.reconfigure(new_config))
 
+    # The swap is lazy: no bind yet, one bind on the next call.
+    assert backend.bind.call_count == 0
+    await rl.acquire(key="k")
     assert backend.bind.call_count == 1
     assert rl.config == new_config
 
