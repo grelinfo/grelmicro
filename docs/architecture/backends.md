@@ -56,6 +56,56 @@ async with micro:
 
 `Coordination(provider)` calls `provider.lock()` to obtain the matching `LockBackend` and `provider.leaderelection()` for the `LeaderElectionBackend`. `Cache(provider)` calls `provider.cache()`. Memory backends bypass the Provider step: pass the adapter directly (`Coordination(lock=MemoryLockAdapter())`).
 
+## Forgiving uses lists
+
+`Grelmicro(uses=[...])` and `micro.use(...)` accept three shorthands so you write less ceremony. Each one expands to a precise explicit form. The explicit form is always legal and always wins.
+
+**Bare Component class.** A Component class is constructed with its defaults.
+
+```python
+Grelmicro(uses=[Cache])  # same as Grelmicro(uses=[Cache()])
+```
+
+**Bare Adapter, class or instance.** An adapter is wrapped in its matching Component. A class is constructed first.
+
+```python
+Grelmicro(uses=[MemoryCacheAdapter])    # same as Cache(MemoryCacheAdapter())
+Grelmicro(uses=[MemoryCacheAdapter()])  # same as Cache(MemoryCacheAdapter())
+Grelmicro(uses=[MemoryLockAdapter()])   # wrapped in Coordination
+```
+
+The adapter kind decides the Component: a cache adapter becomes `Cache`, a lock adapter becomes `Coordination`, a rate limiter adapter becomes `RateLimiters`, a circuit breaker adapter becomes `CircuitBreakers`.
+
+**Bare Provider.** A Provider listed with no Components registers one default Component for every kind it serves.
+
+```python
+redis = RedisProvider("redis://localhost")
+Grelmicro(uses=[redis])
+# registers Coordination, Cache, RateLimiters, CircuitBreakers, all on redis
+```
+
+A Provider serves a kind when its factory for that kind is implemented. `RedisProvider` and `PostgresProvider` serve all four kinds. `SQLiteProvider` skips leader election. A served kind that the Provider cannot build is skipped, never registered empty.
+
+This auto-registration is all-or-nothing. The moment you list **any** explicit Component, every Provider in the list becomes lifecycle-only and registers nothing. The list then reads the way it runs: a lone Provider is a full default app, a Provider beside Components is just a shared connection the Components wire themselves.
+
+```python
+# auto-registered: one default Component per served kind
+Grelmicro(uses=[redis])
+
+# explicit: redis is lifecycle-only, only Cache is registered
+Grelmicro(uses=[redis, Cache(redis)])
+```
+
+Two bare Providers with no Components raise `AmbiguousProviderError`: the default Component for a shared kind could come from either Provider. Wrap each Provider in the Components it should serve to resolve it.
+
+```python
+# raises AmbiguousProviderError
+Grelmicro(uses=[redis, postgres])
+
+# explicit and unambiguous
+Grelmicro(uses=[Cache(redis), Coordination(postgres)])
+```
+
 ## Named backends and per-call selection
 
 Register multiple Components under different names and pick one at the call site:

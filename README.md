@@ -197,10 +197,9 @@ leader = LeaderElection("leader-election")
 tasks.add_task(leader)
 
 micro = Grelmicro(uses=[
-    redis,
-    Coordination(lock=redis.lock(), election=redis.leaderelection()),
-    Cache(redis.cache()),
-    RateLimiters(redis.ratelimiter()),
+    Coordination(redis),
+    Cache(redis),
+    RateLimiters(redis),
     CircuitBreakers(MemoryCircuitBreakerAdapter()),
     tasks,
     health,
@@ -284,8 +283,8 @@ def leader_only_task():
 
 The key shape:
 
-- **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Provider, Component, and active manager. `async with micro:` opens them all in order, closes in reverse.
-- **One Provider, many Components.** `Coordination(redis)`, `Cache(redis)`, `RateLimiters(redis)` all share the same `RedisProvider` pool. The Provider holds the connection, the Components attach to it.
+- **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Component and active manager. `async with micro:` opens them all in order, closes in reverse.
+- **One Provider, many Components.** `Coordination(redis)`, `Cache(redis)`, `RateLimiters(redis)` all share the same `RedisProvider` pool. List the Components and grelmicro lifecycles the Provider once. Pass a bare `Grelmicro(uses=[redis])` to register a default Component per kind the Provider serves.
 - **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`, and `GrelmicroMiddleware` extends that scope to request handlers. The same `Lock` works in production with Redis and in tests with `MemoryLockAdapter`, no rewiring.
 - **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
 
