@@ -1,6 +1,7 @@
 """grelmicro is a lightweight framework/toolkit which is ideal for building async microservices in Python."""  # noqa: E501
 
 from grelmicro._app import (
+    AmbiguousProviderError,
     ComponentAlreadyRegisteredError,
     ComponentNotRegisteredError,
     Grelmicro,
@@ -23,6 +24,7 @@ from grelmicro.errors import (
 __all__ = [
     "AdapterNotRegisteredError",
     "AdmissionError",
+    "AmbiguousProviderError",
     "Component",
     "ComponentAlreadyRegisteredError",
     "ComponentNotRegisteredError",
