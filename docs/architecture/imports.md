@@ -19,4 +19,4 @@ grelmicro follows the Django/SQLAlchemy pattern: **core API is re-exported from 
 
 ## Top-level re-exports
 
-Patterns are imported from their submodule (`from grelmicro.coordination import Lock`), never from the package root. The submodule path is the classification: it names the docs page, the Component, and the backend family. A flat top-level namespace was evaluated for 1.0 and rejected, one obvious import per task beats one saved line.
+Patterns are imported from their domain package (`from grelmicro.coordination import Lock`), never from the top-level `grelmicro` package. The domain path is the classification: it names the docs page, the Component, and the backend family. Flat re-exports at the top level were evaluated for 1.0 and rejected, one obvious import per task beats one saved line.

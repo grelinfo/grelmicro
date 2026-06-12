@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 1.0.0a1 - 2026-06-12
 
 ### Breaking
