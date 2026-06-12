@@ -306,6 +306,7 @@ def cached(
     Returns:
         A decorator that caches function results.
     """
+    is_private_cache = cache is None
     cache = _resolve_cache(cache, ttl, maxsize)
     if lock not in (True, False, "local"):
         msg = f"Invalid lock {lock!r}: use True, False, or 'local'."
@@ -321,6 +322,14 @@ def cached(
         func: Callable[P, R],
     ) -> Callable[P, R]:
         is_async_func = asyncio.iscoroutinefunction(func)
+        if is_private_cache and not is_async_func:
+            msg = (
+                "@cached(ttl=...) supports async functions only: the "
+                "private cache has no event loop for a sync wrapper. "
+                "Pass a TTLCache opened by the app, or use "
+                "functools.lru_cache for pure sync memoization."
+            )
+            raise TypeError(msg)
         per_key = lock is not False
         auto_distributed = lock is True
         tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)

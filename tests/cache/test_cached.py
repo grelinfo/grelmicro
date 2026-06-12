@@ -1709,3 +1709,12 @@ class TestPrivateCacheForm:
             @cached()
             async def f() -> int:
                 return 1
+
+
+def test_private_cache_rejects_sync_function() -> None:
+    """The zero-object form raises at decoration on a sync function."""
+    with pytest.raises(TypeError, match="async functions only"):
+
+        @cached(ttl=30)
+        def sync_fn() -> int:
+            return 1
