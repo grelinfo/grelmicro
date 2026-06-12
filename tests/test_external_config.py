@@ -134,7 +134,9 @@ def test_resolve_config_from_mapping_logs_unmatched_prefixed_keys(
             mapping={"GREL_RATELIMITER_API_TYPOED": "x"},
         )
     assert out is cfg
-    assert "TYPOED" in caplog.text
+    assert "match no field" in caplog.text
+    assert "GREL_RATELIMITER_API_" in caplog.text
+    assert "TYPOED" not in caplog.text
 
 
 # --- Task 2: log redaction never echoes offending values ---

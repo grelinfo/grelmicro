@@ -314,7 +314,7 @@ def resolve_config_from_mapping[C: BaseModel](
     prefix_len = len(env_prefix)
     prefix_upper = env_prefix.upper()
     overrides: dict[str, str] = {}
-    unmatched: list[str] = []
+    unmatched = 0
     for key, value in mapping.items():
         if not key.upper().startswith(prefix_upper):
             continue
@@ -322,13 +322,16 @@ def resolve_config_from_mapping[C: BaseModel](
         if field in fields:
             overrides[field] = value
         else:
-            unmatched.append(key)
+            unmatched += 1
     if unmatched:
+        # Key names are not logged: in a directory-mounted Secret the
+        # filename is the key, so a name itself can be sensitive.
         logger.debug(
-            "External config keys under %s match no field on %s: %s",
+            "External config carries %d key(s) under %s that match no "
+            "field on %s",
+            unmatched,
             env_prefix,
             cls.__name__,
-            ", ".join(sorted(unmatched)),
         )
     if not overrides:
         return current
