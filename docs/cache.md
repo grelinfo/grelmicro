@@ -250,6 +250,18 @@ Literal tags with no `{...}` pass through unchanged. Tags work the same across M
 
 The `@cached` decorator automatically caches function results. It works with both sync and async functions.
 
+For the plain "memoize this function for N seconds" case, pass `ttl=` and nothing else. The decorator builds a private process-local cache for this function alone:
+
+```python
+from grelmicro.cache import cached
+
+@cached(ttl=30)
+async def get_rates() -> dict:
+    return await fetch_rates()
+```
+
+That private cache lives only in this process and is never shared across replicas. To share results across replicas, invalidate by tag, or reuse one store across functions, pass a `TTLCache` instead:
+
 ```python
 from grelmicro.cache import JsonSerializer, TTLCache, cached
 
@@ -259,6 +271,8 @@ cache = TTLCache(ttl=300, serializer=JsonSerializer())
 async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 ```
+
+Passing both `cache` and `ttl`, or neither, raises `TypeError`.
 
 ### Stampede Protection
 

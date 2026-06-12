@@ -379,8 +379,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             Doc(
                 "Identifier for rate limiting"
                 " (e.g. IP address, user ID, session)."
+                " Defaults to `default` for the single-bucket case."
+                " The limiter's `name` already namespaces the backend"
+                " key, so the default bucket is `name:default`."
             ),
-        ],
+        ] = "default",
         cost: Annotated[
             int,
             Doc("Number of tokens to consume."),
@@ -424,8 +427,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             Doc(
                 "Identifier for rate limiting"
                 " (e.g. IP address, user ID, session)."
+                " Defaults to `default` for the single-bucket case."
+                " The limiter's `name` already namespaces the backend"
+                " key, so the default bucket is `name:default`."
             ),
-        ],
+        ] = "default",
         cost: Annotated[
             int,
             Doc("Number of tokens to consume."),
@@ -455,8 +461,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             Doc(
                 "Identifier for rate limiting"
                 " (e.g. IP address, user ID, session)."
+                " Defaults to `default` for the single-bucket case."
+                " The limiter's `name` already namespaces the backend"
+                " key, so the default bucket is `name:default`."
             ),
-        ],
+        ] = "default",
         cost: Annotated[
             int,
             Doc("Number of tokens to consume."),
@@ -486,8 +495,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             Doc(
                 "Identifier for rate limiting"
                 " (e.g. IP address, user ID, session)."
+                " Defaults to `default` for the single-bucket case."
+                " The limiter's `name` already namespaces the backend"
+                " key, so the default bucket is `name:default`."
             ),
-        ],
+        ] = "default",
     ) -> RateLimitResult:
         """Check rate limit state without consuming tokens.
 
@@ -515,8 +527,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             Doc(
                 "Identifier for rate limiting"
                 " (e.g. IP address, user ID, session)."
+                " Defaults to `default` for the single-bucket case."
+                " The limiter's `name` already namespaces the backend"
+                " key, so the default bucket is `name:default`."
             ),
-        ],
+        ] = "default",
     ) -> None:
         """Delete rate limit state for a key, restoring full quota.
 

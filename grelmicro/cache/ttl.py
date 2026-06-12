@@ -186,10 +186,32 @@ class TTLCache(Generic[T]):
         always returned. Otherwise the active `Grelmicro` app is
         consulted via `Grelmicro.current()` so that
         `micro.override(Cache(...))` blocks take effect.
+
+        Raises:
+            OutOfContextError: No backend resolved in this scope. Pass
+                `backend=` (a `MemoryCacheAdapter()` for a per-process
+                cache), register a `Cache` Component, or run the call
+                under the app context (for FastAPI, add
+                `GrelmicroMiddleware`).
         """
         if self._backend is not None:
             return self._backend
-        cache = Grelmicro.current().get("cache", "default")
+        from grelmicro._app import (  # noqa: PLC0415
+            ComponentNotRegisteredError,
+            NoActiveAppError,
+        )
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+
+        try:
+            cache = Grelmicro.current().get("cache", "default")
+        except (NoActiveAppError, ComponentNotRegisteredError):
+            msg = (
+                "TTLCache resolved no backend. Pass backend= "
+                "(MemoryCacheAdapter() for a per-process cache), register "
+                "a Cache component, or run the call under the app context "
+                "(for FastAPI add GrelmicroMiddleware)."
+            )
+            raise OutOfContextError(msg) from None
         return cache.backend
 
     def _serialize(self, value: T) -> bytes:

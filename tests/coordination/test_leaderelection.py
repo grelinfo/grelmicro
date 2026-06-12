@@ -14,6 +14,7 @@ from grelmicro.coordination.leaderelection import (
     LeaderElectionConfig,
 )
 from grelmicro.coordination.memory import MemoryLeaderElectionBackend
+from grelmicro.errors import OutOfContextError
 from grelmicro.errors import WouldBlockError as WouldBlock
 from tests.task._helpers import cancel_group, start_task
 
@@ -740,3 +741,12 @@ async def test_leader_election_without_jitter(
 
     # Assert
     assert is_leader_inside is True
+
+
+async def test_leaderelection_backend_out_of_context() -> None:
+    """A `LeaderElection` with no backend and no active app raises `OutOfContextError`."""
+    election = LeaderElection("out-of-context", worker="worker")
+    with pytest.raises(
+        OutOfContextError, match="LeaderElection\\('out-of-context'\\)"
+    ):
+        _ = election.backend

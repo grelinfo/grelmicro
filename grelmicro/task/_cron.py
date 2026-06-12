@@ -358,19 +358,36 @@ class CronTask(Task):
         `Grelmicro.current()` so that `micro.override(Coordination(...))`
         blocks take effect. Returns `None` when no app is running and no
         backend was passed, which runs the body on every worker.
+
+        Raises:
+            OutOfContextError: An app is running but no `Coordination`
+                component is registered. Pass `backend=`, register a
+                `Coordination` Component, or run the call under the app
+                context (for FastAPI, add `GrelmicroMiddleware`).
         """
         if self._backend is not None:
             return self._backend
         from grelmicro._app import (  # noqa: PLC0415
+            ComponentNotRegisteredError,
             Grelmicro,
             NoActiveAppError,
         )
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
 
         try:
             app = Grelmicro.current()
         except NoActiveAppError:
             return None
-        coordination = app.get("coordination", "default")
+        try:
+            coordination = app.get("coordination", "default")
+        except ComponentNotRegisteredError:
+            msg = (
+                f"Cron task {self.name!r} resolved no schedule backend. "
+                f"Pass backend=, register a Coordination component, or run "
+                f"the call under the app context (for FastAPI add "
+                f"GrelmicroMiddleware)."
+            )
+            raise OutOfContextError(msg) from None
         return coordination.schedule_backend
 
     async def __call__(

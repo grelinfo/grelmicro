@@ -276,12 +276,34 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         always returned. Otherwise the active `Grelmicro` app is
         consulted via `Grelmicro.current()` on every access so that
         `micro.override(Coordination(...))` blocks take effect.
+
+        Raises:
+            OutOfContextError: No backend resolved in this scope. Pass
+                `backend=` (a `MemoryLockAdapter()` for a per-process
+                lock), register a `Coordination` Component, or run the
+                call under the app context (for FastAPI, add
+                `GrelmicroMiddleware`).
         """
         if self._backend is not None:
             return self._backend
-        coordination = Grelmicro.current().get(
-            "coordination", self._backend_name or "default"
+        from grelmicro._app import (  # noqa: PLC0415
+            ComponentNotRegisteredError,
+            NoActiveAppError,
         )
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+
+        try:
+            coordination = Grelmicro.current().get(
+                "coordination", self._backend_name or "default"
+            )
+        except (NoActiveAppError, ComponentNotRegisteredError):
+            msg = (
+                f"TaskLock({self._name!r}) resolved no backend. Pass "
+                f"backend= (MemoryLockAdapter() for a per-process lock), "
+                f"register a Coordination component, or run the call under "
+                f"the app context (for FastAPI add GrelmicroMiddleware)."
+            )
+            raise OutOfContextError(msg) from None
         return coordination.lock_backend
 
     async def __aenter__(self) -> Self:

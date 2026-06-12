@@ -20,6 +20,7 @@
   <a href="https://github.com/astral-sh/uv"><img alt="uv" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json"></a>
   <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
   <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
+  <a href="https://securityscorecards.dev/viewer/?uri=github.com/grelinfo/grelmicro"><img alt="OpenSSF Scorecard" src="https://api.securityscorecards.dev/projects/github.com/grelinfo/grelmicro/badge"></a>
 </p>
 
 > **Project status: Active development.** grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on `MINOR` bumps (`0.14.0` → `0.15.0`) and never on `PATCH`. Pin the minor: `grelmicro>=0.14.0,<0.15.0`. After `1.0.0`, standard semver applies. See the [versioning policy](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions).
@@ -105,7 +106,7 @@ api_limiter = RateLimiter.sliding_window(
 @app.get("/ping")
 async def ping() -> dict[str, str]:
     try:
-        await api_limiter.acquire_or_raise(key="global")
+        await api_limiter.acquire_or_raise()
     except RateLimitExceededError:
         return {"status": "throttled"}
     return {"status": "ok"}
@@ -150,7 +151,7 @@ app.add_middleware(GrelmicroMiddleware, micro=micro)
 @app.get("/ping")
 async def ping() -> dict[str, str]:
     try:
-        await api_limiter.acquire_or_raise(key="global")
+        await api_limiter.acquire_or_raise()
     except RateLimitExceededError:
         return {"status": "throttled"}
     return {"status": "ok"}

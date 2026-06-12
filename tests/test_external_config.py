@@ -413,3 +413,14 @@ async def test_poll_loop_applies_on_each_interval() -> None:
                 break
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit > 1
+
+
+def test_resolve_config_from_mapping_ignores_unprefixed_keys() -> None:
+    """A key outside the prefix is skipped without logging or validation."""
+    cfg = TokenBucketConfig(capacity=5, refill_rate=1.0)
+    out = resolve_config_from_mapping(
+        cfg,
+        env_prefix="GREL_RATELIMITER_API_",
+        mapping={"OTHER_PREFIX_CAPACITY": "9"},
+    )
+    assert out is cfg

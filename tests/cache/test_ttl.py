@@ -14,6 +14,7 @@ from grelmicro.cache import Cache, TTLCacheConfig
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import CacheInfo, TTLCache
+from grelmicro.errors import OutOfContextError
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -106,6 +107,12 @@ class TestInit:
             result = await cache.get("app_test")
 
         assert result == b"works"
+
+    async def test_backend_out_of_context(self) -> None:
+        """A miss with no backend and no active app raises `OutOfContextError`."""
+        cache = TTLCache(maxsize=0, ttl=60)
+        with pytest.raises(OutOfContextError, match="TTLCache resolved"):
+            await cache.get("missing")
 
 
 # ---------------------------------------------------------------------------
