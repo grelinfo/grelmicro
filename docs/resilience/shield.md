@@ -168,23 +168,13 @@ When the inner layer exhausts its own attempts and surfaces an exception, Shield
 
 ## Configuration
 
-`Shield` follows the three-paths configuration contract.
-
-### Programmatic
+Pass the profile and knobs as keyword arguments.
 
 ```python
 --8<-- "resilience/shield_programmatic.py"
 ```
 
-### Declarative
-
-```python
---8<-- "resilience/shield_declarative.py"
-```
-
-`ApiShieldConfig`, `InternalShieldConfig`, and `SlowShieldConfig` form a discriminated union on `kind`. Each freezes its profile parameters. The public fields (`timeout_errors`, `max_rate`, `cache`, `cache_key`, `fallback`) are the only knobs.
-
-### Environmental
+### Environment variables
 
 Prefix: `GREL_SHIELD_{NAME_UPPER}_`
 
@@ -194,11 +184,14 @@ Prefix: `GREL_SHIELD_{NAME_UPPER}_`
 | `GREL_SHIELD_{NAME_UPPER}_TIMEOUT_ERRORS` | `timeout_errors` | CSV of FQN strings (e.g. `httpx.TimeoutException,httpx.ConnectError`) | `builtins.TimeoutError` |
 | `GREL_SHIELD_{NAME_UPPER}_MAX_RATE` | `max_rate` | `float` or empty | unset |
 
-The `cache`, `cache_key`, and `fallback` arguments cannot come from env. Use the programmatic or declarative path for them.
+The `cache`, `cache_key`, and `fallback` arguments cannot come from env. Pass them as keyword arguments.
 
 ```python
 --8<-- "resilience/shield_environmental.py"
 ```
+
+!!! tip "Advanced"
+    For the `from_config` declarative path and `pydantic-settings` composition, see [Declarative configuration](../advanced/config.md).
 
 ## Live reconfiguration
 

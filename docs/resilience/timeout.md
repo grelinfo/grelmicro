@@ -24,21 +24,13 @@ The policy works as an async context manager and as a decorator on async functio
 
 ## Configuration
 
-`Timeout` follows the three-paths configuration contract.
-
-### Programmatic
+Build the policy with keyword arguments. Set `seconds` to the deadline for the wrapped call.
 
 ```python
 --8<-- "resilience/timeout_programmatic.py"
 ```
 
-### Declarative
-
-```python
---8<-- "resilience/timeout_declarative.py"
-```
-
-### Environmental
+### Environment variables
 
 Prefix: `GREL_TIMEOUT_{NAME_UPPER}_`
 
@@ -49,6 +41,9 @@ Prefix: `GREL_TIMEOUT_{NAME_UPPER}_`
 ```python
 --8<-- "resilience/timeout_environmental.py"
 ```
+
+!!! tip "Advanced"
+    For the `from_config` declarative path and `pydantic-settings` composition, see [Declarative configuration](../advanced/config.md).
 
 ## Composition
 

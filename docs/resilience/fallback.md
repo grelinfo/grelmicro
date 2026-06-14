@@ -53,21 +53,13 @@ See [Filtering outcomes with `Match`](retry.md#filtering-outcomes-with-match) fo
 
 ## Configuration
 
-`Fallback` follows the three-paths configuration contract.
-
-### Programmatic
+Build the policy with keyword arguments. Set `when` to choose which exceptions fall back, and `default` or `factory` for the safe value.
 
 ```python
 --8<-- "resilience/fallback_programmatic.py"
 ```
 
-### Declarative
-
-```python
---8<-- "resilience/fallback_declarative.py"
-```
-
-### Environmental
+### Environment variables
 
 Prefix: `GREL_FALLBACK_{NAME_UPPER}_`
 
@@ -81,6 +73,9 @@ The JSON parse runs only on env values. A `default="[1,2,3]"` passed in code sta
 ```python
 --8<-- "resilience/fallback_environmental.py"
 ```
+
+!!! tip "Advanced"
+    For the `from_config` declarative path and `pydantic-settings` composition, see [Declarative configuration](../advanced/config.md).
 
 ## Composition
 

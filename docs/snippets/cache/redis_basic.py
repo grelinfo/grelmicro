@@ -12,7 +12,7 @@ class User(BaseModel):
 
 redis = RedisProvider("redis://localhost:6379/0")
 cache = Cache(redis)
-micro = Grelmicro(uses=[redis, cache])
+micro = Grelmicro(uses=[cache])
 
 ttl_cache = cache.ttl(ttl=300, serializer=PydanticSerializer(User))
 

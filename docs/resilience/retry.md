@@ -153,21 +153,13 @@ A broad allowlist (`when=Exception`) would retry through the open breaker. The n
 
 ## Configuration
 
-`Retry` follows the three-paths configuration contract.
-
-### Programmatic
+Build the policy with keyword arguments. Set `when` to choose which outcomes retry, `attempts` for the budget, and `backoff` for the wait strategy.
 
 ```python
 --8<-- "resilience/retry_programmatic.py"
 ```
 
-### Declarative
-
-```python
---8<-- "resilience/retry_declarative.py"
-```
-
-### Environmental
+### Environment variables
 
 Prefix: `GREL_RETRY_{NAME_UPPER}_`
 
@@ -192,6 +184,9 @@ The full backoff config is a discriminated Pydantic union, so the env value is p
 ```
 
 The callable form of `when` cannot come from env. Use the FQN list for env-driven configs.
+
+!!! tip "Advanced"
+    For the `from_config` declarative path and `pydantic-settings` composition, see [Declarative configuration](../advanced/config.md).
 
 ## Live reconfiguration
 

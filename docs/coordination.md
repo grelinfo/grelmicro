@@ -156,38 +156,16 @@ The lock supports the following features:
 
 ### Configuration
 
-The lock has two construction entry points, each one-purpose. The positional
-`name` is always required and acts as the instance identity.
+Build the lock with keyword arguments. The positional `name` is always required
+and acts as the instance identity.
 
-=== "Programmatic"
-
-    Pass fields directly as keyword arguments. Use this for scripts, notebooks,
-    and code-first setups where every value is known inline.
-
-    ```python
-    --8<-- "coordination/lock_programmatic.py"
-    ```
-
-=== "Environmental"
-
-    Omit the kwargs and let the lock resolve fields from environment variables.
-    Unset fields fall back to `LockConfig` defaults. The derived prefix is
-    `GREL_LOCK_{NAME_UPPER}_`.
-
-    ```python
-    --8<-- "coordination/lock_environmental.py"
-    ```
-
-=== "Declarative"
-
-    Use `Lock.from_config(name, config)` to construct from a name and a pre-built
-    `LockConfig`. The env path is bypassed entirely.
-
-    ```python
-    --8<-- "coordination/lock_declarative.py"
-    ```
+```python
+--8<-- "coordination/lock_programmatic.py"
+```
 
 ### Environment variables
+
+Tune any field in deployment without code changes.
 
 Prefix: `GREL_LOCK_{NAME_UPPER}_`
 
@@ -207,20 +185,10 @@ GREL_LOCK_CART_RETRY_INTERVAL=0.2
 GREL_LOCK_CART_RETRY_JITTER=0.2
 ```
 
-!!! tip "Override the env prefix"
-    The derived prefix is only the zero-config default. Apps that want their own
-    convention (for example `MYAPP_LOCK_CART_*`) pass `env_prefix=` explicitly.
-    Pass `env_load=False` to skip env reading entirely when every field is already
-    supplied via kwargs or when construction happens via `Lock.from_config(...)`.
-
-!!! info "Composing with the wider settings tree"
-    grelmicro does not ship a `BaseSettings` wrapper. Apps own the env namespace,
-    the YAML path, and the aggregation strategy. Compose `LockConfig` into
-    `pydantic-settings`, load it from YAML, secrets files, Vault, or any other
-    source, then call `Lock.from_config("cart", cfg)`.
-
-    See the [Configuration architecture](architecture/config.md) doc for the full
-    resolution rules and the rationale behind the construction split.
+!!! tip "Advanced"
+    For custom env prefixes with `env_prefix=`, the `from_config` declarative
+    path, and `pydantic-settings` composition, see
+    [Declarative configuration](advanced/config.md).
 
 ### Dynamic-key Locks
 
@@ -237,52 +205,11 @@ async with lock:
 This is the right pattern when locking by business identity (`order_id`,
 `user_id`, `tenant_id`).
 
-#### Recommended: pre-build the config
-
-Per-request `Lock(name)` re-runs `LockConfig` validation and the env path on
-every call. Pre-build a single `LockConfig` once, then call
-`Lock.from_config(name, cfg)` per request to skip both:
-
-```python
-from grelmicro.coordination import Lock
-from grelmicro.coordination.lock import LockConfig
-
-ORDER_LOCK_CONFIG = LockConfig(lease_duration=30)
-
-async def handle_order(order_id: int):
-    lock = Lock.from_config(f"order:{order_id}", ORDER_LOCK_CONFIG)
-    async with lock:
-        await process_order(order_id)
-```
-
-`Lock.from_config(...)` accepts the same `backend=` argument as the constructor,
-so the dynamic-key Lock resolves the registered backend the same way a
-module-level Lock does.
-
-#### Cost trade-off
-
-| Construction path | Per call | Notes |
-|---|---:|---|
-| `Lock(name)` (programmatic, env disabled) | ~10 us | Pydantic validation plus `env_segment(name)` for the default prefix |
-| `Lock(name)` (env enabled, `GREL_ENV_LOAD=true` or `env_load=True`) | ~70 us | Adds the env read on top |
-| `Lock.from_config(name, cfg)` | ~10 us | Skips env and the default-prefix build, reuses `cfg` |
-| `async with lock` resolution | ~80 ns | `ContextVar.get` plus dict lookup |
-| `backend.acquire(...)` | ~1 ms | Network round-trip |
-
-The acquire round-trip dominates wall-clock. The construction cost matters only
-for high-throughput dynamic-key flows. `Lock.from_config(...)` keeps the
-construction cost flat regardless of the global `GREL_ENV_LOAD` setting.
-
-#### When the simpler form is enough
-
-A handful of dynamic-key Locks per request, on a handler that already pays a
-database round-trip, can keep using `Lock(name)` directly. Reach for
-`Lock.from_config(name, cfg)` when:
-
-- the handler runs many Locks per request
-- the path is on a measured hot loop
-- the deployment has `GREL_ENV_LOAD=true` and you want to skip the env path on
-  per-request construction
+!!! tip "Advanced"
+    On a measured hot loop that builds many Locks per request, pre-build a single
+    `LockConfig` and call `Lock.from_config(name, cfg)` to skip per-call
+    validation and the env read. See
+    [Declarative configuration](advanced/config.md).
 
 ### Bounded acquire
 
@@ -301,7 +228,7 @@ bounded wait and want to handle the failure yourself.
 ### Extending the lease
 
 Call `extend()` on a `Lock` to renew the TTL without releasing the lock. The
-fencing token stays the same - only the expiry time advances:
+fencing token stays the same, only the expiry time advances:
 
 ```python
 lock = Lock("cart")
@@ -470,11 +397,15 @@ directly inside an `asyncio.TaskGroup`:
 
 ### Configuration
 
-`LeaderElection` follows the three-paths configuration contract. The lease timing
-fields (`lease_duration`, `renew_deadline`, `retry_interval`, `retry_jitter`,
-`backend_timeout`, `error_interval`) resolve programmatically, from
-`GREL_LEADERELECTION_{NAME}_*` environment variables, or from a pre-built
-`LeaderElectionConfig`. See [Configuration](config.md) for the shared rules.
+Build `LeaderElection` with keyword arguments. The lease timing fields
+(`lease_duration`, `renew_deadline`, `retry_interval`, `retry_jitter`,
+`backend_timeout`, `error_interval`) tune in deployment from
+`GREL_LEADERELECTION_{NAME}_*` environment variables. See
+[Configuration](config.md) for the deployment story.
+
+!!! tip "Advanced"
+    For the `from_config` declarative path and `pydantic-settings` composition,
+    see [Declarative configuration](advanced/config.md).
 
 ### Live reconfiguration
 

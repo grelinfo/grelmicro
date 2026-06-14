@@ -52,8 +52,6 @@ health = HealthChecks()
 
 micro = Grelmicro(
     uses=[
-        redis,
-        postgres,
         Cache(redis.cache()),
         RateLimiters(redis.ratelimiter()),
         CircuitBreakers(postgres.circuitbreaker()),
