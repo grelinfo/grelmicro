@@ -1,9 +1,4 @@
-"""Recording app for the README demo GIF.
-
-A single file, no infrastructure. It shows the grelmicro pitch in one
-screen: a FastAPI route protected by a rate limiter and a health check,
-both running on the in-memory backend so the demo needs no Redis.
-"""
+"""A rate-limited FastAPI route and a health check, on the in-memory backend."""
 
 from fastapi import FastAPI
 

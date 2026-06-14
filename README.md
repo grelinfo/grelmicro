@@ -23,6 +23,10 @@
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/grelinfo/grelmicro"><img alt="OpenSSF Scorecard" src="https://api.securityscorecards.dev/projects/github.com/grelinfo/grelmicro/badge"></a>
 </p>
 
+<p align="center">
+  <img alt="A FastAPI route protected by a grelmicro rate limiter and health check" src="docs/img/demo.gif" width="760">
+</p>
+
 > **Project status: 1.0 alpha.** The 1.0 line is feature-complete and its public API is frozen behind a snapshot guard. Prereleases install explicitly: `pip install --pre grelmicro` (stable installs stay on 0.27 until `1.0.0` final). Breaking changes can still land between alphas if testing finds a flaw. After `1.0.0`, standard semver applies. See the [versioning policy](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions).
 
 ______________________________________________________________________
