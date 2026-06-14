@@ -51,7 +51,7 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
     from grelmicro.providers.redis import RedisProvider
 
     redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[redis, Cache(redis)])
+    micro = Grelmicro(uses=[Cache(redis)])
     ```
 
 === "Postgres"
@@ -61,7 +61,7 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
     from grelmicro.providers.postgres import PostgresProvider
 
     postgres = PostgresProvider("postgresql://localhost:5432/app")
-    micro = Grelmicro(uses=[postgres, Cache(postgres)])
+    micro = Grelmicro(uses=[Cache(postgres)])
     ```
 
 === "SQLite"
