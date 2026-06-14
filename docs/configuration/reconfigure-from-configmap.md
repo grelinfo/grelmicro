@@ -45,7 +45,6 @@ ledger_lock = Lock("ledger")
 api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
 micro = Grelmicro(uses=[
-    redis,
     Coordination(redis),
     RateLimiters(redis.ratelimiter()),
     ExternalConfig("/etc/grelmicro"),

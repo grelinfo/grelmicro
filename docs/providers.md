@@ -22,7 +22,6 @@ from grelmicro.resilience import RateLimiters
 redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(uses=[
-    redis,
     Coordination(redis),
     Cache(redis),
     RateLimiters(redis),
@@ -67,7 +66,6 @@ from grelmicro.providers.redis import RedisProvider
 redis = RedisProvider()  # reads REDIS_URL or REDIS_HOST + REDIS_PORT + ...
 
 micro = Grelmicro(uses=[
-    redis,
     Coordination(redis),
     Cache(redis),
 ])
@@ -257,7 +255,6 @@ from grelmicro.resilience import RateLimiters
 valkey = ValkeyProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(uses=[
-    valkey,
     Coordination(valkey),
     Cache(valkey),
     RateLimiters(valkey),
@@ -299,7 +296,6 @@ from grelmicro.providers.postgres import PostgresProvider
 postgres = PostgresProvider("postgresql://localhost/app")
 
 micro = Grelmicro(uses=[
-    postgres,
     Coordination(postgres),
 ])
 ```
@@ -348,7 +344,6 @@ from grelmicro.resilience import RateLimiters
 sqlite = SQLiteProvider("app.db")
 
 micro = Grelmicro(uses=[
-    sqlite,
     RateLimiters(sqlite),
 ])
 ```

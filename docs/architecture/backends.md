@@ -43,7 +43,6 @@ from grelmicro.providers.redis import RedisProvider
 redis = RedisProvider("redis://localhost")
 
 micro = Grelmicro(uses=[
-    redis,
     Coordination(redis),
     Cache(redis),
 ])
@@ -120,8 +119,6 @@ redis = RedisProvider()
 postgres = PostgresProvider()
 
 micro = Grelmicro(uses=[
-    redis,
-    postgres,
     Coordination(redis),
     Coordination(postgres, name="analytics"),
 ])
