@@ -57,7 +57,9 @@ async def test_fail_open_serves_allowed_while_redis_is_down(
     limiter = RateLimiter.token_bucket(
         f"chaos-open-{uuid4().hex}",
         capacity=5,
-        refill_rate=1,
+        # Effectively no refill, so the 5-then-throttle bursts stay
+        # deterministic even when slow CI advances Redis-side time.
+        refill_rate=0.001,
         fail_open=True,
         backend=backend,
     )

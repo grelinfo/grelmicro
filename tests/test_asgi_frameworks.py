@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -15,15 +16,15 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 
-from grelmicro import Grelmicro
-from grelmicro._app import _current_micro
+from grelmicro import Grelmicro, NoActiveAppError
 from grelmicro.errors import OutOfContextError
 from grelmicro.fastapi import GrelmicroMiddleware
 from grelmicro.resilience import RateLimiter, RateLimiters
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, MutableMapping
+    from typing import Any
 
     from starlette.requests import Request
     from starlette.websockets import WebSocket
@@ -92,15 +93,32 @@ async def test_starlette_without_middleware_handler_misses_ambient_backend() -> 
 
 
 async def test_starlette_middleware_binds_on_websocket_scope() -> None:
-    """The middleware binds the app for websocket scopes, not only http."""
+    """The middleware binds the app for websocket scopes, not only http.
+
+    Driven as a pure-ASGI websocket call on the pytest event loop, so the
+    app and `async with micro:` share one loop (no cross-loop TestClient).
+    """
     app, micro = _build_starlette_app(with_middleware=True)
-    from starlette.testclient import TestClient  # noqa: PLC0415
+    scope: MutableMapping[str, Any] = {
+        "type": "websocket",
+        "path": "/ws",
+        "headers": [],
+        "query_string": b"",
+    }
+    incoming: list[MutableMapping[str, Any]] = [{"type": "websocket.connect"}]
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def receive() -> MutableMapping[str, Any]:
+        return incoming.pop(0) if incoming else {"type": "websocket.disconnect"}
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
 
     async with micro:
-        with TestClient(app) as client:
-            with client.websocket_connect("/ws") as ws:
-                data = ws.receive_json()
-    assert data == {"allowed": True}
+        await app(scope, receive, send)
+
+    payload = next(m for m in sent if m["type"] == "websocket.send")
+    assert json.loads(str(payload["text"])) == {"allowed": True}
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +191,8 @@ async def test_middleware_binds_on_websocket_scope() -> None:
 
     async def downstream(scope: object, receive: object, send: object) -> None:  # noqa: ARG001
         try:
-            seen.append(_current_micro.get())
-        except LookupError:
+            seen.append(Grelmicro.current())
+        except NoActiveAppError:
             seen.append(None)
 
     middleware = GrelmicroMiddleware(downstream, micro=micro)
