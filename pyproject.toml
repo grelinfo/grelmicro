@@ -186,6 +186,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "syrupy>=5.3.1",
     "pyyaml>=6",
+    "litestar>=2.24.0",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
