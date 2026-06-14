@@ -241,6 +241,9 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
     "FBT002",  # same: `fail: bool = False` is a query flag
     "INP001",  # standalone example app, not an importable package
 ]
+"docs/img/demo/app.py" = [
+    "INP001",  # recording app for the demo GIF, not an importable package
+]
 "docs/img/logo/build_logo.py" = [
     "ANN",     # internal build script, type stubs add noise
     "D",       # no docstring-per-function enforcement
