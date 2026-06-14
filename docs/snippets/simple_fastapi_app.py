@@ -26,7 +26,6 @@ redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(
     uses=[
-        redis,
         Coordination(lock=redis.lock(), election=MemoryLeaderElectionBackend()),
         CircuitBreakers(MemoryCircuitBreakerAdapter()),
         tasks,

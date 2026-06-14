@@ -95,7 +95,7 @@ from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[redis, Cache(redis), Coordination(redis)])
+micro = Grelmicro(uses=[Cache(redis), Coordination(redis)])
 ```
 
 With a lock backend, two replicas that receive the same key at the same time run the work once and both return the same response.
@@ -130,6 +130,11 @@ Not guaranteed:
 
 ## Configuration
 
-`ttl` resolves from the environment when env reads are enabled. Set `GREL_IDEMPOTENCY_{NAME}_TTL` to tune it without code changes. The instance reconfigures live from a mounted ConfigMap. See [Live reconfiguration](architecture/reconfigure.md).
+Build with keyword arguments and tune `ttl` in deployment. Set
+`GREL_IDEMPOTENCY_{NAME}_TTL` to change it without code changes. The instance
+reconfigures live from a mounted ConfigMap. See
+[Live reconfiguration](architecture/reconfigure.md).
 
-Instances built with `Idempotency.from_config(name, config)` use the config as-is and stay static.
+!!! tip "Advanced"
+    For the `from_config` declarative path and `pydantic-settings` composition,
+    see [Declarative configuration](advanced/config.md).

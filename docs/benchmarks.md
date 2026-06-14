@@ -17,19 +17,19 @@ Each script measures the in-memory backend so the numbers reflect grelmicro's ow
 
 ## Results
 
-The numbers below come from one machine and are indicative only. Run the scripts yourself for figures that match your hardware and Python build.
+The numbers below were measured on 2026-06-14 on an Apple Silicon machine (macOS, CPython 3.12) and are indicative only. Run the scripts yourself for figures that match your hardware and Python build.
 
 | Primitive | Operation | Time per op |
 |---|---|---|
-| Rate limiter | `RateLimiter.token_bucket` acquire (allowed) | ~530 ns |
-| Rate limiter | `RateLimiter.sliding_window` acquire (allowed) | ~485 ns |
-| Rate limiter | `MemoryTokenBucket.try_acquire` (sync, hit) | ~280 ns |
-| Circuit breaker | `try_acquire` (CLOSED) | ~105 ns |
-| Circuit breaker | `record_outcome` (success) | ~505 ns |
-| Cache | `get` (hit) | ~275 ns |
-| Cache | `get` (miss) | ~190 ns |
-| Cache | `set` | ~270 ns |
-| Lock | `acquire` + `release` cycle | ~1150 ns |
+| Rate limiter | `RateLimiter.token_bucket` acquire (allowed) | ~470 ns |
+| Rate limiter | `RateLimiter.sliding_window` acquire (allowed) | ~455 ns |
+| Rate limiter | `MemoryTokenBucket.try_acquire` (sync, hit) | ~260 ns |
+| Circuit breaker | `try_acquire` (CLOSED) | ~90 ns |
+| Circuit breaker | `record_outcome` (success) | ~345 ns |
+| Cache | `get` (hit) | ~340 ns |
+| Cache | `get` (miss) | ~260 ns |
+| Cache | `set` | ~290 ns |
+| Lock | `acquire` + `release` cycle | ~1330 ns |
 
 ## Reading the numbers
 

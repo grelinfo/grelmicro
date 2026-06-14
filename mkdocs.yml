@@ -59,20 +59,13 @@ validation:
 nav:
 - grelmicro: index.md
 - installation.md
-- comparison.md
-- capabilities.md
-- roadmap.md
-- benchmarks.md
 - User Guide:
-    - config.md
-    - configuration/reconfigure-from-configmap.md
+    - first-steps.md
+    - wiring.md
     - cache.md
     - idempotency.md
-    - providers.md
-    - health.md
-    - logging.md
-    - tracing.md
-    - metrics.md
+    - coordination.md
+    - task.md
     - Resilience:
         - resilience/index.md
         - resilience/shield.md
@@ -83,8 +76,19 @@ nav:
         - resilience/retry.md
         - resilience/timeout.md
         - resilience/composition.md
-    - coordination.md
-    - task.md
+    - health.md
+    - logging.md
+    - tracing.md
+    - metrics.md
+    - config.md
+    - testing.md
+- Advanced User Guide:
+    - advanced/config.md
+    - configuration/reconfigure-from-configmap.md
+    - providers.md
+    - capabilities.md
+    - comparison.md
+    - benchmarks.md
 - API Reference:
     - reference/cache.md
     - reference/clock.md
@@ -116,6 +120,7 @@ nav:
     - architecture/sqlite.md
     - architecture/tracing.md
     - architecture/testing.md
+- roadmap.md
 - changelog.md
 - Third-party notices: third_party_notices.md
 

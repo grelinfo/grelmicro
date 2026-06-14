@@ -60,11 +60,8 @@ The factory classmethods keep the call site explicit and short:
 --8<-- "resilience/ratelimiter_factories.py"
 ```
 
-Use `RateLimiter.from_config(name, config)` when the algorithm config already comes from a settings tree, YAML, or another declarative source.
-
-```python
---8<-- "resilience/ratelimiter_from_config.py"
-```
+!!! tip "Advanced"
+    For the `from_config` declarative path and `pydantic-settings` composition, see [Declarative configuration](../advanced/config.md).
 
 `RateLimiter` intentionally does not flatten both algorithms into one generic kwargs constructor. Token bucket and sliding window have different parameter vocabularies, and keeping one explicit entry point per behaviour makes the public API easier to read.
 

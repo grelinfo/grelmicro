@@ -186,6 +186,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "syrupy>=5.3.1",
     "pyyaml>=6",
+    "litestar>=2.24.0",
 ]
 docs = [
     "mkdocs-material>=9.5.44",
@@ -239,6 +240,9 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
     "FBT001",  # bool query parameters are idiomatic in FastAPI
     "FBT002",  # same: `fail: bool = False` is a query flag
     "INP001",  # standalone example app, not an importable package
+]
+"docs/img/demo/app.py" = [
+    "INP001",  # recording app for the demo GIF, not an importable package
 ]
 "docs/img/logo/build_logo.py" = [
     "ANN",     # internal build script, type stubs add noise

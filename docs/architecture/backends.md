@@ -43,7 +43,6 @@ from grelmicro.providers.redis import RedisProvider
 redis = RedisProvider("redis://localhost")
 
 micro = Grelmicro(uses=[
-    redis,
     Coordination(redis),
     Cache(redis),
 ])
@@ -93,7 +92,7 @@ This auto-registration is all-or-nothing. The moment you list **any** explicit C
 Grelmicro(uses=[redis])
 
 # explicit: redis is lifecycle-only, only Cache is registered
-Grelmicro(uses=[redis, Cache(redis)])
+Grelmicro(uses=[Cache(redis)])
 ```
 
 Two bare Providers with no Components raise `AmbiguousProviderError`: the default Component for a shared kind could come from either Provider. Wrap each Provider in the Components it should serve to resolve it.
@@ -120,8 +119,6 @@ redis = RedisProvider()
 postgres = PostgresProvider()
 
 micro = Grelmicro(uses=[
-    redis,
-    postgres,
     Coordination(redis),
     Coordination(postgres, name="analytics"),
 ])
@@ -161,7 +158,7 @@ from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider()
-micro = Grelmicro(uses=[redis, Coordination(redis)])
+micro = Grelmicro(uses=[Coordination(redis)])
 lock = Lock("cart")
 
 async with micro:

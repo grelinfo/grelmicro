@@ -95,21 +95,14 @@ When the shared backend is unreachable, calls to the breaker raise the underlyin
 
 ## Configuration
 
-`CircuitBreaker` exposes two construction paths.
-
-### Factory classmethod
+Build the breaker with the factory classmethod.
 
 ```python
 --8<-- "resilience/circuitbreaker_programmatic.py"
 ```
 
-### Declarative
-
-```python
---8<-- "resilience/circuitbreaker_declarative.py"
-```
-
-For environment-driven configuration, build a `ConsecutiveCountConfig` with `pydantic-settings` and pass it positionally to `CircuitBreaker.from_config(name, config)`.
+!!! tip "Advanced"
+    For the `from_config` declarative path and `pydantic-settings` composition, see [Declarative configuration](../advanced/config.md).
 
 ## Reference
 

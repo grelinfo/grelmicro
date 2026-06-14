@@ -23,7 +23,11 @@
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/grelinfo/grelmicro"><img alt="OpenSSF Scorecard" src="https://api.securityscorecards.dev/projects/github.com/grelinfo/grelmicro/badge"></a>
 </p>
 
-> **Project status: Active development.** grelmicro is pre-1.0. The public API is not yet stable. Breaking changes are allowed on `MINOR` bumps (`0.14.0` → `0.15.0`) and never on `PATCH`. Pin the minor: `grelmicro>=0.14.0,<0.15.0`. After `1.0.0`, standard semver applies. See the [versioning policy](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions).
+<p align="center">
+  <img alt="A FastAPI route protected by a grelmicro rate limiter and health check" src="docs/img/demo.gif" width="760">
+</p>
+
+> **Project status: 1.0 alpha.** The 1.0 line is feature-complete and its public API is frozen behind a snapshot guard. Prereleases install explicitly: `pip install --pre grelmicro` (stable installs stay on 0.27 until `1.0.0` final). Breaking changes can still land between alphas if testing finds a flaw. After `1.0.0`, standard semver applies. See the [versioning policy](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions).
 
 ______________________________________________________________________
 
@@ -47,20 +51,20 @@ It is built for any Python application that coordinates work across processes, w
 
 grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq) and **not** a web framework (it plugs into FastAPI, Starlette, or Litestar). It fills the gap between the web framework you picked and the infrastructure you run.
 
-Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](docs/comparison.md) for a per-domain breakdown.
+Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](https://grelinfo.github.io/grelmicro/comparison/) for a per-domain breakdown.
 
 ## Modules
 
 | Module | Summary |
 |---|---|
-| [**Cache**](docs/cache.md) | `@cached` decorator with local and distributed stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
-| [**Idempotency**](docs/idempotency.md) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
-| [**Coordination**](docs/coordination.md) | Distributed `Lock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
-| [**Task Scheduler**](docs/task.md) | Interval and cron tasks with durable, distributed at-most-once execution. A modern, lightweight alternative to APScheduler and Celery beat. |
-| [**Resilience**](docs/resilience/index.md) | [Circuit Breaker](docs/resilience/circuit-breaker.md) and [Rate Limiter](docs/resilience/rate-limiter.md) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
-| [**Logging**](docs/logging.md) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
-| [**Tracing**](docs/tracing.md) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
-| [**Health**](docs/health.md) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
+| [**Cache**](https://grelinfo.github.io/grelmicro/cache/) | `@cached` decorator with local and distributed stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
+| [**Idempotency**](https://grelinfo.github.io/grelmicro/idempotency/) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
+| [**Coordination**](https://grelinfo.github.io/grelmicro/coordination/) | Distributed `Lock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
+| [**Task Scheduler**](https://grelinfo.github.io/grelmicro/task/) | Interval and cron tasks with durable, distributed at-most-once execution. A modern, lightweight alternative to APScheduler and Celery beat. |
+| [**Resilience**](https://grelinfo.github.io/grelmicro/resilience/) | [Circuit Breaker](https://grelinfo.github.io/grelmicro/resilience/circuit-breaker/) and [Rate Limiter](https://grelinfo.github.io/grelmicro/resilience/rate-limiter/) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
+| [**Logging**](https://grelinfo.github.io/grelmicro/logging/) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
+| [**Tracing**](https://grelinfo.github.io/grelmicro/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
+| [**Health**](https://grelinfo.github.io/grelmicro/health/) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
 
 ## Installation
 
