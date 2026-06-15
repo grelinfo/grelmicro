@@ -222,10 +222,17 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             str,
             Doc("Registration name. Defaults to `'default'`."),
         ] = "default",
+        auto_health: Annotated[
+            bool,
+            Doc(
+                "Register a `provider:{short_name}` readiness check for "
+                "every active `Provider` on startup. Off by default."
+            ),
+        ] = False,
     ) -> Self:
         """Construct a `HealthChecks` from a pre-built `HealthChecksConfig`."""
         instance = cls.__new__(cls)
-        instance._setup(config, name=name)  # noqa: SLF001
+        instance._setup(config, name=name, auto_health=auto_health)  # noqa: SLF001
         return instance
 
     def _setup(
@@ -411,12 +418,13 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         """Register a critical check for every Provider active on the app.
 
         Called from `__aenter__` when `auto_health` is on. A provider with
-        no readiness check is skipped. A name already bound to this same
-        provider (an explicit `add_provider`, or a second `__aenter__`) is
+        no readiness check is skipped. A provider already registered under
+        any name (an explicit `add_provider`, or a second `__aenter__`) is
         left untouched, so the explicit registration wins and re-entry is
-        idempotent. A name held by a different check (two providers of the
-        same vendor) is skipped with a warning, pointing at the explicit
-        `add_provider(provider, name=...)` form.
+        idempotent. A `provider:{short_name}` name held by a different
+        provider (two providers of the same vendor) is skipped with a
+        warning, pointing at the explicit `add_provider(provider, name=...)`
+        form.
         """
         from grelmicro._app import Grelmicro  # noqa: PLC0415
         from grelmicro.providers._base import Provider  # noqa: PLC0415
@@ -424,20 +432,21 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         for provider in Grelmicro.current().providers:
             if type(provider).check is Provider.check:
                 continue
-            check_name = f"provider:{provider.short_name}"
-            existing = self._entries.get(check_name)
-            if existing is not None:
-                if existing.func != provider.check:
-                    logger.warning(
-                        "auto_health: %r is already registered, skipping "
-                        "%r. Register it with "
-                        "health.add_provider(provider, name=...) to give "
-                        "it a distinct name.",
-                        check_name,
-                        provider,
-                    )
+            check = provider.check
+            if any(entry.func == check for entry in self._entries.values()):
                 continue
-            self.add(check_name, provider.check, critical=True)
+            check_name = f"provider:{provider.short_name}"
+            if check_name in self._entries:
+                logger.warning(
+                    "auto_health: %r is already registered, skipping %r. "
+                    "Register it with "
+                    "health.add_provider(provider, name=...) to give it a "
+                    "distinct name.",
+                    check_name,
+                    provider,
+                )
+                continue
+            self.add(check_name, check, critical=True)
 
     async def run(
         self,

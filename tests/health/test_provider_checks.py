@@ -194,6 +194,22 @@ class TestAutoHealth:
         assert report["checks"]["provider:redis"]["critical"] is False
         assert "already registered" not in caplog.text
 
+    async def test_explicit_custom_name_suppresses_auto_check(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An explicit custom name skips the auto `provider:{short_name}` check."""
+        redis = FakeProvider("redis")
+        health = HealthChecks(cache_ttl=0, auto_health=True)
+        health.add_provider(redis, name="cache", critical=False)
+        micro = Grelmicro(uses=[redis, health])
+
+        with caplog.at_level("WARNING", logger="grelmicro.health"):
+            async with micro:
+                report = await health.run()
+
+        assert set(report["checks"]) == {"provider:cache"}
+        assert "already registered" not in caplog.text
+
 
 class TestProvidersProperty:
     """Tests for `Grelmicro.providers`."""
