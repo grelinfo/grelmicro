@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
+import grelmicro.coordination.leaderelection as le_module
 from grelmicro.coordination.abc import LeaderElectionBackend
 from grelmicro.coordination.leaderelection import (
     LeaderElection,
@@ -716,6 +717,57 @@ async def test_leader_election_stops_gracefully_on_stop_event(
     assert record.holder == "other"
 
 
+async def test_graceful_stop_awaits_release_before_returning(
+    backend: LeaderElectionBackend,
+    mocker: MockerFixture,
+) -> None:
+    """Graceful stop blocks on `_release()` until the backend release returns."""
+    # Arrange: a generous backend_timeout so the gated release, not the
+    # timeout, decides when `_release` completes.
+    leader_election = LeaderElection.from_config(
+        LEADER_NAME,
+        LeaderElectionConfig(
+            worker="worker_graceful",
+            lease_duration=0.7,
+            renew_deadline=0.6,
+            retry_interval=0.01,
+            error_interval=0.01,
+            backend_timeout=0.5,
+        ),
+        backend=backend,
+    )
+
+    # Gate the backend release so it cannot complete until allowed.
+    release_called = Event()
+    allow_release = Event()
+    real_release = backend.release
+
+    async def gated_release(*, name: str, token: str) -> bool:
+        release_called.set()
+        await allow_release.wait()
+        return await real_release(name=name, token=token)
+
+    mocker.patch.object(backend, "release", side_effect=gated_release)
+
+    stop = Event()
+    async with asyncio.TaskGroup() as tg:
+        handle = await start_task(tg, leader_election, stop=stop)
+        await leader_election.wait_for_leader()
+        stop.set()  # request graceful shutdown
+
+        # The loop must reach `_release` and wait for it: the call started
+        # but the task has not returned because release is still gated.
+        await release_called.wait()
+        assert handle.done() is False
+
+        # Releasing the gate lets `_release` finish and the loop return.
+        allow_release.set()
+        await handle
+
+    assert handle.done() is True
+    assert handle.cancelled() is False
+
+
 async def test_leader_election_without_jitter(
     backend: LeaderElectionBackend,
 ) -> None:
@@ -741,6 +793,85 @@ async def test_leader_election_without_jitter(
 
     # Assert
     assert is_leader_inside is True
+
+
+async def test_renew_loop_jitter_formula_exact_sleep(
+    leader_election: LeaderElection,
+    mocker: MockerFixture,
+) -> None:
+    """The renew sleep equals retry_interval * (1 + jitter * (2*_random - 1))."""
+    # Arrange: pin randomness and capture the interval, then stop after one
+    # iteration so the loop unwinds.
+    random_value = 0.75
+    mocker.patch.object(le_module, "_random", return_value=random_value)
+    recorded: list[float] = []
+
+    async def fake_sleep_or_stop(seconds: float, _stop: object) -> bool:
+        recorded.append(seconds)
+        return True
+
+    mocker.patch.object(
+        le_module, "sleep_or_stop", side_effect=fake_sleep_or_stop
+    )
+
+    # Act
+    async with asyncio.TaskGroup() as tg:
+        handle = await start_task(tg, leader_election, stop=Event())
+        await handle
+
+    # Assert
+    config = leader_election.config
+    expected = config.retry_interval * (
+        1.0 + config.retry_jitter * (2.0 * random_value - 1.0)
+    )
+    assert recorded == [pytest.approx(expected)]
+
+
+async def test_renew_loop_no_jitter_exact_sleep(
+    backend: LeaderElectionBackend,
+    mocker: MockerFixture,
+) -> None:
+    """With retry_jitter=0 the renew sleep equals retry_interval exactly."""
+    # Arrange
+    retry_interval = LEASE_DURATION * 0.33
+    election = LeaderElection(
+        "test-no-jitter-exact",
+        backend=backend,
+        worker="worker_nj",
+        lease_duration=LEASE_DURATION,
+        renew_deadline=LEASE_DURATION * 0.66,
+        retry_interval=retry_interval,
+        retry_jitter=0,
+        backend_timeout=LEASE_DURATION * 0.5,
+    )
+    recorded: list[float] = []
+
+    async def fake_sleep_or_stop(seconds: float, _stop: object) -> bool:
+        recorded.append(seconds)
+        return True
+
+    mocker.patch.object(
+        le_module, "sleep_or_stop", side_effect=fake_sleep_or_stop
+    )
+
+    # Act
+    async with asyncio.TaskGroup() as tg:
+        handle = await start_task(tg, election, stop=Event())
+        await handle
+
+    # Assert
+    assert recorded == [pytest.approx(retry_interval)]
+
+
+async def test_guard_error_carries_name(
+    leader_election: LeaderElection,
+) -> None:
+    """The guard `WouldBlockError` names the election in its message."""
+    guard = leader_election.guard()
+    with pytest.raises(WouldBlock) as exc:
+        async with guard:
+            pass
+    assert LEADER_NAME in str(exc.value)
 
 
 async def test_leaderelection_backend_out_of_context() -> None:

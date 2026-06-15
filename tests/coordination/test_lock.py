@@ -4,6 +4,7 @@ import asyncio
 import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
+from threading import get_ident
 
 import pytest
 from pytest_mock import MockerFixture
@@ -1070,6 +1071,110 @@ async def test_acquire_with_jitter_scales_retry_sleep(
     assert handle.fencing_token == expected_fencing_token
 
 
+async def test_acquire_jitter_formula_exact_sleep(
+    backend: LockBackend,
+    mocker: MockerFixture,
+) -> None:
+    """The retry sleep equals retry_interval * (1 + jitter * (2*_random - 1))."""
+    # Arrange: first attempt rejected, second wins, so exactly one sleep runs.
+    retry_interval = 0.2
+    jitter = 0.4
+    random_value = 0.75
+    waiter = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker="waiter",
+        lease_duration=0.01,
+        retry_interval=retry_interval,
+        retry_jitter=jitter,
+    )
+    mocker.patch.object(
+        waiter, "do_acquire", mocker.AsyncMock(side_effect=[None, 7])
+    )
+    mocker.patch.object(lock_module, "_random", return_value=random_value)
+    recorded: list[float] = []
+    mocker.patch.object(
+        lock_module.asyncio,
+        "sleep",
+        mocker.AsyncMock(side_effect=recorded.append),
+    )
+
+    # Act
+    await waiter.acquire()
+
+    # Assert
+    expected = retry_interval * (1.0 + jitter * (2.0 * random_value - 1.0))
+    assert recorded == [pytest.approx(expected)]
+
+
+async def test_acquire_no_jitter_exact_sleep(
+    backend: LockBackend,
+    mocker: MockerFixture,
+) -> None:
+    """With retry_jitter=0 the retry sleep equals retry_interval exactly."""
+    # Arrange: first attempt rejected, second wins, so exactly one sleep runs.
+    retry_interval = 0.2
+    waiter = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker="waiter",
+        lease_duration=0.01,
+        retry_interval=retry_interval,
+        retry_jitter=0,
+    )
+    mocker.patch.object(
+        waiter, "do_acquire", mocker.AsyncMock(side_effect=[None, 7])
+    )
+    recorded: list[float] = []
+    mocker.patch.object(
+        lock_module.asyncio,
+        "sleep",
+        mocker.AsyncMock(side_effect=recorded.append),
+    )
+
+    # Act
+    await waiter.acquire()
+
+    # Assert
+    assert recorded == [pytest.approx(retry_interval)]
+
+
+async def test_thread_acquire_jitter_formula_exact_sleep(
+    backend: LockBackend,
+    mocker: MockerFixture,
+) -> None:
+    """The thread acquire retry sleep applies the same jitter formula."""
+    # Arrange: first attempt rejected, second wins, so exactly one sleep runs.
+    retry_interval = 0.2
+    jitter = 0.4
+    random_value = 0.75
+    waiter = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker="waiter",
+        lease_duration=0.01,
+        retry_interval=retry_interval,
+        retry_jitter=jitter,
+    )
+    mocker.patch.object(
+        waiter, "do_acquire", mocker.AsyncMock(side_effect=[None, 7])
+    )
+    mocker.patch.object(lock_module, "_random", return_value=random_value)
+    recorded: list[float] = []
+    mocker.patch.object(
+        lock_module.asyncio,
+        "sleep",
+        mocker.AsyncMock(side_effect=recorded.append),
+    )
+
+    # Act
+    await waiter.do_thread_acquire(get_ident())
+
+    # Assert
+    expected = retry_interval * (1.0 + jitter * (2.0 * random_value - 1.0))
+    assert recorded == [pytest.approx(expected)]
+
+
 async def test_from_thread_acquire_timeout(backend: LockBackend) -> None:
     """A bounded thread acquire raises TimeoutError at the deadline."""
     # Arrange
@@ -1154,3 +1259,70 @@ async def test_lock_backend_out_of_context() -> None:
     """A `Lock` with no backend and no active app raises `OutOfContextError`."""
     with pytest.raises(OutOfContextError, match="Lock\\('out-of-context'\\)"):
         _ = Lock("out-of-context").backend
+
+
+# --- error name in message ---
+
+
+async def test_reentrant_error_carries_name(lock: Lock) -> None:
+    """`LockReentrantError` names the lock in its message."""
+    await lock.acquire()
+    with pytest.raises(LockReentrantError) as exc:
+        await lock.acquire()
+    assert f"name={LOCK_NAME}" in str(exc.value)
+
+
+async def test_not_owned_error_carries_name(lock: Lock) -> None:
+    """`LockNotOwnedError` names the lock in its message."""
+    with pytest.raises(LockNotOwnedError) as exc:
+        await lock.release()
+    assert f"name={LOCK_NAME}" in str(exc.value)
+
+
+async def test_acquire_error_carries_name(
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
+) -> None:
+    """`LockAcquireError` names the lock in its message."""
+    mocker.patch.object(
+        backend, "acquire", side_effect=Exception("Backend Error")
+    )
+    with pytest.raises(LockAcquireError) as exc:
+        await lock.acquire()
+    assert f"name={LOCK_NAME}" in str(exc.value)
+
+
+async def test_release_error_carries_name(
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
+) -> None:
+    """`LockReleaseError` names the lock in its message."""
+    await lock.acquire()
+    mocker.patch.object(
+        backend, "release", side_effect=Exception("Backend Error")
+    )
+    with pytest.raises(LockReleaseError) as exc:
+        await lock.release()
+    assert f"name={LOCK_NAME}" in str(exc.value)
+
+
+async def test_locked_check_error_carries_name(
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
+) -> None:
+    """`LockLockedCheckError` names the lock in its message."""
+    mocker.patch.object(
+        backend, "locked", side_effect=Exception("Backend Error")
+    )
+    with pytest.raises(LockLockedCheckError) as exc:
+        await lock.locked()
+    assert f"name={LOCK_NAME}" in str(exc.value)
+
+
+async def test_owned_check_error_carries_name(
+    backend: LockBackend, lock: Lock, mocker: MockerFixture
+) -> None:
+    """`LockOwnedCheckError` names the lock in its message."""
+    mocker.patch.object(
+        backend, "owned", side_effect=Exception("Backend Error")
+    )
+    with pytest.raises(LockOwnedCheckError) as exc:
+        await lock.owned()
+    assert f"name={LOCK_NAME}" in str(exc.value)
