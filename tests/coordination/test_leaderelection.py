@@ -718,12 +718,26 @@ async def test_leader_election_stops_gracefully_on_stop_event(
 
 
 async def test_graceful_stop_awaits_release_before_returning(
-    leader_election: LeaderElection,
     backend: LeaderElectionBackend,
     mocker: MockerFixture,
 ) -> None:
     """Graceful stop blocks on `_release()` until the backend release returns."""
-    # Arrange: gate the backend release so it cannot complete until allowed.
+    # Arrange: a generous backend_timeout so the gated release, not the
+    # timeout, decides when `_release` completes.
+    leader_election = LeaderElection.from_config(
+        LEADER_NAME,
+        LeaderElectionConfig(
+            worker="worker_graceful",
+            lease_duration=0.7,
+            renew_deadline=0.6,
+            retry_interval=0.01,
+            error_interval=0.01,
+            backend_timeout=0.5,
+        ),
+        backend=backend,
+    )
+
+    # Gate the backend release so it cannot complete until allowed.
     release_called = Event()
     allow_release = Event()
     real_release = backend.release
