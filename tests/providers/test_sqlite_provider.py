@@ -107,3 +107,20 @@ async def test_from_client_owns_when_requested(tmp_path: Path) -> None:
     # Owned: closed on exit, so the client is no longer available.
     with pytest.raises(OutOfContextError):
         _ = provider.client
+
+
+async def test_check_runs_select_one(tmp_path: Path) -> None:
+    """`check` runs `SELECT 1` on the connection and returns None."""
+    provider = SQLiteProvider(tmp_path / "check.db")
+    async with provider:
+        assert await provider.check() is None
+
+
+async def test_check_propagates_failure(tmp_path: Path) -> None:
+    """A query failure on the connection surfaces from `check`."""
+    conn = await aiosqlite.connect(tmp_path / "byo.db", isolation_level=None)
+    provider = SQLiteProvider.from_client(conn)  # not owned: we close it
+    async with provider:
+        await conn.close()  # force the next query to fail
+        with pytest.raises(Exception, match=r"(?i)connection"):
+            await provider.check()

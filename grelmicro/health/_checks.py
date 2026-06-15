@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from logging import getLogger
 from types import TracebackType
-from typing import Annotated, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
@@ -26,6 +26,9 @@ from grelmicro.health._types import (
 )
 from grelmicro.health.errors import HealthError
 from grelmicro.metrics import _emit
+
+if TYPE_CHECKING:
+    from grelmicro.providers._base import Provider
 
 logger = getLogger("grelmicro.health")
 
@@ -174,6 +177,18 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 """
             ),
         ] = None,
+        auto_health: Annotated[
+            bool,
+            Doc(
+                """
+                Register a `provider:{short_name}` readiness check for
+                every `Provider` active on the app, on startup. Off by
+                default. Each registered check is critical, so an
+                unreachable backend fails `/readyz`. For finer control,
+                leave this off and call `add_provider` per provider.
+                """
+            ),
+        ] = False,
     ) -> None:
         """Initialize the health checks."""
         config = resolve_config(
@@ -183,7 +198,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             env_prefix=env_prefix or "GREL_HEALTH_",
             env_load=env_load,
         )
-        self._setup(config, name=name)
+        self._setup(config, name=name, auto_health=auto_health)
 
     @classmethod
     def from_config(
@@ -207,18 +222,30 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             str,
             Doc("Registration name. Defaults to `'default'`."),
         ] = "default",
+        auto_health: Annotated[
+            bool,
+            Doc(
+                "Register a `provider:{short_name}` readiness check for "
+                "every active `Provider` on startup. Off by default."
+            ),
+        ] = False,
     ) -> Self:
         """Construct a `HealthChecks` from a pre-built `HealthChecksConfig`."""
         instance = cls.__new__(cls)
-        instance._setup(config, name=name)  # noqa: SLF001
+        instance._setup(config, name=name, auto_health=auto_health)  # noqa: SLF001
         return instance
 
     def _setup(
-        self, config: HealthChecksConfig, *, name: str = "default"
+        self,
+        config: HealthChecksConfig,
+        *,
+        name: str = "default",
+        auto_health: bool = False,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
         self._config = config
+        self._auto_health = auto_health
         self._reconfigure_lock = asyncio.Lock()
         self._entries: dict[str, _Entry] = {}
 
@@ -228,7 +255,13 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         return self._name
 
     async def __aenter__(self) -> Self:
-        """Open the health checks."""
+        """Open the health checks.
+
+        When `auto_health` is on, register one `provider:{short_name}`
+        check per Provider active on the app.
+        """
+        if self._auto_health:
+            self._register_active_providers()
         return self
 
     async def __aexit__(
@@ -328,6 +361,92 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             return func
 
         return decorator
+
+    def add_provider(
+        self,
+        provider: Annotated[
+            "Provider",
+            Doc("The provider whose built-in readiness check to register."),
+        ],
+        *,
+        name: Annotated[
+            str | None,
+            Doc(
+                "Check name suffix. Defaults to the provider's "
+                "``short_name``, so the check is ``provider:redis``. "
+                "Pass an explicit name to disambiguate two providers of "
+                "the same vendor, e.g. ``name='sessions'`` registers "
+                "``provider:sessions``."
+            ),
+        ] = None,
+        critical: Annotated[
+            bool,
+            Doc(
+                "Whether the check affects ``/readyz``. Critical by "
+                "default: an unreachable backend fails readiness. Pass "
+                "``critical=False`` for a degradable dependency such as "
+                "a cache."
+            ),
+        ] = True,
+        timeout: Annotated[
+            PositiveFloat | None,
+            Doc("Per-check timeout override. Falls back to the default."),
+        ] = None,
+    ) -> None:
+        """Register a provider's built-in readiness check as ``provider:{name}``.
+
+        Raises:
+            ValueError: If the provider ships no readiness check, or the
+                resulting name is already registered.
+        """
+        from grelmicro.providers._base import Provider  # noqa: PLC0415
+
+        if type(provider).check is Provider.check:
+            msg = (
+                f"{type(provider).__name__} ships no readiness check. "
+                f"Register a custom check with health.check(...) instead."
+            )
+            raise ValueError(msg)
+        self.add(
+            f"provider:{name or provider.short_name}",
+            provider.check,
+            critical=critical,
+            timeout=timeout,
+        )
+
+    def _register_active_providers(self) -> None:
+        """Register a critical check for every Provider active on the app.
+
+        Called from `__aenter__` when `auto_health` is on. A provider with
+        no readiness check is skipped. A provider already registered under
+        any name (an explicit `add_provider`, or a second `__aenter__`) is
+        left untouched, so the explicit registration wins and re-entry is
+        idempotent. A `provider:{short_name}` name held by a different
+        provider (two providers of the same vendor) is skipped with a
+        warning, pointing at the explicit `add_provider(provider, name=...)`
+        form.
+        """
+        from grelmicro._app import Grelmicro  # noqa: PLC0415
+        from grelmicro.providers._base import Provider  # noqa: PLC0415
+
+        for provider in Grelmicro.current().providers:
+            if type(provider).check is Provider.check:
+                continue
+            check = provider.check
+            if any(entry.func == check for entry in self._entries.values()):
+                continue
+            check_name = f"provider:{provider.short_name}"
+            if check_name in self._entries:
+                logger.warning(
+                    "auto_health: %r is already registered, skipping %r. "
+                    "Register it with "
+                    "health.add_provider(provider, name=...) to give it a "
+                    "distinct name.",
+                    check_name,
+                    provider,
+                )
+                continue
+            self.add(check_name, check, critical=True)
 
     async def run(
         self,

@@ -17,7 +17,7 @@ from grelmicro.cache.cached import cached
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.coordination import Coordination, LeaderElection, Lock
 from grelmicro.fastapi import GrelmicroMiddleware
-from grelmicro.health import HealthChecks, HealthDetails
+from grelmicro.health import HealthChecks
 from grelmicro.health.fastapi import health_router
 from grelmicro.log import configure
 from grelmicro.providers.postgres import PostgresProvider
@@ -48,7 +48,9 @@ tasks = Tasks()
 leader = LeaderElection("demo-leader")
 tasks.add_task(leader)
 
-health = HealthChecks()
+# auto_health registers a provider:{short_name} readiness check for every
+# active provider, so /readyz probes Redis and Postgres with no boilerplate.
+health = HealthChecks(auto_health=True)
 
 micro = Grelmicro(
     uses=[
@@ -60,13 +62,6 @@ micro = Grelmicro(
         tasks,
     ]
 )
-
-
-@health.check("redis")
-async def check_redis() -> HealthDetails | None:
-    # Readiness probe: a lock round-trip proves Redis is reachable.
-    await Lock("healthz").locked()
-    return None
 
 
 @asynccontextmanager

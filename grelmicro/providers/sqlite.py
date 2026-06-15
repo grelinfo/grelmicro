@@ -248,6 +248,11 @@ class SQLiteProvider(Provider):
 
         return SQLiteCircuitBreakerAdapter(provider=self, **kwargs)
 
+    async def check(self) -> None:
+        """Run `SELECT 1` to prove the connection is open."""
+        async with self._lock, self.client.execute("SELECT 1"):
+            pass
+
     async def __aenter__(self) -> Self:
         """Open the connection when the provider owns it."""
         if self._conn is None:

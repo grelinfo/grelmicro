@@ -302,6 +302,10 @@ class PostgresProvider(Provider):
 
         return PostgresCircuitBreakerAdapter(provider=self, **kwargs)
 
+    async def check(self) -> None:
+        """Run `SELECT 1` to prove the pool can serve a connection."""
+        await self.client.fetchval("SELECT 1")
+
     async def __aenter__(self) -> Self:
         """Open the asyncpg pool when the provider owns it."""
         if self._pool is None:

@@ -181,6 +181,28 @@ class TestFromClient:
         client.aclose.assert_awaited_once()
 
 
+class TestCheck:
+    """Tests for `RedisProvider.check` readiness probe."""
+
+    async def test_check_pings(self) -> None:
+        """`check` pings the client and returns None on success."""
+        client = MagicMock()
+        client.ping = AsyncMock()
+
+        provider = RedisProvider.from_client(client)
+        assert await provider.check() is None
+        client.ping.assert_awaited_once()
+
+    async def test_check_propagates_failure(self) -> None:
+        """A ping failure surfaces from `check`."""
+        client = MagicMock()
+        client.ping = AsyncMock(side_effect=ConnectionError("down"))
+
+        provider = RedisProvider.from_client(client)
+        with pytest.raises(ConnectionError):
+            await provider.check()
+
+
 class TestSafeUrl:
     """`safe_url` and `repr` must redact passwords."""
 
