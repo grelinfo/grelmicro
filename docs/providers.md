@@ -232,6 +232,14 @@ Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
 `RateLimiters(provider)`, and `CircuitBreakers(provider)` call these factories.
 
+## Readiness check
+
+Every Provider ships a built-in `check()` readiness probe: Redis and Valkey run
+`PING`, Postgres and SQLite run `SELECT 1`. A `HealthChecks` registers it as a
+`provider:{short_name}` check, one provider at a time with
+`health.add_provider(provider)` or for the whole app with
+`HealthChecks(auto_health=True)`. See [Health Checks](health.md#provider-readiness-checks).
+
 ## Valkey
 
 `ValkeyProvider` is a subclass of `RedisProvider`. It connects to a

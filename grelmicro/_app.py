@@ -493,6 +493,22 @@ class Grelmicro:
         return tuple(self._by_key.values())
 
     @property
+    def providers(self) -> tuple[Provider, ...]:
+        """Active `Provider` instances, in registration order, deduped by identity.
+
+        Includes Providers listed in `uses=` and those adopted from
+        Components that borrow them (see `_discover_shared_providers`). One
+        Provider feeding several Components appears once. Useful for
+        introspection and for `HealthChecks(auto_health=True)`, which
+        registers a `provider:{short_name}` check per entry.
+        """
+        seen: dict[int, Provider] = {}
+        for item in self._items:
+            if isinstance(item, Provider) and id(item) not in seen:
+                seen[id(item)] = item
+        return tuple(seen.values())
+
+    @property
     def coordination(self) -> Coordination:
         """The registered `Coordination` component.
 

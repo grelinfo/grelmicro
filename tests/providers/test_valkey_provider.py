@@ -202,6 +202,19 @@ class TestFromClient:
         client.aclose.assert_awaited_once()
 
 
+class TestCheck:
+    """`ValkeyProvider` inherits the Redis `PING` readiness probe."""
+
+    async def test_check_pings(self) -> None:
+        """`check` pings the client and returns None on success."""
+        client = MagicMock()
+        client.ping = AsyncMock()
+
+        provider = ValkeyProvider.from_client(client)
+        assert await provider.check() is None
+        client.ping.assert_awaited_once()
+
+
 class TestSafeUrl:
     """`safe_url` and `repr` must redact passwords."""
 

@@ -107,6 +107,26 @@ Raise `HealthError(message, details=...)` to attach a diagnostic payload to a fa
 --8<-- "health/error_details.py"
 ```
 
+## Provider Readiness Checks
+
+Every connection provider ships a built-in readiness probe. Redis and Valkey run `PING`, Postgres and SQLite run `SELECT 1`. These are cheaper and more honest than a borrowed lock round trip, and you no longer hand-write one check per backend.
+
+Register a provider's check with `add_provider`. It registers under `provider:{short_name}`, for example `provider:redis`:
+
+```python
+--8<-- "health/provider_check.py"
+```
+
+The check is **critical** by default, so an unreachable backend fails `/readyz`. Pass `critical=False` for a degradable dependency such as a cache. Pass `name=` to disambiguate two providers of the same vendor, which registers `provider:{name}` instead.
+
+To register a check for every provider on the app at once, build the `HealthChecks` with `auto_health=True`:
+
+```python
+--8<-- "health/auto_health.py"
+```
+
+On startup this discovers every active provider, including ones a Component borrows without listing, and registers a critical `provider:{short_name}` check for each. It is off by default, so checks appear only when you ask for them. When two providers share a `short_name`, the second is skipped with a warning: register it explicitly with `add_provider(provider, name=...)` to give it a distinct name.
+
 ## FastAPI Integration
 
 Add health endpoints to your FastAPI app:

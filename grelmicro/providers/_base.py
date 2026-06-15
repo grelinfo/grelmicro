@@ -12,6 +12,7 @@ if TYPE_CHECKING:
         LockBackend,
         ScheduleBackend,
     )
+    from grelmicro.health._types import HealthDetails
     from grelmicro.resilience._protocol import (
         CircuitBreakerBackend,
         RateLimiterBackend,
@@ -121,5 +122,22 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         msg = (
             f"{type(self).__name__} has no circuit breaker adapter. "
             f"Pass a CircuitBreakerBackend instance to CircuitBreakers(...) directly."
+        )
+        raise NotImplementedError(msg)
+
+    async def check(self) -> HealthDetails | None:
+        """Run a cheap readiness probe against the backend.
+
+        A `HealthChecks` registers this as a `provider:{short_name}` check
+        via `add_provider` or `auto_health`. Returns `None` on success.
+        Raises on failure: the exception surfaces in the health report and
+        flips the check to `error`.
+
+        Raises:
+            NotImplementedError: If this Provider has no backend to probe.
+        """
+        msg = (
+            f"{type(self).__name__} has no readiness check. "
+            f"Register a custom check with health.check(...) instead."
         )
         raise NotImplementedError(msg)

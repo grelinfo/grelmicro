@@ -442,6 +442,10 @@ class RedisProvider(Provider):
 
         return RedisCircuitBreakerAdapter(provider=self, **kwargs)
 
+    async def check(self) -> None:
+        """`PING` Redis to prove the connection is reachable."""
+        await self._client.ping()
+
     async def __aenter__(self) -> Self:
         """Open the provider. The client is already constructed eagerly."""
         return self

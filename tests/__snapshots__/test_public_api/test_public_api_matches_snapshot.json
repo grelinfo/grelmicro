@@ -173,7 +173,7 @@
     "CheckResult": null,
     "HealthCheckFunc": null,
     "HealthChecks": {
-      "()": "(*, name=..., timeout=..., cache_ttl=..., env_prefix=..., env_load=...)",
+      "()": "(*, name=..., timeout=..., cache_ttl=..., env_prefix=..., env_load=..., auto_health=...)",
       ".from_config": "(config, *, name=...)"
     },
     "HealthChecksConfig": {

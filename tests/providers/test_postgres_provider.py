@@ -183,6 +183,28 @@ class TestFromClient:
         pool.close.assert_awaited_once()
 
 
+class TestCheck:
+    """Tests for `PostgresProvider.check` readiness probe."""
+
+    async def test_check_selects_one(self) -> None:
+        """`check` runs `SELECT 1` on the pool and returns None."""
+        pool = MagicMock()
+        pool.fetchval = AsyncMock(return_value=1)
+
+        provider = PostgresProvider.from_client(pool)
+        assert await provider.check() is None
+        pool.fetchval.assert_awaited_once_with("SELECT 1")
+
+    async def test_check_propagates_failure(self) -> None:
+        """A query failure surfaces from `check`."""
+        pool = MagicMock()
+        pool.fetchval = AsyncMock(side_effect=ConnectionError("down"))
+
+        provider = PostgresProvider.from_client(pool)
+        with pytest.raises(ConnectionError):
+            await provider.check()
+
+
 class TestSafeUrl:
     """`safe_url` and `repr` must redact passwords."""
 
