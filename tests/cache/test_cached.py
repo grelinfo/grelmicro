@@ -264,7 +264,7 @@ class TestAsyncCachedCacheControl:
         assert call_count == EXPECTED_CALL_COUNT_1
 
         # Act
-        await fetch.cache_clear()  # type: ignore[attr-defined]
+        await fetch.cache_clear()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         await fetch(1)
 
         # Assert: recomputed after clear
@@ -746,7 +746,7 @@ class TestSyncCachedCacheControl:
         assert call_count == EXPECTED_CALL_COUNT_1
 
         # Act: cache_clear is always a coroutine
-        await compute.cache_clear()  # type: ignore[attr-defined]
+        await compute.cache_clear()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         await asyncio.to_thread(lambda: compute(1))
 
         # Assert: recomputed after clear

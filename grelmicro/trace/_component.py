@@ -356,4 +356,6 @@ def _build_exporter(config: TracingConfig) -> Any:  # noqa: ANN401
         kwargs["endpoint"] = config.endpoint
     if config.headers:  # pragma: no cover
         kwargs["headers"] = config.headers
-    return OTLPSpanExporter(**kwargs)  # pragma: no cover
+    return OTLPSpanExporter(  # pragma: no cover
+        **kwargs,  # ty: ignore[invalid-argument-type]
+    )

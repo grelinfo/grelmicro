@@ -83,7 +83,7 @@ class LoggingConfig(BaseModel, frozen=True, extra="forbid"):
         Field(union_mode="left_to_right"),
     ] = LoggingFormatType.AUTO
     timezone: Annotated[
-        LoggingTimeZoneType,
+        LoggingTimeZoneType,  # ty: ignore[invalid-type-form]
         Doc("IANA timezone for timestamps."),
     ] = LoggingTimeZoneType("UTC")
     json_serializer: Annotated[
