@@ -335,7 +335,7 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 |---|---|---|---|
 | `cache` | `TTLCache` | `None` | The cache instance to store results in. Mutually exclusive with `ttl`. |
 | `ttl` | `float` | `None` | TTL in seconds for a private per-function cache. Mutually exclusive with `cache`. |
-| `maxsize` | `int` | `128` | Maximum number of entries in the private per-function cache (used only when `ttl` is set). |
+| `maxsize` | `int` | `0` | Max entries in the private per-function cache, `0` means unlimited (used only when `ttl` is set). |
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |

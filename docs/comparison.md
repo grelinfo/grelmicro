@@ -38,7 +38,7 @@ What you get from a single import:
 | Pattern | grelmicro class | Backends |
 |---|---|---|
 | Distributed lock | `Lock` | Redis, PostgreSQL, SQLite, Kubernetes Lease, Memory |
-| Leader election | `LeaderElection` | same as `Lock` |
+| Leader election | `LeaderElection` | Redis, PostgreSQL, Kubernetes Lease, Memory (no SQLite) |
 | Scheduled-task lock | `TaskLock` | same as `Lock` |
 | Cache decorator + TTL store | `Cache`, `TTLCache[T]`, `@cached` | Redis, Memory, Postgres, SQLite |
 | Rate limiter | `RateLimiter` (token bucket, sliding window) | Redis, Memory, Postgres, SQLite |

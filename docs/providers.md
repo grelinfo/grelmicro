@@ -223,6 +223,7 @@ Each Provider exposes factory methods that return its matching adapter:
 | Method                      | Returns                       | RedisProvider | ValkeyProvider | PostgresProvider | SQLiteProvider |
 |----------------------------|-------------------------------|:-------------:|:--------------:|:----------------:|:--------------:|
 | `.lock(**kwargs)`           | `LockBackend` implementation  |       ✓        |       ✓        |        ✓         |       ✓        |
+| `.schedule(**kwargs)`       | `ScheduleBackend` impl        |       ✓        |       ✓        |        ✓         |       ✓        |
 | `.leaderelection(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |       ✓        |        ✓         |      N/A       |
 | `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |       ✓        |        ✓         |       ✓        |
 | `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |       ✓        |        ✓         |       ✓        |
@@ -293,7 +294,7 @@ same way.
 
 ## Postgres
 
-`PostgresProvider` ships all factory methods: `.lock()`, `.leaderelection()`, `.cache()`, `.ratelimiter()`, and `.circuitbreaker()`. The
+`PostgresProvider` ships all factory methods: `.lock()`, `.leaderelection()`, `.cache()`, `.ratelimiter()`, `.circuitbreaker()`, and `.schedule()`. The
 provider wraps an `asyncpg.Pool` and opens it lazily on `__aenter__`.
 
 ```python
@@ -340,7 +341,7 @@ PostgresProvider.from_client(pool)              # bring-your-own pool
 
 ## SQLite
 
-`SQLiteProvider` ships the `.lock()`, `.ratelimiter()`, `.cache()`, and `.circuitbreaker()` factories. The
+`SQLiteProvider` ships the `.lock()`, `.ratelimiter()`, `.cache()`, `.circuitbreaker()`, and `.schedule()` factories. The
 provider owns one `aiosqlite` connection (autocommit, WAL) and a shared
 lock that adapters borrow.
 
