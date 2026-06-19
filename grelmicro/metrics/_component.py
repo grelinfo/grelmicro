@@ -492,4 +492,6 @@ def _build_exporter(config: MetricsConfig) -> Any:  # noqa: ANN401
         kwargs["endpoint"] = config.endpoint
     if config.headers:  # pragma: no cover
         kwargs["headers"] = config.headers
-    return OTLPMetricExporter(**kwargs)  # pragma: no cover
+    return OTLPMetricExporter(  # pragma: no cover
+        **kwargs,  # ty: ignore[invalid-argument-type]
+    )
