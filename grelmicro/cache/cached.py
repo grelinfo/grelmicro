@@ -23,7 +23,7 @@ from grelmicro.cache._stampede import (
 )
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
-from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
+from grelmicro.cache.ttl import _CACHE_PREFIX, _XFETCH_SUFFIX, TTLCache
 from grelmicro.coordination.lock import Lock
 from grelmicro.metrics import _emit
 
@@ -37,10 +37,6 @@ R = TypeVar("R")
 _SENTINEL = object()
 
 _PER_KEY_LOCK_BUDGET = 1024
-
-# The `\x1f` separator stays out of band (no real key uses it) and, unlike
-# `\x00`, is valid in a Postgres text key.
-_XFETCH_SUFFIX = "\x1fxf"
 
 
 class _TagSpec(NamedTuple):
@@ -378,7 +374,8 @@ def _xfetch_should_refresh(remaining: float, delta: float) -> bool:
     ``delta * -ln(rand) >= remaining``, so a key whose recompute is
     expensive relative to its remaining life refreshes sooner.
     """
-    return delta * -math.log(_random()) >= remaining
+    rand = _random() or 1.0
+    return delta * -math.log(rand) >= remaining
 
 
 async def _read_meta(cache: TTLCache, key: str) -> tuple[float, float] | None:

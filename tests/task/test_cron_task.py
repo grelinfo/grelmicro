@@ -77,6 +77,10 @@ pytestmark = [pytest.mark.timeout(10)]
 EVERY_MINUTE = "* * * * *"
 SLEEP = 0.01
 
+# True elapsed seconds across the America/New_York fall-back (25 hours),
+# as opposed to the 24-hour wall-clock difference.
+EXPECTED_DST_ELAPSED_SECONDS = 90000.0
+
 
 def test_cron_task_init() -> None:
     """Test Cron Task Initialization."""
@@ -144,6 +148,53 @@ def _run_fast(mocker: MockFixture) -> None:
         "grelmicro.task._cron._now",
         side_effect=frozen.astimezone,
     )
+
+
+async def test_cron_delay_uses_true_elapsed_across_dst(
+    mocker: MockFixture,
+) -> None:
+    """The loop sleeps the true elapsed seconds across a DST fall-back.
+
+    On 2024-11-03 America/New_York repeats 01:00-02:00, so wall-clock
+    subtraction of two same-zone aware datetimes underreports by an hour
+    (86400 instead of 90000). The delay must use the real elapsed time so the
+    body does not fire an hour early.
+    """
+    from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+    ny = ZoneInfo("America/New_York")
+    # First 01:30 of the repeated hour (EDT, before the fall-back).
+    pre_dst = datetime(2024, 11, 3, 1, 30, fold=0, tzinfo=ny)
+    expected_delay = (
+        datetime(2024, 11, 4, 1, 30, tzinfo=ny).timestamp()
+        - pre_dst.timestamp()
+    )
+
+    captured: list[float] = []
+
+    async def capture_sleep(seconds: float, stop: object) -> bool:
+        del stop
+        captured.append(seconds)
+        return True  # break the loop after the first scheduled sleep
+
+    def frozen_now(tz: object) -> datetime:
+        return pre_dst.astimezone(tz)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    mocker.patch(
+        "grelmicro.task._cron.sleep_or_stop", side_effect=capture_sleep
+    )
+    mocker.patch("grelmicro.task._cron._now", side_effect=frozen_now)
+
+    task = CronTask(
+        expr="30 1 * * *", function=test1, timezone="America/New_York"
+    )
+
+    # Act
+    await task()
+
+    # Assert: true elapsed across the fall-back is 25 hours, not 24.
+    assert captured == [expected_delay]
+    assert expected_delay == EXPECTED_DST_ELAPSED_SECONDS
 
 
 async def test_cron_task_start(mocker: MockFixture) -> None:

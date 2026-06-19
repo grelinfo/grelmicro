@@ -171,13 +171,18 @@ class ExternalConfig:
         """Open the sources, apply once, then start polling."""
         stack = AsyncExitStack()
         await stack.__aenter__()
-        if self._config_src is not None:
-            await stack.enter_async_context(self._config_src)  # ty: ignore[invalid-argument-type]
-        if self._secrets_src is not None:
-            await stack.enter_async_context(self._secrets_src)  # ty: ignore[invalid-argument-type]
         self._stack = stack
-        await self.reload()
-        self._task = asyncio.create_task(self._poll())
+        try:
+            if self._config_src is not None:
+                await stack.enter_async_context(self._config_src)  # ty: ignore[invalid-argument-type]
+            if self._secrets_src is not None:
+                await stack.enter_async_context(self._secrets_src)  # ty: ignore[invalid-argument-type]
+            await self.reload()
+            self._task = asyncio.create_task(self._poll())
+        except BaseException:
+            self._stack = None
+            await stack.aclose()
+            raise
         return self
 
     async def __aexit__(

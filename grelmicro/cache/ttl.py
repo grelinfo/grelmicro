@@ -85,6 +85,11 @@ _CACHE_PREFIX = "cache"
 # Postgres text key.
 _STALE_SUFFIX = "\x1fst"
 
+# Suffix for the XFetch metadata sidecar written by `@cached(early=...)`.
+# It carries the last recompute timing next to a value and shares the
+# same out-of-band `\x1f` separator.
+_XFETCH_SUFFIX = "\x1fxf"
+
 
 class TTLCache(Generic[T]):
     """Cache with per-entry TTL and optional LRU eviction.
@@ -588,5 +593,11 @@ class TTLCache(Generic[T]):
         if not self._keys:  # pragma: no cover
             return
         lru_key, _ = self._keys.popitem(last=False)
-        await self._get_backend().delete(key=f"{_CACHE_PREFIX}:{lru_key}")
+        await self._get_backend().delete_many(
+            keys=[
+                f"{_CACHE_PREFIX}:{lru_key}",
+                f"{_CACHE_PREFIX}:{lru_key}{_STALE_SUFFIX}",
+                f"{_CACHE_PREFIX}:{lru_key}{_XFETCH_SUFFIX}",
+            ]
+        )
         self._evictions += 1

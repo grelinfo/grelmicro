@@ -15,6 +15,8 @@ from grelmicro._config import (
 )
 from grelmicro.config import ConfigBackend, ExternalConfig, FileConfigAdapter
 from grelmicro.config._external import _coerce_source, _detect_scheme
+from grelmicro.coordination.lock import Lock
+from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import AdapterNotRegisteredError
 from grelmicro.resilience import (
     Bulkhead,
@@ -117,6 +119,36 @@ async def test_reconfigure_all_reaches_ratelimiter() -> None:
     )
     assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == 99  # noqa: PLR2004
+
+
+async def test_reconfigure_all_applies_mutable_beside_immutable_worker() -> (
+    None
+):
+    """A co-located immutable `worker` key never drops the valid lease change.
+
+    The mapping carries both the immutable identity field (`worker`) and a
+    mutable one (`lease_duration`). The immutable key is skipped, so the
+    lease change still applies instead of the whole instance being rejected.
+    """
+    # Arrange
+    lock = Lock(
+        backend=MemoryLockAdapter(),
+        name="cart",
+        worker="w1",
+        lease_duration=15.0,
+    )
+
+    # Act
+    await reconfigure_all(
+        {
+            "GREL_LOCK_CART_WORKER": "w2",
+            "GREL_LOCK_CART_LEASE_DURATION": "30",
+        },
+    )
+
+    # Assert: lease applied, worker left unchanged.
+    assert lock.config.lease_duration == 30.0  # noqa: PLR2004
+    assert str(lock.config.worker) == "w1"
 
 
 # --- Task 2: resolve_config_from_mapping unmatched-key debug log ---
@@ -245,6 +277,65 @@ async def test_reload_raising_backend_does_not_raise() -> None:
     external = ExternalConfig(config=_RaisingBackend(), interval=999.0)
     async with external:
         await external.reload()  # must not raise
+
+
+class _TrackingBackend:
+    """A ConfigBackend that records how often it is entered and exited."""
+
+    def __init__(self) -> None:
+        self.entered = 0
+        self.exited = 0
+
+    async def __aenter__(self) -> Self:
+        self.entered += 1
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.exited += 1
+
+    async def load(self) -> Mapping[str, str] | None:
+        return {}
+
+
+class _RaiseOnEnterBackend:
+    """A ConfigBackend that raises when entered."""
+
+    async def __aenter__(self) -> Self:
+        msg = "secret mount unreadable"
+        raise OSError(msg)
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    async def load(self) -> Mapping[str, str] | None:  # pragma: no cover
+        return {}
+
+
+async def test_aenter_closes_first_source_when_second_enter_fails() -> None:
+    """A failure entering the secrets source unwinds the opened config source."""
+    # Arrange
+    config_src = _TrackingBackend()
+    external = ExternalConfig(
+        config=config_src, secrets=_RaiseOnEnterBackend(), interval=999.0
+    )
+
+    # Act
+    with pytest.raises(OSError, match="secret mount unreadable"):
+        await external.__aenter__()
+
+    # Assert: the config source was entered and then closed, no leak.
+    assert config_src.entered == 1
+    assert config_src.exited == 1
 
 
 # --- FileConfigAdapter behavior ---

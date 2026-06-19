@@ -717,6 +717,63 @@ async def test_leader_election_stops_gracefully_on_stop_event(
     assert record.holder == "other"
 
 
+async def test_graceful_stop_releases_app_resolved_backend() -> None:
+    """Graceful stop releases the backend resolved from a Coordination app.
+
+    With no `backend=`, the election resolves through the registered
+    `Coordination` component. On stop the lease must be vacated, so another
+    token can acquire immediately instead of waiting the lease duration.
+    """
+    from grelmicro import Grelmicro  # noqa: PLC0415
+    from grelmicro.coordination import Coordination  # noqa: PLC0415
+
+    # Arrange: an app-resolved election backend, no explicit backend= on the
+    # LeaderElection.
+    backend = MemoryLeaderElectionBackend()
+    micro = Grelmicro(uses=[Coordination(election=backend)])
+    leader_election = LeaderElection(
+        LEADER_NAME,
+        worker="worker_app",
+        lease_duration=LEASE_DURATION,
+        renew_deadline=RENEW_DEADLINE,
+        retry_interval=0.005,
+        error_interval=0.01,
+        backend_timeout=0.005,
+    )
+
+    stop = Event()
+    async with micro:
+        async with asyncio.TaskGroup() as tg:
+            handle = await start_task(tg, leader_election, stop=stop)
+            await leader_election.wait_for_leader()
+            assert leader_election.is_leader() is True
+            stop.set()  # request graceful shutdown
+        # The loop broke on its own, without a cancellation.
+        assert handle.done()
+        assert not handle.cancelled()
+        # Leadership was released, so another worker can take it immediately.
+        record = await backend.acquire_or_renew(
+            name=leader_election._lock_name,
+            token="other",
+            duration=1,
+        )
+        assert record.holder == "other"
+
+
+async def test_release_returns_quietly_when_app_context_gone() -> None:
+    """`_release` is a no-op when no backend resolves out of context.
+
+    With no `backend=` and no active app, resolving the backend raises
+    `OutOfContextError`. There is nothing to release, so `_release` returns
+    quietly instead of propagating.
+    """
+    # Arrange: no explicit backend, no active app context.
+    leader_election = LeaderElection(LEADER_NAME, worker="worker_gone")
+
+    # Act / Assert: must not raise.
+    await leader_election._release()
+
+
 async def test_graceful_stop_awaits_release_before_returning(
     backend: LeaderElectionBackend,
     mocker: MockerFixture,

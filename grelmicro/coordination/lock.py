@@ -5,7 +5,7 @@ import random
 import re
 from threading import get_ident
 from types import TracebackType
-from typing import Annotated, Self
+from typing import Annotated, ClassVar, Self
 from uuid import UUID
 from weakref import WeakSet
 
@@ -114,6 +114,10 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
     """
 
     _LOCK_PREFIX = "lock"
+
+    _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"worker"}
+    )
 
     def __init__(
         self,

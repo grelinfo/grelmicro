@@ -21,6 +21,7 @@ from grelmicro.coordination.memory import (
 )
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -244,6 +245,62 @@ def test_keyword_overrides_provider_election_backend() -> None:
     coordination = Coordination(provider, election=override)
     assert coordination.election_backend is override
     assert coordination.lock_backend.__class__.__name__ == "RedisLockAdapter"
+
+
+def test_provider_without_any_adapter_constructs() -> None:
+    """A provider shipping no adapter leaves every backend unset, not crashed.
+
+    Each kind raises a clear `CoordinationBackendError` only on actual use.
+    """
+    from typing import Self  # noqa: PLC0415
+
+    from grelmicro.providers._base import Provider  # noqa: PLC0415
+
+    class _BareProvider(Provider):
+        short_name = "bare"
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            return None
+
+    # Arrange / Act: construction must not raise on any unserved kind.
+    coordination = Coordination(_BareProvider())
+
+    # Assert: every kind raises a clear error only on use.
+    with pytest.raises(CoordinationBackendError, match="no lock backend"):
+        _ = coordination.lock_backend
+    with pytest.raises(
+        CoordinationBackendError, match="no leader election backend"
+    ):
+        _ = coordination.election_backend
+    with pytest.raises(CoordinationBackendError, match="no schedule backend"):
+        _ = coordination.schedule_backend
+
+
+def test_lock_only_provider_constructs() -> None:
+    """A lock-only provider constructs without raising on the unserved kind.
+
+    `SQLiteProvider` ships `lock` and `schedule` but no `leaderelection`.
+    Construction must not crash for a locks-only user. The lock path works
+    and the election path raises a clear `CoordinationBackendError` only on
+    actual use.
+    """
+    # Arrange / Act
+    coordination = Coordination(SQLiteProvider("file:app?mode=memory"))
+
+    # Assert
+    assert coordination.lock_backend.__class__.__name__ == "SQLiteLockAdapter"
+    with pytest.raises(
+        CoordinationBackendError, match="no leader election backend"
+    ):
+        _ = coordination.election_backend
 
 
 async def test_lock_only_lifecycle() -> None:

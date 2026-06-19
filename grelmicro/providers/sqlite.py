@@ -256,10 +256,13 @@ class SQLiteProvider(Provider):
     async def __aenter__(self) -> Self:
         """Open the connection when the provider owns it."""
         if self._conn is None:
-            self._conn = await aiosqlite.connect(
-                self._path, isolation_level=None
-            )
-            await self._conn.execute("PRAGMA journal_mode=WAL;")
+            conn = await aiosqlite.connect(self._path, isolation_level=None)
+            try:
+                await conn.execute("PRAGMA journal_mode=WAL;")
+            except BaseException:
+                await conn.close()
+                raise
+            self._conn = conn
         return self
 
     async def __aexit__(

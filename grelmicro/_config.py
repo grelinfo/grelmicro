@@ -22,7 +22,7 @@ import logging
 import os
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from weakref import WeakSet
 
 from pydantic import BaseModel, ValidationError
@@ -214,6 +214,14 @@ class Reconfigurable[ConfigT: BaseModel]:
     _reconfigure_lock: asyncio.Lock
     _env_prefix: str | None = None
 
+    _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset()
+    """Field names a live reconfigure must never patch from external config.
+
+    `resolve_config_from_mapping` skips any key whose suffix names one of
+    these fields, so a co-located mutable change in the same mapping still
+    applies instead of being dropped when the whole instance is rejected.
+    """
+
     @property
     def config(self) -> ConfigT:
         """Return the current configuration."""
@@ -292,14 +300,17 @@ def resolve_config_from_mapping[C: BaseModel](
     *,
     env_prefix: str,
     mapping: Mapping[str, str],
+    immutable_fields: frozenset[str] = frozenset(),
 ) -> C:
     """Patch `current` with values from a flat env-style `mapping`.
 
     Keys are matched case-insensitively against `env_prefix`. Only keys
     whose suffix names a field on the config are applied, so unrelated
     keys in a shared ConfigMap are ignored and every field the mapping
-    omits keeps its current value. The immutable identity fields a
-    component generates (a lock `worker`) are therefore preserved.
+    omits keeps its current value. Keys naming an `immutable_fields`
+    entry (a lock `worker`) are skipped, so a co-located mutable change
+    in the same mapping still applies instead of being dropped because
+    the immutable field cannot change.
 
     Present values are coerced through the model's own validators, so a
     CSV or JSON-array string resolves into a list exactly as it does
@@ -319,6 +330,8 @@ def resolve_config_from_mapping[C: BaseModel](
         if not key.upper().startswith(prefix_upper):
             continue
         field = key[prefix_len:].lower()
+        if field in immutable_fields:
+            continue
         if field in fields:
             overrides[field] = value
         else:
@@ -373,6 +386,7 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
                 instance._config,  # noqa: SLF001
                 env_prefix=env_prefix,
                 mapping=mapping,
+                immutable_fields=instance._IMMUTABLE_RECONFIGURE_FIELDS,  # noqa: SLF001
             )
         except ValidationError as exc:
             logger.warning(

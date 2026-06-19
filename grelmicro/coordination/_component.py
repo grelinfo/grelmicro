@@ -130,10 +130,17 @@ class Coordination:
 
         if source is not None:
             provider = instantiate_if_class(source)
-            self._lock_backend = provider.lock()
-            self._election_backend = provider.leaderelection()
-            # A provider may not ship a schedule adapter. Leave the backend
-            # unset so cron raises a clear error only when it is actually used.
+            # A provider may not ship every adapter kind. Leave a backend
+            # unset so the kind raises a clear error only when it is actually
+            # used, instead of crashing construction for a locks-only user.
+            try:
+                self._lock_backend = provider.lock()
+            except (AttributeError, NotImplementedError):
+                self._lock_backend = None
+            try:
+                self._election_backend = provider.leaderelection()
+            except (AttributeError, NotImplementedError):
+                self._election_backend = None
             try:
                 self._schedule_backend = provider.schedule()
             except (AttributeError, NotImplementedError):

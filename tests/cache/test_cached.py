@@ -1072,6 +1072,23 @@ class _Clock:
 class TestEarlyRefresh:
     """Test @cached(early=...) probabilistic XFetch refresh."""
 
+    def test_xfetch_should_refresh_handles_zero_random(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A 0.0 random draw never crashes the early-refresh die.
+
+        ``random.random`` can return exactly 0.0, and ``math.log(0.0)``
+        raises ``ValueError``. The die must clamp the draw and return a bool.
+        """
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+        monkeypatch.setattr(cached_mod, "_random", lambda: 0.0)
+
+        # Act / Assert: no exception, a plain bool result.
+        result = cached_mod._xfetch_should_refresh(remaining=10.0, delta=1.0)
+        assert isinstance(result, bool)
+
     async def test_invalid_early_rejected(self) -> None:
         """Early outside [0, 1) raises at decoration time."""
         cache = _make_cache()

@@ -13,7 +13,12 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache, TTLCacheConfig
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
-from grelmicro.cache.ttl import CacheInfo, TTLCache
+from grelmicro.cache.ttl import (
+    _CACHE_PREFIX,
+    _STALE_SUFFIX,
+    CacheInfo,
+    TTLCache,
+)
 from grelmicro.errors import OutOfContextError
 
 pytestmark = [pytest.mark.timeout(10)]
@@ -327,6 +332,22 @@ class TestEviction:
         assert await cache.get("a") is None
         assert await cache.get("b") == b"2"
         assert await cache.get("c") == b"3"
+
+    async def test_eviction_drops_stale_sidecar(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Evicting an entry also drops its stale-reserve sidecar."""
+        # Arrange: a key with a stale-reserve copy, then fill the cache.
+        cache = TTLCache(maxsize=1, ttl=60, backend=backend)
+        await cache.set("a", b"1", stale_ttl=300)
+        stale_key = f"{_CACHE_PREFIX}:a{_STALE_SUFFIX}"
+        assert await backend.get(key=stale_key) is not None
+
+        # Act: a second entry evicts "a".
+        await cache.set("b", b"2")
+
+        # Assert: the stale sidecar was dropped, not orphaned.
+        assert await backend.get(key=stale_key) is None
 
     async def test_get_promotes_to_mru(
         self, backend: MemoryCacheAdapter
