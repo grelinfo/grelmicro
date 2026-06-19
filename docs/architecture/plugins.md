@@ -16,7 +16,7 @@ A Provider covers the vendor axis: one Provider per vendor. An Adapter covers
 the algorithm axis within a kind, so several adapters can share one Provider
 (a Redis lock and a Redis cache both run on `RedisProvider`).
 
-The component kinds are `coordination`, `coordination.election`, `cache`,
+The component kinds are `coordination`, `coordination.election`, `coordination.schedule`, `cache`,
 `ratelimiter`, and `circuitbreaker`.
 
 ## Publish a third-party adapter

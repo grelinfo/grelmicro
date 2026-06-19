@@ -6,11 +6,11 @@ A `Grelmicro` app is a plain async context manager, so you can construct as many
 
 Most components keep their state on the instance: `Coordination`, `Cache`, `RateLimiters`, `CircuitBreakers`, and `HealthChecks` all hold their own backend, so two overlapping apps never touch each other. They run concurrently with no special handling, the same way a web framework lets you instantiate two `App` objects.
 
-`Log`, `Trace`, and `Metrics` are different. They configure **process-global** state (the stdlib root logger, the OpenTelemetry tracer and meter providers) and restore the previous value on exit. Within one app the exit stack restores in reverse order, so nesting is safe. Across two overlapping apps there is no such ordering guarantee: the first to exit would restore the global and clobber the second app's configuration.
+`Log` and `Trace` are different. They configure **process-global** state (the stdlib root logger and the OpenTelemetry tracer provider) and restore the previous value on exit. Within one app the exit stack restores in reverse order, so nesting is safe. Across two overlapping apps there is no such ordering guarantee: the first to exit would restore the global and clobber the second app's configuration.
 
-Because they own a single global, these components are singletons: registering a second `Log` (or `Trace`, or `Metrics`) on the same app raises `ComponentAlreadyRegisteredError`, even under a different name. There is only one root logger to configure, so a second instance has nothing of its own to own.
+Because they own a single global, these components are singletons: registering a second `Log` (or `Trace`) on the same app raises `ComponentAlreadyRegisteredError`, even under a different name. There is only one root logger to configure, so a second instance has nothing of its own to own.
 
-So grelmicro also blocks the cross-app case that is unsafe: opening a second app that owns `Log`, `Trace`, or `Metrics` while another app that owns one is still active raises `MultipleActiveAppsError`. Apps without those components overlap freely.
+So grelmicro also blocks the cross-app case that is unsafe: opening a second app that owns `Log` or `Trace` while another app that owns one is still active raises `MultipleActiveAppsError`. Apps without those components overlap freely.
 
 ```python
 # Fine: neither app owns process-global state.

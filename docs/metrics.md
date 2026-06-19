@@ -54,7 +54,7 @@ async def checkout(cart_id: str) -> None:
 
 - `<name>.duration`: a histogram of seconds.
 - `<name>.calls`: a counter with an `outcome` attribute set to `success` or `error`. On failure an `error.type` attribute carries the exception class name.
-- `<name>.active`: an in-flight gauge that rises while the function runs. Only when `record_in_flight=True`.
+- `<name>.active`: an up_down_counter that rises while the function runs and falls when it returns. Only when `record_in_flight=True`.
 
 Every metric is a no-op when no `Metrics` component is active, so a decorated function is safe to ship even when metrics are off.
 

@@ -71,7 +71,7 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
     from grelmicro.providers.sqlite import SQLiteProvider
 
     sqlite = SQLiteProvider("app.db")
-    micro = Grelmicro(uses=[sqlite, Cache(sqlite)])
+    micro = Grelmicro(uses=[Cache(sqlite)])
     ```
 
 `async with micro:` opens the provider and the cache backend together.
@@ -329,9 +329,13 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 
 ### Decorator Parameters
 
+`cache` and `ttl` are mutually exclusive. Pass one or the other, not both.
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `cache` | `TTLCache` | required | The cache instance to store results in. |
+| `cache` | `TTLCache` | `None` | The cache instance to store results in. Mutually exclusive with `ttl`. |
+| `ttl` | `float` | `None` | TTL in seconds for a private per-function cache. Mutually exclusive with `cache`. |
+| `maxsize` | `int` | `0` | Max entries in the private per-function cache, `0` means unlimited (used only when `ttl` is set). |
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |

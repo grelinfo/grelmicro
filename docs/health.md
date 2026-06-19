@@ -26,7 +26,7 @@ A health check is a function returning `None` (healthy) or a `HealthDetails` dic
 - Return `None`: healthy, no details.
 - Return a `HealthDetails` dict: healthy, with details. Values can be primitives, `datetime`, nested dicts, lists, or tuples.
 - Raise `HealthError`: unhealthy. The exception message appears in the `error` field.
-- Raise any other exception: unhealthy, with a generic `"Health check failed"` message. The traceback is logged server-side to avoid leaking internal information.
+- Raise any other exception: unhealthy, with an `error` field formatted as `"{ExceptionType}: {message}"` (for example `"ValueError: bad input"`). The traceback is logged server-side to avoid leaking internal information.
 
 `HealthDetails` is a type alias for `dict[str, JSONEncodable]`. Both sync and async check functions are supported. Sync functions run in a worker thread via `asyncio.to_thread` so they never block the event loop.
 

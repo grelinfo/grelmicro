@@ -52,14 +52,14 @@ This prevents accidental collisions between different primitive types sharing th
 Expired locks are never actively removed during normal operation. Instead, all backends use a **lazy filtering** strategy combined with **cleanup on exit**:
 
 1. **Lazy filtering**: Every `locked()`, `owned()`, and `acquire()` call includes an expiry check (`expire_at >= now`), so expired locks are simply ignored without requiring deletion.
-2. **Cleanup on exit**: When the backend context manager exits (`__aexit__`), all expired locks are deleted in bulk. This keeps storage clean across graceful restarts.
+2. **Cleanup on exit**: When the backend context manager exits (`__aexit__`), expired locks are vacated in place. This keeps storage clean across graceful restarts.
 
 If the process crashes without exiting the context manager, expired locks remain in storage but are harmless: they will be filtered out by all subsequent operations and cleaned up on the next graceful shutdown.
 
 ### Backend-specific cleanup
 
-- **SQLite / PostgreSQL**: A single bulk `DELETE ... WHERE expire_at < now` removes all stale rows before closing the connection.
-- **Kubernetes**: Lists all Lease resources labeled `app.kubernetes.io/managed-by: grelmicro` and deletes each expired lease individually. The Kubernetes API does not support bulk conditional deletion. `NOT_FOUND` errors are silently ignored to handle concurrent deletions.
+- **SQLite / PostgreSQL**: A single bulk `UPDATE ... SET token = NULL, expire_at = NULL WHERE expire_at < now` clears all stale rows before closing the connection. The row is kept so the fence counter survives across restart cycles.
+- **Kubernetes**: Lists all Lease resources labeled `app.kubernetes.io/managed-by: grelmicro` and vacates each expired lease in place by clearing `holderIdentity`, `acquireTime`, and `renewTime` via a REPLACE. The Lease object is never deleted, so `spec.leaseTransitions` survives across release and re-acquire cycles. `NOT_FOUND` errors are silently ignored.
 
 ## Fencing token guarantees
 

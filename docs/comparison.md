@@ -38,11 +38,11 @@ What you get from a single import:
 | Pattern | grelmicro class | Backends |
 |---|---|---|
 | Distributed lock | `Lock` | Redis, PostgreSQL, SQLite, Kubernetes Lease, Memory |
-| Leader election | `LeaderElection` | same as `Lock` |
+| Leader election | `LeaderElection` | Redis, PostgreSQL, Kubernetes Lease, Memory (no SQLite) |
 | Scheduled-task lock | `TaskLock` | same as `Lock` |
-| Cache decorator + TTL store | `Cache`, `TTLCache[T]`, `@cached` | Redis, Memory, Postgres |
+| Cache decorator + TTL store | `Cache`, `TTLCache[T]`, `@cached` | Redis, Memory, Postgres, SQLite |
 | Rate limiter | `RateLimiter` (token bucket, sliding window) | Redis, Memory, Postgres, SQLite |
-| Circuit breaker | `CircuitBreaker` | Redis, Memory, Postgres |
+| Circuit breaker | `CircuitBreaker` | Redis, Memory, Postgres, SQLite |
 | Retry | `Retry`, `@retry` | n/a (in-process) |
 | Health checks | `HealthChecks` + `/livez` `/readyz` `/healthz` router | n/a |
 | Scheduled tasks | `Tasks`, `TaskRouter`, `@interval`, `@cron` | n/a |
@@ -67,7 +67,7 @@ If you build microservices on FastAPI today, grelmicro is the missing batteries.
 
 | Axis | [`aiocache`](https://github.com/aio-libs/aiocache) | [`fastapi-cache`](https://github.com/long2ice/fastapi-cache) | grelmicro `Cache` |
 |---|---|---|---|
-| Backends | Memory, Redis, Memcached | Memory, Redis, Memcached, DynamoDB | Memory, Redis, Postgres |
+| Backends | Memory, Redis, Memcached | Memory, Redis, Memcached, DynamoDB | Memory, Redis, Postgres, SQLite |
 | Decorator | `@cached` | `@cache` | `@cached` |
 | Type-safe `Cache[T]` | no | no | yes (`TTLCache[T]` plus `PydanticSerializer(T)`) |
 | Stampede protection | local lock via `lock_value` | none | `lock=True` (folds across replicas when a `Coordination` backend is set), `lock="local"` (in-process only), `early=` (XFetch refresh) |
@@ -98,7 +98,7 @@ Half-open / open / closed states, with thresholds and ignore lists.
 | Axis | [`pybreaker`](https://github.com/danielfm/pybreaker) | [`aiobreaker`](https://github.com/arlyon/aiobreaker) | grelmicro `CircuitBreaker` |
 |---|---|---|---|
 | Async-first | sync-first, has async wrapper | yes | yes |
-| Storage | in-memory, Redis (via plugin) | in-memory | in-memory, Redis, Postgres (fleet-wide state) |
+| Storage | in-memory, Redis (via plugin) | in-memory | in-memory, Redis, Postgres, SQLite (fleet-wide state on Redis or Postgres) |
 | Decorator + async CM | decorator + sync CM | decorator + async CM | decorator + async CM |
 | Frozen Pydantic config | no | no | yes (`CircuitBreakerConfig`) |
 | Live reconfigure | no | no | yes (`reconfigure(new_config)`) |

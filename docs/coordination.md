@@ -134,7 +134,7 @@ The lock supports the following features:
 - **Non-reentrant**: a nested acquire from the same task or thread raises
   `LockReentrantError`. Use separate instances if you need independent locks.
 - **Idempotent backend**: the backend lets the same token re-acquire the lock,
-  which extends the lease. Call `do_acquire` directly if you need to extend the
+  which extends the lease. Call `extend()` if you need to extend the
   lease explicitly.
 - **Expiring**: the lock has a timeout that auto-releases the lock to prevent
   deadlocks.
@@ -400,7 +400,7 @@ directly inside an `asyncio.TaskGroup`:
 Build `LeaderElection` with keyword arguments. The lease timing fields
 (`lease_duration`, `renew_deadline`, `retry_interval`, `retry_jitter`,
 `backend_timeout`, `error_interval`) tune in deployment from
-`GREL_LEADERELECTION_{NAME}_*` environment variables. See
+`GREL_LEADERELECTION_{NAME_UPPER}_*` environment variables. See
 [Configuration](config.md) for the deployment story.
 
 !!! tip "Advanced"
