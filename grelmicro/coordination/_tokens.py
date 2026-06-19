@@ -32,7 +32,13 @@ def generate_token_nonce() -> str:
     return f":{next(_guard_counter)}"
 
 
-def generate_thread_token(worker: UUID | str, nonce: str = "") -> str:
-    """Generate a thread token from the worker identity and the current thread ID."""
-    thread_id = get_ident()
+def generate_thread_token(
+    worker: UUID | str, nonce: str = "", *, thread_id: int | None = None
+) -> str:
+    """Generate a thread token from the worker identity and a thread ID.
+
+    The thread ID defaults to the current thread when not given.
+    """
+    if thread_id is None:
+        thread_id = get_ident()
     return f"{worker}:thread:{thread_id}{nonce}"

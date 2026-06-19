@@ -1,7 +1,6 @@
 """Lock."""
 
 import asyncio
-import random
 import re
 from threading import get_ident
 from types import TracebackType
@@ -14,9 +13,17 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
-from grelmicro.coordination._base import BaseLock, BaseLockConfig
+from grelmicro.coordination._base import (
+    BaseLock,
+    BaseLockConfig,
+    assert_worker_unchanged,
+    jittered_interval,
+)
 from grelmicro.coordination._handle import LockHandle
-from grelmicro.coordination._tokens import generate_task_token
+from grelmicro.coordination._tokens import (
+    generate_task_token,
+    generate_thread_token,
+)
 from grelmicro.coordination.abc import LockBackend, Seconds
 from grelmicro.coordination.errors import (
     LockAcquireError,
@@ -31,9 +38,6 @@ from grelmicro.errors import WouldBlockError
 _MIN_RETRY_INTERVAL: float = 0.001
 _NAME_MAX_LEN = 200
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\-]*$")
-
-# Seam for randomness in retry jitter. Tests pin it to a fixed value.
-_random = random.random
 
 
 def _validate_lock_name(name: str) -> None:
@@ -440,12 +444,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             ):
                 msg = f"Lock not acquired within timeout: name={self._name}"
                 raise TimeoutError(msg)
-            if jitter:
-                interval = config.retry_interval * (
-                    1.0 + jitter * (2.0 * _random() - 1.0)
-                )
-            else:
-                interval = config.retry_interval
+            interval = jittered_interval(config.retry_interval, jitter)
             await asyncio.sleep(interval)
             fencing_token = await self.do_acquire(
                 token=token, duration=duration
@@ -615,17 +614,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
     async def _apply_reconfigure(self, new_config: LockConfig) -> None:
         """Validate the immutable `worker` field before publishing `new_config`."""
-        if new_config.worker != self._config.worker:
-            msg = (
-                f"reconfigure cannot change worker "
-                f"({self._config.worker!r} -> {new_config.worker!r}). "
-                f"Reuse the existing worker on the new config."
-            )
-            raise ValueError(msg)
-
-    def _thread_token(self, thread_id: int, worker: str | UUID) -> str:
-        """Build a thread token from a worker identity and the given thread ID."""
-        return f"{worker}:thread:{thread_id}"
+        assert_worker_unchanged(self._config, new_config)
 
     async def do_thread_acquire(
         self,
@@ -646,7 +635,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         config = self._config
         if thread_id in self._held_by_threads:
             raise LockReentrantError(name=self._name)
-        token = self._thread_token(thread_id, config.worker)
+        token = generate_thread_token(config.worker, thread_id=thread_id)
         duration = config.lease_duration
         deadline = (
             asyncio.get_running_loop().time() + timeout
@@ -662,12 +651,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             ):
                 msg = f"Lock not acquired within timeout: name={self._name}"
                 raise TimeoutError(msg)
-            if jitter:
-                interval = config.retry_interval * (
-                    1.0 + jitter * (2.0 * _random() - 1.0)
-                )
-            else:
-                interval = config.retry_interval
+            interval = jittered_interval(config.retry_interval, jitter)
             await asyncio.sleep(interval)
             fencing_token = await self.do_acquire(
                 token=token, duration=duration
@@ -690,7 +674,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         config = self._config
         if thread_id not in self._held_by_threads:
             raise LockNotOwnedError(name=self._name)
-        token = self._thread_token(thread_id, config.worker)
+        token = generate_thread_token(config.worker, thread_id=thread_id)
         fencing_token = await self.do_acquire(
             token=token, duration=config.lease_duration
         )
@@ -714,7 +698,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         config = self._config
         if thread_id in self._held_by_threads:
             raise LockReentrantError(name=self._name)
-        token = self._thread_token(thread_id, config.worker)
+        token = generate_thread_token(config.worker, thread_id=thread_id)
         fencing_token = await self.do_acquire(
             token=token, duration=config.lease_duration
         )
@@ -736,7 +720,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             LockNotOwnedError: If the lock is not owned by the current token.
             LockReleaseError: If the lock cannot be released due to an error on the backend.
         """
-        token = self._thread_token(thread_id, self._config.worker)
+        token = generate_thread_token(self._config.worker, thread_id=thread_id)
         released = await self.do_release(token)
         self._held_by_threads.discard(thread_id)
         if not released:
@@ -845,9 +829,9 @@ class ThreadLockAdapter:
         """Return True if the lock is currently held by the current worker thread."""
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_owned(
-                self._lock._thread_token(  # noqa: SLF001
-                    get_ident(),
+                generate_thread_token(
                     self._lock._config.worker,  # noqa: SLF001
+                    thread_id=get_ident(),
                 ),
             ),
             self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]

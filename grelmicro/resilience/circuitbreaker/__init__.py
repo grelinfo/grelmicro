@@ -424,7 +424,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                 Component, or run the call under the app context (for
                 FastAPI, add `GrelmicroMiddleware`).
         """
-        if self._backend is not None:  # pragma: no cover
+        if self._backend is not None:
             return self._backend
         from grelmicro._app import (  # noqa: PLC0415
             ComponentNotRegisteredError,

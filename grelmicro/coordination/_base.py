@@ -1,5 +1,6 @@
 """Lock Base Classes."""
 
+import random
 from types import TracebackType
 from typing import Annotated, Protocol
 from uuid import UUID
@@ -10,6 +11,16 @@ from typing_extensions import Doc
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._tokens import generate_worker_id
 from grelmicro.coordination.abc import LockPrimitive
+
+# Seam for randomness in retry jitter. Tests pin it to a fixed value.
+_random = random.random
+
+
+def jittered_interval(base: float, jitter: float) -> float:
+    """Return base scaled by uniform(1-jitter, 1+jitter), or base when jitter is 0."""
+    if jitter:
+        return base * (1.0 + jitter * (2.0 * _random() - 1.0))
+    return base
 
 
 class BaseLockConfig(BaseModel):
@@ -26,6 +37,19 @@ class BaseLockConfig(BaseModel):
             """),
         Field(default_factory=generate_worker_id),
     ]
+
+
+def assert_worker_unchanged(
+    current: BaseLockConfig, new: BaseLockConfig
+) -> None:
+    """Reject a reconfigure that would change the immutable `worker` field."""
+    if new.worker != current.worker:
+        msg = (
+            f"reconfigure cannot change worker "
+            f"({current.worker!r} -> {new.worker!r}). "
+            f"Reuse the existing worker on the new config."
+        )
+        raise ValueError(msg)
 
 
 class BaseLock(LockPrimitive, Protocol):

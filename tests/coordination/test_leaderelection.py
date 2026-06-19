@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
+import grelmicro.coordination._base as base_module
 import grelmicro.coordination.leaderelection as le_module
 from grelmicro.coordination.abc import LeaderElectionBackend
 from grelmicro.coordination.leaderelection import (
@@ -860,7 +861,7 @@ async def test_renew_loop_jitter_formula_exact_sleep(
     # Arrange: pin randomness and capture the interval, then stop after one
     # iteration so the loop unwinds.
     random_value = 0.75
-    mocker.patch.object(le_module, "_random", return_value=random_value)
+    mocker.patch.object(base_module, "_random", return_value=random_value)
     recorded: list[float] = []
 
     async def fake_sleep_or_stop(seconds: float, _stop: object) -> bool:
