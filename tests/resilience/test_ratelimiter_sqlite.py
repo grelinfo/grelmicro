@@ -12,7 +12,10 @@ from grelmicro.resilience.ratelimiter import (
     SlidingWindowConfig,
     TokenBucketConfig,
 )
-from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.sqlite import (
+    SQLiteRateLimiterAdapter,
+    _SQLiteTokenBucket,
+)
 
 
 @pytest.fixture
@@ -29,6 +32,28 @@ async def adapter(
     """Rate limiter adapter bound to the provider."""
     async with provider.ratelimiter() as backend:
         yield backend
+
+
+def test_refill_clamps_clock_step_back() -> None:
+    """A backwards wall-clock step never removes tokens from the bucket.
+
+    `now < last` after an NTP step-back must not produce negative refill,
+    which would transiently over-restrict the limiter.
+    """
+    # Arrange
+    bucket = _SQLiteTokenBucket(
+        conn=None,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        lock=None,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        prefix="grel:ratelimiter:test:",
+        table_name="rate_limit",
+        config=TokenBucketConfig(capacity=10, refill_rate=1.0),
+    )
+
+    # Act: last is in the future relative to now (clock stepped back 5s).
+    refilled = bucket._refill(tokens=8.0, last=1005.0, now=1000.0)
+
+    # Assert: tokens are unchanged, not reduced by negative elapsed.
+    assert refilled == 8.0  # noqa: PLR2004
 
 
 def test_invalid_table_name_raises() -> None:

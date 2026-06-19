@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
-from typing import Annotated, Self
+from typing import Annotated, ClassVar, Self
 from uuid import UUID
 
 from pydantic import model_validator
@@ -120,6 +120,10 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
     """
 
     _LOCK_PREFIX = "leader"
+
+    _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"worker"}
+    )
 
     def __init__(  # noqa: PLR0913
         self,
@@ -677,9 +681,12 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             raise ValueError(msg)
 
     async def _release(self) -> None:
-        backend = self._backend
-        if backend is None:
-            # Nothing was acquired, nothing to release.
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+
+        try:
+            backend = self.backend
+        except OutOfContextError:
+            # The app context is already gone, so there is nothing to release.
             return
         config = self._config
         try:

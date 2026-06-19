@@ -1,9 +1,11 @@
 """Tests for the SQLite Provider."""
 
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import aiosqlite
 import pytest
+from pytest_mock import MockerFixture
 
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
 from grelmicro.coordination.sqlite import (
@@ -83,6 +85,27 @@ async def test_open_and_close(tmp_path: Path) -> None:
         assert isinstance(opened.connection_lock.locked(), bool)
     with pytest.raises(OutOfContextError):
         _ = provider.client
+
+
+async def test_aenter_closes_connection_when_pragma_fails(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """A failing WAL PRAGMA closes the opened connection instead of leaking it."""
+    # Arrange: connect succeeds but the PRAGMA execute raises.
+    conn = AsyncMock()
+    conn.execute.side_effect = aiosqlite.OperationalError("disk I/O error")
+    mocker.patch(
+        "grelmicro.providers.sqlite.aiosqlite.connect",
+        new=AsyncMock(return_value=conn),
+    )
+    provider = SQLiteProvider(tmp_path / "wal.db")
+
+    # Act
+    with pytest.raises(aiosqlite.OperationalError, match="disk I/O error"):
+        await provider.__aenter__()
+
+    # Assert: the open connection was closed, not leaked.
+    conn.close.assert_awaited_once()
 
 
 async def test_from_client_does_not_own(tmp_path: Path) -> None:

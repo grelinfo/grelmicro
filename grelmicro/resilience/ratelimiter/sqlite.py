@@ -216,7 +216,8 @@ class _SQLiteTokenBucket(RateLimiterStrategy):
         self._refill_rate = config.refill_rate
 
     def _refill(self, tokens: float, last: float, now: float) -> float:
-        return min(self._capacity, tokens + (now - last) * self._refill_rate)
+        elapsed = max(0.0, now - last)
+        return min(self._capacity, tokens + elapsed * self._refill_rate)
 
     async def acquire(self, *, key: str, cost: int) -> RateLimitResult:
         """Async acquire (token bucket)."""

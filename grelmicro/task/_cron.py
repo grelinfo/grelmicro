@@ -414,7 +414,7 @@ class CronTask(Task):
                 now = _now(self._tz)
                 next_fire = self._expr.next_after(now)
                 self._next_fire_time = next_fire
-                delay = (next_fire - now).total_seconds()
+                delay = next_fire.timestamp() - now.timestamp()
                 # Wait until the next fire instant, waking early on stop.
                 if await sleep_or_stop(delay, stop):
                     break
