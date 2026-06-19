@@ -19,7 +19,7 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 | ------------------- | :------------------------------------------------------------: | :------------------------------------------------------------: | :------------------------------------------------------------: | :------------------------------------------------------------: | :--------: |
 | `Lock`              | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
 | `TaskLock`          | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
-| `LeaderElection`    | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
+| `LeaderElection`    | ✅                                                             | ✅                                                             | ✅                                                             | N/A                                                            | ✅         |
 | `Schedule` (cron)   | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
 | `TTLCache`          | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
 | `RateLimiter`       | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
@@ -32,7 +32,7 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 Legend:
 
 - ✅ ships today.
-- `N/A` does not apply. `Retry`, `Bulkhead`, `Fallback`, and `Timeout` are in-process Patterns with no remote state to share. For `Schedule` (cron), Kubernetes has no Adapter on purpose: run a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) instead.
+- `N/A` does not apply. `Retry`, `Bulkhead`, `Fallback`, and `Timeout` are in-process Patterns with no remote state to share. For `Schedule` (cron), Kubernetes has no Adapter on purpose: run a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) instead. For `LeaderElection`, SQLite has no adapter: leader election is meaningful only across multiple nodes, and SQLite does not coordinate across nodes.
 
 ## Picking an Adapter
 

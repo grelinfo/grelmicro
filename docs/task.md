@@ -203,7 +203,7 @@ Each task exposes two read-only properties for observability:
   or `None` when the task has not started yet. For interval tasks, this is
   computed from the last loop instant. For cron tasks, it comes from the
   parsed expression.
-- **`last_fire`**: a `FireInfo` with the started time, outcome
+- **`last_fire`**: a `FireInfo` with the `started_at` timestamp, outcome
   (`"success"`, `"error"`, or `"skipped"`), and duration in seconds. `None`
   before the first fire.
 

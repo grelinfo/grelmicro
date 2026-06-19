@@ -19,7 +19,7 @@ The backend uses **Lease** resources from the `coordination.k8s.io/v1` API group
 The backend uses Kubernetes **resourceVersion** for optimistic concurrency control:
 
 - **Acquire**: GET the Lease. If 404 → CREATE. If expired or same token → REPLACE (with resourceVersion). If held by another → return `False`. On 409 Conflict → return `False`.
-- **Release**: GET the Lease. If token matches and not expired → DELETE. Otherwise `False`.
+- **Release**: GET the Lease. If token matches and not expired → REPLACE clearing `holderIdentity`, `acquireTime`, and `renewTime` (vacate in place, never DELETE). Otherwise `False`.
 - **Locked**: GET the Lease. Check `renewTime + leaseDurationSeconds >= now`.
 - **Owned**: GET the Lease. Check `holderIdentity == token` and `renewTime + leaseDurationSeconds >= now`.
 

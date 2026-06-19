@@ -109,7 +109,7 @@ from grelmicro.providers.redis import RedisProvider
 client = redis.Redis(host="prod.cache", socket_timeout=5)
 redis_provider = RedisProvider.from_client(client)  # caller owns the client
 
-micro = Grelmicro(uses=[redis_provider, Cache(redis_provider)])
+micro = Grelmicro(uses=[Cache(redis_provider)])
 ```
 
 Pass `own=True` to hand ownership to the provider. It will close the
@@ -224,9 +224,9 @@ Each Provider exposes factory methods that return its matching adapter:
 |----------------------------|-------------------------------|:-------------:|:--------------:|:----------------:|:--------------:|
 | `.lock(**kwargs)`           | `LockBackend` implementation  |       ✓        |       ✓        |        ✓         |       ✓        |
 | `.leaderelection(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |       ✓        |        ✓         |      N/A       |
-| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |       ✓        |        ✓         |      N/A       |
+| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |       ✓        |        ✓         |       ✓        |
 | `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |       ✓        |        ✓         |       ✓        |
-| `.circuitbreaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |       ✓        |        ✓         |      N/A       |
+| `.circuitbreaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |       ✓        |        ✓         |       ✓        |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
@@ -293,7 +293,7 @@ same way.
 
 ## Postgres
 
-`PostgresProvider` ships the `.lock()` and `.leaderelection()` factories. The
+`PostgresProvider` ships all factory methods: `.lock()`, `.leaderelection()`, `.cache()`, `.ratelimiter()`, and `.circuitbreaker()`. The
 provider wraps an `asyncpg.Pool` and opens it lazily on `__aenter__`.
 
 ```python
@@ -340,7 +340,7 @@ PostgresProvider.from_client(pool)              # bring-your-own pool
 
 ## SQLite
 
-`SQLiteProvider` ships the `.lock()` and `.ratelimiter()` factories. The
+`SQLiteProvider` ships the `.lock()`, `.ratelimiter()`, `.cache()`, and `.circuitbreaker()` factories. The
 provider owns one `aiosqlite` connection (autocommit, WAL) and a shared
 lock that adapters borrow.
 

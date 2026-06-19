@@ -20,6 +20,6 @@ async def check_redis() -> HealthDetails | None:
 @health.check("external-api", critical=False)
 async def check_external_api() -> HealthDetails | None:
     # Raise HealthError to expose a specific message in the error field.
-    # Other exceptions produce a generic "Health check failed" message.
+    # Other exceptions produce an error formatted as "{ExceptionType}: {message}".
     msg = "Connection refused"
     raise HealthError(msg)

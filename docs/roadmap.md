@@ -8,7 +8,6 @@ Post-1.0 items planned for future releases. All are purely additive. No dates ar
 - **Adaptive `Bulkhead`**: the CUBIC machinery inside Shield, exposed as `Bulkhead.adaptive()`.
 - **Deadline propagation**: a contextvar deadline that `Timeout`, `Retry`, and `Shield` respect.
 - **Framework depth**: `Depends()` helpers, an ASGI per-route rate-limit middleware, Litestar and FastStream integration.
-- **Built-in health check per provider**: each provider ships a readiness probe (Redis and Valkey ping, Postgres `SELECT 1`, SQLite quick check), auto-registered by `HealthChecks`. Memory and Kubernetes need none, they own no provider to probe. ([#363](https://github.com/grelinfo/grelmicro/issues/363))
 - **Observability depth**: provider pool metrics, lock acquire latency, metric exemplars.
 - **More backends**: MySQL/MariaDB, MongoDB, etcd/ZooKeeper.
 - **Multi-window rate limits and task pause/resume**: additive features with lower urgency.
