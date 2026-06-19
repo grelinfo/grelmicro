@@ -1,7 +1,6 @@
 """Leader Election."""
 
 import asyncio
-import random
 from collections.abc import Mapping
 from logging import getLogger
 from time import monotonic
@@ -15,7 +14,11 @@ from typing_extensions import Doc
 from grelmicro._app import Grelmicro
 from grelmicro._async import sleep_or_stop
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
-from grelmicro.coordination._base import BaseLockConfig
+from grelmicro.coordination._base import (
+    BaseLockConfig,
+    assert_worker_unchanged,
+    jittered_interval,
+)
 from grelmicro.coordination.abc import (
     LeaderElectionBackend,
     LeaderRecord,
@@ -26,9 +29,6 @@ from grelmicro.errors import WouldBlockError
 from grelmicro.task.abc import Task
 
 logger = getLogger("grelmicro.leader_election")
-
-# Seam for randomness in retry jitter. Tests pin it to a fixed value.
-_random = random.random
 
 
 class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
@@ -553,13 +553,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 await self._try_acquire_or_renew(config)
                 # On a graceful stop, break and let the finally block
                 # release leadership on the backend before unwinding.
-                jitter = config.retry_jitter
-                if jitter:
-                    interval = config.retry_interval * (
-                        1.0 + jitter * (2.0 * _random() - 1.0)
-                    )
-                else:
-                    interval = config.retry_interval
+                interval = jittered_interval(
+                    config.retry_interval, config.retry_jitter
+                )
                 if await sleep_or_stop(interval, stop):
                     break
         except asyncio.CancelledError:
@@ -672,13 +668,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         self, new_config: LeaderElectionConfig
     ) -> None:
         """Validate the immutable `worker` field before publishing `new_config`."""
-        if new_config.worker != self._config.worker:
-            msg = (
-                f"reconfigure cannot change worker "
-                f"({self._config.worker!r} -> {new_config.worker!r}). "
-                f"Reuse the existing worker on the new config."
-            )
-            raise ValueError(msg)
+        assert_worker_unchanged(self._config, new_config)
 
     async def _release(self) -> None:
         from grelmicro.errors import OutOfContextError  # noqa: PLC0415

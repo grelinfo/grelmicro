@@ -9,6 +9,7 @@ from threading import get_ident
 import pytest
 from pytest_mock import MockerFixture
 
+import grelmicro.coordination._base as base_module
 import grelmicro.coordination.lock as lock_module
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination.abc import LockBackend
@@ -991,7 +992,7 @@ async def test_lock_acquire_jitter_applied(
     lock: Lock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Jitter scales the retry interval when _random is pinned."""
-    monkeypatch.setattr(lock_module, "_random", lambda: 1.0)
+    monkeypatch.setattr(base_module, "_random", lambda: 1.0)
     # With jitter=0.1 and _random()=1.0: interval = retry_interval * (1 + 0.1 * 1.0) = 1.1x
     # This test just verifies acquire still completes without error.
     handle = await lock.acquire()
@@ -1062,7 +1063,7 @@ async def test_acquire_with_jitter_scales_retry_sleep(
         "do_acquire",
         mocker.AsyncMock(side_effect=[None, expected_fencing_token]),
     )
-    mocker.patch.object(lock_module, "_random", return_value=1.0)
+    mocker.patch.object(base_module, "_random", return_value=1.0)
 
     # Act
     handle = await waiter.acquire()
@@ -1091,7 +1092,7 @@ async def test_acquire_jitter_formula_exact_sleep(
     mocker.patch.object(
         waiter, "do_acquire", mocker.AsyncMock(side_effect=[None, 7])
     )
-    mocker.patch.object(lock_module, "_random", return_value=random_value)
+    mocker.patch.object(base_module, "_random", return_value=random_value)
     recorded: list[float] = []
     mocker.patch.object(
         lock_module.asyncio,
@@ -1159,7 +1160,7 @@ async def test_thread_acquire_jitter_formula_exact_sleep(
     mocker.patch.object(
         waiter, "do_acquire", mocker.AsyncMock(side_effect=[None, 7])
     )
-    mocker.patch.object(lock_module, "_random", return_value=random_value)
+    mocker.patch.object(base_module, "_random", return_value=random_value)
     recorded: list[float] = []
     mocker.patch.object(
         lock_module.asyncio,

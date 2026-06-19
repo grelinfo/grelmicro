@@ -17,7 +17,10 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable, env_segment, resolve_config
-from grelmicro.coordination._base import BaseLockConfig
+from grelmicro.coordination._base import (
+    BaseLockConfig,
+    assert_worker_unchanged,
+)
 from grelmicro.coordination._tokens import (
     generate_task_token,
     generate_thread_token,
@@ -490,13 +493,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
     async def _apply_reconfigure(self, new_config: TaskLockConfig) -> None:
         """Validate the immutable `worker` field before publishing `new_config`."""
-        if new_config.worker != self._config.worker:
-            msg = (
-                f"reconfigure cannot change worker "
-                f"({self._config.worker!r} -> {new_config.worker!r}). "
-                f"Reuse the existing worker on the new config."
-            )
-            raise ValueError(msg)
+        assert_worker_unchanged(self._config, new_config)
 
     async def do_exit(self, token: str, *, min_lock_seconds: Seconds) -> None:
         """Handle exit logic: release or re-acquire based on elapsed time.
