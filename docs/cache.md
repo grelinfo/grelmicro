@@ -196,7 +196,7 @@ The factory shares the same stampede protection as `@cached(lock=True)`. When ma
 Pass `stale_ttl=` to serve the last good value when the factory fails, the same serve-stale-on-error behavior as [`@cached(stale_ttl=...)`](#serve-stale-on-error).
 
 ```python title="get_or_set.py"
---8<-- "docs/snippets/cache/get_or_set.py"
+--8<-- "cache/get_or_set.py"
 ```
 
 ### Batch Operations
@@ -213,7 +213,7 @@ await cache.delete_many(["user:1", "user:2"])
 ```
 
 ```python title="batch.py"
---8<-- "docs/snippets/cache/batch.py"
+--8<-- "cache/batch.py"
 ```
 
 ### Tags and Invalidation
@@ -243,7 +243,7 @@ await cache.delete_tags("users")     # drop every cached user
 Literal tags with no `{...}` pass through unchanged. Tags work the same across Memory, Redis, and Postgres. Invalidating by tag stays consistent even when keys expire on their own.
 
 ```python title="tags.py"
---8<-- "docs/snippets/cache/tags.py"
+--8<-- "cache/tags.py"
 ```
 
 ## @cached Decorator

@@ -28,3 +28,8 @@ tmp/
 # AI assistant files
 .claude
 todo.md
+
+# mutmut working copy
+mutants/
+.mutmut-cache
+html/

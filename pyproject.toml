@@ -196,6 +196,9 @@ docs = [
     "pymdown-extensions>=10.12",
     "mdx-include>=1.4.2",
 ]
+mutation = [
+    "mutmut>=3",
+]
 
 [build-system]
 requires = ["hatchling>=1.25,<2", "hatch-fancy-pypi-readme>=24,<26"]
@@ -341,3 +344,17 @@ exclude_also = [
     "pytest.fail\\(.*\\)",
     "pass",
 ]
+
+# Mutation testing. Run with `just mutation` (must be `python -m mutmut` so the
+# mutants/ copy shadows the editable install). The whole package is copied so
+# imports resolve; only_mutate scopes which files are mutated. Point it at the
+# file under campaign and widen pytest_add_cli_args_test_selection to match.
+[tool.mutmut]
+source_paths = ["grelmicro/"]
+only_mutate = [
+    "grelmicro/resilience/ratelimiter/memory.py",
+    "grelmicro/resilience/circuitbreaker/memory.py",
+]
+pytest_add_cli_args_test_selection = ["tests/resilience/"]
+pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
+also_copy = ["README.md"]
