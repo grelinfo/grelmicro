@@ -70,9 +70,7 @@ def test_fallback_prebuilt_config_is_static() -> None:
 
 def test_retry_kwargs_built_is_tracked() -> None:
     """A kwargs-built `Retry` registers for external reconfigure."""
-    policy = Retry(
-        "track-retry", ConstantBackoff(delay=1.0), when=ValueError
-    )
+    policy = Retry("track-retry", ConstantBackoff(delay=1.0), when=ValueError)
     assert policy._env_prefix is not None
     assert policy in reconfigurable_instances()
 
