@@ -306,9 +306,12 @@ max-args = 10
 [tool.ty.src]
 # The logo build script is an adhoc PEP 723 utility (``uv run`` pulls its
 # deps into an ephemeral env). Project-level type checking can't see
-# ``resvg_py`` or ``fontTools`` and has no reason to.
+# ``resvg_py`` or ``fontTools`` and has no reason to. The mutmut runner
+# imports ``mutmut``, which lives in the optional ``mutation`` dependency
+# group that CI does not install.
 exclude = [
     "docs/img/logo/build_logo.py",
+    "tools/run_mutmut.py",
 ]
 
 [tool.pytest.ini_options]
