@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.0a2 - 2026-06-21
+
 ### Features
 
 * ✨ Add a built-in readiness check per provider. Every connection provider ships a cheap `check()` probe (Redis and Valkey `PING`, Postgres and SQLite `SELECT 1`). Register it with `health.add_provider(redis)` as a critical `provider:redis` check, or register one for every active provider at once with `HealthChecks(auto_health=True)`. `Grelmicro.providers` lists the active providers.
