@@ -27,7 +27,10 @@ from grelmicro.errors import OutOfContextError
 from grelmicro.errors import WouldBlockError as WouldBlock
 from tests._faults import cancel_midflight
 
-pytestmark = [pytest.mark.timeout(1)]
+# 5s, not 1s: the from_thread tests do several thread-to-loop round-trips that
+# slow down under heavy parallel CI load. The timeout guards against hangs, so
+# the extra headroom avoids flakes without weakening that guarantee.
+pytestmark = [pytest.mark.timeout(5)]
 
 WORKER_1 = 0
 WORKER_2 = 1
