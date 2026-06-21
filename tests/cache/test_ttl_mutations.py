@@ -254,13 +254,6 @@ class TestStaleBranchFolding:
         assert calls == 1
 
 
-def _shared_cache(loop: asyncio.AbstractEventLoop) -> TTLCache:
-    """Build a TTLCache on a backend whose loop is already primed."""
-    shared_backend = MemoryCacheAdapter()
-    shared_backend._loop = loop
-    return TTLCache(backend=shared_backend, serializer=PickleSerializer())
-
-
 class TestDistributedGetOrSet:
     """Pin `auto_distributed=True` folding across simulated replicas."""
 
