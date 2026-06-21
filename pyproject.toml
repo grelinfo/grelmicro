@@ -354,6 +354,11 @@ source_paths = ["grelmicro/"]
 only_mutate = [
     "grelmicro/resilience/ratelimiter/memory.py",
     "grelmicro/resilience/circuitbreaker/memory.py",
+    "grelmicro/resilience/backoffs/constant.py",
+    "grelmicro/resilience/backoffs/linear.py",
+    "grelmicro/resilience/backoffs/exponential.py",
+    "grelmicro/resilience/backoffs/fibonacci.py",
+    "grelmicro/resilience/backoffs/random.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/resilience/"]
 pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
