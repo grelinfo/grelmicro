@@ -90,6 +90,39 @@ def test_decorrelated_jitter_within_bounds(
         assert _DEFAULT_BASE <= d <= _DECORR_MAX
 
 
+_DECORR_LARGE_MAX = 1000.0
+_DECORR_FACTOR = 3
+
+
+def test_decorrelated_jitter_upper_bound_is_previous_times_three(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Decorrelated jitter samples up to `previous * 3`, chained per attempt."""
+    config = ExponentialBackoff(
+        base_delay=_DEFAULT_BASE,
+        max_delay=_DECORR_LARGE_MAX,
+        jitter="decorrelated",
+    )
+    strategy = _ExponentialStrategy(config)
+    bounds: list[tuple[float, float]] = []
+
+    def record(lo: float, hi: float) -> float:
+        bounds.append((lo, hi))
+        return hi  # becomes the next attempt's `previous`
+
+    monkeypatch.setattr("random.uniform", record)
+
+    for n in range(1, 4):
+        strategy.delay(n)
+
+    # `previous` starts at base_delay and chains to each returned value.
+    previous = _DEFAULT_BASE
+    for lo, hi in bounds:
+        assert lo == _DEFAULT_BASE
+        assert hi == previous * _DECORR_FACTOR
+        previous = hi
+
+
 def test_frozen_config() -> None:
     """`ExponentialBackoff` is frozen."""
     config = ExponentialBackoff()

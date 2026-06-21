@@ -237,6 +237,9 @@ select = ["ALL"]
 ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 
 [tool.ruff.lint.extend-per-file-ignores]
+"tools/*" = [
+    "INP001",  # standalone dev scripts, not an importable package
+]
 "examples/*" = [
     "ARG001",  # FastAPI lifespan signature requires the `app` argument
     "D103",    # demo endpoints document their Pattern in a one-line comment
@@ -352,9 +355,10 @@ exclude_also = [
 [tool.mutmut]
 source_paths = ["grelmicro/"]
 only_mutate = [
-    "grelmicro/resilience/ratelimiter/memory.py",
-    "grelmicro/resilience/circuitbreaker/memory.py",
+    "grelmicro/resilience/shield/_timeout_estimator.py",
+    "grelmicro/resilience/shield/_adaptive_gate.py",
+    "grelmicro/resilience/shield/_shield.py",
 ]
-pytest_add_cli_args_test_selection = ["tests/resilience/"]
+pytest_add_cli_args_test_selection = ["tests/resilience/shield/"]
 pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
 also_copy = ["README.md"]
