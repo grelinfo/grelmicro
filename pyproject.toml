@@ -355,10 +355,11 @@ exclude_also = [
 [tool.mutmut]
 source_paths = ["grelmicro/"]
 only_mutate = [
-    "grelmicro/resilience/shield/_timeout_estimator.py",
-    "grelmicro/resilience/shield/_adaptive_gate.py",
-    "grelmicro/resilience/shield/_shield.py",
+    "grelmicro/coordination/memory.py",
+    "grelmicro/coordination/leaderelection.py",
+    "grelmicro/coordination/tasklock.py",
+    "grelmicro/coordination/lock.py",
 ]
-pytest_add_cli_args_test_selection = ["tests/resilience/shield/"]
+pytest_add_cli_args_test_selection = ["tests/coordination/"]
 pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
 also_copy = ["README.md"]
