@@ -6,6 +6,10 @@ on:
         description: 'Run the full matrix with the slow, integration, and demo tiers.'
         type: boolean
         default: false
+      ref:
+        description: 'Git ref to check out and test. Defaults to the triggering ref.'
+        type: string
+        default: ''
     secrets:
       CODECOV_TOKEN:
         description: 'Token for uploading coverage and test results to Codecov.'
@@ -26,8 +30,9 @@ jobs:
         python: ${{ fromJSON(inputs.full && '["3.12","3.13","3.14"]' || '["3.12"]') }}
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.0
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -75,7 +80,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Run Integration Tests
         if: ${{ inputs.full }}
-        id: integration_tests
         run: pytest -x -m integration --cov --junitxml=junit.xml -o junit_family=legacy
       - name: Upload Integration Test Coverage to Codecov
         if: ${{ inputs.full }}
@@ -99,8 +103,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.0
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
       - name: Start the demo stack
         run: docker compose -f examples/fastapi-demo/compose.yml up --build --wait --wait-timeout 240
