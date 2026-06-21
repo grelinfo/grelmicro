@@ -16,9 +16,11 @@ demo-down:
     docker compose -f examples/fastapi-demo/compose.yml down -v
 
 # Mutation-test the files in [tool.mutmut] only_mutate (set the target there).
-# Must run as `python -m mutmut` so the mutants/ copy shadows the editable install.
+# Uses tools/run_mutmut.py, which disables string-literal mutations (almost all
+# log and exception message text here) and runs as `python -m mutmut` so the
+# mutants/ copy shadows the editable install.
 mutation:
-    uv run python -m mutmut run
+    uv run python tools/run_mutmut.py run
     uv run python -m mutmut results
 
 # List surviving mutants from the last mutation run.

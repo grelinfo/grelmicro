@@ -237,6 +237,9 @@ select = ["ALL"]
 ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 
 [tool.ruff.lint.extend-per-file-ignores]
+"tools/*" = [
+    "INP001",  # standalone dev scripts, not an importable package
+]
 "examples/*" = [
     "ARG001",  # FastAPI lifespan signature requires the `app` argument
     "D103",    # demo endpoints document their Pattern in a one-line comment
@@ -352,13 +355,10 @@ exclude_also = [
 [tool.mutmut]
 source_paths = ["grelmicro/"]
 only_mutate = [
-    "grelmicro/resilience/ratelimiter/memory.py",
-    "grelmicro/resilience/circuitbreaker/memory.py",
-    "grelmicro/resilience/backoffs/constant.py",
-    "grelmicro/resilience/backoffs/linear.py",
-    "grelmicro/resilience/backoffs/exponential.py",
-    "grelmicro/resilience/backoffs/fibonacci.py",
-    "grelmicro/resilience/backoffs/random.py",
+    "grelmicro/resilience/timeout.py",
+    "grelmicro/resilience/bulkhead.py",
+    "grelmicro/resilience/fallback.py",
+    "grelmicro/resilience/_match.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/resilience/"]
 pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
