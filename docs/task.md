@@ -233,7 +233,7 @@ next_fire = task.next_fire_time  # None until the first loop iteration
 For bigger applications, use the `TaskRouter` class to organize tasks across modules:
 
 ```python
---8<-- "task/router.py:1-10"
+--8<-- "task/router.py:1:10"
 ```
 
 Then include the `TaskRouter` into the `Tasks` or other routers:

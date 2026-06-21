@@ -77,7 +77,7 @@ jobs:
       - name: Install Docs Dependencies
         run: uv sync --group docs
       - name: Build Docs
-        run: mkdocs build
+        run: mkdocs build --strict
       - name: Deploy Docs on GitHub Pages
         if: ${{ github.event.inputs.dry_run != 'true' }}
         run: mkdocs gh-deploy --force

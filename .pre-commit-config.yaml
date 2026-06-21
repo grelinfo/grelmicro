@@ -82,8 +82,16 @@ repos:
     language: system
     pass_filenames: false
 
+  - id: mkdocs-build
+    name: mkdocs-build
+    description: "Build docs with --strict to catch snippet, link, and nav drift"
+    entry: uv run --group docs mkdocs build --strict
+    language: system
+    pass_filenames: false
+    files: '(^docs/|^mkdocs\.yml$|^README\.md$|^THIRD_PARTY_NOTICES\.md$)'
+
 
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
   autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
-  skip: [uv-lock, ty-check, pytest-unit, pytest-integration, coverage-report]
+  skip: [uv-lock, ty-check, pytest-unit, pytest-integration, coverage-report, mkdocs-build]

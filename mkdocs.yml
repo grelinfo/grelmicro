@@ -165,3 +165,4 @@ markdown_extensions:
       alternate_style: true
   - pymdownx.snippets:
       base_path: docs/snippets
+      check_paths: true
