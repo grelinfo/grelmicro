@@ -1059,7 +1059,7 @@ def test_env_when_resolves_nested_fqn(
     monkeypatch.setenv(
         "GREL_RETRY_NESTEDFQN_WHEN", "asyncio.exceptions.TimeoutError"
     )
-    policy = Retry("nestedfqn", env_load=True)  # type: ignore[call-arg]
+    policy = Retry("nestedfqn", env_load=True)
     matcher = policy.config.when
     assert matcher(Outcome.from_exception(TimeoutError())) is True
 
