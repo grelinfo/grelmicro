@@ -453,6 +453,52 @@ class TestAsyncCachedStampede:
             stampede_mod._evict_idle_locks(locks)
         assert len(locks) == 4  # noqa: PLR2004
 
+    async def test_per_key_lock_eviction_trims_oversize_dict_in_one_call(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """One call trims a dict already far over budget down to the budget.
+
+        Adds many idle locks at once before a single `_evict_idle_locks`
+        call, so a body that stops after one eviction (`break` to `return`)
+        is caught.
+        """
+        import sys  # noqa: PLC0415
+        from collections import OrderedDict  # noqa: PLC0415
+
+        import grelmicro.cache._stampede  # noqa: F401, PLC0415
+
+        stampede_mod = sys.modules["grelmicro.cache._stampede"]
+
+        monkeypatch.setattr(stampede_mod, "_PER_KEY_LOCK_BUDGET", 3)
+        locks: OrderedDict[str, asyncio.Lock] = OrderedDict(
+            (f"k{i}", asyncio.Lock()) for i in range(10)
+        )
+
+        stampede_mod._evict_idle_locks(locks)
+
+        assert len(locks) == 3  # noqa: PLR2004
+        # Eviction drops the oldest first, so the newest keys remain.
+        assert list(locks) == ["k7", "k8", "k9"]
+
+    def test_stampede_lock_name_is_prefixed_32_char_digest(self) -> None:
+        """The lock name is `cache.stampede.<first 32 hex of sha256(key)>`."""
+        import hashlib  # noqa: PLC0415
+        import sys  # noqa: PLC0415
+
+        import grelmicro.cache._stampede  # noqa: F401, PLC0415
+
+        stampede_mod = sys.modules["grelmicro.cache._stampede"]
+
+        key = "my.module.fn:abc123"
+        digest = hashlib.sha256(key.encode()).hexdigest()[:32]
+        expected = f"cache.stampede.{digest}"
+
+        name = stampede_mod._stampede_lock_name(key)
+
+        assert name == expected
+        assert len(digest) == 32  # noqa: PLR2004
+
     async def test_per_key_lock_eviction_keeps_held_entries(
         self,
         monkeypatch: pytest.MonkeyPatch,
