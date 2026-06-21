@@ -10,9 +10,12 @@ from grelmicro._config import reconfigurable_instances
 from grelmicro.resilience import (
     Bulkhead,
     BulkheadConfig,
+    ConstantBackoff,
     Fallback,
     FallbackConfig,
     Match,
+    Retry,
+    RetryConfig,
     Timeout,
     TimeoutConfig,
 )
@@ -61,5 +64,21 @@ def test_fallback_prebuilt_config_is_static() -> None:
         "static-fallback",
         FallbackConfig(when=Match.exception(ValueError), default=None),
     )
+    assert policy._env_prefix is None
+    assert policy not in reconfigurable_instances()
+
+
+def test_retry_kwargs_built_is_tracked() -> None:
+    """A kwargs-built `Retry` registers for external reconfigure."""
+    policy = Retry(
+        "track-retry", ConstantBackoff(delay=1.0), when=ValueError
+    )
+    assert policy._env_prefix is not None
+    assert policy in reconfigurable_instances()
+
+
+def test_retry_prebuilt_config_is_static() -> None:
+    """A `Retry` built from a pre-built config stays static."""
+    policy = Retry.from_config("static-retry", RetryConfig(when=(ValueError,)))
     assert policy._env_prefix is None
     assert policy not in reconfigurable_instances()
