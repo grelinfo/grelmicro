@@ -18,11 +18,11 @@ Require starship
 
 Set Shell "zsh"
 Set FontFamily "FiraCode Nerd Font Mono"
-Set FontSize 14
+Set FontSize 24
 Set Theme "GitHub Dark"
-Set Width 1120
-Set Height 700
-Set Padding 22
+Set Width 1280
+Set Height 820
+Set Padding 24
 Set Margin 18
 Set MarginFill "#0d1117"
 Set BorderRadius 12
