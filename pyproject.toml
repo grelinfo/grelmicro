@@ -355,13 +355,11 @@ exclude_also = [
 [tool.mutmut]
 source_paths = ["grelmicro/"]
 only_mutate = [
-    "grelmicro/cache/_key.py",
-    "grelmicro/cache/serializers.py",
-    "grelmicro/cache/memory.py",
-    "grelmicro/cache/_stampede.py",
-    "grelmicro/cache/ttl.py",
-    "grelmicro/cache/cached.py",
+    "grelmicro/coordination/memory.py",
+    "grelmicro/coordination/leaderelection.py",
+    "grelmicro/coordination/tasklock.py",
+    "grelmicro/coordination/lock.py",
 ]
-pytest_add_cli_args_test_selection = ["tests/cache/"]
+pytest_add_cli_args_test_selection = ["tests/coordination/"]
 pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
 also_copy = ["README.md"]
