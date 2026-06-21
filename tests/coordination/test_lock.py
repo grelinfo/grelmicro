@@ -265,6 +265,28 @@ async def test_lock_from_thread_acquire(lock: Lock) -> None:
     assert locked_after is True
 
 
+async def test_lock_from_thread_acquire_waits_without_timeout(
+    lock: Lock, locks: list[Lock]
+) -> None:
+    """A contended `from_thread.acquire()` with no timeout retries then wins.
+
+    The lock is held first, so the thread acquire enters its retry loop with
+    `deadline=None`. The retry-exit guard must short-circuit on the `None`
+    deadline rather than compare the loop clock against `None`.
+    """
+    await locks[WORKER_1].acquire()  # short lease, expires during the wait
+    handle: LockHandle | None = None
+
+    def sync() -> None:
+        nonlocal handle
+        handle = lock.from_thread.acquire()  # timeout=None
+
+    await asyncio.to_thread(sync)
+
+    assert handle is not None
+    assert handle.fencing_token >= 1
+
+
 async def test_lock_acquire_wait(lock: Lock, locks: list[Lock]) -> None:
     """Test Lock acquire wait."""
     # Arrange
@@ -560,15 +582,17 @@ async def test_acquire_returns_handle(lock: Lock) -> None:
 
     assert isinstance(handle, LockHandle)
     assert handle.name == LOCK_NAME
-    assert handle.token
+    assert handle.token.startswith("worker_0:task:")
     assert handle.fencing_token >= 1
 
 
 async def test_acquire_nowait_returns_handle(lock: Lock) -> None:
-    """`acquire_nowait` returns a LockHandle."""
+    """`acquire_nowait` returns a LockHandle carrying the name and task token."""
     handle = await lock.acquire_nowait()
 
     assert isinstance(handle, LockHandle)
+    assert handle.name == LOCK_NAME
+    assert handle.token.startswith("worker_0:task:")
     assert handle.fencing_token >= 1
 
 
@@ -589,6 +613,8 @@ async def test_from_thread_acquire_returns_handle(lock: Lock) -> None:
     await asyncio.to_thread(sync)
 
     assert isinstance(handles[0], LockHandle)
+    assert handles[0].name == LOCK_NAME
+    assert ":thread:" in handles[0].token
     assert handles[0].fencing_token >= 1
 
 
@@ -602,6 +628,9 @@ async def test_from_thread_acquire_nowait_returns_handle(lock: Lock) -> None:
     await asyncio.to_thread(sync)
 
     assert isinstance(handles[0], LockHandle)
+    assert handles[0].name == LOCK_NAME
+    assert handles[0].token.startswith("worker_0:thread:")
+    assert handles[0].fencing_token >= 1
 
 
 async def test_from_thread_context_manager_binds_handle(lock: Lock) -> None:
@@ -967,6 +996,7 @@ async def test_lock_extend_renews_same_fencing_token(lock: Lock) -> None:
 
     extended = await lock.extend()
 
+    assert extended.name == LOCK_NAME
     assert extended.fencing_token == first.fencing_token
     assert extended.token == first.token
 
@@ -1208,6 +1238,27 @@ async def test_from_thread_acquire_timeout(backend: LockBackend) -> None:
     await holder.release()
 
 
+async def test_from_thread_acquire_timeout_succeeds_when_freed_in_time(
+    locks: list[Lock],
+) -> None:
+    """A bounded thread acquire wins once the short lease expires before the deadline.
+
+    The deadline is `now + timeout`. A flipped sign would put it in the past
+    and raise TimeoutError on the first retry instead of waiting.
+    """
+    await locks[WORKER_1].acquire()  # lease_duration=0.01, expires quickly
+    handle: LockHandle | None = None
+
+    def sync() -> None:
+        nonlocal handle
+        handle = locks[WORKER_2].from_thread.acquire(timeout=0.5)
+
+    await asyncio.to_thread(sync)
+
+    assert handle is not None
+    assert handle.fencing_token >= 1
+
+
 async def test_from_thread_extend(lock: Lock) -> None:
     """A thread extend renews the lease and keeps the fencing token."""
     # Arrange
@@ -1226,6 +1277,8 @@ async def test_from_thread_extend(lock: Lock) -> None:
     # Assert
     assert acquired is not None
     assert extended is not None
+    assert extended.name == LOCK_NAME
+    assert ":thread:" in extended.token
     assert extended.fencing_token == acquired.fencing_token
 
 
