@@ -12,7 +12,7 @@ class User(BaseModel):
 
 postgres = PostgresProvider("postgresql://localhost:5432/app")
 cache = Cache(postgres)
-micro = Grelmicro(uses=[postgres, cache])
+micro = Grelmicro(uses=[cache])
 
 ttl_cache = cache.ttl(ttl=300, serializer=PydanticSerializer(User))
 

@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://grelinfo.github.io/grelmicro/providers/">
       
       
-        <link rel="prev" href="../idempotency/">
+        <link rel="prev" href="../configuration/reconfigure-from-configmap/">
       
       
-        <link rel="next" href="../health/">
+        <link rel="next" href="../capabilities/">
       
       
         
@@ -315,118 +315,10 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../comparison/" class="md-nav__link">
+    
+    
+      
         
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Comparison
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../capabilities/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Capability matrix
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../roadmap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Roadmap
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../benchmarks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Benchmarks
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    
-    
       
         
       
@@ -456,14 +348,14 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -481,8 +373,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_7">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -499,14 +391,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/" class="md-nav__link">
+      <a href="../first-steps/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Configuration
+    First Steps
   
 
     
@@ -527,14 +419,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/reconfigure-from-configmap/" class="md-nav__link">
+      <a href="../wiring/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Reconfigure from a ConfigMap
+    Wiring an App
   
 
     
@@ -608,252 +500,17 @@
                 
   
   
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Providers
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Providers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#recommended-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Recommended shape
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#recipe-1-env-driven" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Recipe 1: env-driven
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#recipe-2-split-pools-by-env-prefix" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Recipe 2: split pools by env prefix
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#recipe-3-bring-your-own-client" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Recipe 3: bring your own client
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#construction-forms" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Construction forms
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sentinel-and-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sentinel and Cluster
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Sentinel and Cluster">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#failover-on-sentinel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Failover on Sentinel
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-hash-tag-rule-on-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The hash-tag rule on Cluster
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#factory-methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Factory methods
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#valkey" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Valkey
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#postgres" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Postgres
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sqlite" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        SQLite
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#lifecycle" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lifecycle
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#memory-backends" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Memory backends
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
   
   
     <li class="md-nav__item">
-      <a href="../health/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Health Checks
+    Coordination
   
 
     
@@ -874,70 +531,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../logging/" class="md-nav__link">
+      <a href="../task/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Logging
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../tracing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Tracing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../metrics/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Metrics
+    Task Scheduler
   
 
     
@@ -988,7 +589,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_10" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1010,14 +611,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_10" id="__nav_7_10_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_10_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_10">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1268,14 +869,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../coordination/" class="md-nav__link">
+      <a href="../health/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Coordination
+    Health Checks
   
 
     
@@ -1296,14 +897,582 @@
   
   
     <li class="md-nav__item">
-      <a href="../task/" class="md-nav__link">
+      <a href="../logging/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Task Scheduler
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Declarative Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/reconfigure-from-configmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconfigure from a ConfigMap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended shape
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recipe-1-env-driven" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recipe 1: env-driven
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recipe-2-split-pools-by-env-prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recipe 2: split pools by env prefix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recipe-3-bring-your-own-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recipe 3: bring your own client
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#construction-forms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Construction forms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sentinel-and-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sentinel and Cluster
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sentinel and Cluster">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#failover-on-sentinel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failover on Sentinel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-hash-tag-rule-on-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The hash-tag rule on Cluster
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#factory-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory methods
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#readiness-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Readiness check
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#valkey" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Valkey
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#postgres" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Postgres
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sqlite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SQLite
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory backends
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../capabilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
   
 
     
@@ -1367,10 +1536,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
             
   
   
@@ -1388,8 +1557,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_8">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1821,7 +1990,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1843,14 +2012,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_9">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2296,6 +2465,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../changelog/" class="md-nav__link">
         
   
@@ -2475,6 +2671,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#readiness-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Readiness check
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#valkey" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2567,7 +2774,6 @@ Provider directly and use its matching adapter under the hood.</p>
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">redis</span><span class="p">,</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
@@ -2605,7 +2811,6 @@ the environment:</p>
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">()</span>  <span class="c1"># reads REDIS_URL or REDIS_HOST + REDIS_PORT + ...</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">redis</span><span class="p">,</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
 <span class="p">])</span>
@@ -2639,7 +2844,7 @@ testcontainers fixture). Wrap it with <code>from_client</code>:</p>
 <span class="n">client</span> <span class="o">=</span> <span class="n">redis</span><span class="o">.</span><span class="n">Redis</span><span class="p">(</span><span class="n">host</span><span class="o">=</span><span class="s2">&quot;prod.cache&quot;</span><span class="p">,</span> <span class="n">socket_timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 <span class="n">redis_provider</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="o">.</span><span class="n">from_client</span><span class="p">(</span><span class="n">client</span><span class="p">)</span>  <span class="c1"># caller owns the client</span>
 
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis_provider</span><span class="p">,</span> <span class="n">Cache</span><span class="p">(</span><span class="n">redis_provider</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Cache</span><span class="p">(</span><span class="n">redis_provider</span><span class="p">)])</span>
 </code></pre></div>
 <p>Pass <code>own=True</code> to hand ownership to the provider. It will close the
 client when the provider exits, useful in pytest fixtures:</p>
@@ -2739,6 +2944,14 @@ leader-election adapters touch one key per call and work on Cluster as is.</p>
 <td style="text-align: center;">✓</td>
 </tr>
 <tr>
+<td><code>.schedule(**kwargs)</code></td>
+<td><code>ScheduleBackend</code> impl</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+</tr>
+<tr>
 <td><code>.leaderelection(**kwargs)</code></td>
 <td><code>LeaderElectionBackend</code> impl</td>
 <td style="text-align: center;">✓</td>
@@ -2752,7 +2965,7 @@ leader-election adapters touch one key per call and work on Cluster as is.</p>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
-<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">✓</td>
 </tr>
 <tr>
 <td><code>.ratelimiter(**kwargs)</code></td>
@@ -2768,13 +2981,19 @@ leader-election adapters touch one key per call and work on Cluster as is.</p>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
-<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">✓</td>
 </tr>
 </tbody>
 </table>
 <p>Factories that do not apply raise <code>NotImplementedError</code> with a message
 pointing to the right alternative. <code>Coordination(provider)</code>, <code>Cache(provider)</code>,
 <code>RateLimiters(provider)</code>, and <code>CircuitBreakers(provider)</code> call these factories.</p>
+<h2 id="readiness-check">Readiness check</h2>
+<p>Every connection provider ships a built-in <code>check()</code> readiness probe: Redis and
+Valkey run <code>PING</code>, Postgres and SQLite run <code>SELECT 1</code>. A <code>HealthChecks</code> registers it as a
+<code>provider:{short_name}</code> check, one provider at a time with
+<code>health.add_provider(provider)</code> or for the whole app with
+<code>HealthChecks(auto_health=True)</code>. See <a href="../health/#provider-readiness-checks">Health Checks</a>.</p>
 <h2 id="valkey">Valkey</h2>
 <p><code>ValkeyProvider</code> is a subclass of <code>RedisProvider</code>. It connects to a
 <a href="https://valkey.io">Valkey</a> server using the <code>valkey-py</code> client
@@ -2792,7 +3011,6 @@ Lock, LeaderElection, Schedule, TTLCache, RateLimiter, and CircuitBreaker.</p>
 <span class="n">valkey</span> <span class="o">=</span> <span class="n">ValkeyProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">valkey</span><span class="p">,</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">valkey</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">valkey</span><span class="p">),</span>
     <span class="n">RateLimiters</span><span class="p">(</span><span class="n">valkey</span><span class="p">),</span>
@@ -2816,7 +3034,7 @@ clients. The factory methods <code>ValkeyProvider.sentinel(...)</code> and
 <code>ValkeyProvider.cluster(...)</code> and the Cluster hash-tag rule apply the
 same way.</p>
 <h2 id="postgres">Postgres</h2>
-<p><code>PostgresProvider</code> ships the <code>.lock()</code> and <code>.leaderelection()</code> factories. The
+<p><code>PostgresProvider</code> ships all factory methods: <code>.lock()</code>, <code>.leaderelection()</code>, <code>.cache()</code>, <code>.ratelimiter()</code>, <code>.circuitbreaker()</code>, and <code>.schedule()</code>. The
 provider wraps an <code>asyncpg.Pool</code> and opens it lazily on <code>__aenter__</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
@@ -2825,7 +3043,6 @@ provider wraps an <code>asyncpg.Pool</code> and opens it lazily on <code>__aente
 <span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="s2">&quot;postgresql://localhost/app&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">postgres</span><span class="p">,</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">postgres</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
@@ -2853,7 +3070,7 @@ provider wraps an <code>asyncpg.Pool</code> and opens it lazily on <code>__aente
 <span class="n">PostgresProvider</span><span class="o">.</span><span class="n">from_client</span><span class="p">(</span><span class="n">pool</span><span class="p">)</span>              <span class="c1"># bring-your-own pool</span>
 </code></pre></div>
 <h2 id="sqlite">SQLite</h2>
-<p><code>SQLiteProvider</code> ships the <code>.lock()</code> and <code>.ratelimiter()</code> factories. The
+<p><code>SQLiteProvider</code> ships the <code>.lock()</code>, <code>.ratelimiter()</code>, <code>.cache()</code>, <code>.circuitbreaker()</code>, and <code>.schedule()</code> factories. The
 provider owns one <code>aiosqlite</code> connection (autocommit, WAL) and a shared
 lock that adapters borrow.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
@@ -2863,7 +3080,6 @@ lock that adapters borrow.</p>
 <span class="n">sqlite</span> <span class="o">=</span> <span class="n">SQLiteProvider</span><span class="p">(</span><span class="s2">&quot;app.db&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">sqlite</span><span class="p">,</span>
     <span class="n">RateLimiters</span><span class="p">(</span><span class="n">sqlite</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>

@@ -1,0 +1,14 @@
+# Minimal prompt for the demo recording. Deliberately generic: no
+# kubernetes, git, language, or host modules, so the GIF leaks nothing
+# about the machine it was recorded on.
+add_newline = false
+format = "$directory$character"
+
+[directory]
+style = "bold cyan"
+truncation_length = 1
+truncate_to_repo = false
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"

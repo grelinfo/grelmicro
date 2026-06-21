@@ -20,7 +20,7 @@ from grelmicro.resilience import (
 )
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[redis, Coordination(redis), RateLimiters(redis)])
+micro = Grelmicro(uses=[Coordination(redis), RateLimiters(redis)])
 
 per_user_limiter = RateLimiter.sliding_window("messages", limit=10, window=60)
 
