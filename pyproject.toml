@@ -354,12 +354,7 @@ exclude_also = [
 # file under campaign and widen pytest_add_cli_args_test_selection to match.
 [tool.mutmut]
 source_paths = ["grelmicro/"]
-only_mutate = [
-    "grelmicro/resilience/timeout.py",
-    "grelmicro/resilience/bulkhead.py",
-    "grelmicro/resilience/fallback.py",
-    "grelmicro/resilience/_match.py",
-]
+only_mutate = ["grelmicro/resilience/retry.py"]
 pytest_add_cli_args_test_selection = ["tests/resilience/"]
 pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
 also_copy = ["README.md"]
