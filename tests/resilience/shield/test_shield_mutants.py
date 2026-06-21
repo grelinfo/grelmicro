@@ -113,9 +113,7 @@ async def test_recorded_latency_is_call_duration() -> None:
     assert await s.run(slow_ok) == "ok"
     # The next estimate is p95 (single sample 0.4) times the 2.5 multiplier.
     # A `+` latency flip would record ~200.4 and blow past the clamp.
-    assert s._state.timeout_estimator.estimate() == pytest.approx(
-        0.4 * 2.5
-    )
+    assert s._state.timeout_estimator.estimate() == pytest.approx(0.4 * 2.5)
 
 
 async def test_cache_key_depends_on_arguments() -> None:

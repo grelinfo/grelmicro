@@ -24,7 +24,9 @@ _BIG_CAPACITY = 1000.0
 _START = 50.0
 
 
-def _gate(clock: _FakeClock, *, max_rate_cap: float | None = None) -> _AdaptiveGate:
+def _gate(
+    clock: _FakeClock, *, max_rate_cap: float | None = None
+) -> _AdaptiveGate:
     return _AdaptiveGate(
         initial_max_rate=_INIT_RATE,
         capacity=_BIG_CAPACITY,
@@ -109,7 +111,7 @@ def test_first_slow_down_snaps_tokens_to_zero() -> None:
     """Enabling the gate snaps the token bucket to zero."""
     clock = _FakeClock(start=_START)
     gate = _gate(clock)
-    gate._tokens = 5.0# accumulated while inert
+    gate._tokens = 5.0  # accumulated while inert
 
     gate.on_slow_down()
 

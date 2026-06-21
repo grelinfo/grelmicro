@@ -293,9 +293,7 @@ def test_sync_result_retry_stops_on_budget_before_attempts(
 
 async def test_async_forwards_args_and_kwargs() -> None:
     """Both positional and keyword arguments reach the wrapped coroutine."""
-    policy = Retry(
-        "args-async", ConstantBackoff(delay=_DELAY), when=ValueError
-    )
+    policy = Retry("args-async", ConstantBackoff(delay=_DELAY), when=ValueError)
     received: dict[str, object] = {}
 
     @policy
@@ -310,9 +308,7 @@ async def test_async_forwards_args_and_kwargs() -> None:
 
 def test_sync_forwards_args_and_kwargs() -> None:
     """Both positional and keyword arguments reach the wrapped function."""
-    policy = Retry(
-        "args-sync", ConstantBackoff(delay=_DELAY), when=ValueError
-    )
+    policy = Retry("args-sync", ConstantBackoff(delay=_DELAY), when=ValueError)
     received: dict[str, object] = {}
 
     @policy
@@ -616,8 +612,7 @@ def test_constant_factory_defaults_are_exact() -> None:
 
 
 @pytest.mark.usefixtures("record_async_sleep")
-async def test_retry_decorator_default_attempts_is_three(
-) -> None:
+async def test_retry_decorator_default_attempts_is_three() -> None:
     """`@retry(when=...)` runs exactly three attempts by default."""
     calls = 0
 
@@ -722,8 +717,7 @@ async def test_retry_constant_default_attempts_and_delay(
 
 
 @pytest.mark.usefixtures("record_async_sleep")
-async def test_retrying_default_attempts_is_three(
-) -> None:
+async def test_retrying_default_attempts_is_three() -> None:
     """Bare `retrying(when=...)` runs exactly three attempts by default."""
     calls = 0
 
@@ -760,8 +754,7 @@ async def test_retry_exponential_default_max_delay_caps_at_thirty(
 
 
 @pytest.mark.usefixtures("record_async_sleep")
-async def test_retry_exponential_default_attempts_is_three(
-) -> None:
+async def test_retry_exponential_default_attempts_is_three() -> None:
     """`@retry.exponential(when=...)` runs exactly three attempts by default."""
     calls = 0
 
@@ -779,8 +772,7 @@ async def test_retry_exponential_default_attempts_is_three(
 
 
 @pytest.mark.usefixtures("record_async_sleep")
-async def test_retrying_exponential_default_attempts_is_three(
-) -> None:
+async def test_retrying_exponential_default_attempts_is_three() -> None:
     """`retrying.exponential(when=...)` runs exactly three attempts by default."""
     calls = 0
 

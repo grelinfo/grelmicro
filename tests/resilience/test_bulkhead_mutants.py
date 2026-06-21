@@ -29,7 +29,9 @@ async def test_fail_fast_uses_zero_wait_by_default(
         waits.append(delay)
         return real_timeout(delay)
 
-    mocker.patch("grelmicro.resilience.bulkhead.asyncio.timeout", side_effect=_spy)
+    mocker.patch(
+        "grelmicro.resilience.bulkhead.asyncio.timeout", side_effect=_spy
+    )
     bulkhead = Bulkhead("api", max_concurrent=1)
 
     async with bulkhead:
