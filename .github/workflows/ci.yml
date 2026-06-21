@@ -6,14 +6,21 @@ on:
   pull_request:
     branches:
       - main
+  schedule:
+    # Nightly full run: matrix, slow, integration, and demo tiers.
+    - cron: "0 3 * * *"
   workflow_dispatch: {}
 permissions: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 env:
     UV_FROZEN: 1
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -35,6 +42,7 @@ jobs:
   docs:
     name: Docs
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -58,6 +66,7 @@ jobs:
   workflow-lint:
     name: Workflow Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       security-events: write
@@ -69,95 +78,15 @@ jobs:
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
 
-  test:
-    name: Test Python ${{ matrix.python }}
-    runs-on: "ubuntu-latest"
+  tests:
+    name: Tests
+    # PRs and pushes to main run the light tier (unit, Python 3.12). The
+    # nightly schedule and manual dispatch run the full tier (matrix, slow,
+    # integration, demo). Release runs the full tier before publishing.
+    uses: ./.github/workflows/reusable-tests.yml
+    with:
+      full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     permissions:
       contents: read
-    strategy:
-      fail-fast: true
-      matrix:
-        python: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.12","3.13","3.14"]') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.0
-        with:
-          persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          enable-cache: true
-          activate-environment: true
-          python-version: ${{ matrix.python }}
-      - name: Install dependencies
-        run: uv sync
-      - name: Run Unit Tests
-        run: pytest -x -m "not integration and not slow" --cov --junitxml=junit.xml -o junit_family=legacy
-      - name: Upload Unit Test Coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
-        with:
-          flags: "unit,python${{ matrix.python }}"
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Upload Unit Test Results to Codecov
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
-        with:
-          flags: "unit,python${{ matrix.python }}"
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Run Slow Tests
-        # Exit code 5 means "no tests collected", which is fine while the
-        # slow tier is empty.
-        run: |
-          set +e
-          pytest -x -m "slow and not integration" --cov --junitxml=junit.xml -o junit_family=legacy
-          status=$?
-          set -e
-          if [ "$status" -ne 0 ] && [ "$status" -ne 5 ]; then
-            exit "$status"
-          fi
-      - name: Upload Slow Test Coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
-        with:
-          flags: "slow,python${{ matrix.python }}"
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Upload Slow Test Results to Codecov
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
-        with:
-          flags: "slow,python${{ matrix.python }}"
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Run Integration Tests
-        id: integration_tests
-        run: pytest -x -m integration --cov --junitxml=junit.xml -o junit_family=legacy
-      - name: Upload Integration Test Coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
-        with:
-          flags: "integration,python${{ matrix.python }}"
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Upload Integration Test Results to Codecov
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
-        with:
-          flags: "integration,python${{ matrix.python }}"
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-  demo:
-    name: Demo Smoke
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.0
-        with:
-          persist-credentials: false
-      - name: Start the demo stack
-        run: docker compose -f examples/fastapi-demo/compose.yml up --build --wait --wait-timeout 240
-      - name: Probe the health endpoints
-        run: |
-          curl -fsS http://localhost:8000/livez
-          curl -fsS http://localhost:8000/readyz
-          curl -fsS http://localhost:8000/healthz
-      - name: Dump app logs on failure
-        if: failure()
-        run: docker compose -f examples/fastapi-demo/compose.yml logs app
-      - name: Tear down
-        if: always()
-        run: docker compose -f examples/fastapi-demo/compose.yml down -v
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

@@ -15,7 +15,18 @@ on:
         default: false
 permissions: {}
 jobs:
+  full-checks:
+    # Run the full test tier (matrix, slow, integration, demo) before any
+    # artifact is built or published.
+    uses: ./.github/workflows/reusable-tests.yml
+    with:
+      full: true
+    permissions:
+      contents: read
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
   publish-pypi:
+    needs: full-checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
