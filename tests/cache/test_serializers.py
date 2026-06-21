@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pickle
+
 import pytest
 from pydantic import BaseModel
 from typing_extensions import TypedDict
@@ -70,6 +72,23 @@ class TestPickleSerializer:
         result = serializer.loads(data)
 
         assert result == {"key": "value"}
+
+    def test_protocol_is_stored_and_used_for_dumps(self) -> None:
+        """`dumps` uses the configured protocol, not the pickle default.
+
+        The bytes from a non-default protocol must match
+        the standard library output for that protocol exactly, so dropping
+        the protocol kwarg (which falls back to the default) is caught.
+        """
+        non_default_protocol = 2
+        obj = {"key": "value"}
+        serializer = PickleSerializer(protocol=non_default_protocol)
+
+        assert serializer._protocol == non_default_protocol
+        assert serializer.dumps(obj) == pickle.dumps(
+            obj, protocol=non_default_protocol
+        )
+        assert serializer.dumps(obj) != pickle.dumps(obj, protocol=None)
 
 
 class TestJsonSerializer:

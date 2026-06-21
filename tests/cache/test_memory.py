@@ -1,9 +1,11 @@
 """Tests for MemoryCacheAdapter."""
 
+import asyncio
 from asyncio import sleep
 
 import pytest
 
+import grelmicro.cache.memory as memory_module
 from grelmicro.cache.memory import MemoryCacheAdapter
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -388,3 +390,64 @@ class TestMemoryCacheAdapterBatch:
         assert await backend.get(key="a") is None
         assert await backend.get(key="b") is None
         assert "t" not in backend._tag_keys
+
+
+class TestMemoryCacheAdapterMutationGaps:
+    """Exact-value tests that pin loop capture, scan continuation, and tags.
+
+    These close mutation survivors where a loose assertion missed a real
+    behavior change (loop capture, `continue` flipped to `break`, expiry
+    boundary).
+    """
+
+    async def test_aenter_captures_the_running_loop(self) -> None:
+        """`__aenter__` stores the running loop, not None."""
+        backend = MemoryCacheAdapter()
+        async with backend:
+            assert backend._loop is asyncio.get_running_loop()
+
+    async def test_get_many_keeps_scanning_past_a_missing_key(self) -> None:
+        """A missing key in the middle does not stop the scan."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="b", value=b"bb", ttl=60)
+
+        result = await backend.get_many(keys=["missing", "b"])
+
+        assert result == {"b": b"bb"}
+
+    async def test_get_many_keeps_scanning_past_an_expired_key(self) -> None:
+        """An expired key in the middle does not stop the scan."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="gone", value=b"x", ttl=0.05)
+        await backend.set(key="live", value=b"yy", ttl=60)
+        await sleep(0.1)
+
+        result = await backend.get_many(keys=["gone", "live"])
+
+        assert result == {"live": b"yy"}
+
+    async def test_get_many_at_exact_expiry_drops_the_entry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`now >= expiry` drops an entry whose expiry equals now exactly."""
+        clock = [1000.0]
+        monkeypatch.setattr(memory_module, "monotonic", lambda: clock[0])
+        backend = MemoryCacheAdapter()
+        await backend.set(key="k", value=b"v", ttl=30.0)
+
+        clock[0] = 1030.0  # exactly at expiry (1000 + 30)
+        result = await backend.get_many(keys=["k"])
+
+        assert result == {}
+
+    async def test_delete_tags_keeps_processing_past_an_unknown_tag(
+        self,
+    ) -> None:
+        """An unknown tag does not stop deletion of the next known tag."""
+        backend = MemoryCacheAdapter()
+        await backend.set(key="a", value=b"a", ttl=60, tags=["known"])
+
+        await backend.delete_tags(tags=["unknown", "known"])
+
+        assert await backend.get(key="a") is None
+        assert "known" not in backend._tag_keys
