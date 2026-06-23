@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+
+from typing_extensions import Doc
 
 from grelmicro.clock._seam import _active_clock
 
@@ -22,7 +24,14 @@ class RealClock:
 
     kind: ClassVar[str] = "clock"
 
-    def __init__(self, *, name: str = "default") -> None:
+    def __init__(
+        self,
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name when used as a component."),
+        ] = "default",
+    ) -> None:
         """Initialize the clock."""
         self._name = name
         self._token: Any = None

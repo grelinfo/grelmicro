@@ -30,6 +30,9 @@ if TYPE_CHECKING:
         Meter,
         UpDownCounter,
     )
+    from opentelemetry.metrics import (
+        _Gauge as Gauge,
+    )
 
 
 _logger = logging.getLogger(__name__)
@@ -266,7 +269,7 @@ class Metrics:
         *,
         unit: Annotated[str, Doc("Unit of measure, e.g. `1`.")] = "",
         description: Annotated[str, Doc("Human-readable description.")] = "",
-    ) -> Any:  # noqa: ANN401
+    ) -> Gauge:
         """Create (or reuse) a synchronous `Gauge` recording last-set values.
 
         Raises:
