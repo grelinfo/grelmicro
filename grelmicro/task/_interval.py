@@ -7,12 +7,11 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from logging import getLogger
 from typing import Any
-from uuid import UUID
 
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
-from grelmicro.coordination._protocol import LockBackend, LockPrimitive
+from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock
@@ -32,8 +31,8 @@ class IntervalTask(Task):
     of creating IntervalTask objects directly.
 
     Supports three modes:
-    - Local: No lock params, runs on every worker.
-    - Distributed lock: Set ``lease_duration`` to enable at-most-once per interval.
+    - Local: No ``lock`` or ``leader``, runs on every worker.
+    - Distributed lock: Pass a ``lock`` to enable at-most-once per interval.
     - Leader-gated: Set ``leader`` to restrict execution to the leader worker.
     """
 
@@ -43,11 +42,8 @@ class IntervalTask(Task):
         function: Callable[..., Any],
         name: str | None = None,
         seconds: float | timedelta,
-        lease_duration: float | None = None,
-        min_hold_duration: float | None = None,
+        lock: TaskLock | None = None,
         leader: LeaderElection | None = None,
-        backend: LockBackend | None = None,
-        worker: str | UUID | None = None,
         sync: LockPrimitive | None = None,
     ) -> None:
         """Initialize the IntervalTask.
@@ -55,9 +51,7 @@ class IntervalTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If lease_duration is less than seconds.
-            ValueError: If min_hold_duration is set without lease_duration or leader.
-            ValueError: If min_hold_duration is greater than lease_duration.
+            ValueError: If the lock lease_duration is less than seconds.
         """
         seconds = (
             seconds.total_seconds()
@@ -73,40 +67,10 @@ class IntervalTask(Task):
         self._seconds = seconds
         self._async_function = self._prepare_async_function(function)
 
-        distributed = lease_duration is not None or leader is not None
-
-        if min_hold_duration is not None and not distributed:
-            msg = (
-                "min_hold_duration requires lease_duration or leader to be set"
-            )
-            raise ValueError(msg)
+        distributed = lock is not None or leader is not None
 
         if distributed:
-            resolved_lease_duration = (
-                lease_duration if lease_duration is not None else seconds * 5
-            )
-            resolved_min_hold_duration = (
-                min_hold_duration if min_hold_duration is not None else seconds
-            )
-
-            if resolved_lease_duration < seconds:
-                msg = "lease_duration must be greater than or equal to seconds"
-                raise ValueError(msg)
-
-            if resolved_min_hold_duration > resolved_lease_duration:
-                msg = (
-                    "min_hold_duration must be less than or equal to "
-                    "lease_duration"
-                )
-                raise ValueError(msg)
-
-            task_lock = TaskLock(
-                self._name,
-                backend=backend,
-                worker=worker,
-                min_hold_duration=resolved_min_hold_duration,
-                lease_duration=resolved_lease_duration,
-            )
+            task_lock = self._resolve_task_lock(lock, seconds)
             self._sync_primitives: list[LockPrimitive] = _build_sync_list(
                 leader=leader,
                 task_lock=task_lock,
@@ -119,6 +83,35 @@ class IntervalTask(Task):
 
         self._last_fire: FireInfo | None = None
         self._last_loop_start: float | None = None
+
+    def _resolve_task_lock(
+        self, lock: TaskLock | None, seconds: float
+    ) -> TaskLock:
+        """Resolve the at-most-once task lock for the interval.
+
+        When ``lock`` is given, it is authoritative. Its ``lease_duration``
+        must be at least ``seconds``. A lock still carrying the default
+        ``"default"`` name is re-stamped to the task name so the name is
+        never repeated.
+
+        When ``lock`` is None (leader-gated mode), a ``TaskLock`` is built
+        with interval-aware defaults: ``lease_duration`` of ``seconds * 5``
+        and ``min_hold_duration`` of ``seconds``.
+        """
+        if lock is None:
+            return TaskLock(
+                self._name,
+                min_hold_duration=seconds,
+                lease_duration=seconds * 5,
+            )
+
+        if lock.config.lease_duration < seconds:
+            msg = "lease_duration must be greater than or equal to seconds"
+            raise ValueError(msg)
+
+        if lock.name == "default":
+            return lock._with_name(self._name)  # noqa: SLF001
+        return lock
 
     @property
     def name(self) -> str:

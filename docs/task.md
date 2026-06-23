@@ -85,7 +85,7 @@ Use the `interval` decorator to run a task at a fixed interval:
 
 ### Distributed Lock
 
-Set `lease_duration` to enable distributed locking: the task runs at most once per interval across all workers. This uses a built-in [`TaskLock`](coordination.md#task-lock) automatically.
+Pass a [`TaskLock`](coordination.md#task-lock) via `lock` to enable distributed locking: the task runs at most once per interval across all workers. The lock keeps its default `"default"` name, so the task name is used and you never repeat it.
 
 ```python
 --8<-- "task/interval_lock.py"
@@ -94,12 +94,13 @@ Set `lease_duration` to enable distributed locking: the task runs at most once p
 | Parameter | Description |
 |-----------|-------------|
 | `seconds` | Duration between each scheduling attempt, as a number of seconds or a `timedelta`. Each worker retries every interval, but only one executes per interval. |
-| `lease_duration` | Crash protection TTL. Must be >= `seconds`. If a worker crashes, the lock expires after this duration. |
-| `min_hold_duration` | Minimum duration to hold the lock after task completion. Prevents re-execution on other nodes too soon. Defaults to `seconds`. |
+| `lock` | A `TaskLock` for at-most-once scheduling. Its `lease_duration` is the crash-protection TTL and must be >= `seconds`. Its `min_hold_duration` keeps the lock held after completion to prevent re-execution too soon. |
+
+The `lock` is authoritative: its `lease_duration`, `min_hold_duration`, `backend`, and `worker` are used as set.
 
 ### Leader Gating
 
-Restrict the task to the leader worker with a [Leader Election](coordination.md#leader-election), so only one worker executes it. Setting `leader` also enables distributed locking, with `lease_duration` defaulting to `seconds * 5`:
+Restrict the task to the leader worker with a [Leader Election](coordination.md#leader-election), so only one worker executes it. Setting `leader` also enables distributed locking. Without a `lock`, one is configured with `lease_duration` of `seconds * 5` and `min_hold_duration` of `seconds`:
 
 ```python
 --8<-- "task/interval_leader.py"
@@ -107,7 +108,7 @@ Restrict the task to the leader worker with a [Leader Election](coordination.md#
 
 ### Custom Lock Timing
 
-For long-running tasks, customize both `lease_duration` and `min_hold_duration`:
+For long-running tasks, customize both `lease_duration` and `min_hold_duration` on the `TaskLock`:
 
 ```python
 --8<-- "task/interval_lock_custom.py"

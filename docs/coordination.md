@@ -306,8 +306,8 @@ async with task_lock:
 
 !!! tip
     For scheduled tasks, prefer the
-    [`interval()` decorator with `lease_duration`](task.md#distributed-lock),
-    which configures a `TaskLock` automatically with sensible defaults.
+    [`interval()` decorator with `lock=TaskLock(...)`](task.md#distributed-lock),
+    which re-stamps the lock with the task name automatically.
 
 !!! warning
     When the lock expires before the task completes (`lease_duration`
