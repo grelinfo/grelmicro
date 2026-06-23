@@ -1,8 +1,8 @@
 """Task Lock.
 
 A distributed lock for scheduled tasks with two time boundaries:
-- min_lock_seconds: Prevents re-execution on other nodes after task completes.
-- max_lock_seconds: Auto-expires the lock (deadlock protection).
+- min_hold_duration: Prevents re-execution on other nodes after task completes.
+- lease_duration: Auto-expires the lock (deadlock protection).
 """
 
 import asyncio
@@ -42,7 +42,7 @@ logger = getLogger("grelmicro.coordination")
 class TaskLockConfig(BaseLockConfig):  # ty: ignore[invalid-frozen-dataclass-subclass]
     """Task Lock Config."""
 
-    min_lock_seconds: Annotated[
+    min_hold_duration: Annotated[
         Seconds,
         Doc(
             """
@@ -52,7 +52,7 @@ class TaskLockConfig(BaseLockConfig):  # ty: ignore[invalid-frozen-dataclass-sub
             """
         ),
     ] = 1
-    max_lock_seconds: Annotated[
+    lease_duration: Annotated[
         Seconds,
         Doc(
             """
@@ -65,8 +65,10 @@ class TaskLockConfig(BaseLockConfig):  # ty: ignore[invalid-frozen-dataclass-sub
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
-        if self.min_lock_seconds > self.max_lock_seconds:
-            msg = "min_lock_seconds must be less than or equal to max_lock_seconds"
+        if self.min_hold_duration > self.lease_duration:
+            msg = (
+                "min_hold_duration must be less than or equal to lease_duration"
+            )
             raise ValueError(msg)
         return self
 
@@ -76,11 +78,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
     A distributed lock for scheduled tasks. Unlike a regular Lock,
     TaskLock does not release immediately on context manager exit. Instead, it keeps
-    the lock held for at least `min_lock_seconds` seconds to prevent re-execution
+    the lock held for at least `min_hold_duration` seconds to prevent re-execution
     on other nodes.
 
     There is no background task that maintains the lock active during execution.
-    The lock relies entirely on the TTL (`max_lock_seconds`) set at acquire time.
+    The lock relies entirely on the TTL (`lease_duration`) set at acquire time.
 
     This lock is designed to be used as the `sync` parameter of `IntervalTask`.
 
@@ -127,7 +129,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 """
             ),
         ] = None,
-        min_lock_seconds: Annotated[
+        min_hold_duration: Annotated[
             Seconds | None,
             Doc(
                 """
@@ -137,13 +139,13 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 before this duration has elapsed. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
-                `GREL_TASKLOCK_{NAME_UPPER}_MIN_LOCK_SECONDS` if
+                `GREL_TASKLOCK_{NAME_UPPER}_MIN_HOLD_DURATION` if
                 present, otherwise falls back to the
                 `TaskLockConfig` default.
                 """
             ),
         ] = None,
-        max_lock_seconds: Annotated[
+        lease_duration: Annotated[
             Seconds | None,
             Doc(
                 """
@@ -152,7 +154,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 Default: 60. Acts as the TTL on acquire. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
-                `GREL_TASKLOCK_{NAME_UPPER}_MAX_LOCK_SECONDS` if
+                `GREL_TASKLOCK_{NAME_UPPER}_LEASE_DURATION` if
                 present, otherwise falls back to the
                 `TaskLockConfig` default.
                 """
@@ -192,8 +194,8 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             explicit=None,
             kwargs={
                 "worker": worker,
-                "min_lock_seconds": min_lock_seconds,
-                "max_lock_seconds": max_lock_seconds,
+                "min_hold_duration": min_hold_duration,
+                "lease_duration": lease_duration,
             },
             env_prefix=resolved_env_prefix,
             env_load=env_load,
@@ -310,7 +312,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         return coordination.lock_backend
 
     async def __aenter__(self) -> Self:
-        """Acquire the lock with duration=max_lock_seconds.
+        """Acquire the lock with duration=lease_duration.
 
         Raises:
             WouldBlockError: If the lock is already held by another worker.
@@ -322,7 +324,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             raise LockReentrantError(name=self._name)
 
         token = generate_task_token(config.worker, self._token_nonce)
-        if not await self.do_acquire(token, duration=config.max_lock_seconds):
+        if not await self.do_acquire(token, duration=config.lease_duration):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
 
@@ -336,15 +338,15 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     ) -> bool | None:
         """Release or extend the lock based on elapsed time.
 
-        If elapsed >= min_lock_seconds, release immediately.
-        If elapsed < min_lock_seconds, re-acquire with remaining duration (let TTL expire).
+        If elapsed >= min_hold_duration, release immediately.
+        If elapsed < min_hold_duration, re-acquire with remaining duration (let TTL expire).
 
         Raises:
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
         config = self._config
         token = generate_task_token(config.worker, self._token_nonce)
-        await self.do_exit(token, min_lock_seconds=config.min_lock_seconds)
+        await self.do_exit(token, min_hold_duration=config.min_hold_duration)
 
     @property
     def from_thread(self) -> "ThreadTaskLockAdapter":
@@ -354,7 +356,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         return self._from_thread
 
     async def refresh(self) -> None:
-        """Renew the lease for another `max_lock_seconds` without releasing.
+        """Renew the lease for another `lease_duration` without releasing.
 
         Raises:
             LockNotOwnedError: If this task does not hold the lock or the lease was lost.
@@ -364,7 +366,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         if self._acquired_at is None:
             raise LockNotOwnedError(name=self._name)
         token = generate_task_token(config.worker, self._token_nonce)
-        renewed = await self.do_reacquire(token, config.max_lock_seconds)
+        renewed = await self.do_reacquire(token, config.lease_duration)
         if not renewed:
             raise LockNotOwnedError(name=self._name)
 
@@ -389,7 +391,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             token: The token to register on the backend.
             duration: The lease duration to request, in seconds. The
                 caller captures this from
-                `self._config.max_lock_seconds` at the start of the
+                `self._config.lease_duration` at the start of the
                 operation so a concurrent `reconfigure` cannot change
                 the duration mid-acquire.
 
@@ -474,7 +476,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             raise LockReentrantError(name=self._name)
 
         token = generate_thread_token(config.worker, self._token_nonce)
-        if not await self.do_acquire(token, duration=config.max_lock_seconds):
+        if not await self.do_acquire(token, duration=config.lease_duration):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
 
@@ -489,20 +491,20 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         """
         config = self._config
         token = generate_thread_token(config.worker, self._token_nonce)
-        await self.do_exit(token, min_lock_seconds=config.min_lock_seconds)
+        await self.do_exit(token, min_hold_duration=config.min_hold_duration)
 
     async def _apply_reconfigure(self, new_config: TaskLockConfig) -> None:
         """Validate the immutable `worker` field before publishing `new_config`."""
         assert_worker_unchanged(self._config, new_config)
 
-    async def do_exit(self, token: str, *, min_lock_seconds: Seconds) -> None:
+    async def do_exit(self, token: str, *, min_hold_duration: Seconds) -> None:
         """Handle exit logic: release or re-acquire based on elapsed time.
 
         Args:
             token: The token used to release or re-acquire the lock.
-            min_lock_seconds: The minimum hold duration to enforce, in
+            min_hold_duration: The minimum hold duration to enforce, in
                 seconds. The caller captures this from
-                `self._config.min_lock_seconds` at the start of the
+                `self._config.min_hold_duration` at the start of the
                 operation so the comparison and the
                 remaining-duration calculation always agree.
         """
@@ -513,15 +515,15 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         self._acquired_at = None
         self._token_nonce = generate_token_nonce()
 
-        if elapsed >= min_lock_seconds:
-            # Task took longer than min_lock_seconds, release immediately
+        if elapsed >= min_hold_duration:
+            # Task took longer than min_hold_duration, release immediately
             released = await self.do_release(token)
             if not released:
                 raise LockNotOwnedError(name=self._name)
         else:
             # Re-acquire with remaining duration so the lock is held
-            # until min_lock_seconds.
-            remaining = min_lock_seconds - elapsed
+            # until min_hold_duration.
+            remaining = min_hold_duration - elapsed
             re_acquired = await self.do_reacquire(token, remaining)
             if not re_acquired:
                 raise LockNotOwnedError(name=self._name)

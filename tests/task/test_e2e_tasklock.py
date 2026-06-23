@@ -1,7 +1,7 @@
 """End-to-end tests for IntervalTask with TaskLock.
 
 These tests are parametrized over both the deprecated (sync=TaskLock()) and
-new (max_lock_seconds=/backend=) APIs to avoid duplication.
+new (lease_duration=/backend=) APIs to avoid duplication.
 """
 
 import asyncio
@@ -28,8 +28,8 @@ async def test_tasklock_basic_execution(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_lock_seconds=0.001,
-        max_lock_seconds=10,
+        min_hold_duration=0.001,
+        lease_duration=10,
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -48,8 +48,8 @@ async def test_tasklock_two_workers(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_lock_seconds=1,
-        max_lock_seconds=10,
+        min_hold_duration=1,
+        lease_duration=10,
     )
     task_2 = task_factory(
         seconds=INTERVAL,
@@ -57,8 +57,8 @@ async def test_tasklock_two_workers(
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_lock_seconds=1,
-        max_lock_seconds=10,
+        min_hold_duration=1,
+        lease_duration=10,
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -72,10 +72,10 @@ async def test_tasklock_two_workers(
     assert not samples.e2e_event_2.is_set()
 
 
-async def test_tasklock_min_lock_seconds(
+async def test_tasklock_min_hold_duration(
     backend: LockBackend, task_factory: TaskFactory
 ) -> None:
-    """Test min_lock_seconds prevents re-execution on another worker."""
+    """Test min_hold_duration prevents re-execution on another worker."""
     min_lock = 0.5
     task_1 = task_factory(
         seconds=INTERVAL,
@@ -83,8 +83,8 @@ async def test_tasklock_min_lock_seconds(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_lock_seconds=min_lock,
-        max_lock_seconds=10,
+        min_hold_duration=min_lock,
+        lease_duration=10,
     )
     task_2 = task_factory(
         seconds=INTERVAL,
@@ -92,8 +92,8 @@ async def test_tasklock_min_lock_seconds(
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_lock_seconds=min_lock,
-        max_lock_seconds=10,
+        min_hold_duration=min_lock,
+        lease_duration=10,
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -113,10 +113,10 @@ async def test_tasklock_min_lock_seconds(
     assert worker_2_ran
 
 
-async def test_tasklock_max_lock_seconds(
+async def test_tasklock_lease_duration(
     backend: LockBackend, task_factory: TaskFactory
 ) -> None:
-    """Test max_lock_seconds auto-expires when task takes too long."""
+    """Test lease_duration auto-expires when task takes too long."""
     max_lock = 0.2
     task_1 = task_factory(
         seconds=INTERVAL,
@@ -124,8 +124,8 @@ async def test_tasklock_max_lock_seconds(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_lock_seconds=0.01,
-        max_lock_seconds=max_lock,
+        min_hold_duration=0.01,
+        lease_duration=max_lock,
     )
     task_2 = task_factory(
         seconds=INTERVAL,
@@ -133,8 +133,8 @@ async def test_tasklock_max_lock_seconds(
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_lock_seconds=0.01,
-        max_lock_seconds=max_lock,
+        min_hold_duration=0.01,
+        lease_duration=max_lock,
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -164,8 +164,8 @@ async def test_tasklock_would_block_debug_log(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_lock_seconds=1,
-        max_lock_seconds=10,
+        min_hold_duration=1,
+        lease_duration=10,
     )
     task_2 = task_factory(
         seconds=INTERVAL,
@@ -173,8 +173,8 @@ async def test_tasklock_would_block_debug_log(
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_lock_seconds=1,
-        max_lock_seconds=10,
+        min_hold_duration=1,
+        lease_duration=10,
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -199,10 +199,10 @@ async def test_tasklock_would_block_debug_log(
 async def test_tasklock_same_worker_blocked_by_min_lock(
     backend: LockBackend, task_factory: TaskFactory
 ) -> None:
-    """Test same worker cannot re-acquire before min_lock_seconds expires.
+    """Test same worker cannot re-acquire before min_hold_duration expires.
 
     Bug: The deterministic token (worker:task:id) allowed the same worker to
-    bypass min_lock_seconds because the backend treats same-token acquire as
+    bypass min_hold_duration because the backend treats same-token acquire as
     reentrant (current_token == token -> success).
     """
     min_lock = 1.0
@@ -212,8 +212,8 @@ async def test_tasklock_same_worker_blocked_by_min_lock(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_lock_seconds=min_lock,
-        max_lock_seconds=10,
+        min_hold_duration=min_lock,
+        lease_duration=10,
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -222,7 +222,7 @@ async def test_tasklock_same_worker_blocked_by_min_lock(
         cancel_group(tg)
 
     assert samples.execution_count == 1, (
-        f"Expected 1 execution (min_lock_seconds={min_lock}s blocks re-acquire), "
+        f"Expected 1 execution (min_hold_duration={min_lock}s blocks re-acquire), "
         f"got {samples.execution_count}"
     )
 
@@ -230,15 +230,15 @@ async def test_tasklock_same_worker_blocked_by_min_lock(
 async def test_tasklock_sequential_executions(
     backend: LockBackend, task_factory: TaskFactory
 ) -> None:
-    """Test same worker executes again after min_lock_seconds expires."""
+    """Test same worker executes again after min_hold_duration expires."""
     task = task_factory(
         seconds=INTERVAL,
         function=samples.set_event_1,
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_lock_seconds=INTERVAL,
-        max_lock_seconds=10,
+        min_hold_duration=INTERVAL,
+        lease_duration=10,
     )
 
     async with asyncio.TaskGroup() as tg:

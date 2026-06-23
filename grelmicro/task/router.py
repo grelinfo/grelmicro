@@ -85,7 +85,7 @@ class TaskRouter:
                 """,
             ),
         ] = None,
-        max_lock_seconds: Annotated[
+        lease_duration: Annotated[
             float | None,
             Doc(
                 """
@@ -97,7 +97,7 @@ class TaskRouter:
                 """,
             ),
         ] = None,
-        min_lock_seconds: Annotated[
+        min_hold_duration: Annotated[
             float | None,
             Doc(
                 """
@@ -105,7 +105,7 @@ class TaskRouter:
 
                 Prevents re-execution on other nodes before this duration has elapsed.
                 Defaults to ``seconds`` when distributed locking is enabled.
-                Requires ``max_lock_seconds`` or ``leader`` to be set.
+                Requires ``lease_duration`` or ``leader`` to be set.
                 """,
             ),
         ] = None,
@@ -150,9 +150,9 @@ class TaskRouter:
                 Optional resource-level synchronization primitive.
 
                 Layered on top of any distributed scheduling chosen via
-                ``max_lock_seconds`` or ``leader``. Use a ``Lock`` to serialise
+                ``lease_duration`` or ``leader``. Use a ``Lock`` to serialise
                 execution against a shared resource. Whether the task runs on
-                every worker or only one is governed by ``max_lock_seconds``
+                every worker or only one is governed by ``lease_duration``
                 and ``leader``, not this parameter.
                 """,
             ),
@@ -166,7 +166,7 @@ class TaskRouter:
         Supports three modes:
 
         - **Local**: No lock params, runs on every worker, every interval.
-        - **Distributed lock**: Set ``max_lock_seconds`` to run at most once per
+        - **Distributed lock**: Set ``lease_duration`` to run at most once per
           interval across all workers.
         - **Leader-gated**: Set ``leader`` to restrict execution to the leader
           worker (lock is implied).
@@ -174,9 +174,9 @@ class TaskRouter:
         Raises:
             FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If max_lock_seconds is less than seconds.
-            ValueError: If min_lock_seconds is set without max_lock_seconds or leader.
-            ValueError: If min_lock_seconds is greater than max_lock_seconds.
+            ValueError: If lease_duration is less than seconds.
+            ValueError: If min_hold_duration is set without lease_duration or leader.
+            ValueError: If min_hold_duration is greater than lease_duration.
         """
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
@@ -188,8 +188,8 @@ class TaskRouter:
                     name=name,
                     function=function,
                     seconds=seconds,
-                    max_lock_seconds=max_lock_seconds,
-                    min_lock_seconds=min_lock_seconds,
+                    lease_duration=lease_duration,
+                    min_hold_duration=min_hold_duration,
                     leader=leader,
                     backend=backend,
                     worker=worker,

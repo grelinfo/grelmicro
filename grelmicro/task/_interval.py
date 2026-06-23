@@ -33,7 +33,7 @@ class IntervalTask(Task):
 
     Supports three modes:
     - Local: No lock params, runs on every worker.
-    - Distributed lock: Set ``max_lock_seconds`` to enable at-most-once per interval.
+    - Distributed lock: Set ``lease_duration`` to enable at-most-once per interval.
     - Leader-gated: Set ``leader`` to restrict execution to the leader worker.
     """
 
@@ -43,8 +43,8 @@ class IntervalTask(Task):
         function: Callable[..., Any],
         name: str | None = None,
         seconds: float | timedelta,
-        max_lock_seconds: float | None = None,
-        min_lock_seconds: float | None = None,
+        lease_duration: float | None = None,
+        min_hold_duration: float | None = None,
         leader: LeaderElection | None = None,
         backend: LockBackend | None = None,
         worker: str | UUID | None = None,
@@ -55,9 +55,9 @@ class IntervalTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If max_lock_seconds is less than seconds.
-            ValueError: If min_lock_seconds is set without max_lock_seconds or leader.
-            ValueError: If min_lock_seconds is greater than max_lock_seconds.
+            ValueError: If lease_duration is less than seconds.
+            ValueError: If min_hold_duration is set without lease_duration or leader.
+            ValueError: If min_hold_duration is greater than lease_duration.
         """
         seconds = (
             seconds.total_seconds()
@@ -73,34 +73,30 @@ class IntervalTask(Task):
         self._seconds = seconds
         self._async_function = self._prepare_async_function(function)
 
-        distributed = max_lock_seconds is not None or leader is not None
+        distributed = lease_duration is not None or leader is not None
 
-        if min_lock_seconds is not None and not distributed:
+        if min_hold_duration is not None and not distributed:
             msg = (
-                "min_lock_seconds requires max_lock_seconds or leader to be set"
+                "min_hold_duration requires lease_duration or leader to be set"
             )
             raise ValueError(msg)
 
         if distributed:
-            resolved_max_lock_seconds = (
-                max_lock_seconds
-                if max_lock_seconds is not None
-                else seconds * 5
+            resolved_lease_duration = (
+                lease_duration if lease_duration is not None else seconds * 5
             )
-            resolved_min_lock_seconds = (
-                min_lock_seconds if min_lock_seconds is not None else seconds
+            resolved_min_hold_duration = (
+                min_hold_duration if min_hold_duration is not None else seconds
             )
 
-            if resolved_max_lock_seconds < seconds:
-                msg = (
-                    "max_lock_seconds must be greater than or equal to seconds"
-                )
+            if resolved_lease_duration < seconds:
+                msg = "lease_duration must be greater than or equal to seconds"
                 raise ValueError(msg)
 
-            if resolved_min_lock_seconds > resolved_max_lock_seconds:
+            if resolved_min_hold_duration > resolved_lease_duration:
                 msg = (
-                    "min_lock_seconds must be less than or equal to "
-                    "max_lock_seconds"
+                    "min_hold_duration must be less than or equal to "
+                    "lease_duration"
                 )
                 raise ValueError(msg)
 
@@ -108,8 +104,8 @@ class IntervalTask(Task):
                 self._name,
                 backend=backend,
                 worker=worker,
-                min_lock_seconds=resolved_min_lock_seconds,
-                max_lock_seconds=resolved_max_lock_seconds,
+                min_hold_duration=resolved_min_hold_duration,
+                lease_duration=resolved_lease_duration,
             )
             self._sync_primitives: list[LockPrimitive] = _build_sync_list(
                 leader=leader,
@@ -171,7 +167,7 @@ class IntervalTask(Task):
                 except LockNotOwnedError:
                     logger.warning(
                         "Task took too long and lock expired: %s."
-                        " Consider increasing max_lock_seconds.",
+                        " Consider increasing lease_duration.",
                         self.name,
                     )
                 except Exception:
