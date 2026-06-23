@@ -137,12 +137,12 @@ class ExternalConfig:
                 """,
             ),
         ] = None,
-        interval: Annotated[
+        reload_interval: Annotated[
             float,
             Doc(
                 """
-                Seconds between polls of the sources. Each poll re-applies
-                only what changed.
+                Seconds between reloads of the sources. Each reload
+                re-applies only what changed.
                 """,
             ),
         ] = _DEFAULT_INTERVAL,
@@ -161,7 +161,7 @@ class ExternalConfig:
         self._secrets_src = (
             _coerce_source(secrets) if secrets is not None else None
         )
-        self._interval = interval
+        self._interval = reload_interval
         self._config_data: Mapping[str, str] | None = None
         self._secrets_data: Mapping[str, str] | None = None
         self._stack: AsyncExitStack | None = None
