@@ -11,6 +11,7 @@ from pytest_mock import MockerFixture
 import grelmicro.coordination._base as base_module
 import grelmicro.coordination.leaderelection as le_module
 from grelmicro.coordination.abc import LeaderElectionBackend
+from grelmicro.coordination.errors import CoordinationSettingsValidationError
 from grelmicro.coordination.leaderelection import (
     LeaderElection,
     LeaderElectionConfig,
@@ -672,7 +673,9 @@ async def test_leader_reconfigure_rejects_worker_change(
         update={"worker": "other-worker"},
     )
 
-    with pytest.raises(ValueError, match="cannot change worker"):
+    with pytest.raises(
+        CoordinationSettingsValidationError, match="worker is immutable"
+    ):
         await leader_election.reconfigure(new_config)
 
 

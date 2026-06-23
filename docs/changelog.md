@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 `reconfigure()` now raises `CoordinationSettingsValidationError` (a `SettingsValidationError`, still a `ValueError` subclass) instead of a bare `ValueError` when a new config would change the immutable `worker`. Catch `SettingsValidationError` or `GrelmicroError` to handle it.
 * 💥 Rename the `ExternalConfig` `interval` parameter to `reload_interval`, tying the knob to the `reload()` verb it controls. Update `ExternalConfig(interval=...)` to `reload_interval=`.
 * 💥 Rename the log dedup `ttl_seconds` field to `ttl`, matching the bare-noun duration convention used everywhere else (the cache `ttl`, lock durations). Update `DuplicateFilter(ttl_seconds=...)` and `DedupConfig` to `ttl=`.
 * 💥 Rename the `Trace` component symbols to the `Trace` stem so they match the component name. `TracingConfig`, `TracingError`, `TracingExporterType`, `TracingProcessorType`, `TracingSamplerType`, and `TracingSettingsValidationError` become `TraceConfig`, `TraceError`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, and `TraceSettingsValidationError`. Update imports.
