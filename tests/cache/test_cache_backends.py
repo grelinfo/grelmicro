@@ -463,5 +463,9 @@ async def test_cached_end_to_end_with_memory() -> None:
     ],
 )
 def test_adapter_subclasses_cache_backend(adapter: type) -> None:
-    """Every cache adapter explicitly declares the CacheBackend protocol."""
-    assert issubclass(adapter, CacheBackend)
+    """Every cache adapter explicitly declares the CacheBackend protocol.
+
+    Checks the MRO, not `issubclass`: a runtime-checkable Protocol matches
+    structurally, so `issubclass` would pass without explicit inheritance.
+    """
+    assert CacheBackend in adapter.__mro__
