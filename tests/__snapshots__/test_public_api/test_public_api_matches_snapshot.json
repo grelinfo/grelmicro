@@ -215,11 +215,11 @@
   },
   "grelmicro.log": {
     "DuplicateFilter": {
-      "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl_seconds=..., key=..., env_prefix=..., env_load=...)",
+      "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl=..., key=..., env_prefix=..., env_load=...)",
       ".from_config": "(config, *, key=...)"
     },
     "DuplicateFilterConfig": {
-      "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl_seconds=...)"
+      "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl=...)"
     },
     "ErrorDict": null,
     "JSONRecordDict": null,
