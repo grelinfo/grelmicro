@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 Replace the six manual circuit-breaker control methods with two operator verbs. `isolate()` forces the breaker open until reset, `reset()` returns it to normal automatic operation starting `CLOSED`. Replace `transition_to_forced_open()` with `isolate()` and `restart()` with `reset()`. The remaining `transition_to_closed`, `transition_to_open`, `transition_to_half_open`, and `transition_to_forced_closed` are removed.
 * 💥 `CircuitBreakerMetrics` and `ErrorDetails` are now frozen slotted dataclasses instead of Pydantic models. Attribute access is unchanged, but they no longer offer `.model_dump()` or Pydantic validation. This matches `CircuitBreakerSnapshot` and `CacheInfo` (read-models are dataclasses, Pydantic is reserved for serialization boundaries).
 * 💥 `@cached` now folds concurrent misses of the same key in-process by default (`lock="local"` instead of `lock=False`). This removes a silent thundering-herd footgun at no I/O cost. Pass `lock=False` to restore the old behavior where every concurrent miss recomputes.
 * 💥 Move the backend protocols out of the public `abc` submodules into private `_protocol` modules (`clock`, `config`, `coordination`, `task`), matching `cache` and `resilience`. `VirtualClock` likewise moves to `clock/_virtual.py`. The protocols stay exported from each package, so import them from the package (`from grelmicro.coordination import LockBackend`) instead of `grelmicro.coordination.abc`.

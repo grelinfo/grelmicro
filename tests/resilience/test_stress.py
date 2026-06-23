@@ -17,6 +17,7 @@ from grelmicro.resilience import CircuitBreakerRegistry, RateLimiterRegistry
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     CircuitBreakerState,
+    _TransitionCause,
 )
 from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
@@ -90,11 +91,17 @@ async def test_circuit_breaker_churn() -> None:
         )
 
         for _ in range(CHURN_CYCLES):
-            await cb.transition_to_open()
+            await cb._transition(
+                CircuitBreakerState.OPEN, _TransitionCause.MANUAL
+            )
             assert cb.state is CircuitBreakerState.OPEN
-            await cb.transition_to_half_open()
+            await cb._transition(
+                CircuitBreakerState.HALF_OPEN, _TransitionCause.MANUAL
+            )
             assert cb.state is CircuitBreakerState.HALF_OPEN
-            await cb.transition_to_closed()
+            await cb._transition(
+                CircuitBreakerState.CLOSED, _TransitionCause.MANUAL
+            )
             assert cb.state is CircuitBreakerState.CLOSED
 
         assert cb.state is CircuitBreakerState.CLOSED
