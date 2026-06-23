@@ -566,6 +566,9 @@
     "FireInfo": {
       "()": "(started_at, outcome, duration)"
     },
+    "FireOutcome": {
+      "()": "(*values)"
+    },
     "FunctionTypeError": {
       "()": "(reference)"
     },

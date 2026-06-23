@@ -203,9 +203,10 @@ Each task exposes two read-only properties for observability:
   or `None` when the task has not started yet. For interval tasks, this is
   computed from the last loop instant. For cron tasks, it comes from the
   parsed expression.
-- **`last_fire`**: a `FireInfo` with the `started_at` timestamp, outcome
-  (`"success"`, `"error"`, or `"skipped"`), and duration in seconds. `None`
-  before the first fire.
+- **`last_fire`**: a `FireInfo` with the `started_at` timestamp, outcome (a
+  `FireOutcome` enum: `SUCCESS`, `ERROR`, or `SKIPPED`), and duration in
+  seconds. `None` before the first fire. `FireOutcome` is a `StrEnum`, so each
+  member compares equal to its string value (`outcome == "success"`).
 
 Access the task object via `tasks.tasks`:
 

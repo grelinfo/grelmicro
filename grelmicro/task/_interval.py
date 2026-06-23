@@ -18,7 +18,7 @@ from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
-from grelmicro.task._cron import FireInfo
+from grelmicro.task._cron import FireInfo, FireOutcome
 from grelmicro.task._utils import validate_and_generate_reference
 from grelmicro.task.abc import Task
 
@@ -159,7 +159,7 @@ class IntervalTask(Task):
                 except WouldBlockError as exc:
                     self._last_fire = FireInfo(
                         started_at=datetime.now(UTC),
-                        outcome="skipped",
+                        outcome=FireOutcome.SKIPPED,
                         duration=0.0,
                     )
                     logger.debug("Task skipped: %s (%s)", self.name, exc)
@@ -202,13 +202,13 @@ class IntervalTask(Task):
             )
             started_at = datetime.now(UTC)
             start_monotonic = time.perf_counter()
-            outcome = "error"
+            outcome = FireOutcome.ERROR
             try:
                 await self._async_function()
-                outcome = "success"
+                outcome = FireOutcome.SUCCESS
                 _emit.incr(
                     "grelmicro.task.runs",
-                    **{"task.name": self.name, "outcome": "success"},
+                    **{"task.name": self.name, "outcome": FireOutcome.SUCCESS},
                 )
             except Exception as exc:
                 logger.exception("Task execution error: %s", self.name)
@@ -216,7 +216,7 @@ class IntervalTask(Task):
                     "grelmicro.task.runs",
                     **{
                         "task.name": self.name,
-                        "outcome": "error",
+                        "outcome": FireOutcome.ERROR,
                         "error.type": type(exc).__name__,
                     },
                 )
