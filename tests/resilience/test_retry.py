@@ -59,10 +59,17 @@ def test_config_requires_when() -> None:
 
 
 def test_config_default_attempts_and_backoff() -> None:
-    """Defaults: 3 attempts, exponential backoff."""
+    """Defaults: 3 attempts, exponential backoff with full jitter.
+
+    Pins `RetryConfig`'s default backoff. The bare `retry`/`retrying`
+    forms inject the same `ExponentialBackoff()` default (via `_decorator`),
+    so this guards the safe default for both: exponential with full jitter,
+    never fixed or no backoff.
+    """
     config = RetryConfig(when=(ValueError,))  # ty: ignore[missing-argument,invalid-argument-type]
     assert config.attempts == _DEFAULT_ATTEMPTS
     assert isinstance(config.backoff, ExponentialBackoff)
+    assert config.backoff.jitter == "full"
 
 
 def test_config_frozen() -> None:
