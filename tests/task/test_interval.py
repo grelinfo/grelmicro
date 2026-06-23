@@ -2,7 +2,7 @@
 
 import asyncio
 from asyncio import sleep
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from pytest_mock import MockFixture
@@ -44,6 +44,26 @@ def test_interval_task_init_with_name() -> None:
     task = IntervalTask(seconds=1, function=test1, name="test1")
     # Assert
     assert task.name == "test1"
+
+
+def test_interval_task_init_with_seconds_float() -> None:
+    """Test Interval Task accepts a number of seconds."""
+    # Arrange
+    seconds = 5
+    # Act
+    task = IntervalTask(seconds=seconds, function=test1)
+    # Assert
+    assert task._seconds == seconds
+
+
+def test_interval_task_init_with_seconds_timedelta() -> None:
+    """Test Interval Task accepts a timedelta and resolves it to seconds."""
+    # Arrange
+    interval = timedelta(minutes=2)
+    # Act
+    task = IntervalTask(seconds=interval, function=test1)
+    # Assert
+    assert task._seconds == interval.total_seconds()
 
 
 def test_interval_task_init_with_invalid_interval() -> None:

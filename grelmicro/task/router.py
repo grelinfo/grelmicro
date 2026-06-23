@@ -1,6 +1,7 @@
 """Task Router."""
 
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
@@ -61,10 +62,12 @@ class TaskRouter:
         self,
         *,
         seconds: Annotated[
-            float,
+            float | timedelta,
             Doc(
                 """
-                The duration in seconds between each task run.
+                The duration between each task run.
+
+                Accepts a number of seconds or a `timedelta`.
 
                 Accuracy is not guaranteed and may vary with system load. Consider the
                 execution time of the task when setting the interval.
