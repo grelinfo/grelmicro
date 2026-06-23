@@ -1,6 +1,7 @@
 """Test Task Router."""
 
 import re
+from datetime import timedelta
 from functools import partial
 
 import pytest
@@ -82,6 +83,24 @@ def test_router_interval() -> None:
     assert router.tasks[1].name == "test1"
     assert router.tasks[2].name == "test2"
     assert router.tasks[3].name == "tests.task.samples:test3"
+
+
+def test_router_interval_with_timedelta() -> None:
+    """Test Task Router add interval task with a timedelta interval."""
+    # Arrange
+    router = TaskRouter()
+    interval = timedelta(minutes=2)
+    seconds = 5
+
+    # Act
+    router.interval(seconds=interval)(test1)
+    router.interval(seconds=seconds)(test2)
+
+    # Assert
+    assert isinstance(router.tasks[0], IntervalTask)
+    assert router.tasks[0]._seconds == interval.total_seconds()
+    assert isinstance(router.tasks[1], IntervalTask)
+    assert router.tasks[1]._seconds == seconds
 
 
 def test_router_interval_name_generation() -> None:

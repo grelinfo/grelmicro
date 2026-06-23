@@ -42,7 +42,7 @@ class IntervalTask(Task):
         *,
         function: Callable[..., Any],
         name: str | None = None,
-        seconds: float,
+        seconds: float | timedelta,
         max_lock_seconds: float | None = None,
         min_lock_seconds: float | None = None,
         leader: LeaderElection | None = None,
@@ -59,6 +59,11 @@ class IntervalTask(Task):
             ValueError: If min_lock_seconds is set without max_lock_seconds or leader.
             ValueError: If min_lock_seconds is greater than max_lock_seconds.
         """
+        seconds = (
+            seconds.total_seconds()
+            if isinstance(seconds, timedelta)
+            else seconds
+        )
         if seconds <= 0:
             msg = "seconds must be greater than 0"
             raise ValueError(msg)

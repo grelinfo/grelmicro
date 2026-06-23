@@ -91,7 +91,7 @@ Set `max_lock_seconds` to enable distributed locking: the task runs at most once
 
 | Parameter | Description |
 |-----------|-------------|
-| `seconds` | Duration in seconds between each scheduling attempt. Each worker retries every N seconds, but only one executes per interval. |
+| `seconds` | Duration between each scheduling attempt, as a number of seconds or a `timedelta`. Each worker retries every interval, but only one executes per interval. |
 | `max_lock_seconds` | Crash protection TTL. Must be >= `seconds`. If a worker crashes, the lock expires after this duration. |
 | `min_lock_seconds` | Minimum duration to hold the lock after task completion. Prevents re-execution on other nodes too soon. Defaults to `seconds`. |
 
