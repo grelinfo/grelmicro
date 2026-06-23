@@ -137,7 +137,7 @@ def _resolve_cache(
     )
 
 
-def cached(  # noqa: PLR0913
+def cached(  # noqa: PLR0913, C901
     cache: Annotated[
         TTLCache | None,
         Doc(
@@ -354,7 +354,7 @@ def cached(  # noqa: PLR0913
         auto_distributed = lock is True
         tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)
         resolved_key_maker = key_maker
-        if key is not None:
+        if key is not None and "{" in key:
             key_spec = _TagSpec((key,), inspect.signature(func))
 
             def resolved_key_maker(
@@ -363,6 +363,14 @@ def cached(  # noqa: PLR0913
                 kwargs: dict[str, Any],
             ) -> str:
                 return key_spec.render(args, kwargs)[0]
+        elif key is not None:
+
+            def resolved_key_maker(
+                _func: Callable[..., Any],
+                _args: tuple[Any, ...],
+                _kwargs: dict[str, Any],
+            ) -> str:
+                return key
 
         if is_async_func:
             wrapper = _build_async_wrapper(

@@ -284,7 +284,7 @@ async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 ```
 
-Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a `key_maker` callable instead. It receives `(func, args, kwargs)` and returns the key. Passing both `key` and `key_maker` raises `TypeError`.
+Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a `key_maker` callable instead. It receives `(func, args, kwargs)` and returns the key. Passing both `key` and `key_maker` raises `TypeError`. A custom key fully determines the lookup, so `typed=` has no effect when `key=` or `key_maker` is set.
 
 ```python title="key.py"
 --8<-- "cache/key.py"

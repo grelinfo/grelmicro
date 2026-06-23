@@ -1594,6 +1594,23 @@ class TestCachedKeyTemplate:
 
         assert call_count == EXPECTED_CALL_COUNT_1
 
+    async def test_key_template_literal_no_placeholders(self) -> None:
+        """A literal key= with no placeholders keys every call the same."""
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, key="all-users")
+        async def fetch(user_id: int) -> dict:
+            nonlocal call_count
+            call_count += 1
+            return {"id": user_id}
+
+        await fetch(1)
+        await fetch(2)
+
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert await cache.get("all-users") is not None
+
     def test_key_template_sync(self) -> None:
         """A key= template keys a sync cached function."""
         backend = MemoryCacheAdapter()
