@@ -47,6 +47,16 @@ def test_environmental_path_reads_grel_prefixed_env(
     assert registry._config.cache_ttl == CACHE_TTL_ENV
 
 
+def test_named_instance_reads_name_segmented_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A named instance reads ``GREL_HEALTH_{NAME}_*``, not the bare prefix."""
+    monkeypatch.setenv("GREL_HEALTH_TIMEOUT", str(TIMEOUT_KWARG))
+    monkeypatch.setenv("GREL_HEALTH_API_TIMEOUT", str(TIMEOUT_ENV))
+    registry = HealthChecks(name="api")
+    assert registry._config.timeout == TIMEOUT_ENV
+
+
 def test_kwargs_override_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Caller kwargs win over env vars."""
     monkeypatch.setenv("GREL_HEALTH_TIMEOUT", str(TIMEOUT_ENV))

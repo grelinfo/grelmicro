@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 `HealthChecks` now namespaces its env vars per instance: the default instance keeps `GREL_HEALTH_*`, but a named instance reads `GREL_HEALTH_{NAME_UPPER}_*` (matching `Lock`, `CircuitBreaker`, and the other named components). Update env vars for any named `HealthChecks`.
 * 💥 Replace the six manual circuit-breaker control methods with two operator verbs. `isolate()` forces the breaker open until reset, `reset()` returns it to normal automatic operation starting `CLOSED`. Replace `transition_to_forced_open()` with `isolate()` and `restart()` with `reset()`. The remaining `transition_to_closed`, `transition_to_open`, `transition_to_half_open`, and `transition_to_forced_closed` are removed.
 * 💥 `CircuitBreakerMetrics` and `ErrorDetails` are now frozen slotted dataclasses instead of Pydantic models. Attribute access is unchanged, but they no longer offer `.model_dump()` or Pydantic validation. This matches `CircuitBreakerSnapshot` and `CacheInfo` (read-models are dataclasses, Pydantic is reserved for serialization boundaries).
 * 💥 `@cached` now folds concurrent misses of the same key in-process by default (`lock="local"` instead of `lock=False`). This removes a silent thundering-herd footgun at no I/O cost. Pass `lock=False` to restore the old behavior where every concurrent miss recomputes.
