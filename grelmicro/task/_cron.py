@@ -6,6 +6,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from functools import partial
 from logging import getLogger
 from typing import TYPE_CHECKING, Any
@@ -29,12 +30,26 @@ if TYPE_CHECKING:
 logger = getLogger("grelmicro.task")
 
 
+class FireOutcome(StrEnum):
+    """Outcome of a task fire.
+
+    - ``SUCCESS``: the body ran and returned without raising.
+    - ``ERROR``: the body raised an exception.
+    - ``SKIPPED``: the fire was skipped because acquiring a lock would
+      block (a ``WouldBlockError``).
+    """
+
+    SUCCESS = "success"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
 @dataclass(frozen=True)
 class FireInfo:
     """Information about a task fire."""
 
     started_at: datetime
-    outcome: str
+    outcome: FireOutcome
     duration: float
 
 
@@ -431,7 +446,7 @@ class CronTask(Task):
         except WouldBlockError as exc:
             self._last_fire = FireInfo(
                 started_at=_now(self._tz),
-                outcome="skipped",
+                outcome=FireOutcome.SKIPPED,
                 duration=0.0,
             )
             logger.debug("Task skipped: %s (%s)", self.name, exc)
@@ -506,13 +521,13 @@ class CronTask(Task):
         )
         started_at = _now(self._tz)
         start_monotonic = time.perf_counter()
-        outcome = "error"
+        outcome = FireOutcome.ERROR
         try:
             await self._async_function()
-            outcome = "success"
+            outcome = FireOutcome.SUCCESS
             _emit.incr(
                 "grelmicro.task.runs",
-                **{"task.name": self.name, "outcome": "success"},
+                **{"task.name": self.name, "outcome": FireOutcome.SUCCESS},
             )
         except Exception as exc:
             logger.exception("Task execution error: %s", self.name)
@@ -520,7 +535,7 @@ class CronTask(Task):
                 "grelmicro.task.runs",
                 **{
                     "task.name": self.name,
-                    "outcome": "error",
+                    "outcome": FireOutcome.ERROR,
                     "error.type": type(exc).__name__,
                 },
             )

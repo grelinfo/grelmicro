@@ -15,7 +15,7 @@ from grelmicro.coordination.abc import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.memory import MemoryScheduleAdapter
 from grelmicro.errors import OutOfContextError
-from grelmicro.task._cron import CronTask, FireInfo
+from grelmicro.task._cron import CronTask, FireInfo, FireOutcome
 from grelmicro.task.errors import CronError
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
@@ -439,8 +439,10 @@ async def test_cron_task_last_fire_success(mocker: MockFixture) -> None:
         async with samples.condition:
             await samples.condition.wait()
         assert task.last_fire is not None
-        assert task.last_fire.outcome == "success"
         assert isinstance(task.last_fire, FireInfo)
+        assert task.last_fire.outcome is FireOutcome.SUCCESS
+        assert isinstance(task.last_fire.outcome, FireOutcome)
+        assert task.last_fire.outcome == "success"
         assert task.last_fire.duration >= 0
         cancel_group(tg)
 
@@ -453,6 +455,7 @@ async def test_cron_task_last_fire_error(mocker: MockFixture) -> None:
         await start_task(tg, task)
         await sleep(SLEEP * 3)
         assert task.last_fire is not None
+        assert task.last_fire.outcome is FireOutcome.ERROR
         assert task.last_fire.outcome == "error"
         cancel_group(tg)
 
@@ -465,9 +468,18 @@ async def test_cron_task_last_fire_skipped(mocker: MockFixture) -> None:
         await start_task(tg, task)
         await sleep(SLEEP * 3)
         assert task.last_fire is not None
+        assert task.last_fire.outcome is FireOutcome.SKIPPED
         assert task.last_fire.outcome == "skipped"
         assert task.last_fire.duration == 0.0
         cancel_group(tg)
+
+
+def test_fire_outcome_is_str_enum() -> None:
+    """FireOutcome members are str-compatible with their literal values."""
+    assert isinstance(FireOutcome.SUCCESS, str)
+    assert FireOutcome.SUCCESS == "success"
+    assert FireOutcome.ERROR == "error"
+    assert FireOutcome.SKIPPED == "skipped"
 
 
 # --- Synchronization and tick error handling ---

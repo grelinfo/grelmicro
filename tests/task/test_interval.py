@@ -7,7 +7,7 @@ from datetime import datetime
 import pytest
 from pytest_mock import MockFixture
 
-from grelmicro.task._cron import FireInfo
+from grelmicro.task._cron import FireInfo, FireOutcome
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
@@ -62,6 +62,21 @@ async def test_interval_task_start() -> None:
         await start_task(tg, task)
         async with samples.condition:
             await samples.condition.wait()
+        cancel_group(tg)
+
+
+async def test_interval_task_last_fire_outcome() -> None:
+    """last_fire.outcome is the FireOutcome.SUCCESS member after a run."""
+    task = IntervalTask(seconds=1, function=notify)
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        async with samples.condition:
+            await samples.condition.wait()
+        assert task.last_fire is not None
+        assert isinstance(task.last_fire, FireInfo)
+        assert task.last_fire.outcome is FireOutcome.SUCCESS
+        assert isinstance(task.last_fire.outcome, FireOutcome)
+        assert task.last_fire.outcome == "success"
         cancel_group(tg)
 
 
