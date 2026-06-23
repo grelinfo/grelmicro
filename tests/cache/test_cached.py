@@ -1539,6 +1539,104 @@ class TestCachedTags:
         assert "user:5" in backend._tag_keys
 
 
+class TestCachedKeyTemplate:
+    """Tests for @cached key= string templating."""
+
+    async def test_key_template_renders_from_positional_arg(self) -> None:
+        """A key= template renders from a positional argument."""
+        cache = _make_cache()
+
+        @cached(cache, key="user:{user_id}")
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(42)
+
+        assert await cache.get("user:42") == {"id": 42}
+
+    async def test_key_template_renders_from_keyword_arg(self) -> None:
+        """A key= template renders from a keyword argument."""
+        cache = _make_cache()
+
+        @cached(cache, key="user:{user_id}")
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        await fetch(user_id=7)
+
+        assert await cache.get("user:7") == {"id": 7}
+
+    async def test_key_template_renders_from_default_argument(self) -> None:
+        """A key= template uses a default when the argument is omitted."""
+        cache = _make_cache()
+
+        @cached(cache, key="page:{page}")
+        async def fetch(page: int = 1) -> dict:
+            return {"page": page}
+
+        await fetch()
+
+        assert await cache.get("page:1") == {"page": 1}
+
+    async def test_key_template_collapses_unmentioned_args(self) -> None:
+        """Args absent from the template collapse to the same key."""
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, key="user:{user_id}")
+        async def fetch(user_id: int, _trace: str) -> dict:
+            nonlocal call_count
+            call_count += 1
+            return {"id": user_id}
+
+        await fetch(1, "a")
+        await fetch(1, "b")
+
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_key_template_literal_no_placeholders(self) -> None:
+        """A literal key= with no placeholders keys every call the same."""
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, key="all-users")
+        async def fetch(user_id: int) -> dict:
+            nonlocal call_count
+            call_count += 1
+            return {"id": user_id}
+
+        await fetch(1)
+        await fetch(2)
+
+        assert call_count == EXPECTED_CALL_COUNT_1
+        assert await cache.get("all-users") is not None
+
+    def test_key_template_sync(self) -> None:
+        """A key= template keys a sync cached function."""
+        backend = MemoryCacheAdapter()
+        cache = TTLCache(ttl=60, backend=backend, serializer=PickleSerializer())
+
+        @cached(cache, key="user:{user_id}")
+        def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        async def run() -> dict | None:
+            backend._loop = asyncio.get_running_loop()
+            await asyncio.to_thread(fetch, 5)
+            return await cache.get("user:5")
+
+        assert asyncio.run(run()) == {"id": 5}
+
+    def test_key_and_key_maker_raises(self) -> None:
+        """Passing both key and key_maker raises TypeError."""
+        with pytest.raises(TypeError, match="not both"):
+            cached(
+                TTLCache(ttl=5),
+                key="user:{user_id}",
+                key_maker=lambda _f, _a, _k: "x",
+            )
+
+
 class TestCachedStaleOnError:
     """Test @cached(stale_ttl=...) serve-stale-on-error."""
 

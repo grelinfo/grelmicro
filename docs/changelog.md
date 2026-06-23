@@ -6,6 +6,10 @@
 
 * 💥 Rename the concrete leader election adapters to the `*Adapter` suffix every other pattern already uses. `MemoryLeaderElectionBackend`, `RedisLeaderElectionBackend`, `PostgresLeaderElectionBackend`, and `KubernetesLeaderElectionBackend` become `MemoryLeaderElectionAdapter`, `RedisLeaderElectionAdapter`, `PostgresLeaderElectionAdapter`, and `KubernetesLeaderElectionAdapter`. The `LeaderElectionBackend` protocol keeps its name (protocol stays `*Backend`, concrete stays `*Adapter`). Update direct imports and constructions.
 
+### Features
+
+* ✨ Add a `key=` template to `@cached` for a stable, readable cache key rendered from the arguments, like `@cached(key="user:{user_id}")`. Pass `key_maker=` for the fully dynamic case. Passing both raises `TypeError`.
+
 ## 1.0.0a2 - 2026-06-21
 
 ### Features

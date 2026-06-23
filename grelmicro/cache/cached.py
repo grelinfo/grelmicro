@@ -137,7 +137,7 @@ def _resolve_cache(
     )
 
 
-def cached(
+def cached(  # noqa: PLR0913, C901
     cache: Annotated[
         TTLCache | None,
         Doc(
@@ -181,13 +181,30 @@ def cached(
             """,
         ),
     ] = 0,
+    key: Annotated[
+        str | None,
+        Doc(
+            """
+            Cache key template rendered from the call's arguments, so
+            ``key="user:{user_id}"`` keys the entry under ``user:42`` for
+            a call with ``user_id=42``. A literal template with no
+            placeholders keys every call under the same string. Use it
+            instead of the default argument-repr key when you want a
+            stable, readable key. A `key` template fully determines the
+            key, so `typed` does not apply. Passing both `key` and
+            `key_maker` raises `TypeError`.
+            """,
+        ),
+    ] = None,
     key_maker: Annotated[
         Callable[[Callable[..., Any], tuple[Any, ...], dict[str, Any]], str]
         | None,
         Doc(
             """
             Optional custom key generation function. Receives
-            ``(func, args, kwargs)`` and must return a string key.
+            ``(func, args, kwargs)`` and must return a string key. Use it
+            for the fully dynamic case. For a simple template, pass `key=`
+            instead. Passing both `key` and `key_maker` raises `TypeError`.
             """,
         ),
     ] = None,
@@ -293,8 +310,8 @@ def cached(
     function alone.
 
     Raises:
-        TypeError: If both ``cache`` and ``ttl`` are given, or if
-            neither is given.
+        TypeError: If both ``cache`` and ``ttl`` are given, if neither is
+            given, or if both ``key`` and ``key_maker`` are given.
         ValueError: If ``lock`` is not ``True``, ``False``, or ``"local"``,
             if ``early`` is outside ``[0, 1)``, or if ``stale_ttl`` is not
             positive.
@@ -302,6 +319,13 @@ def cached(
     Returns:
         A decorator that caches function results.
     """
+    if key is not None and key_maker is not None:
+        msg = (
+            "cached() takes either key= or key_maker=, not both. Pass a "
+            "key= template for a stable key rendered from the arguments, "
+            "or a key_maker callable for the fully dynamic case."
+        )
+        raise TypeError(msg)
     is_private_cache = cache is None
     cache = _resolve_cache(cache, ttl, maxsize)
     if lock not in (True, False, "local"):
@@ -329,12 +353,30 @@ def cached(
         per_key = lock is not False
         auto_distributed = lock is True
         tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)
+        resolved_key_maker = key_maker
+        if key is not None and "{" in key:
+            key_spec = _TagSpec((key,), inspect.signature(func))
+
+            def resolved_key_maker(
+                _func: Callable[..., Any],
+                args: tuple[Any, ...],
+                kwargs: dict[str, Any],
+            ) -> str:
+                return key_spec.render(args, kwargs)[0]
+        elif key is not None:
+
+            def resolved_key_maker(
+                _func: Callable[..., Any],
+                _args: tuple[Any, ...],
+                _kwargs: dict[str, Any],
+            ) -> str:
+                return key
 
         if is_async_func:
             wrapper = _build_async_wrapper(
                 func,
                 cache,
-                key_maker,
+                resolved_key_maker,
                 skip,
                 typed=typed,
                 per_key=per_key,
@@ -347,7 +389,7 @@ def cached(
             wrapper = _build_sync_wrapper(
                 func,
                 cache,
-                key_maker,
+                resolved_key_maker,
                 skip,
                 typed=typed,
                 per_key=per_key,
