@@ -6,8 +6,10 @@ from time import monotonic
 from types import TracebackType
 from typing import Self
 
+from grelmicro.cache._protocol import CacheBackend
 
-class MemoryCacheAdapter:
+
+class MemoryCacheAdapter(CacheBackend):
     """In-memory cache backend.
 
     Stores entries in a Python dict with lazy TTL expiry.

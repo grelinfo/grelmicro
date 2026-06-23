@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Self
 
 from typing_extensions import Doc
 
+from grelmicro.cache._protocol import CacheBackend
 from grelmicro.providers.postgres import PostgresProvider
 
 if TYPE_CHECKING:
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 
-class PostgresCacheAdapter:
+class PostgresCacheAdapter(CacheBackend):
     """Postgres cache storage backend.
 
     Wraps a `PostgresProvider` and implements the cache protocol:
