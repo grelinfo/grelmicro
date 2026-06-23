@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 `CircuitBreakerMetrics` and `ErrorDetails` are now frozen slotted dataclasses instead of Pydantic models. Attribute access is unchanged, but they no longer offer `.model_dump()` or Pydantic validation. This matches `CircuitBreakerSnapshot` and `CacheInfo` (read-models are dataclasses, Pydantic is reserved for serialization boundaries).
 * 💥 `@cached` now folds concurrent misses of the same key in-process by default (`lock="local"` instead of `lock=False`). This removes a silent thundering-herd footgun at no I/O cost. Pass `lock=False` to restore the old behavior where every concurrent miss recomputes.
 * 💥 Move the backend protocols out of the public `abc` submodules into private `_protocol` modules (`clock`, `config`, `coordination`, `task`), matching `cache` and `resilience`. `VirtualClock` likewise moves to `clock/_virtual.py`. The protocols stay exported from each package, so import them from the package (`from grelmicro.coordination import LockBackend`) instead of `grelmicro.coordination.abc`.
 * 💥 `reconfigure()` now raises `CoordinationSettingsValidationError` (a `SettingsValidationError`, still a `ValueError` subclass) instead of a bare `ValueError` when a new config would change the immutable `worker`. Catch `SettingsValidationError` or `GrelmicroError` to handle it.

@@ -304,7 +304,7 @@
       "()": "(*, name, last_error_time=..., last_error=...)"
     },
     "CircuitBreakerMetrics": {
-      "()": "(*, name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error)"
+      "()": "(name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error)"
     },
     "CircuitBreakerRegistry": {
       "()": "(source, *, name=...)"
@@ -325,7 +325,7 @@
       "()": "(*, kind=..., delay=...)"
     },
     "ErrorDetails": {
-      "()": "(*, time, type, msg)"
+      "()": "(time, type, msg)"
     },
     "ExponentialBackoff": {
       "()": "(*, kind=..., base_delay=..., max_delay=..., jitter=...)"
@@ -519,7 +519,7 @@
       "()": "(*, name, last_error_time=..., last_error=...)"
     },
     "CircuitBreakerMetrics": {
-      "()": "(*, name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error)"
+      "()": "(name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error)"
     },
     "CircuitBreakerState": {
       "()": "(*values)"
@@ -528,7 +528,7 @@
       "()": "(*, kind=..., ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=...)"
     },
     "ErrorDetails": {
-      "()": "(*, time, type, msg)"
+      "()": "(time, type, msg)"
     }
   },
   "grelmicro.resilience.ratelimiter": {

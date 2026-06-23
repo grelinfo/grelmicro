@@ -14,7 +14,6 @@ from inspect import iscoroutinefunction
 from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, Any, Self
 
-from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
@@ -35,7 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from types import TracebackType
 
-    from pydantic import Discriminator
+    from pydantic import Discriminator, PositiveFloat, PositiveInt
 
     from grelmicro._types import LogLevel
     from grelmicro.resilience._protocol import (
@@ -138,7 +137,8 @@ class CircuitBreakerState(StrEnum):
     """Circuit is forced closed for an indefinite time, calls are allowed."""
 
 
-class ErrorDetails(BaseModel, frozen=True, extra="forbid"):
+@dataclass(frozen=True, slots=True)
+class ErrorDetails:
     """Details about an error recorded by the circuit breaker."""
 
     time: datetime
@@ -146,7 +146,8 @@ class ErrorDetails(BaseModel, frozen=True, extra="forbid"):
     msg: str
 
 
-class CircuitBreakerMetrics(BaseModel, frozen=True, extra="forbid"):
+@dataclass(frozen=True, slots=True)
+class CircuitBreakerMetrics:
     """Circuit breaker metrics."""
 
     name: str
