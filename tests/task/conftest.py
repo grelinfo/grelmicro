@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Callable
 
 import pytest
 
-from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
+from grelmicro.coordination._protocol import LeaderElectionBackend, LockBackend
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionAdapter,
     MemoryLockAdapter,

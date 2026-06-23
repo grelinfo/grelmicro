@@ -12,7 +12,7 @@ from pytest_mock import MockerFixture
 import grelmicro.coordination._base as base_module
 import grelmicro.coordination.lock as lock_module
 from grelmicro.coordination._handle import LockHandle
-from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.errors import (
     CoordinationSettingsValidationError,
     LockAcquireError,

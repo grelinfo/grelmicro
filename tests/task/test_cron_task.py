@@ -11,7 +11,7 @@ from pytest_mock import MockFixture
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
-from grelmicro.coordination.abc import LockPrimitive
+from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.memory import MemoryScheduleAdapter
 from grelmicro.errors import OutOfContextError

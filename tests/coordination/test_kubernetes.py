@@ -15,7 +15,7 @@ from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.coordination_v1 import Lease
 from testcontainers.core.container import DockerContainer
 
-from grelmicro.coordination.abc import LeaderElectionBackend
+from grelmicro.coordination._protocol import LeaderElectionBackend
 from grelmicro.coordination.kubernetes import (
     _MAX_NAME_LENGTH,
     KubernetesLeaderElectionAdapter,

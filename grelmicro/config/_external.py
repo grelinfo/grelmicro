@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from os import PathLike
     from types import TracebackType
 
-    from grelmicro.config.abc import ConfigBackend
+    from grelmicro.config._protocol import ConfigBackend
 
 logger = logging.getLogger("grelmicro")
 
@@ -69,7 +69,7 @@ class ExternalConfig:
     outside the image and is applied at runtime. Add it to a `Grelmicro`
     app and every component that resolves from the environment is kept in
     sync with a mounted ConfigMap, Secret, or any other
-    [`ConfigBackend`][grelmicro.config.abc.ConfigBackend], with no
+    [`ConfigBackend`][grelmicro.config._protocol.ConfigBackend], with no
     per-component wiring.
 
     ```python

@@ -16,7 +16,7 @@ import pytest
 import grelmicro.coordination.leaderelection as le_module
 import grelmicro.coordination.memory as mem_module
 import grelmicro.coordination.tasklock as tl_module
-from grelmicro.coordination.abc import LeaderElectionBackend, LeaderRecord
+from grelmicro.coordination._protocol import LeaderElectionBackend, LeaderRecord
 from grelmicro.coordination.leaderelection import (
     LeaderElection,
     LeaderElectionConfig,

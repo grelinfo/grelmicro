@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination._protocol import LockBackend
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
 from tests.task.conftest import TaskFactory

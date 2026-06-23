@@ -11,7 +11,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
-from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.kubernetes import KubernetesLockAdapter
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.coordination.postgres import PostgresLockAdapter

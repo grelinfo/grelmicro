@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from grelmicro.coordination.abc import ScheduleBackend
+from grelmicro.coordination._protocol import ScheduleBackend
 from grelmicro.coordination.errors import CoordinationSettingsValidationError
 from grelmicro.coordination.sqlite import SQLiteScheduleAdapter
 from grelmicro.errors import OutOfContextError

@@ -18,14 +18,14 @@ from grelmicro._async import is_async_callable, sleep_or_stop
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
+from grelmicro.task._protocol import Task
 from grelmicro.task._utils import validate_and_generate_reference
-from grelmicro.task.abc import Task
 from grelmicro.task.errors import CronError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from grelmicro.coordination.abc import LockPrimitive, ScheduleBackend
+    from grelmicro.coordination._protocol import LockPrimitive, ScheduleBackend
 
 logger = getLogger("grelmicro.task")
 

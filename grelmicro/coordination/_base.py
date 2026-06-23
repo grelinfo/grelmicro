@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 from typing_extensions import Doc
 
 from grelmicro.coordination._handle import LockHandle
+from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination._tokens import generate_worker_id
-from grelmicro.coordination.abc import LockPrimitive
 from grelmicro.coordination.errors import CoordinationSettingsValidationError
 
 # Seam for randomness in retry jitter. Tests pin it to a fixed value.

@@ -17,7 +17,7 @@ from lightkube.resources.coordination_v1 import Lease
 from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
-from grelmicro.coordination.abc import LeaderRecord, LockBackend
+from grelmicro.coordination._protocol import LeaderRecord, LockBackend
 from grelmicro.coordination.errors import CoordinationSettingsValidationError
 from grelmicro.errors import OutOfContextError
 

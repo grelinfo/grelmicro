@@ -19,14 +19,14 @@ from grelmicro.coordination._base import (
     assert_worker_unchanged,
     jittered_interval,
 )
-from grelmicro.coordination.abc import (
+from grelmicro.coordination._protocol import (
     LeaderElectionBackend,
     LeaderRecord,
     LockPrimitive,
     Seconds,
 )
 from grelmicro.errors import WouldBlockError
-from grelmicro.task.abc import Task
+from grelmicro.task._protocol import Task
 
 logger = getLogger("grelmicro.leader_election")
 

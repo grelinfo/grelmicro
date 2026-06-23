@@ -11,7 +11,7 @@ import aiosqlite
 from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
-from grelmicro.coordination.abc import LockBackend, ScheduleBackend
+from grelmicro.coordination._protocol import LockBackend, ScheduleBackend
 from grelmicro.coordination.errors import CoordinationSettingsValidationError
 from grelmicro.errors import OutOfContextError
 

@@ -10,13 +10,13 @@ from typing_extensions import Doc
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
-    from grelmicro.coordination.abc import (
+    from grelmicro.coordination._protocol import (
         LockBackend,
         LockPrimitive,
         ScheduleBackend,
     )
     from grelmicro.coordination.leaderelection import LeaderElection
-    from grelmicro.task.abc import Task
+    from grelmicro.task._protocol import Task
 
 
 class TaskRouter:

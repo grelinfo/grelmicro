@@ -2,7 +2,7 @@
 
 from grelmicro.coordination._component import Coordination
 from grelmicro.coordination._handle import LockHandle
-from grelmicro.coordination.abc import (
+from grelmicro.coordination._protocol import (
     LeaderElectionBackend,
     LeaderRecord,
     LockBackend,

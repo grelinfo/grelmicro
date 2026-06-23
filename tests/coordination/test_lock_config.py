@@ -6,7 +6,7 @@ from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
-from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
 

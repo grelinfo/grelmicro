@@ -15,7 +15,7 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from grelmicro.clock.abc import ClockBackend
+    from grelmicro.clock._protocol import ClockBackend
 
 _active_clock: ContextVar[ClockBackend | None] = ContextVar(
     "grelmicro_active_clock", default=None

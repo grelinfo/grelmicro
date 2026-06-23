@@ -10,8 +10,8 @@ import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
+from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination._tokens import generate_task_token
-from grelmicro.coordination.abc import LockBackend
 from grelmicro.coordination.errors import (
     CoordinationSettingsValidationError,
     LockAcquireError,

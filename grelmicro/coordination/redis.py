@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Self
 
 from typing_extensions import Doc
 
-from grelmicro.coordination.abc import (
+from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
     ScheduleBackend,

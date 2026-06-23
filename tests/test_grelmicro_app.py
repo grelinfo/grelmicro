@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from types import TracebackType
 
-    from grelmicro.coordination.abc import LeaderRecord
+    from grelmicro.coordination._protocol import LeaderRecord
 
 from grelmicro import (
     Component,

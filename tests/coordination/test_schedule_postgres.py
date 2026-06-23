@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from grelmicro.coordination.abc import ScheduleBackend
+from grelmicro.coordination._protocol import ScheduleBackend
 from grelmicro.coordination.postgres import PostgresScheduleAdapter
 from grelmicro.errors import OutOfContextError
 from grelmicro.providers.postgres import (

@@ -9,7 +9,7 @@ from typing import Annotated, Self
 from typing_extensions import Doc
 
 from grelmicro.errors import OutOfContextError
-from grelmicro.task.abc import Task
+from grelmicro.task._protocol import Task
 from grelmicro.task.errors import TaskAddOperationError
 from grelmicro.task.router import TaskRouter
 
