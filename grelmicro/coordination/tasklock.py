@@ -39,7 +39,7 @@ from grelmicro.errors import WouldBlockError
 logger = getLogger("grelmicro.coordination")
 
 
-class TaskLockConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
+class TaskLockConfig(BaseLockConfig):  # ty: ignore[invalid-frozen-dataclass-subclass]
     """Task Lock Config."""
 
     min_lock_seconds: Annotated[

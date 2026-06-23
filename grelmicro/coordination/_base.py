@@ -5,7 +5,7 @@ from types import TracebackType
 from typing import Annotated, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from typing_extensions import Doc
 
 from grelmicro.coordination._handle import LockHandle
@@ -23,10 +23,8 @@ def jittered_interval(base: float, jitter: float) -> float:
     return base
 
 
-class BaseLockConfig(BaseModel):
+class BaseLockConfig(BaseModel, frozen=True, extra="forbid"):
     """Base Lock Config."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     worker: Annotated[
         str | UUID,
