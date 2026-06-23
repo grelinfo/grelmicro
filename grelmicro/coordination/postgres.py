@@ -332,7 +332,7 @@ isolated from any other advisory lock in the same database.
 
 
 class PostgresLeaderElectionAdapter:
-    """Postgres leader election backend.
+    """Postgres leader election adapter.
 
     Wraps a `PostgresProvider` and implements the `LeaderElectionBackend`
     protocol on top of a single `{table_name}` row per election. Every

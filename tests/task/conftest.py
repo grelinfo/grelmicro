@@ -87,7 +87,7 @@ async def backend() -> AsyncGenerator[LockBackend]:
 
 @pytest.fixture
 async def leader_backend() -> AsyncGenerator[LeaderElectionBackend]:
-    """Return Memory Leader Election Backend."""
+    """Return Memory Leader Election Adapter."""
     async with MemoryLeaderElectionAdapter() as backend:
         yield backend
 

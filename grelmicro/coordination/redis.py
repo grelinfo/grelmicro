@@ -313,7 +313,7 @@ class RedisScheduleAdapter(ScheduleBackend):
 
 
 class RedisLeaderElectionAdapter:
-    """Redis leader election backend.
+    """Redis leader election adapter.
 
     Wraps a `RedisProvider` and implements the `LeaderElectionBackend`
     protocol. The `LeaderRecord` is stored in a Redis HASH and the

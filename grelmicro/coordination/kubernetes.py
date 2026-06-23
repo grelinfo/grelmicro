@@ -479,7 +479,7 @@ def _is_live(record: LeaderRecord, now: datetime) -> bool:
 
 
 class KubernetesLeaderElectionAdapter:
-    """Kubernetes Leader Election Backend.
+    """Kubernetes Leader Election Adapter.
 
     Stores the `LeaderRecord` in a `coordination.k8s.io/v1` Lease object, one
     per election. The Lease spec carries the holder, durations, and transition
