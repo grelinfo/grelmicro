@@ -149,7 +149,7 @@ class Trace:
             TraceConfig,
             Doc(
                 """
-                The pre-built tracing configuration.
+                The pre-built trace configuration.
 
                 Use this path when the configuration is assembled at
                 startup from a settings tree (for example YAML, Vault,

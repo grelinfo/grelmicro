@@ -13,6 +13,7 @@
         - TraceExporterType
         - TraceProcessorType
         - TraceSamplerType
+        - TraceSettingsValidationError
         - add_context
         - get_context
         - instrument
