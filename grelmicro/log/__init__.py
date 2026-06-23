@@ -91,7 +91,7 @@ def configure(
 
     Raises:
         DependencyNotFoundError: If the selected backend module is not installed.
-        pydantic.ValidationError: If configuration is invalid.
+        LoggingSettingsValidationError: If configuration is invalid.
     """
     config = resolve_config(
         LoggingConfig,

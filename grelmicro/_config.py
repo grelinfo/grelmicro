@@ -35,6 +35,12 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from grelmicro.errors import SettingsValidationError
+else:
+    # Runtime fallback so `typing.get_type_hints(resolve_config)` resolves the
+    # `error_type` annotation without importing a name used only in
+    # annotations. The real type reaches static checkers via the
+    # `TYPE_CHECKING` branch above.
+    SettingsValidationError = Any
 
 C = TypeVar("C", bound=BaseModel)
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
