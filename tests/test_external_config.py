@@ -245,7 +245,7 @@ async def test_reload_applies_immediately() -> None:
     """Reload performs one deterministic load-and-apply pass."""
     rl = RateLimiter.sliding_window("deterministic", limit=10, window=1.0)
     backend = _ScriptedBackend([{"GREL_RATELIMITER_DETERMINISTIC_LIMIT": "42"}])
-    external = ExternalConfig(config=backend, interval=999.0)
+    external = ExternalConfig(config=backend, reload_interval=999.0)
     async with external:
         # The initial apply ran on __aenter__ already.
         assert isinstance(rl.config, SlidingWindowConfig)
@@ -263,7 +263,7 @@ async def test_reload_keeps_last_good_config_on_adapter_error(
             OSError("transient read failure"),
         ]
     )
-    external = ExternalConfig(config=backend, interval=999.0)
+    external = ExternalConfig(config=backend, reload_interval=999.0)
     async with external:
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 20  # noqa: PLR2004
@@ -277,7 +277,7 @@ async def test_reload_keeps_last_good_config_on_adapter_error(
 
 async def test_reload_raising_backend_does_not_raise() -> None:
     """A backend that always raises never propagates out of reload."""
-    external = ExternalConfig(config=_RaisingBackend(), interval=999.0)
+    external = ExternalConfig(config=_RaisingBackend(), reload_interval=999.0)
     async with external:
         await external.reload()  # must not raise
 
@@ -294,7 +294,9 @@ async def test_reload_failure_names_failing_config_source(
         ]
     )
     secrets = _ScriptedBackend([{}, {}])
-    external = ExternalConfig(config=config, secrets=secrets, interval=999.0)
+    external = ExternalConfig(
+        config=config, secrets=secrets, reload_interval=999.0
+    )
     async with external:
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 20  # noqa: PLR2004
@@ -320,7 +322,9 @@ async def test_reload_failure_names_failing_secrets_source(
         ]
     )
     secrets = _ScriptedBackend([{}, OSError("secret mount unreadable")])
-    external = ExternalConfig(config=config, secrets=secrets, interval=999.0)
+    external = ExternalConfig(
+        config=config, secrets=secrets, reload_interval=999.0
+    )
     async with external:
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 20  # noqa: PLR2004
@@ -344,7 +348,7 @@ async def test_reload_failure_never_logs_source_values(
             OSError("config mount unreadable"),
         ]
     )
-    external = ExternalConfig(config=config, interval=999.0)
+    external = ExternalConfig(config=config, reload_interval=999.0)
     async with external:
         with caplog.at_level(logging.WARNING, logger="grelmicro"):
             await external.reload()  # must not raise
@@ -399,7 +403,7 @@ async def test_aenter_closes_first_source_when_second_enter_fails() -> None:
     # Arrange
     config_src = _TrackingBackend()
     external = ExternalConfig(
-        config=config_src, secrets=_RaiseOnEnterBackend(), interval=999.0
+        config=config_src, secrets=_RaiseOnEnterBackend(), reload_interval=999.0
     )
 
     # Act
@@ -498,7 +502,9 @@ async def test_secrets_override_config_on_collision() -> None:
     rl = RateLimiter.sliding_window("merged", limit=10, window=1.0)
     config = _ScriptedBackend([{"GREL_RATELIMITER_MERGED_LIMIT": "1"}])
     secrets = _ScriptedBackend([{"GREL_RATELIMITER_MERGED_LIMIT": "2"}])
-    async with ExternalConfig(config=config, secrets=secrets, interval=999.0):
+    async with ExternalConfig(
+        config=config, secrets=secrets, reload_interval=999.0
+    ):
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 2  # noqa: PLR2004
 
@@ -507,7 +513,7 @@ async def test_secrets_only_source_applies() -> None:
     """A secrets-only ExternalConfig applies with no config source."""
     rl = RateLimiter.sliding_window("secretsonly", limit=10, window=1.0)
     secrets = _ScriptedBackend([{"GREL_RATELIMITER_SECRETSONLY_LIMIT": "7"}])
-    async with ExternalConfig(secrets=secrets, interval=999.0):
+    async with ExternalConfig(secrets=secrets, reload_interval=999.0):
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 7  # noqa: PLR2004
 
@@ -516,14 +522,14 @@ async def test_config_only_source_applies() -> None:
     """A config-only ExternalConfig applies with no secrets source."""
     rl = RateLimiter.sliding_window("configonly", limit=10, window=1.0)
     config = _ScriptedBackend([{"GREL_RATELIMITER_CONFIGONLY_LIMIT": "8"}])
-    async with ExternalConfig(config=config, interval=999.0):
+    async with ExternalConfig(config=config, reload_interval=999.0):
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 8  # noqa: PLR2004
 
 
 async def test_aexit_before_aenter_is_a_noop() -> None:
     """Closing an ExternalConfig that never opened does not raise."""
-    external = ExternalConfig(config=_RaisingBackend(), interval=999.0)
+    external = ExternalConfig(config=_RaisingBackend(), reload_interval=999.0)
     await external.__aexit__(None, None, None)
 
 
@@ -531,7 +537,7 @@ async def test_load_merged_skips_apply_when_no_source_has_data() -> None:
     """No source with data yet returns None and applies nothing."""
     rl = RateLimiter.sliding_window("nodata", limit=10, window=1.0)
     config = _ScriptedBackend([None, None])
-    async with ExternalConfig(config=config, interval=999.0) as external:
+    async with ExternalConfig(config=config, reload_interval=999.0) as external:
         await external.reload()
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 10  # noqa: PLR2004
@@ -542,7 +548,9 @@ async def test_secrets_unchanged_keeps_config_only_merge() -> None:
     rl = RateLimiter.sliding_window("mixmerge", limit=10, window=1.0)
     config = _ScriptedBackend([{"GREL_RATELIMITER_MIXMERGE_LIMIT": "4"}])
     secrets = _ScriptedBackend([None])
-    async with ExternalConfig(config=config, secrets=secrets, interval=999.0):
+    async with ExternalConfig(
+        config=config, secrets=secrets, reload_interval=999.0
+    ):
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 4  # noqa: PLR2004
 
@@ -551,7 +559,7 @@ async def test_unchanged_source_keeps_last_seen_mapping() -> None:
     """A source reporting None reuses its last seen mapping."""
     rl = RateLimiter.sliding_window("sticky", limit=10, window=1.0)
     config = _ScriptedBackend([{"GREL_RATELIMITER_STICKY_LIMIT": "5"}, None])
-    async with ExternalConfig(config=config, interval=999.0) as external:
+    async with ExternalConfig(config=config, reload_interval=999.0) as external:
         assert isinstance(rl.config, SlidingWindowConfig)
         assert rl.config.limit == 5  # noqa: PLR2004
         await external.reload()
@@ -569,7 +577,7 @@ async def test_poll_loop_applies_on_each_interval() -> None:
             {"GREL_RATELIMITER_POLLED_LIMIT": "3"},
         ]
     )
-    async with ExternalConfig(config=config, interval=0.001):
+    async with ExternalConfig(config=config, reload_interval=0.001):
         for _ in range(200):
             await asyncio.sleep(0.005)
             assert isinstance(rl.config, SlidingWindowConfig)

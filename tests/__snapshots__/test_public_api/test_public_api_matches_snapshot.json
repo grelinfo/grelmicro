@@ -14,7 +14,7 @@
       "()": "(*, module)"
     },
     "ExternalConfig": {
-      "()": "(config=..., *, secrets=..., interval=...)"
+      "()": "(config=..., *, secrets=..., reload_interval=...)"
     },
     "Grelmicro": {
       "()": "(*, uses=..., strict=..., allow_multiple=...)",
@@ -95,7 +95,7 @@
       "()": "(*args, **kwargs)"
     },
     "ExternalConfig": {
-      "()": "(config=..., *, secrets=..., interval=...)"
+      "()": "(config=..., *, secrets=..., reload_interval=...)"
     },
     "FileConfigAdapter": {
       "()": "(path)"
