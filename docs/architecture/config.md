@@ -13,7 +13,7 @@ Components fall in two categories.
 | `__init__(name, **kwargs)` | Positional name + optional fields | Programmatic and environmental construction |
 | `from_config(name, config)` | Positional name + frozen config | Declarative construction from a settings tree |
 
-**Single-instance components** (`HealthChecks`, `RateLimitFilter`, `DuplicateFilter`, `log.configure`) drop the positional name because the application typically holds one:
+**Single-instance components** (`HealthChecks`, `Log`, `Trace`, `Metrics`, `RateLimitFilter`, `DuplicateFilter`, `log.configure`) drop the positional name because the application typically holds one:
 
 | Surface | Form | Intent |
 |---|---|---|

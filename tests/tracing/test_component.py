@@ -106,6 +106,23 @@ async def test_trace_accepts_prebuilt_config() -> None:
         assert micro.trace.config is config
 
 
+def test_trace_from_config_matches_config_kwarg() -> None:
+    """`Trace.from_config(cfg)` matches `Trace(config=cfg)`."""
+    config = TracingConfig(
+        exporter=TracingExporterType.NONE, service_name="payments"
+    )
+    trace = Trace.from_config(config)
+    assert trace._explicit_config is config
+    assert trace.name == "default"
+
+
+def test_trace_from_config_keeps_name() -> None:
+    """`Trace.from_config(..., name=...)` keeps the registration name."""
+    config = TracingConfig(exporter=TracingExporterType.NONE)
+    trace = Trace.from_config(config, name="audit")
+    assert trace.name == "audit"
+
+
 def test_trace_provider_unavailable_before_enter() -> None:
     """`Trace.provider` raises before the component has been entered."""
     trace = Trace(exporter=TracingExporterType.NONE)

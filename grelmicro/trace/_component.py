@@ -142,6 +142,31 @@ class Trace:
         self._provider: Any = None
         self._prior_provider: Any = None
 
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            TracingConfig,
+            Doc(
+                """
+                The pre-built tracing configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a `pydantic-settings` aggregator). The environment
+                path is bypassed and the config is used as-is.
+                """,
+            ),
+        ],
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name. Defaults to `'default'`."),
+        ] = "default",
+    ) -> Self:
+        """Construct a `Trace` from a pre-built `TracingConfig`."""
+        return cls(name=name, config=config)
+
     @property
     def name(self) -> str:
         """Return the registration name."""
