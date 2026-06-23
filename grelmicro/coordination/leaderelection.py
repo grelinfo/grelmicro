@@ -31,7 +31,7 @@ from grelmicro.task.abc import Task
 logger = getLogger("grelmicro.leader_election")
 
 
-class LeaderElectionConfig(BaseLockConfig, frozen=True, extra="forbid"):  # ty: ignore[invalid-frozen-dataclass-subclass]
+class LeaderElectionConfig(BaseLockConfig):  # ty: ignore[invalid-frozen-dataclass-subclass]
     """Leader Election Config.
 
     Leader election based on a leased reentrant distributed lock.
