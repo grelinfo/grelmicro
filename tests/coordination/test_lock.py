@@ -14,6 +14,7 @@ import grelmicro.coordination.lock as lock_module
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination.abc import LockBackend
 from grelmicro.coordination.errors import (
+    CoordinationSettingsValidationError,
     LockAcquireError,
     LockLockedCheckError,
     LockNotOwnedError,
@@ -864,7 +865,9 @@ async def test_reconfigure_rejects_worker_change(lock: Lock) -> None:
     """Changing `worker` is not allowed because the token identity is live."""
     new_config = lock.config.model_copy(update={"worker": "other-worker"})
 
-    with pytest.raises(ValueError, match="cannot change worker"):
+    with pytest.raises(
+        CoordinationSettingsValidationError, match="worker is immutable"
+    ):
         await lock.reconfigure(new_config)
 
     assert lock.config.worker != "other-worker"

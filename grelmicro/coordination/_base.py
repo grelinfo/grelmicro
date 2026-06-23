@@ -11,6 +11,7 @@ from typing_extensions import Doc
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._tokens import generate_worker_id
 from grelmicro.coordination.abc import LockPrimitive
+from grelmicro.coordination.errors import CoordinationSettingsValidationError
 
 # Seam for randomness in retry jitter. Tests pin it to a fixed value.
 _random = random.random
@@ -43,11 +44,11 @@ def assert_worker_unchanged(
     """Reject a reconfigure that would change the immutable `worker` field."""
     if new.worker != current.worker:
         msg = (
-            f"reconfigure cannot change worker "
+            f"the worker is immutable and cannot change "
             f"({current.worker!r} -> {new.worker!r}). "
             f"Reuse the existing worker on the new config."
         )
-        raise ValueError(msg)
+        raise CoordinationSettingsValidationError(msg)
 
 
 class BaseLock(LockPrimitive, Protocol):

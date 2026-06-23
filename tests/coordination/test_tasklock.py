@@ -13,6 +13,7 @@ from pytest_mock import MockerFixture
 from grelmicro.coordination._tokens import generate_task_token
 from grelmicro.coordination.abc import LockBackend
 from grelmicro.coordination.errors import (
+    CoordinationSettingsValidationError,
     LockAcquireError,
     LockLockedCheckError,
     LockNotOwnedError,
@@ -749,7 +750,9 @@ async def test_tasklock_reconfigure_rejects_worker_change(
     )
     new_config = task_lock.config.model_copy(update={"worker": WORKER_2})
 
-    with pytest.raises(ValueError, match="cannot change worker"):
+    with pytest.raises(
+        CoordinationSettingsValidationError, match="worker is immutable"
+    ):
         await task_lock.reconfigure(new_config)
 
 
