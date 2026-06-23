@@ -45,11 +45,19 @@ stateDiagram-v2
     | **FORCED_OPEN**   | Manual override that blocks every call.                            |
     | **FORCED_CLOSED** | Manual override that allows every call.                            |
 
+## Manual control
+
+Two operator verbs let you drive the breaker by hand.
+
+`await cb.isolate()` is the big red button. It forces the breaker open (`FORCED_OPEN`) and keeps it there, so every call is blocked until you reset. Use it to take a known-bad dependency out of rotation.
+
+`await cb.reset()` returns the breaker to normal automatic operation. It clears the counters and the last error, then moves to `CLOSED`. Use it to release an `isolate()` hold or to start fresh.
+
 ## Backend
 
 By default each replica keeps its own breaker state. A degraded downstream trips one replica's breaker without telling the others, and `error_threshold` errors must happen on every replica before the dependency stops being probed.
 
-Pass a shared `CircuitBreakerRegistry(redis_provider)` or `CircuitBreakerRegistry(postgres_provider)` to fan that state out. The first replica to trip the breaker opens it for the fleet, the `half_open_capacity` admission cap is enforced globally so probes never exceed the cap across replicas, and manual `transition_to_*` calls are visible everywhere.
+Pass a shared `CircuitBreakerRegistry(redis_provider)` or `CircuitBreakerRegistry(postgres_provider)` to fan that state out. The first replica to trip the breaker opens it for the fleet, the `half_open_capacity` admission cap is enforced globally so probes never exceed the cap across replicas, and manual `isolate()` and `reset()` calls are visible everywhere.
 
 !!! tip "Install"
     The Redis backend needs the `redis` extra and the Postgres backend needs the `postgres` extra: `pip install "grelmicro[redis]"` or `pip install "grelmicro[postgres]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
@@ -87,7 +95,7 @@ When the shared backend is unreachable, calls to the breaker raise the underlyin
     |---|---|---|
     | State scope | Per replica | Fleet-wide |
     | Half-open admission cap | Enforced per replica | Enforced globally |
-    | Manual `transition_to_*` | Visible to one replica | Visible to every replica |
+    | Manual `isolate()` / `reset()` | Visible to one replica | Visible to every replica |
     | `last_error` / `last_error_time` | Per replica | Per replica |
     | `total_error_count` / `total_success_count` | Per replica | Per replica |
 

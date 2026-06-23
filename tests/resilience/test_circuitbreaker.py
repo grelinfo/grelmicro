@@ -27,6 +27,7 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerMetrics,
     CircuitBreakerState,
     ErrorDetails,
+    _TransitionCause,
 )
 from grelmicro.resilience.circuitbreaker import memory as cb_memory_module
 from grelmicro.resilience.circuitbreaker.memory import (
@@ -65,18 +66,8 @@ def _cb_backend() -> MemoryCircuitBreakerAdapter:
 
 
 async def transition(cb: CircuitBreaker, state: CircuitBreakerState) -> None:
-    """Transition the circuit breaker to the specified state."""
-    match state:
-        case CircuitBreakerState.OPEN:
-            await cb.transition_to_open()
-        case CircuitBreakerState.HALF_OPEN:
-            await cb.transition_to_half_open()
-        case CircuitBreakerState.CLOSED:
-            await cb.transition_to_closed()
-        case CircuitBreakerState.FORCED_CLOSED:
-            await cb.transition_to_forced_closed()
-        case CircuitBreakerState.FORCED_OPEN:
-            await cb.transition_to_forced_open()
+    """Drive the circuit breaker into the specified state for white-box tests."""
+    await cb._transition(state, _TransitionCause.MANUAL)
 
 
 async def create_circuit(
@@ -829,15 +820,15 @@ async def test_circuit_metrics_with_call_not_permitted(
     )
 
 
-async def test_circuit_restart() -> None:
-    """Test circuit breaker restarts after forced open."""
+async def test_circuit_reset() -> None:
+    """Test circuit breaker resets to CLOSED after recorded calls."""
     # Arrange
     cb = CircuitBreaker("test")
     await generate_error(cb)
     await generate_success(cb)
 
     # Act
-    await cb.restart()
+    await cb.reset()
 
     # Assert
     assert cb.metrics() == CircuitBreakerMetrics(
@@ -852,15 +843,17 @@ async def test_circuit_restart() -> None:
     )
 
 
-async def test_circuit_restart_after_calls() -> None:
-    """Test circuit breaker restarts after recorded calls."""
+async def test_circuit_reset_after_isolate() -> None:
+    """Test reset returns to CLOSED and clears counts after isolate."""
     # Arrange
     cb = CircuitBreaker("test")
     await generate_error(cb)
     await generate_success(cb)
+    await cb.isolate()
+    assert cb.state == CircuitBreakerState.FORCED_OPEN
 
     # Act
-    await cb.restart()
+    await cb.reset()
 
     # Assert
     assert cb.state == CircuitBreakerState.CLOSED
@@ -876,6 +869,21 @@ async def test_circuit_restart_after_calls() -> None:
         consecutive_success_count=0,
         last_error=None,
     )
+
+
+async def test_circuit_isolate_blocks_calls() -> None:
+    """Test isolate forces the breaker open and blocks every call."""
+    # Arrange
+    cb = CircuitBreaker("test")
+
+    # Act
+    await cb.isolate()
+
+    # Assert
+    assert cb.state == CircuitBreakerState.FORCED_OPEN
+    with pytest.raises(CircuitBreakerError):
+        async with cb:
+            pytest.fail("Expected not reached")
 
 
 @pytest.mark.parametrize("from_state", ALL_STATES)
@@ -1223,49 +1231,32 @@ class TestSharedBackendIntegration:
         ]
         assert cb.last_error is sentinel_error
 
-    async def test_transition_to_open_calls_backend(self) -> None:
-        """`transition_to_open` forwards the desired state to the backend."""
+    async def test_isolate_calls_backend(self) -> None:
+        """`isolate` forwards FORCED_OPEN to the backend."""
         backend = _FakeSharedBackend()
         async with backend:
             cb = CircuitBreaker.consecutive_count(
                 "shared", backend=backend, reset_timeout=9.0
             )
-            await cb.transition_to_open()
+            await cb.isolate()
         assert backend.transition_calls == [
             {
                 "name": "shared",
-                "desired": CircuitBreakerState.OPEN,
+                "desired": CircuitBreakerState.FORCED_OPEN,
                 "cool_down": None,
             }
         ]
 
-    async def test_transition_to_open_with_until_passes_cool_down(
-        self,
-    ) -> None:
-        """`transition_to_open(until=X)` forwards X as cool_down."""
+    async def test_isolate_then_reset_call_backend(self) -> None:
+        """`isolate` then `reset` forward FORCED_OPEN then CLOSED."""
         backend = _FakeSharedBackend()
         async with backend:
             cb = CircuitBreaker("shared", backend=backend)
-            cool = 2.5
-            await cb.transition_to_open(until=cool)
-        assert backend.transition_calls[-1]["cool_down"] == cool
-
-    async def test_all_transitions_and_restart_call_backend(self) -> None:
-        """Every manual transition and `restart` forwards to the backend."""
-        backend = _FakeSharedBackend()
-        async with backend:
-            cb = CircuitBreaker("shared", backend=backend)
-            await cb.transition_to_closed()
-            await cb.transition_to_half_open()
-            await cb.transition_to_forced_open()
-            await cb.transition_to_forced_closed()
-            await cb.restart()
+            await cb.isolate()
+            await cb.reset()
         desired_states = [c["desired"] for c in backend.transition_calls]
         assert desired_states == [
-            CircuitBreakerState.CLOSED,
-            CircuitBreakerState.HALF_OPEN,
             CircuitBreakerState.FORCED_OPEN,
-            CircuitBreakerState.FORCED_CLOSED,
             CircuitBreakerState.CLOSED,
         ]
 

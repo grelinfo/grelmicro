@@ -610,46 +610,33 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             last_error=self._map_last_error(),
         )
 
-    async def restart(self) -> None:
-        """Restart the breaker, clearing all counts and resetting to CLOSED state."""
+    async def isolate(self) -> None:
+        """Force the breaker open and keep it open until reset.
+
+        The manual "big red button". Moves the breaker to
+        `FORCED_OPEN`, so every call is blocked with
+        `CircuitBreakerError` regardless of outcomes, until
+        [`reset`][grelmicro.resilience.CircuitBreaker.reset] returns it
+        to automatic operation.
+        """
+        await self._transition(
+            CircuitBreakerState.FORCED_OPEN, _TransitionCause.MANUAL
+        )
+
+    async def reset(self) -> None:
+        """Return the breaker to normal automatic operation.
+
+        Clears all counters and the last recorded error, then moves the
+        breaker to `CLOSED`. Use it to release an
+        [`isolate`][grelmicro.resilience.CircuitBreaker.isolate] hold or
+        to start fresh from a known state.
+        """
         self._total_error_count = 0
         self._total_success_count = 0
         self._last_error = None
         self._last_error_time = None
         await self._transition(
             CircuitBreakerState.CLOSED, _TransitionCause.RESTART
-        )
-
-    async def transition_to_closed(self) -> None:
-        """Transition the circuit breaker to CLOSED state."""
-        await self._transition(
-            CircuitBreakerState.CLOSED, _TransitionCause.MANUAL
-        )
-
-    async def transition_to_open(self, until: float | None = None) -> None:
-        """Transition the circuit breaker to OPEN state."""
-        await self._transition(
-            CircuitBreakerState.OPEN,
-            _TransitionCause.MANUAL,
-            cool_down=until,
-        )
-
-    async def transition_to_half_open(self) -> None:
-        """Transition the circuit breaker to HALF_OPEN state."""
-        await self._transition(
-            CircuitBreakerState.HALF_OPEN, _TransitionCause.MANUAL
-        )
-
-    async def transition_to_forced_open(self) -> None:
-        """Transition the circuit breaker to FORCED_OPEN state."""
-        await self._transition(
-            CircuitBreakerState.FORCED_OPEN, _TransitionCause.MANUAL
-        )
-
-    async def transition_to_forced_closed(self) -> None:
-        """Transition the circuit breaker to FORCED_CLOSED state."""
-        await self._transition(
-            CircuitBreakerState.FORCED_CLOSED, _TransitionCause.MANUAL
         )
 
     async def _transition(
