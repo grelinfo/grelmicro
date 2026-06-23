@@ -35,7 +35,8 @@ class FireOutcome(StrEnum):
 
     - ``SUCCESS``: the body ran and returned without raising.
     - ``ERROR``: the body raised an exception.
-    - ``SKIPPED``: the fire was skipped because a sync lock would block.
+    - ``SKIPPED``: the fire was skipped because acquiring a lock would
+      block (a ``WouldBlockError``).
     """
 
     SUCCESS = "success"
