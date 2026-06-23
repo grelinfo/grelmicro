@@ -16,7 +16,11 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
-from grelmicro._config import Reconfigurable, env_segment, resolve_config
+from grelmicro._config import (
+    Reconfigurable,
+    default_env_prefix,
+    resolve_config,
+)
 from grelmicro.coordination._base import (
     BaseLockConfig,
     assert_worker_unchanged,
@@ -139,8 +143,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 before this duration has elapsed. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
-                `GREL_TASKLOCK_{NAME_UPPER}_MIN_HOLD_DURATION` if
-                present, otherwise falls back to the
+                `GREL_TASKLOCK_MIN_HOLD_DURATION` for the default
+                instance (`GREL_TASKLOCK_{NAME_UPPER}_MIN_HOLD_DURATION`
+                for a named one) if present, otherwise falls back to the
                 `TaskLockConfig` default.
                 """
             ),
@@ -154,8 +159,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 Default: 60. Acts as the TTL on acquire. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
-                `GREL_TASKLOCK_{NAME_UPPER}_LEASE_DURATION` if
-                present, otherwise falls back to the
+                `GREL_TASKLOCK_LEASE_DURATION` for the default instance
+                (`GREL_TASKLOCK_{NAME_UPPER}_LEASE_DURATION` for a named
+                one) if present, otherwise falls back to the
                 `TaskLockConfig` default.
                 """
             ),
@@ -166,8 +172,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: `GREL_TASKLOCK_{NAME_UPPER}_`. Set this to
-                a custom prefix when the application uses a different
+                Default: `GREL_TASKLOCK_` for the default instance,
+                `GREL_TASKLOCK_{NAME_UPPER}_` for a named one. Set this
+                to a custom prefix when the application uses a different
                 naming convention.
                 """
             ),
@@ -186,9 +193,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         ] = None,
     ) -> None:
         """Initialize the task lock."""
-        resolved_env_prefix = (
-            env_prefix or f"GREL_TASKLOCK_{env_segment(name)}_"
-        )
+        resolved_env_prefix = env_prefix or default_env_prefix("TASKLOCK", name)
         config = resolve_config(
             TaskLockConfig,
             explicit=None,

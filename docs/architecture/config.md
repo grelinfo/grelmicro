@@ -33,7 +33,7 @@ config = resolve_config(
     LockConfig,
     explicit=None,
     kwargs={"lease_duration": lease_duration, ...},
-    env_prefix=env_prefix or f"GREL_LOCK_{env_segment(name)}_",
+    env_prefix=env_prefix or default_env_prefix("LOCK", name),
     env_load=env_load,
 )
 ```
@@ -50,6 +50,17 @@ Instance names are normalised before they enter an env prefix so that natural id
 4. Strip leading and trailing underscores.
 
 A name that produces an empty segment or one starting with a digit is rejected at construction with an actionable error.
+
+## The default instance owns the bare prefix
+
+`grelmicro._config.default_env_prefix` builds the prefix from the component and the name. The default instance drops the name segment, so a `Lock("default")` reads `GREL_LOCK_LEASE_DURATION`, not `GREL_LOCK_DEFAULT_LEASE_DURATION`. A named instance keeps it: `Lock("cart")` reads `GREL_LOCK_CART_LEASE_DURATION`.
+
+| Instance | Prefix |
+|---|---|
+| `Lock("default")` | `GREL_LOCK_` |
+| `Lock("cart")` | `GREL_LOCK_CART_` |
+
+The trade-off: the default instance owns the bare `GREL_{COMPONENT}_` namespace, so a named instance whose name collides with a field prefix can alias a default field. A `Lock("lease")` reads `GREL_LOCK_LEASE_DURATION`, the same key the default instance uses for its `lease_duration` field. This is rare in practice. The rule: the default instance owns the bare prefix, so name your other instances to avoid field-name collisions.
 
 ## Hot-path discipline
 

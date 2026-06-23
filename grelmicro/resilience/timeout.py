@@ -13,7 +13,7 @@ from typing_extensions import Doc
 
 from grelmicro._config import (
     Reconfigurable,
-    env_segment,
+    default_env_prefix,
     resolve_config,
 )
 from grelmicro.metrics import _emit
@@ -106,7 +106,7 @@ class Timeout(Reconfigurable[TimeoutConfig]):
     ) -> None:
         """Initialize the timeout policy."""
         self._name = name
-        env_prefix = f"GREL_TIMEOUT_{env_segment(name)}_"
+        env_prefix = default_env_prefix("TIMEOUT", name)
         resolved = resolve_config(
             TimeoutConfig,
             explicit=config,

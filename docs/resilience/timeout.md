@@ -32,7 +32,7 @@ Build the policy with keyword arguments. Set `seconds` to the deadline for the w
 
 ### Environment variables
 
-Prefix: `GREL_TIMEOUT_{NAME_UPPER}_`
+Prefix: `GREL_TIMEOUT_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_TIMEOUT_*`.
 
 | Env var | Field | Type | Default |
 |---|---|---|---|

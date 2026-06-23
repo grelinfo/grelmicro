@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
-from grelmicro._config import Reconfigurable, env_segment
+from grelmicro._config import Reconfigurable, default_env_prefix
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import CircuitBreakerError
 
@@ -344,15 +344,16 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         """Wire the validated config and runtime deps onto the instance.
 
         Registers the instance for external reload under
-        `GREL_CIRCUITBREAKER_{NAME}_` when `register` is true. The
-        declarative `from_config` path passes `register=False` and stays
-        static.
+        `GREL_CIRCUITBREAKER_` for the default instance
+        (`GREL_CIRCUITBREAKER_{NAME}_` for a named one) when `register`
+        is true. The declarative `from_config` path passes
+        `register=False` and stays static.
         """
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         if register:
-            self._track_reconfigure(f"GREL_CIRCUITBREAKER_{env_segment(name)}_")
+            self._track_reconfigure(default_env_prefix("CIRCUITBREAKER", name))
         self._backend: CircuitBreakerBackend | None = (
             backend if not isinstance(backend, str) else None
         )

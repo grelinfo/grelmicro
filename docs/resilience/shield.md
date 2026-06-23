@@ -176,7 +176,7 @@ Pass the profile and knobs as keyword arguments.
 
 ### Environment variables
 
-Prefix: `GREL_SHIELD_{NAME_UPPER}_`
+Prefix: `GREL_SHIELD_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_SHIELD_*`.
 
 | Env var | Field | Type | Default |
 |---|---|---|---|

@@ -12,7 +12,11 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
-from grelmicro._config import Reconfigurable, env_segment, resolve_config
+from grelmicro._config import (
+    Reconfigurable,
+    default_env_prefix,
+    resolve_config,
+)
 from grelmicro.coordination._base import (
     BaseLock,
     BaseLockConfig,
@@ -164,9 +168,10 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
                 Default: 60. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the environment
-                variable `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION` if
-                present, otherwise falls back to the `LockConfig`
-                default.
+                variable `GREL_LOCK_LEASE_DURATION` for the default
+                instance (`GREL_LOCK_{NAME_UPPER}_LEASE_DURATION` for a
+                named one) if present, otherwise falls back to the
+                `LockConfig` default.
                 """,
             ),
         ] = None,
@@ -180,8 +185,10 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 the lock backend. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the
                 environment variable
-                `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL` if present,
-                otherwise falls back to the `LockConfig` default.
+                `GREL_LOCK_RETRY_INTERVAL` for the default instance
+                (`GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL` for a named
+                one) if present, otherwise falls back to the
+                `LockConfig` default.
                 """,
             ),
         ] = None,
@@ -196,8 +203,10 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 Set to 0 to disable jitter. When unset and env reads are
                 enabled (see ``env_load`` and ``GREL_ENV_LOAD``), resolves
                 from the environment variable
-                `GREL_LOCK_{NAME_UPPER}_RETRY_JITTER` if present, otherwise
-                falls back to the `LockConfig` default.
+                `GREL_LOCK_RETRY_JITTER` for the default instance
+                (`GREL_LOCK_{NAME_UPPER}_RETRY_JITTER` for a named one)
+                if present, otherwise falls back to the `LockConfig`
+                default.
                 """,
             ),
         ] = None,
@@ -207,7 +216,8 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: `GREL_LOCK_{NAME_UPPER}_`. Set this to a
+                Default: `GREL_LOCK_` for the default instance,
+                `GREL_LOCK_{NAME_UPPER}_` for a named one. Set this to a
                 custom prefix when the application uses a different
                 naming convention, for example `MYAPP_LOCK_CART_`.
                 """,
@@ -227,7 +237,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         ] = None,
     ) -> None:
         """Initialize the lock."""
-        resolved_env_prefix = env_prefix or f"GREL_LOCK_{env_segment(name)}_"
+        resolved_env_prefix = env_prefix or default_env_prefix("LOCK", name)
         config = resolve_config(
             LockConfig,
             explicit=None,

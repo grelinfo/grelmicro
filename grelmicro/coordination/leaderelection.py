@@ -13,7 +13,11 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
 from grelmicro._async import sleep_or_stop
-from grelmicro._config import Reconfigurable, env_segment, resolve_config
+from grelmicro._config import (
+    Reconfigurable,
+    default_env_prefix,
+    resolve_config,
+)
 from grelmicro.coordination._base import (
     BaseLockConfig,
     assert_worker_unchanged,
@@ -170,8 +174,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 expired. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the environment
                 variable
-                `GREL_LEADERELECTION_{NAME_UPPER}_LEASE_DURATION` if
-                present, otherwise falls back to the
+                `GREL_LEADERELECTION_LEASE_DURATION` for the default
+                instance (`GREL_LEADERELECTION_{NAME_UPPER}_LEASE_DURATION`
+                for a named one) if present, otherwise falls back to the
                 `LeaderElectionConfig` default.
                 """,
             ),
@@ -248,9 +253,10 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: `GREL_LEADERELECTION_{NAME_UPPER}_`. Set
-                this to a custom prefix when the application uses a
-                different naming convention.
+                Default: `GREL_LEADERELECTION_` for the default
+                instance, `GREL_LEADERELECTION_{NAME_UPPER}_` for a
+                named one. Set this to a custom prefix when the
+                application uses a different naming convention.
                 """,
             ),
         ] = None,
@@ -278,8 +284,8 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         ] = None,
     ) -> None:
         """Initialize the leader election."""
-        resolved_env_prefix = (
-            env_prefix or f"GREL_LEADERELECTION_{env_segment(name)}_"
+        resolved_env_prefix = env_prefix or default_env_prefix(
+            "LEADERELECTION", name
         )
         config = resolve_config(
             LeaderElectionConfig,

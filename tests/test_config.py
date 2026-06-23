@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, PositiveFloat, ValidationError
 
 from grelmicro._config import (
     _build_settings_cls,
+    default_env_prefix,
     env_segment,
     parse_csv_or_json,
     resolve_config,
@@ -296,6 +297,22 @@ def test_env_segment_rejects_leading_digit(bad: str) -> None:
     """A name producing an env segment starting with a digit raises."""
     with pytest.raises(ValueError, match="starts with a digit"):
         env_segment(bad)
+
+
+# --- default_env_prefix ---
+
+
+def test_default_env_prefix_drops_segment_for_default_instance() -> None:
+    """The default instance owns the bare ``GREL_{COMPONENT}_`` prefix."""
+    assert default_env_prefix("LOCK", "default") == "GREL_LOCK_"
+
+
+def test_default_env_prefix_keeps_segment_for_named_instance() -> None:
+    """A named instance keeps the normalised name segment."""
+    assert default_env_prefix("LOCK", "cart") == "GREL_LOCK_CART_"
+    assert (
+        default_env_prefix("RETRY", "payments-eu") == "GREL_RETRY_PAYMENTS_EU_"
+    )
 
 
 # --- parse_csv_or_json ---

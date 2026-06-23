@@ -161,7 +161,7 @@ Build the policy with keyword arguments. Set `when` to choose which outcomes ret
 
 ### Environment variables
 
-Prefix: `GREL_RETRY_{NAME_UPPER}_`
+Prefix: `GREL_RETRY_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_RETRY_*`.
 
 | Env var | Field | Type | Default |
 |---|---|---|---|

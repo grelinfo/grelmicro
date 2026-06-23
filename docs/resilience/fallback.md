@@ -61,7 +61,7 @@ Build the policy with keyword arguments. Set `when` to choose which exceptions f
 
 ### Environment variables
 
-Prefix: `GREL_FALLBACK_{NAME_UPPER}_`
+Prefix: `GREL_FALLBACK_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_FALLBACK_*`.
 
 | Env var | Field | Type | Default |
 |---|---|---|---|

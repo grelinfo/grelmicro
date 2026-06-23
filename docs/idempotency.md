@@ -141,7 +141,8 @@ Not guaranteed:
 ## Configuration
 
 Build with keyword arguments and tune `ttl` in deployment. Set
-`GREL_IDEMPOTENCY_{NAME}_TTL` to change it without code changes. The instance
+`GREL_IDEMPOTENCY_{NAME}_TTL` to change it without code changes (the default
+instance drops the name segment and reads `GREL_IDEMPOTENCY_TTL`). The instance
 reconfigures live from a mounted ConfigMap. See
 [Live reconfiguration](architecture/reconfigure.md).
 

@@ -53,10 +53,17 @@ The instance name (`"cart"`) becomes the namespace inside the prefix. Names with
 hyphens, dots, slashes, or colons normalise into uppercase POSIX segments
 (`payments-eu` becomes `PAYMENTS_EU`, `cart.v2` becomes `CART_V2`).
 
+The default instance drops the name segment, so a `Lock("default")` reads the
+bare `GREL_LOCK_*`. The default instance owns the bare `GREL_{COMPONENT}_`
+namespace, so name your other instances to avoid clashing with a field name (a
+`Lock("lease")` would share `GREL_LOCK_LEASE_DURATION` with the default
+instance). This is rare in practice.
+
 ### Prefix reference
 
 | Component | Prefix |
 |---|---|
+| `Lock("default")` | `GREL_LOCK_` |
 | `Lock("cart")` | `GREL_LOCK_CART_` |
 | `TaskLock("etl")` | `GREL_TASKLOCK_ETL_` |
 | `LeaderElection("svc")` | `GREL_LEADERELECTION_SVC_` |

@@ -14,7 +14,11 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro, _active_bulkhead
 from grelmicro._component import Component
-from grelmicro._config import Reconfigurable, env_segment, resolve_config
+from grelmicro._config import (
+    Reconfigurable,
+    default_env_prefix,
+    resolve_config,
+)
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import BulkheadFullError
 
@@ -157,7 +161,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
     ) -> None:
         """Initialize the bulkhead."""
         self._name = name
-        env_prefix = f"GREL_BULKHEAD_{env_segment(name)}_"
+        env_prefix = default_env_prefix("BULKHEAD", name)
         resolved = resolve_config(
             BulkheadConfig,
             explicit=config,

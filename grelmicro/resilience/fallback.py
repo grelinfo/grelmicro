@@ -17,8 +17,8 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Reconfigurable,
     _build_settings_cls,
+    default_env_prefix,
     env_load_default,
-    env_segment,
     parse_csv_or_json,
 )
 from grelmicro._json import json_loads
@@ -221,7 +221,7 @@ def _resolve_config(
     if not env_load:
         return FallbackConfig.model_validate(kwargs)
 
-    env_prefix = f"GREL_FALLBACK_{env_segment(name)}_"
+    env_prefix = default_env_prefix("FALLBACK", name)
     _load_default_from_env(kwargs, env_prefix)
     settings_cls = _build_settings_cls(FallbackConfig, env_prefix)
     return settings_cls(**kwargs)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
@@ -409,7 +409,7 @@ class Fallback(Reconfigurable[FallbackConfig]):
         self._state = _State(config=resolved, matcher=resolved.when)
         self._reconfigure_lock = asyncio.Lock()
         if config is None:
-            self._track_reconfigure(f"GREL_FALLBACK_{env_segment(name)}_")
+            self._track_reconfigure(default_env_prefix("FALLBACK", name))
 
     @property
     def name(self) -> str:

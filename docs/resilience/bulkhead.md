@@ -42,7 +42,7 @@ The bulkhead opens its `uses=` on first entry and closes them when the app shuts
 
 ### Environmental
 
-Prefix: `GREL_BULKHEAD_{NAME_UPPER}_`
+Prefix: `GREL_BULKHEAD_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_BULKHEAD_*`.
 
 | Env var | Field | Type | Default |
 |---|---|---|---|
