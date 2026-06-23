@@ -274,6 +274,22 @@ async def get_user(user_id: int) -> dict:
 
 Passing both `cache` and `ttl`, or neither, raises `TypeError`.
 
+### Custom Keys
+
+By default `@cached` derives the key from the `repr()` of the arguments. Pass `key=` for a stable, readable key instead. The template fills in from the call's arguments, so `key="user:{user_id}"` keys the entry under `user:42` for a call with `user_id=42`:
+
+```python
+@cached(cache, key="user:{user_id}")
+async def get_user(user_id: int) -> dict:
+    return await db.fetch_user(user_id)
+```
+
+Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a `key_maker` callable instead. It receives `(func, args, kwargs)` and returns the key. Passing both `key` and `key_maker` raises `TypeError`.
+
+```python title="key.py"
+--8<-- "cache/key.py"
+```
+
 ### Stampede Protection
 
 A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. Turn on `lock` to fold those misses into one execution, and add `early=` to refresh hot keys before they expire:
@@ -336,7 +352,8 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 | `cache` | `TTLCache` | `None` | The cache instance to store results in. Mutually exclusive with `ttl`. |
 | `ttl` | `float` | `None` | TTL in seconds for a private per-function cache. Mutually exclusive with `cache`. |
 | `maxsize` | `int` | `0` | Max entries in the private per-function cache, `0` means unlimited (used only when `ttl` is set). |
-| `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. |
+| `key` | `str` | `None` | Key template rendered from the arguments, like `"user:{user_id}"`. Mutually exclusive with `key_maker`. |
+| `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. Mutually exclusive with `key`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
 | `lock` | `True`, `False`, or `"local"` | `False` | Concurrent-miss (stampede) protection. |
