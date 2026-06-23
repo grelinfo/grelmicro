@@ -48,11 +48,11 @@ class DuplicateFilterConfig(BaseModel, frozen=True, extra="forbid"):
             "distinguish per-subject."
         ),
     ] = "template"
-    ttl_seconds: Annotated[
+    ttl: Annotated[
         PositiveFloat | None,
         Doc(
             "Silence window for automatic counter reset. If a key "
-            "has not been seen for ``ttl_seconds``, its counter "
+            "has not been seen for ``ttl``, its counter "
             "resets the next time it appears. ``None`` (default) "
             "disables time-based expiry, so only LRU eviction can "
             "reset a counter."
@@ -94,8 +94,8 @@ class DuplicateFilter(Filter):
     entries. Use ``key_mode`` to pick the default key, or pass
     ``key`` to override it.
 
-    Set ``ttl_seconds`` to emit a new burst of
-    ``allowed_repetitions`` records every ``ttl_seconds`` during
+    Set ``ttl`` to emit a new burst of
+    ``allowed_repetitions`` records every ``ttl`` during
     a long flood. This gives operators regular reminders that
     the issue is still active.
 
@@ -147,7 +147,7 @@ class DuplicateFilter(Filter):
                 """
             ),
         ] = None,
-        ttl_seconds: Annotated[
+        ttl: Annotated[
             PositiveFloat | None,
             Doc(
                 """
@@ -194,7 +194,7 @@ class DuplicateFilter(Filter):
                 "allowed_repetitions": allowed_repetitions,
                 "cache_size": cache_size,
                 "key_mode": key_mode,
-                "ttl_seconds": ttl_seconds,
+                "ttl": ttl,
             },
             env_prefix=env_prefix or "GREL_DUPLICATE_FILTER_",
             env_load=env_load,
@@ -241,7 +241,7 @@ class DuplicateFilter(Filter):
         """Wire the validated config and runtime deps onto the instance."""
         self._config = config
         self._allowed = config.allowed_repetitions
-        self._ttl = config.ttl_seconds
+        self._ttl = config.ttl
         self._cache_size = config.cache_size
         self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
         self._counts: OrderedDict[Hashable, tuple[int, float]] = OrderedDict()

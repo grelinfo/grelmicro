@@ -339,9 +339,9 @@ def test_invalid_key_mode_rejected() -> None:
 
 
 def test_ttl_resets_counter_after_silence() -> None:
-    """After ``ttl_seconds`` without hits, the counter resets."""
+    """After ``ttl`` without hits, the counter resets."""
     with freeze_time() as frozen:
-        filt = DuplicateFilter(allowed_repetitions=1, ttl_seconds=10.0)
+        filt = DuplicateFilter(allowed_repetitions=1, ttl=10.0)
         record = _make_record(msg="flood")
 
         first = filt.filter(record)
@@ -355,9 +355,9 @@ def test_ttl_resets_counter_after_silence() -> None:
 
 
 def test_ttl_reemits_during_sustained_flood() -> None:
-    """A flood that outlives ``ttl_seconds`` re-emits once per window."""
+    """A flood that outlives ``ttl`` re-emits once per window."""
     with freeze_time() as frozen:
-        filt = DuplicateFilter(allowed_repetitions=1, ttl_seconds=10.0)
+        filt = DuplicateFilter(allowed_repetitions=1, ttl=10.0)
         record = _make_record(msg="flood")
 
         first = filt.filter(record)
@@ -371,15 +371,13 @@ def test_ttl_reemits_during_sustained_flood() -> None:
 
 
 def test_ttl_resets_counter_between_sweeps() -> None:
-    """A key crossing ``ttl_seconds`` between sweeps resets on next sight.
+    """A key crossing ``ttl`` between sweeps resets on next sight.
 
     The once-per-window sweep does not catch a key added after the
     sweep ran, so the per-record ttl check still has to reset it.
     """
     with freeze_time() as frozen:
-        filt = DuplicateFilter(
-            allowed_repetitions=1, cache_size=100, ttl_seconds=10.0
-        )
+        filt = DuplicateFilter(allowed_repetitions=1, cache_size=100, ttl=10.0)
         late = _make_record(msg="late")
 
         # t=0 runs the first sweep (empty) and schedules the next at t=10.
@@ -399,7 +397,7 @@ def test_ttl_resets_counter_between_sweeps() -> None:
 
 
 def test_ttl_none_disables_time_expiry() -> None:
-    """With ``ttl_seconds=None``, long silence does not reset the counter."""
+    """With ``ttl=None``, long silence does not reset the counter."""
     with freeze_time() as frozen:
         filt = DuplicateFilter(allowed_repetitions=1)
         record = _make_record(msg="flood")
@@ -414,9 +412,9 @@ def test_ttl_none_disables_time_expiry() -> None:
 
 @pytest.mark.parametrize("bad_ttl", [0, -0.5, -1])
 def test_non_positive_ttl_rejected(bad_ttl: float) -> None:
-    """Non-positive ``ttl_seconds`` values raise a LogSettingsValidationError."""
+    """Non-positive ``ttl`` values raise a LogSettingsValidationError."""
     with pytest.raises(LogSettingsValidationError, match="greater than 0"):
-        DuplicateFilter(ttl_seconds=bad_ttl)
+        DuplicateFilter(ttl=bad_ttl)
 
 
 @pytest.mark.parametrize(
