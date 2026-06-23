@@ -17,8 +17,8 @@ from typing_extensions import Doc
 
 from grelmicro._config import (
     Reconfigurable,
+    default_env_prefix,
     env_load_default,
-    env_segment,
 )
 from grelmicro.clock import monotonic, sleep
 from grelmicro.resilience.errors import ResilienceError
@@ -62,7 +62,7 @@ _PROFILE_BY_NAME: dict[str, type[_BaseShieldConfig]] = {
 
 def _load_profile_from_env(name: str) -> str:
     """Return the profile name from env, defaulting to `api`."""
-    env_key = f"GREL_SHIELD_{env_segment(name)}_PROFILE"
+    env_key = default_env_prefix("SHIELD", name) + "PROFILE"
     value = os.environ.get(env_key, "").strip().lower()
     if value and value not in _PROFILE_BY_NAME:
         msg = (
@@ -85,7 +85,7 @@ def _resolve_config_from_env(
     """Build a `_BaseShieldConfig` reading defaults from environment variables."""
     profile = _load_profile_from_env(name)
     cls = _PROFILE_BY_NAME[profile]
-    env_prefix = f"GREL_SHIELD_{env_segment(name)}_"
+    env_prefix = default_env_prefix("SHIELD", name)
     kwargs: dict[str, Any] = {"kind": profile}
     if timeout_errors is not None:
         kwargs["timeout_errors"] = timeout_errors
@@ -332,7 +332,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         if register:
-            self._track_reconfigure(f"GREL_SHIELD_{env_segment(name)}_")
+            self._track_reconfigure(default_env_prefix("SHIELD", name))
         self._time = time_source or monotonic
         self._random = random_source or random.random
         self._pending_tasks: set[asyncio.Task[Any]] = set()

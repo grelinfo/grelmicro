@@ -168,7 +168,7 @@ and acts as the instance identity.
 
 Tune any field in deployment without code changes.
 
-Prefix: `GREL_LOCK_{NAME_UPPER}_`
+Prefix: `GREL_LOCK_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_LOCK_*`.
 
 | Env var                                      | Config field     | Type            | Default          |
 |----------------------------------------------|------------------|-----------------|------------------|

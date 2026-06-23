@@ -89,6 +89,16 @@ def test_environmental_path_reads_grel_prefixed_env(
     assert lock.config.retry_interval == RETRY_ENV
 
 
+def test_default_instance_drops_name_segment(
+    backend: LockBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default instance reads the bare ``GREL_LOCK_*`` prefix."""
+    monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", str(LEASE_ENV))
+    lock = Lock("default", backend=backend)
+    assert lock.config.lease_duration == LEASE_ENV
+
+
 def test_kwargs_override_env(
     backend: LockBackend,
     monkeypatch: pytest.MonkeyPatch,

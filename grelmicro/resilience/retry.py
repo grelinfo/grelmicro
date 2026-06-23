@@ -34,7 +34,7 @@ from typing_extensions import Doc
 
 from grelmicro._config import (
     Reconfigurable,
-    env_segment,
+    default_env_prefix,
     parse_csv_or_json,
     resolve_config,
 )
@@ -615,7 +615,7 @@ class Retry(Reconfigurable[RetryConfig]):
     ) -> None:
         """Initialize the retry policy."""
         self._name = name
-        env_prefix = f"GREL_RETRY_{env_segment(name)}_"
+        env_prefix = default_env_prefix("RETRY", name)
         kwargs: dict[str, object | None] = {
             "attempts": attempts,
             "max_seconds": max_seconds,

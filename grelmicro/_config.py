@@ -6,6 +6,8 @@ Exposes:
   instance or from kwargs merged with environment variables.
 - `env_segment`: normalise an instance name into a POSIX env var
   segment.
+- `default_env_prefix`: build a component instance's env prefix,
+  dropping the name segment for the default instance.
 - `parse_csv_or_json`: coerce an env var string into a list, accepting
   comma-separated or JSON-array form.
 - `Reconfigurable`: mixin providing atomic live reconfiguration for
@@ -105,6 +107,18 @@ def env_segment(name: str) -> str:
         )
         raise ValueError(msg)
     return cleaned
+
+
+def default_env_prefix(component: str, name: str) -> str:
+    """Build the env prefix for a component instance.
+
+    The default instance drops the name segment, so its env vars read
+    `GREL_{COMPONENT}_{FIELD}`. A named instance keeps the segment:
+    `GREL_{COMPONENT}_{NAME}_{FIELD}`.
+    """
+    if name == "default":
+        return f"GREL_{component}_"
+    return f"GREL_{component}_{env_segment(name)}_"
 
 
 _ENV_LOAD_VAR = "GREL_ENV_LOAD"

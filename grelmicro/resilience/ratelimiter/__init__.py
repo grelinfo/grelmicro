@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Annotated, Self, assert_never
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
-from grelmicro._config import Reconfigurable, env_segment
+from grelmicro._config import Reconfigurable, default_env_prefix
 from grelmicro.metrics import _emit
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -153,7 +153,9 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         """Wire the config and runtime deps onto the instance.
 
         Registers the instance for external reload under
-        `GREL_RATELIMITER_{NAME}_` when `register` is true. The factory
+        `GREL_RATELIMITER_` for the default instance
+        (`GREL_RATELIMITER_{NAME}_` for a named one) when `register` is
+        true. The factory
         classmethods register. The declarative paths (a pre-built config
         passed to the constructor, or `from_config`) stay static.
         """
@@ -168,7 +170,7 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         self._config = config
         self._state = _State(config=config, strategy=None)
         if register:
-            self._track_reconfigure(f"GREL_RATELIMITER_{env_segment(name)}_")
+            self._track_reconfigure(default_env_prefix("RATELIMITER", name))
 
     @property
     def name(self) -> str:

@@ -8,7 +8,7 @@ from typing_extensions import Doc, TypeVar
 
 from grelmicro._config import (
     Reconfigurable,
-    env_segment,
+    default_env_prefix,
     resolve_config,
 )
 from grelmicro.cache._stampede import (
@@ -287,8 +287,10 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 Default: 86400. When unset and env reads are enabled (see
                 `env_load` and `GREL_ENV_LOAD`), resolves from the
                 environment variable
-                `GREL_IDEMPOTENCY_{NAME_UPPER}_TTL` if present, otherwise
-                falls back to the `IdempotencyConfig` default.
+                `GREL_IDEMPOTENCY_TTL` for the default instance
+                (`GREL_IDEMPOTENCY_{NAME_UPPER}_TTL` for a named one) if
+                present, otherwise falls back to the `IdempotencyConfig`
+                default.
                 """,
             ),
         ] = None,
@@ -333,7 +335,8 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: `GREL_IDEMPOTENCY_{NAME_UPPER}_`.
+                Default: `GREL_IDEMPOTENCY_` for the default instance,
+                `GREL_IDEMPOTENCY_{NAME_UPPER}_` for a named one.
                 """,
             ),
         ] = None,
@@ -351,8 +354,8 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         ] = None,
     ) -> None:
         """Initialize the idempotency namespace."""
-        resolved_env_prefix = (
-            env_prefix or f"GREL_IDEMPOTENCY_{env_segment(name)}_"
+        resolved_env_prefix = env_prefix or default_env_prefix(
+            "IDEMPOTENCY", name
         )
         config = resolve_config(
             IdempotencyConfig,
