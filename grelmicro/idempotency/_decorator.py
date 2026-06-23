@@ -71,14 +71,11 @@ def idempotent(
                 if fingerprint is not None
                 else None
             )
-            async with idempotency(
-                call_key, fingerprint=call_fingerprint
-            ) as operation:
-                if operation.replayed:
-                    return operation.response
-                result = await func(*args, **kwargs)  # ty: ignore[invalid-await]
-                operation.store(result)
-                return result
+            return await idempotency.run(
+                call_key,
+                lambda: func(*args, **kwargs),
+                fingerprint=call_fingerprint,
+            )
 
         return wrapper  # ty: ignore[invalid-return-type]
 

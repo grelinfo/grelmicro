@@ -23,6 +23,7 @@ from grelmicro.idempotency.errors import IdempotencyConflictError
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from types import TracebackType
 
     from grelmicro.cache.serializers import CacheSerializer
@@ -462,6 +463,52 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             key,
             fingerprint if fingerprint is not None else self._fingerprint,
         )
+
+    async def run(
+        self,
+        key: Annotated[
+            str,
+            Doc("The idempotency key derived from the request."),
+        ],
+        factory: Annotated[
+            Callable[[], T] | Callable[[], Awaitable[T]],
+            Doc(
+                "Sync or async callable that produces the response on a"
+                " first execution. Awaited when it returns a coroutine."
+            ),
+        ],
+        *,
+        fingerprint: Annotated[
+            str | None,
+            Doc(
+                """
+                Payload fingerprint for this call.
+
+                Overrides the instance-level `fingerprint`. A replay with
+                a different fingerprint raises `IdempotencyConflictError`.
+                When None, the instance default applies.
+                """,
+            ),
+        ] = None,
+    ) -> T:
+        """Run an operation once for `key`, then replay its response.
+
+        On a first execution the `factory` runs, its result is stored,
+        and the result is returned. A later call with the same key within
+        `ttl` replays the stored response without running the `factory`
+        again. A failing `factory` stores nothing, so a later retry runs
+        fresh.
+        """
+        import asyncio  # noqa: PLC0415
+
+        async with self(key, fingerprint=fingerprint) as operation:
+            if operation.replayed:
+                return cast("T", operation.response)
+            response = factory()
+            if asyncio.iscoroutine(response):
+                response = await response
+            operation.store(cast("T", response))
+            return cast("T", response)
 
     def _scoped(self, key: str) -> str:
         """Return the namespace-scoped storage key."""

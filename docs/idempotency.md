@@ -71,6 +71,16 @@ On a first execution, `replayed` is `False`. Call `op.store(response)` to persis
 
 Exiting the block without calling `op.store(...)` on a first execution stores nothing. The operation opted out and a later call with the same key executes fresh.
 
+## One-call form
+
+`idem.run(key, factory)` owns the block. It runs the factory once, stores the response, and replays it on a repeated key. The factory can be sync or async. It mirrors `TTLCache.get_or_set`.
+
+```python title="run.py"
+--8<-- "idempotency/run.py"
+```
+
+The first call for a key runs the factory and stores its return value. A later call with the same key replays the stored value without running the factory. A failing factory stores nothing, so a later retry runs fresh. Pass `fingerprint=` to guard against a key reused with a different payload.
+
 ## Decorator
 
 `@idempotent` derives the key from the call arguments and stores the return value. It mirrors `@cached`.
