@@ -3,6 +3,6 @@ from grelmicro.task import Tasks
 task = Tasks()
 
 
-@task.interval(seconds=60, max_lock_seconds=300, min_lock_seconds=30)
+@task.interval(seconds=60, lease_duration=300, min_hold_duration=30)
 async def long_task():
     print("Running long task...")

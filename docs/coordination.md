@@ -285,12 +285,12 @@ it does not release immediately. It keeps the lock held for a configurable
 minimum duration to stop re-execution on other nodes.
 
 No background task keeps the lock active during execution. The lock relies on the
-TTL (`max_lock_seconds`) set at acquire time. If the task runs longer than
-`max_lock_seconds`, the lock expires and another node may acquire it.
+TTL (`lease_duration`) set at acquire time. If the task runs longer than
+`lease_duration`, the lock expires and another node may acquire it.
 
-- **`min_lock_seconds`**: minimum duration to hold the lock after the task
+- **`min_hold_duration`**: minimum duration to hold the lock after the task
   completes. Stops another node from re-executing too soon.
-- **`max_lock_seconds`**: maximum duration to hold the lock. Acts as a TTL for
+- **`lease_duration`**: maximum duration to hold the lock. Acts as a TTL for
   crash and deadlock protection.
 
 Call `refresh()` on a `TaskLock` to renew the lease while the task body is
@@ -299,17 +299,17 @@ still running. Raises `LockNotOwnedError` when the lease was lost:
 ```python
 async with task_lock:
     await long_operation_part1()
-    await task_lock.refresh()  # extend before max_lock_seconds elapses
+    await task_lock.refresh()  # extend before lease_duration elapses
     await long_operation_part2()
 ```
 
 !!! tip
     For scheduled tasks, prefer the
-    [`interval()` decorator with `max_lock_seconds`](task.md#distributed-lock),
+    [`interval()` decorator with `lease_duration`](task.md#distributed-lock),
     which configures a `TaskLock` automatically with sensible defaults.
 
 !!! warning
-    When the lock expires before the task completes (`max_lock_seconds`
+    When the lock expires before the task completes (`lease_duration`
     exceeded), another node may acquire the lock and execute concurrently. A
     warning is logged in this case.
 

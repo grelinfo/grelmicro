@@ -275,7 +275,7 @@ def heartbeat():
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@tasks.interval(seconds=60, max_lock_seconds=300)
+@tasks.interval(seconds=60, lease_duration=300)
 def cleanup():
     logger.info("cleanup")
 

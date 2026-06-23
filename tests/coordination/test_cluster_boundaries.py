@@ -121,7 +121,7 @@ async def test_do_exit_reacquires_with_remaining_duration(
 
     monkeypatch.setattr(task_lock, "do_reacquire", fake_reacquire)
 
-    await task_lock.do_exit("tok", min_lock_seconds=_MIN_LOCK)
+    await task_lock.do_exit("tok", min_hold_duration=_MIN_LOCK)
 
     assert captured["duration"] == _MIN_LOCK - _ELAPSED
 
@@ -148,7 +148,7 @@ async def test_do_exit_releases_at_exact_min_lock(
     monkeypatch.setattr(task_lock, "do_release", fake_release)
     monkeypatch.setattr(task_lock, "do_reacquire", fake_reacquire)
 
-    await task_lock.do_exit("tok", min_lock_seconds=_MIN_LOCK)
+    await task_lock.do_exit("tok", min_hold_duration=_MIN_LOCK)
 
     assert calls["released"] is True
     assert calls["reacquired"] is False
@@ -370,9 +370,7 @@ async def test_release_times_out_on_a_slow_backend() -> None:
 
 async def test_tasklock_from_config_wires_backend() -> None:
     """from_config keeps the explicit backend so acquire reaches it."""
-    config = TaskLockConfig(
-        worker="w1", min_lock_seconds=1, max_lock_seconds=10
-    )
+    config = TaskLockConfig(worker="w1", min_hold_duration=1, lease_duration=10)
     async with MemoryLockAdapter() as backend:
         task_lock = TaskLock.from_config(
             "tl-from-config", config, backend=backend

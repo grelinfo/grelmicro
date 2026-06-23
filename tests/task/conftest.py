@@ -27,16 +27,16 @@ def _create_task_deprecated_api(
     name: str,
     backend: LockBackend,
     worker: str,
-    min_lock_seconds: float,
-    max_lock_seconds: float,
+    min_hold_duration: float,
+    lease_duration: float,
 ) -> IntervalTask:
     """Create IntervalTask using deprecated sync=TaskLock() API."""
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
         worker=worker,
-        min_lock_seconds=min_lock_seconds,
-        max_lock_seconds=max_lock_seconds,
+        min_hold_duration=min_hold_duration,
+        lease_duration=lease_duration,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
@@ -55,16 +55,16 @@ def _create_task_new_api(
     name: str,
     backend: LockBackend,
     worker: str,
-    min_lock_seconds: float,
-    max_lock_seconds: float,
+    min_hold_duration: float,
+    lease_duration: float,
 ) -> IntervalTask:
-    """Create IntervalTask using new max_lock_seconds/backend API."""
+    """Create IntervalTask using new lease_duration/backend API."""
     return IntervalTask(
         seconds=seconds,
         function=function,
         name=name,
-        max_lock_seconds=max_lock_seconds,
-        min_lock_seconds=min_lock_seconds,
+        lease_duration=lease_duration,
+        min_hold_duration=min_hold_duration,
         backend=backend,
         worker=worker,
     )

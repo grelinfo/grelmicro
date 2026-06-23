@@ -40,7 +40,7 @@ def test_interval_task_with_lock_init() -> None:
     backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
-        seconds=1, function=test1, max_lock_seconds=5, backend=backend
+        seconds=1, function=test1, lease_duration=5, backend=backend
     )
     # Assert
     assert task.name == "tests.task.samples:test1"
@@ -55,7 +55,7 @@ def test_interval_task_with_lock_init_with_name() -> None:
         seconds=1,
         function=test1,
         name="my-task",
-        max_lock_seconds=5,
+        lease_duration=5,
         backend=backend,
     )
     # Assert
@@ -69,18 +69,18 @@ def test_interval_task_with_lock_init_invalid_seconds() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="seconds must be greater than 0"):
         IntervalTask(
-            seconds=0, function=test1, max_lock_seconds=5, backend=backend
+            seconds=0, function=test1, lease_duration=5, backend=backend
         )
 
 
-def test_interval_task_with_lock_default_max_lock_seconds() -> None:
-    """Test IntervalTask with leader uses default max_lock_seconds."""
+def test_interval_task_with_lock_default_lease_duration() -> None:
+    """Test IntervalTask with leader uses default lease_duration."""
     # Arrange
     backend = MemoryLockAdapter()
     leader = LeaderElection(
         "test-leader", backend=MemoryLeaderElectionAdapter()
     )
-    # Act - leader implies lock, max_lock_seconds defaults to interval * 5
+    # Act - leader implies lock, lease_duration defaults to interval * 5
     task = IntervalTask(
         seconds=10, function=test1, leader=leader, backend=backend
     )
@@ -88,53 +88,53 @@ def test_interval_task_with_lock_default_max_lock_seconds() -> None:
     assert task.name == "tests.task.samples:test1"
 
 
-def test_interval_task_with_lock_custom_max_lock_seconds() -> None:
-    """Test IntervalTask with custom max_lock_seconds."""
+def test_interval_task_with_lock_custom_lease_duration() -> None:
+    """Test IntervalTask with custom lease_duration."""
     # Arrange
     backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
-        seconds=10, function=test1, max_lock_seconds=100, backend=backend
+        seconds=10, function=test1, lease_duration=100, backend=backend
     )
     # Assert
     assert task.name == "tests.task.samples:test1"
 
 
-def test_interval_task_with_max_lock_seconds_validation() -> None:
-    """Test IntervalTask max_lock_seconds validation."""
+def test_interval_task_with_lease_duration_validation() -> None:
+    """Test IntervalTask lease_duration validation."""
     # Arrange
     backend = MemoryLockAdapter()
     # Act / Assert
     with pytest.raises(
         ValueError,
-        match="max_lock_seconds must be greater than or equal to seconds",
+        match="lease_duration must be greater than or equal to seconds",
     ):
         IntervalTask(
-            seconds=10, function=test1, max_lock_seconds=5, backend=backend
+            seconds=10, function=test1, lease_duration=5, backend=backend
         )
 
 
-def test_interval_task_min_lock_seconds_without_lock() -> None:
-    """Test min_lock_seconds requires max_lock_seconds or leader."""
+def test_interval_task_min_hold_duration_without_lock() -> None:
+    """Test min_hold_duration requires lease_duration or leader."""
     with pytest.raises(
         ValueError,
-        match="min_lock_seconds requires max_lock_seconds or leader",
+        match="min_hold_duration requires lease_duration or leader",
     ):
-        IntervalTask(seconds=10, function=test1, min_lock_seconds=5)
+        IntervalTask(seconds=10, function=test1, min_hold_duration=5)
 
 
-def test_interval_task_min_lock_seconds_validation() -> None:
-    """Test min_lock_seconds must be <= max_lock_seconds."""
+def test_interval_task_min_hold_duration_validation() -> None:
+    """Test min_hold_duration must be <= lease_duration."""
     backend = MemoryLockAdapter()
     with pytest.raises(
         ValueError,
-        match="min_lock_seconds must be less than or equal to max_lock_seconds",
+        match="min_hold_duration must be less than or equal to lease_duration",
     ):
         IntervalTask(
             seconds=10,
             function=test1,
-            max_lock_seconds=20,
-            min_lock_seconds=25,
+            lease_duration=20,
+            min_hold_duration=25,
             backend=backend,
         )
 
@@ -147,7 +147,7 @@ async def test_interval_task_with_lock_and_resource_lock(
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        max_lock_seconds=SECONDS * 5,
+        lease_duration=SECONDS * 5,
         backend=backend,
         sync=resource_lock,
     )
@@ -158,15 +158,15 @@ async def test_interval_task_with_lock_and_resource_lock(
         cancel_group(tg)
 
 
-def test_interval_task_custom_min_lock_seconds() -> None:
-    """Test IntervalTask with custom min_lock_seconds."""
+def test_interval_task_custom_min_hold_duration() -> None:
+    """Test IntervalTask with custom min_hold_duration."""
     backend = MemoryLockAdapter()
     # Act - should not raise
     task = IntervalTask(
         seconds=10,
         function=test1,
-        max_lock_seconds=100,
-        min_lock_seconds=5,
+        lease_duration=100,
+        min_hold_duration=5,
         backend=backend,
     )
     assert task.name == "tests.task.samples:test1"
@@ -178,7 +178,7 @@ async def test_interval_task_with_lock_start(backend: LockBackend) -> None:
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        max_lock_seconds=SECONDS * 5,
+        lease_duration=SECONDS * 5,
         backend=backend,
     )
     # Act
@@ -198,7 +198,7 @@ async def test_interval_task_with_lock_execution_error(
     task = IntervalTask(
         seconds=SECONDS,
         function=always_fail,
-        max_lock_seconds=SECONDS * 5,
+        lease_duration=SECONDS * 5,
         backend=backend,
     )
     # Act
@@ -225,7 +225,7 @@ async def test_interval_task_with_lock_synchronization_error(
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        max_lock_seconds=SECONDS * 5,
+        lease_duration=SECONDS * 5,
         backend=backend,
     )
     mocker.patch.object(
@@ -265,7 +265,7 @@ async def test_interval_task_with_lock_stop(
     task = IntervalTask(
         seconds=1,
         function=test1,
-        max_lock_seconds=5,
+        lease_duration=5,
         backend=backend,
     )
 

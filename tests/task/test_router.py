@@ -157,7 +157,7 @@ def test_router_interval_with_lock() -> None:
     router = TaskRouter()
 
     # Act
-    router.interval(seconds=60, max_lock_seconds=300, backend=backend)(test1)
+    router.interval(seconds=60, lease_duration=300, backend=backend)(test1)
 
     # Assert
     assert len(router.tasks) == 1
@@ -166,7 +166,7 @@ def test_router_interval_with_lock() -> None:
 
 
 def test_router_interval_with_lock_and_custom_least() -> None:
-    """Test Task Router add interval task with custom min_lock_seconds."""
+    """Test Task Router add interval task with custom min_hold_duration."""
     # Arrange
     backend = MemoryLockAdapter()
     router = TaskRouter()
@@ -174,8 +174,8 @@ def test_router_interval_with_lock_and_custom_least() -> None:
     # Act
     router.interval(
         seconds=60,
-        max_lock_seconds=300,
-        min_lock_seconds=30,
+        lease_duration=300,
+        min_hold_duration=30,
         backend=backend,
     )(test1)
 
