@@ -196,6 +196,8 @@ Components share a connection pool through a `Provider`: pass the same `RedisPro
 
 The default behavior is **share when possible, isolate when asked**. Distinct Providers opt into per-domain isolation.
 
+A Provider is shared by identity: every Component that uses the same Provider attaches to the same connection pool. To break that sharing, build a distinct Provider with its own `env_prefix=`, pass a separate Provider instance, or wrap an externally owned client with `from_client`. There is no `shared=False` flag.
+
 ## Error handling
 
 Accessing a Component that has not been registered raises `ComponentNotRegisteredError` with a descriptive message. Resolving a Pattern outside any `async with micro:` block raises `NoActiveAppError`.

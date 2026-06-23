@@ -61,6 +61,8 @@ Use the `interval` decorator to run a task at a fixed interval:
 !!! note
     The interval specifies the waiting time between task executions. Ensure that the task execution duration is considered to meet deadlines effectively.
 
+    The interval is measured from the end of one run to the start of the next (end-to-start). A run that takes longer than the interval pushes the next attempt back.
+
 !!! tip "Sensitive workflows: pass an explicit `name=`"
     When `name=` is omitted, the task reference is derived from the function's
     `module:qualname`. That reference appears in logs, distributed
