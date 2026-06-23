@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 import pytest_mock
 
-from grelmicro.coordination.abc import LeaderElectionBackend
+from grelmicro.coordination._protocol import LeaderElectionBackend
 from grelmicro.coordination.postgres import (
     PostgresLeaderElectionAdapter,
     _decode_metadata,

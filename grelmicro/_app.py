@@ -801,7 +801,7 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     from grelmicro.coordination._component import (  # noqa: PLC0415
         Coordination,
     )
-    from grelmicro.coordination.abc import (  # noqa: PLC0415
+    from grelmicro.coordination._protocol import (  # noqa: PLC0415
         LeaderElectionBackend,
         LockBackend,
     )

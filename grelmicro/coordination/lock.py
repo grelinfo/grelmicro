@@ -20,11 +20,11 @@ from grelmicro.coordination._base import (
     jittered_interval,
 )
 from grelmicro.coordination._handle import LockHandle
+from grelmicro.coordination._protocol import LockBackend, Seconds
 from grelmicro.coordination._tokens import (
     generate_task_token,
     generate_thread_token,
 )
-from grelmicro.coordination.abc import LockBackend, Seconds
 from grelmicro.coordination.errors import (
     LockAcquireError,
     LockLockedCheckError,

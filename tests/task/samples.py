@@ -7,9 +7,9 @@ from typing import Self
 
 from typer import echo
 
-from grelmicro.coordination.abc import LockPrimitive
+from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.errors import WouldBlockError as WouldBlock
-from grelmicro.task.abc import Task
+from grelmicro.task._protocol import Task
 
 condition: asyncio.Condition = asyncio.Condition()
 Event = asyncio.Event

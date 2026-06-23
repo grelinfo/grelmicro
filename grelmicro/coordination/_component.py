@@ -16,7 +16,7 @@ from grelmicro.providers._base import Provider
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from grelmicro.coordination.abc import (
+    from grelmicro.coordination._protocol import (
         LeaderElectionBackend,
         LockBackend,
         ScheduleBackend,

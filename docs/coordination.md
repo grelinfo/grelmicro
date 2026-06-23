@@ -97,8 +97,9 @@ a `Provider`, a backend instance, or a zero-arg class.
 | **Lock performance** | Best | Good | Moderate | Good | Best |
 
 !!! tip
-    Feel free to create your own backend and contribute it. The `coordination.abc`
-    module holds the protocols for new backends.
+    Feel free to create your own backend and contribute it. The backend
+    protocols (`LockBackend`, `LeaderElectionBackend`, `ScheduleBackend`) are
+    exported from `grelmicro.coordination`.
 
 ### Choosing a backend
 

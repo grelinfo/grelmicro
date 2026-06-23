@@ -6,7 +6,7 @@ from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
-from grelmicro.coordination.abc import LeaderElectionBackend
+from grelmicro.coordination._protocol import LeaderElectionBackend
 from grelmicro.coordination.leaderelection import (
     LeaderElection,
     LeaderElectionConfig,

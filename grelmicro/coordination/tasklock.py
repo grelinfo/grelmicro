@@ -21,12 +21,12 @@ from grelmicro.coordination._base import (
     BaseLockConfig,
     assert_worker_unchanged,
 )
+from grelmicro.coordination._protocol import LockBackend, LockPrimitive, Seconds
 from grelmicro.coordination._tokens import (
     generate_task_token,
     generate_thread_token,
     generate_token_nonce,
 )
-from grelmicro.coordination.abc import LockBackend, LockPrimitive, Seconds
 from grelmicro.coordination.errors import (
     LockAcquireError,
     LockLockedCheckError,

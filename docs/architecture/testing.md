@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
-from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination import LockBackend
 
 
 async def test_swap_for_block(micro: Grelmicro) -> None:
@@ -120,7 +120,7 @@ from unittest.mock import AsyncMock
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
-from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination import LockBackend
 
 
 async def test_login(micro: Grelmicro) -> None:

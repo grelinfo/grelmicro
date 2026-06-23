@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import TYPE_CHECKING, Self
 
-from grelmicro.coordination.abc import (
+from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
     ScheduleBackend,

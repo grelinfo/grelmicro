@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from grelmicro.cache._protocol import CacheBackend
-    from grelmicro.coordination.abc import (
+    from grelmicro.coordination._protocol import (
         LeaderElectionBackend,
         LockBackend,
         ScheduleBackend,

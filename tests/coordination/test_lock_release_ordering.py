@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator
 import pytest
 from pytest_mock import MockerFixture
 
-from grelmicro.coordination.abc import LockBackend
+from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.errors import (
     LockNotOwnedError,
     LockReentrantError,

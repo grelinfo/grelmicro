@@ -6,7 +6,7 @@ from asyncio import sleep
 import pytest
 from pytest_mock import MockFixture
 
-from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
+from grelmicro.coordination._protocol import LeaderElectionBackend, LockBackend
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import (

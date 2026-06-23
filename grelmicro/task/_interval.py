@@ -12,15 +12,15 @@ from uuid import UUID
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
-from grelmicro.coordination.abc import LockBackend, LockPrimitive
+from grelmicro.coordination._protocol import LockBackend, LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
 from grelmicro.task._cron import FireInfo, FireOutcome
+from grelmicro.task._protocol import Task
 from grelmicro.task._utils import validate_and_generate_reference
-from grelmicro.task.abc import Task
 
 logger = getLogger("grelmicro.task")
 

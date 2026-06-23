@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 Move the backend protocols out of the public `abc` submodules into private `_protocol` modules (`clock`, `config`, `coordination`, `task`), matching `cache` and `resilience`. `VirtualClock` likewise moves to `clock/_virtual.py`. The protocols stay exported from each package, so import them from the package (`from grelmicro.coordination import LockBackend`) instead of `grelmicro.coordination.abc`.
 * 💥 `reconfigure()` now raises `CoordinationSettingsValidationError` (a `SettingsValidationError`, still a `ValueError` subclass) instead of a bare `ValueError` when a new config would change the immutable `worker`. Catch `SettingsValidationError` or `GrelmicroError` to handle it.
 * 💥 Rename the `ExternalConfig` `interval` parameter to `reload_interval`, tying the knob to the `reload()` verb it controls. Update `ExternalConfig(interval=...)` to `reload_interval=`.
 * 💥 Rename the log dedup `ttl_seconds` field to `ttl`, matching the bare-noun duration convention used everywhere else (the cache `ttl`, lock durations). Update `DuplicateFilter(ttl_seconds=...)` and `DedupConfig` to `ttl=`.
