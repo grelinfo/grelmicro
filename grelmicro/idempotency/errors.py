@@ -1,10 +1,16 @@
 """Idempotency Errors."""
 
-from grelmicro.errors import GrelmicroError
+from grelmicro.errors import GrelmicroError, SettingsValidationError
 
 
 class IdempotencyError(GrelmicroError):
     """Base idempotency error."""
+
+
+class IdempotencySettingsValidationError(
+    IdempotencyError, SettingsValidationError
+):
+    """Idempotency Settings Validation Error."""
 
 
 class IdempotencyConflictError(IdempotencyError):

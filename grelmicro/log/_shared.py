@@ -16,6 +16,7 @@ from grelmicro.log.config import (
     LoggingFormatType,
     LoggingSerializerType,
 )
+from grelmicro.log.errors import LoggingSettingsValidationError
 
 try:
     from opentelemetry import trace
@@ -348,7 +349,7 @@ def load_settings(settings: LoggingConfig | None = None) -> LoadedSettings:
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
-        pydantic.ValidationError: If environment variables are invalid.
+        LoggingSettingsValidationError: If environment variables are invalid.
     """
     if settings is None:
         settings = resolve_config(
@@ -356,6 +357,7 @@ def load_settings(settings: LoggingConfig | None = None) -> LoadedSettings:
             explicit=None,
             kwargs={},
             env_prefix="GREL_LOG_",
+            error_type=LoggingSettingsValidationError,
         )
 
     json_dumps: Callable[[Mapping[str, Any]], str]

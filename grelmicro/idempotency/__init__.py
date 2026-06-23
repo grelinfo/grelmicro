@@ -17,6 +17,7 @@ from grelmicro.idempotency.config import IdempotencyConfig
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyError,
+    IdempotencySettingsValidationError,
 )
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "IdempotencyConfig",
     "IdempotencyConflictError",
     "IdempotencyError",
+    "IdempotencySettingsValidationError",
     "Operation",
     "idempotent",
 ]

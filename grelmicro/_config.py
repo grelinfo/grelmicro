@@ -34,6 +34,14 @@ if TYPE_CHECKING:
     import asyncio
     from collections.abc import Mapping
 
+    from grelmicro.errors import SettingsValidationError
+else:
+    # Runtime fallback so `typing.get_type_hints(resolve_config)` resolves the
+    # `error_type` annotation without importing a name used only in
+    # annotations. The real type reaches static checkers via the
+    # `TYPE_CHECKING` branch above.
+    SettingsValidationError = Any
+
 C = TypeVar("C", bound=BaseModel)
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
 
@@ -119,6 +127,7 @@ def resolve_config[C: BaseModel](
     kwargs: Mapping[str, object | None],
     env_prefix: str,
     env_load: bool | None = None,
+    error_type: type[SettingsValidationError] | None = None,
 ) -> C:
     """Build a validated ``config_cls`` from an explicit instance or kwargs and env.
 
@@ -138,7 +147,10 @@ def resolve_config[C: BaseModel](
     The env path constructs a one-off ``BaseSettings`` subclass that
     inherits ``config_cls`` so its validators, ``frozen``, and
     ``extra`` flags are preserved. Only the ``env_prefix`` is added.
-    Validation failures surface as ``pydantic.ValidationError``.
+
+    Pass ``error_type`` to wrap a ``pydantic.ValidationError`` into a
+    component-specific ``SettingsValidationError``. Without it, the
+    raw ``pydantic.ValidationError`` propagates.
 
     See `docs/architecture/config.md` for the full contract,
     including the name-as-namespace convention used to derive
@@ -155,15 +167,20 @@ def resolve_config[C: BaseModel](
     if env_load is None:
         env_load = env_load_default()
 
-    if not env_load:
-        return config_cls.model_validate(provided)
+    try:
+        if not env_load:
+            return config_cls.model_validate(provided)
 
-    settings_cls = _build_settings_cls(config_cls, env_prefix)
-    # The dynamic subclass is built at runtime via `type(...)` below, so
-    # neither mypy nor ty can prove that `settings_cls` accepts the kwargs
-    # declared on `config_cls` or that it returns `C`. Pydantic's runtime
-    # validation enforces the contract.
-    return settings_cls(**provided)  # type: ignore[return-value, arg-type]  # ty: ignore[invalid-return-type, invalid-argument-type]
+        settings_cls = _build_settings_cls(config_cls, env_prefix)
+        # The dynamic subclass is built at runtime via `type(...)` below, so
+        # neither mypy nor ty can prove that `settings_cls` accepts the kwargs
+        # declared on `config_cls` or that it returns `C`. Pydantic's runtime
+        # validation enforces the contract.
+        return settings_cls(**provided)  # type: ignore[return-value, arg-type]  # ty: ignore[invalid-return-type, invalid-argument-type]
+    except ValidationError as error:
+        if error_type is None:
+            raise
+        raise error_type(error) from None
 
 
 @lru_cache(maxsize=256)
@@ -301,6 +318,7 @@ def resolve_config_from_mapping[C: BaseModel](
     env_prefix: str,
     mapping: Mapping[str, str],
     immutable_fields: frozenset[str] = frozenset(),
+    error_type: type[SettingsValidationError] | None = None,
 ) -> C:
     """Patch `current` with values from a flat env-style `mapping`.
 
@@ -317,8 +335,13 @@ def resolve_config_from_mapping[C: BaseModel](
     from the environment. Returns `current` unchanged when the mapping
     carries nothing for this prefix.
 
+    Pass `error_type` to wrap a `pydantic.ValidationError` into a
+    component-specific `SettingsValidationError`. Without it, the raw
+    `pydantic.ValidationError` propagates.
+
     Raises:
-        pydantic.ValidationError: If a present value fails validation.
+        pydantic.ValidationError: If a present value fails validation
+            and no `error_type` is given.
     """
     cls = type(current)
     fields = cls.model_fields
@@ -348,7 +371,12 @@ def resolve_config_from_mapping[C: BaseModel](
         )
     if not overrides:
         return current
-    return cls.model_validate({**current.model_dump(), **overrides})
+    try:
+        return cls.model_validate({**current.model_dump(), **overrides})
+    except ValidationError as error:
+        if error_type is None:
+            raise
+        raise error_type(error) from None
 
 
 def _redact_validation_error(exc: ValidationError) -> str:

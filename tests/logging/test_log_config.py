@@ -1,10 +1,11 @@
 """Tests for the three-paths `log.configure` construction contract."""
 
 import pytest
-from pydantic import ValidationError
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.log import (
     LoggingConfig,
+    LoggingSettingsValidationError,
     configure,
     configure_with,
 )
@@ -54,14 +55,20 @@ def test_configure_env_load_false_ignores_env(
     assert cfg.level == LoggingLevelType.INFO  # default
 
 
-def test_configure_invalid_level_raises_validation_error(
+def test_configure_invalid_level_raises_settings_error(
     monkeypatch: pytest.MonkeyPatch,
     reset_backend: None,  # noqa: ARG001
 ) -> None:
-    """Invalid env values raise `pydantic.ValidationError`, not a custom wrapper."""
+    """Invalid env values raise a catchable `LoggingSettingsValidationError`."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "BOGUS")
-    with pytest.raises(ValidationError):
+    with pytest.raises(LoggingSettingsValidationError) as exc_info:
         configure()
+    assert isinstance(exc_info.value, SettingsValidationError)
+
+
+def test_logging_settings_error_is_settings_validation_error() -> None:
+    """`LoggingSettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(LoggingSettingsValidationError, SettingsValidationError)
 
 
 def test_configure_with_returns_passed_config(

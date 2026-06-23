@@ -16,11 +16,12 @@ from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.idempotency import (
     Idempotency,
     IdempotencyConfig,
     IdempotencyConflictError,
+    IdempotencySettingsValidationError,
     idempotent,
 )
 
@@ -599,3 +600,17 @@ class TestCoverageGaps:
             await reconfigure_all({"GREL_IDEMPOTENCY_CHARGE_BAD_TTL": "42"})
 
         assert any("rejected" in record.message for record in caplog.records)
+
+
+def test_invalid_config_raises_settings_error() -> None:
+    """Invalid kwargs raise a catchable `IdempotencySettingsValidationError`."""
+    with pytest.raises(IdempotencySettingsValidationError) as exc_info:
+        Idempotency("charge", ttl=-1)
+    assert isinstance(exc_info.value, SettingsValidationError)
+
+
+def test_settings_error_is_settings_validation_error() -> None:
+    """`IdempotencySettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(
+        IdempotencySettingsValidationError, SettingsValidationError
+    )

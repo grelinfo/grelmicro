@@ -2,6 +2,8 @@
 
 import pytest
 
+from grelmicro.errors import SettingsValidationError
+from grelmicro.health import HealthSettingsValidationError
 from grelmicro.health._checks import HealthChecks, HealthChecksConfig
 
 TIMEOUT_KWARG = 2.5
@@ -84,3 +86,17 @@ def test_from_config_keeps_default_name() -> None:
     cfg = HealthChecksConfig()
     registry = HealthChecks.from_config(cfg)
     assert registry.name == "default"
+
+
+def test_invalid_config_raises_settings_error() -> None:
+    """Invalid kwargs raise a catchable `HealthSettingsValidationError`."""
+    with pytest.raises(HealthSettingsValidationError) as exc_info:
+        HealthChecks(timeout=-5)
+    assert isinstance(exc_info.value, SettingsValidationError)
+    assert "timeout" in str(exc_info.value)
+    assert "-5" not in str(exc_info.value)
+
+
+def test_settings_error_is_settings_validation_error() -> None:
+    """`HealthSettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(HealthSettingsValidationError, SettingsValidationError)

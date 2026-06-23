@@ -7,13 +7,17 @@ from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
 
 from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
+from grelmicro.errors import SettingsValidationError
 from grelmicro.trace import (
     Trace,
     TracingConfig,
     TracingExporterType,
     TracingSamplerType,
 )
-from grelmicro.trace.errors import TracingError
+from grelmicro.trace.errors import (
+    TracingError,
+    TracingSettingsValidationError,
+)
 
 
 def test_tracing_config_accepts_case_insensitive_enums() -> None:
@@ -224,3 +228,20 @@ async def test_trace_raises_when_private_otel_global_missing(
     with pytest.raises(TracingError, match="_TRACER_PROVIDER"):
         async with micro:
             pass
+
+
+async def test_trace_invalid_env_config_raises_settings_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid env config raises a catchable `TracingSettingsValidationError`."""
+    monkeypatch.setenv("GREL_TRACE_EXPORTER", "bogus")
+    micro = Grelmicro(uses=[Trace(env_load=True)])
+    with pytest.raises(TracingSettingsValidationError) as exc_info:
+        async with micro:
+            pass
+    assert isinstance(exc_info.value, SettingsValidationError)
+
+
+def test_trace_settings_error_is_settings_validation_error() -> None:
+    """`TracingSettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(TracingSettingsValidationError, SettingsValidationError)

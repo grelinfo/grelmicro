@@ -184,6 +184,9 @@
       "()": "(message, *, details=...)"
     },
     "HealthReport": null,
+    "HealthSettingsValidationError": {
+      "()": "(error)"
+    },
     "HealthStatus": {
       "()": "(*values)"
     }
@@ -200,6 +203,9 @@
       "()": "(*, name, key)"
     },
     "IdempotencyError": null,
+    "IdempotencySettingsValidationError": {
+      "()": "(error)"
+    },
     "Operation": {
       "()": "(*, replayed, response)"
     },
@@ -224,6 +230,9 @@
       "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=...)"
     },
     "LoggingError": null,
+    "LoggingSettingsValidationError": {
+      "()": "(error)"
+    },
     "RateLimitFilter": {
       "()": "(*, capacity=..., refill_rate=..., key_mode=..., cost=..., key=..., env_prefix=..., env_load=...)",
       ".from_config": "(config, *, key=...)"
@@ -249,7 +258,9 @@
     "MetricsExporterType": {
       "()": "(*values)"
     },
-    "MetricsSettingsValidationError": null,
+    "MetricsSettingsValidationError": {
+      "()": "(error)"
+    },
     "measure": {
       "()": "(func=..., *, name=..., record_in_flight=...)"
     },
@@ -610,6 +621,9 @@
     },
     "TracingSamplerType": {
       "()": "(*values)"
+    },
+    "TracingSettingsValidationError": {
+      "()": "(error)"
     },
     "add_context": {
       "()": "(**fields)"

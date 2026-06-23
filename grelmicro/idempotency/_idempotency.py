@@ -19,7 +19,10 @@ from grelmicro.cache._stampede import (
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.coordination.lock import Lock
 from grelmicro.idempotency.config import IdempotencyConfig
-from grelmicro.idempotency.errors import IdempotencyConflictError
+from grelmicro.idempotency.errors import (
+    IdempotencyConflictError,
+    IdempotencySettingsValidationError,
+)
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
@@ -357,6 +360,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             kwargs={"ttl": ttl},
             env_prefix=resolved_env_prefix,
             env_load=env_load,
+            error_type=IdempotencySettingsValidationError,
         )
         self._setup(name, config, fingerprint, cache, serializer)
         self._track_reconfigure(resolved_env_prefix)

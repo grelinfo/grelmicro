@@ -18,6 +18,7 @@ from grelmicro.log.config import (
     LoggingSerializerType,
     LoggingTimeZoneType,
 )
+from grelmicro.log.errors import LoggingSettingsValidationError
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -158,6 +159,7 @@ class Log:
                 kwargs=self._kwargs,
                 env_prefix="GREL_LOG_",
                 env_load=self._env_load,
+                error_type=LoggingSettingsValidationError,
             )
             _apply(self._resolved)
         return self

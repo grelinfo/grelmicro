@@ -7,7 +7,7 @@ from grelmicro.health._models import (
     HealthStatus,
 )
 from grelmicro.health._types import HealthCheckFunc, HealthDetails
-from grelmicro.health.errors import HealthError
+from grelmicro.health.errors import HealthError, HealthSettingsValidationError
 
 __all__ = [
     "CheckResult",
@@ -17,5 +17,6 @@ __all__ = [
     "HealthDetails",
     "HealthError",
     "HealthReport",
+    "HealthSettingsValidationError",
     "HealthStatus",
 ]
