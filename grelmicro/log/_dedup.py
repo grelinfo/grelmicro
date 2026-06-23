@@ -16,7 +16,7 @@ from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._config import resolve_config
-from grelmicro.log.errors import LoggingSettingsValidationError
+from grelmicro.log.errors import LogSettingsValidationError
 
 KeyMode = Literal["rendered", "template"]
 
@@ -198,7 +198,7 @@ class DuplicateFilter(Filter):
             },
             env_prefix=env_prefix or "GREL_DUPLICATE_FILTER_",
             env_load=env_load,
-            error_type=LoggingSettingsValidationError,
+            error_type=LogSettingsValidationError,
         )
         Filter.__init__(self)
         self._setup(config, key)

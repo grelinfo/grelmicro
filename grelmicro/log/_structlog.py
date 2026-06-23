@@ -15,9 +15,9 @@ from grelmicro.log._shared import (
     render_text_line,
 )
 from grelmicro.log.config import (
-    LoggingConfig,
-    LoggingFormatType,
-    LoggingSerializerType,
+    LogConfig,
+    LogFormatType,
+    LogSerializerType,
 )
 from grelmicro.log.types import ErrorDict
 
@@ -193,7 +193,7 @@ def _make_pretty_renderer(*, colors: bool) -> Processor:
     return processor
 
 
-def configure(config: LoggingConfig | None = None) -> None:
+def configure(config: LogConfig | None = None) -> None:
     """Configure logging with structlog.
 
     Simple twelve-factor app logging configuration that logs to stdout.
@@ -237,9 +237,9 @@ def configure(config: LoggingConfig | None = None) -> None:
     if settings.otel_enabled:
         processors.append(_add_otel_context)
 
-    if resolved_format == LoggingFormatType.JSON:
+    if resolved_format == LogFormatType.JSON:
         processors.append(_build_flat_record)
-        if settings.json_serializer == LoggingSerializerType.ORJSON:
+        if settings.json_serializer == LogSerializerType.ORJSON:
             import orjson  # noqa: PLC0415
 
             processors.append(
@@ -253,10 +253,10 @@ def configure(config: LoggingConfig | None = None) -> None:
                 structlog.processors.JSONRenderer(default=json_default)
             )
             logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
-    elif resolved_format == LoggingFormatType.LOGFMT:
+    elif resolved_format == LogFormatType.LOGFMT:
         processors.append(_render_logfmt)
         logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
-    elif resolved_format == LoggingFormatType.PRETTY:
+    elif resolved_format == LogFormatType.PRETTY:
         processors.append(_make_pretty_renderer(colors=colors))
         logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
     else:

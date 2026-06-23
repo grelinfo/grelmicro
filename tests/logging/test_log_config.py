@@ -4,23 +4,23 @@ import pytest
 
 from grelmicro.errors import SettingsValidationError
 from grelmicro.log import (
-    LoggingConfig,
-    LoggingSettingsValidationError,
+    LogConfig,
+    LogSettingsValidationError,
     configure,
     configure_with,
 )
-from grelmicro.log.config import LoggingBackendType, LoggingLevelType
+from grelmicro.log.config import LogBackendType, LogLevelType
 
 
 def test_configure_returns_resolved_config(
     monkeypatch: pytest.MonkeyPatch,
     reset_backend: None,  # noqa: ARG001
 ) -> None:
-    """`configure()` returns the `LoggingConfig` it applied."""
+    """`configure()` returns the `LogConfig` it applied."""
     monkeypatch.delenv("GREL_LOG_LEVEL", raising=False)
-    cfg = configure(level=LoggingLevelType.DEBUG)
-    assert isinstance(cfg, LoggingConfig)
-    assert cfg.level == LoggingLevelType.DEBUG
+    cfg = configure(level=LogLevelType.DEBUG)
+    assert isinstance(cfg, LogConfig)
+    assert cfg.level == LogLevelType.DEBUG
 
 
 def test_configure_kwargs_override_env(
@@ -29,8 +29,8 @@ def test_configure_kwargs_override_env(
 ) -> None:
     """Caller kwargs win over `GREL_LOG_*` env vars."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "WARNING")
-    cfg = configure(level=LoggingLevelType.DEBUG)
-    assert cfg.level == LoggingLevelType.DEBUG
+    cfg = configure(level=LogLevelType.DEBUG)
+    assert cfg.level == LogLevelType.DEBUG
 
 
 def test_configure_reads_env_when_kwargs_unset(
@@ -41,8 +41,8 @@ def test_configure_reads_env_when_kwargs_unset(
     monkeypatch.setenv("GREL_LOG_LEVEL", "ERROR")
     monkeypatch.setenv("GREL_LOG_BACKEND", "stdlib")
     cfg = configure()
-    assert cfg.level == LoggingLevelType.ERROR
-    assert cfg.backend == LoggingBackendType.STDLIB
+    assert cfg.level == LogLevelType.ERROR
+    assert cfg.backend == LogBackendType.STDLIB
 
 
 def test_configure_env_load_false_ignores_env(
@@ -52,30 +52,30 @@ def test_configure_env_load_false_ignores_env(
     """`env_load=False` skips env reading entirely."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "ERROR")
     cfg = configure(env_load=False)
-    assert cfg.level == LoggingLevelType.INFO  # default
+    assert cfg.level == LogLevelType.INFO  # default
 
 
 def test_configure_invalid_level_raises_settings_error(
     monkeypatch: pytest.MonkeyPatch,
     reset_backend: None,  # noqa: ARG001
 ) -> None:
-    """Invalid env values raise a catchable `LoggingSettingsValidationError`."""
+    """Invalid env values raise a catchable `LogSettingsValidationError`."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "BOGUS")
-    with pytest.raises(LoggingSettingsValidationError) as exc_info:
+    with pytest.raises(LogSettingsValidationError) as exc_info:
         configure()
     assert isinstance(exc_info.value, SettingsValidationError)
 
 
 def test_logging_settings_error_is_settings_validation_error() -> None:
-    """`LoggingSettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(LoggingSettingsValidationError, SettingsValidationError)
+    """`LogSettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(LogSettingsValidationError, SettingsValidationError)
 
 
 def test_configure_with_returns_passed_config(
     reset_backend: None,  # noqa: ARG001
 ) -> None:
-    """`configure_with(cfg)` returns the same `LoggingConfig` for symmetry."""
-    cfg = LoggingConfig(level=LoggingLevelType.WARNING)
+    """`configure_with(cfg)` returns the same `LogConfig` for symmetry."""
+    cfg = LogConfig(level=LogLevelType.WARNING)
     returned = configure_with(cfg)
     assert returned is cfg
 
@@ -86,6 +86,6 @@ def test_configure_with_bypasses_env(
 ) -> None:
     """`configure_with(cfg)` ignores env vars and uses the passed config as-is."""
     monkeypatch.setenv("GREL_LOG_LEVEL", "ERROR")
-    cfg = LoggingConfig(level=LoggingLevelType.WARNING)
+    cfg = LogConfig(level=LogLevelType.WARNING)
     returned = configure_with(cfg)
-    assert returned.level == LoggingLevelType.WARNING
+    assert returned.level == LogLevelType.WARNING

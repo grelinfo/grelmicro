@@ -3,9 +3,9 @@
 from grelmicro.errors import GrelmicroError, SettingsValidationError
 
 
-class LoggingError(GrelmicroError):
-    """Base logging error."""
+class LogError(GrelmicroError):
+    """Base log error."""
 
 
-class LoggingSettingsValidationError(LoggingError, SettingsValidationError):
-    """Logging Settings Validation Error."""
+class LogSettingsValidationError(LogError, SettingsValidationError):
+    """Log Settings Validation Error."""

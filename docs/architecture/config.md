@@ -105,7 +105,7 @@ We keep `self._config` as the single source of truth. If a future profile shows 
 | `RateLimitFilterConfig` | `grelmicro.log` |
 | `DuplicateFilterConfig` | `grelmicro.log` |
 | `HealthChecksConfig` | `grelmicro.health` |
-| `LoggingConfig` | `grelmicro.log` |
+| `LogConfig` | `grelmicro.log` |
 
 Each is a `BaseModel, frozen=True, extra="forbid"`. Field docs live in `Annotated[T, Doc("...")]` blocks and surface in IDEs and the API reference.
 

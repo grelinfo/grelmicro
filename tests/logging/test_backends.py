@@ -15,7 +15,7 @@ from loguru import logger as loguru_logger
 
 from grelmicro._json import json_default
 from grelmicro.errors import DependencyNotFoundError
-from grelmicro.log import LoggingSettingsValidationError, configure
+from grelmicro.log import LogSettingsValidationError, configure
 from grelmicro.log._shared import (
     _logfmt_format_value,
     get_otel_trace_context,
@@ -218,7 +218,7 @@ class TestConfigureLoggingLevel:
 
         # Act / Assert
         with pytest.raises(
-            LoggingSettingsValidationError,
+            LogSettingsValidationError,
             match=(
                 r"Input should be 'DEBUG', 'INFO', 'WARNING', "
                 r"'ERROR' or 'CRITICAL'"
@@ -484,7 +484,7 @@ class TestLoadSettings:
         monkeypatch.setenv("GREL_LOG_LEVEL", "INVALID")
 
         # Act / Assert
-        with pytest.raises(LoggingSettingsValidationError):
+        with pytest.raises(LogSettingsValidationError):
             load_settings()
 
 

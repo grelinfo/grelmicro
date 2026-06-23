@@ -15,7 +15,7 @@ from grelmicro.log._shared import (
     render_pretty_lines,
     render_text_line,
 )
-from grelmicro.log.config import LoggingConfig, LoggingFormatType
+from grelmicro.log.config import LogConfig, LogFormatType
 from grelmicro.log.types import ErrorDict
 
 _STANDARD_LOG_RECORD_ATTRS = frozenset(
@@ -197,7 +197,7 @@ class _PrettyFormatter(_BaseFormatter):
         return render_pretty_lines(self._record(record), colors=self.colors)
 
 
-def configure(config: LoggingConfig | None = None) -> None:
+def configure(config: LogConfig | None = None) -> None:
     """Configure logging with stdlib.
 
     Simple twelve-factor app logging configuration that logs to stdout.
@@ -221,18 +221,18 @@ def configure(config: LoggingConfig | None = None) -> None:
     otel = settings.otel_enabled
 
     formatter: logging.Formatter
-    if resolved_format == LoggingFormatType.JSON:
+    if resolved_format == LogFormatType.JSON:
         formatter = _JSONFormatter(
             timezone=timezone,
             json_dumps=json_dumps,
             caller_enabled=caller,
             otel_enabled=otel,
         )
-    elif resolved_format == LoggingFormatType.LOGFMT:
+    elif resolved_format == LogFormatType.LOGFMT:
         formatter = _LogfmtFormatter(
             timezone=timezone, caller_enabled=caller, otel_enabled=otel
         )
-    elif resolved_format == LoggingFormatType.PRETTY:
+    elif resolved_format == LogFormatType.PRETTY:
         formatter = _PrettyFormatter(
             timezone=timezone,
             caller_enabled=caller,

@@ -13,39 +13,39 @@ from grelmicro.log._ratelimit import (
     RateLimitFilterConfig,
 )
 from grelmicro.log.config import (
-    LoggingBackendType,
-    LoggingConfig,
-    LoggingFormatType,
-    LoggingLevelType,
-    LoggingSerializerType,
-    LoggingTimeZoneType,
+    LogBackendType,
+    LogConfig,
+    LogFormatType,
+    LogLevelType,
+    LogSerializerType,
+    LogTimeZoneType,
 )
-from grelmicro.log.errors import LoggingError, LoggingSettingsValidationError
+from grelmicro.log.errors import LogError, LogSettingsValidationError
 from grelmicro.log.types import ErrorDict, JSONRecordDict
 
 
 def configure(
     *,
     backend: Annotated[
-        LoggingBackendType | None,
+        LogBackendType | None,
         Doc(
             "Logging backend (`stdlib`, `loguru`, `structlog`). Default: `stdlib`."
         ),
     ] = None,
     level: Annotated[
-        LoggingLevelType | None,
+        LogLevelType | None,
         Doc("Log level threshold. Default: `INFO`."),
     ] = None,
     format: Annotated[  # noqa: A002
-        LoggingFormatType | str | None,
+        LogFormatType | str | None,
         Doc("Log format. Default: `AUTO`."),
     ] = None,
     timezone: Annotated[
-        LoggingTimeZoneType | None,  # ty: ignore[invalid-type-form]
+        LogTimeZoneType | None,  # ty: ignore[invalid-type-form]
         Doc("IANA timezone for timestamps. Default: `UTC`."),
     ] = None,
     json_serializer: Annotated[
-        LoggingSerializerType | None,
+        LogSerializerType | None,
         Doc("JSON serializer. Default: `stdlib`."),
     ] = None,
     caller_enabled: Annotated[
@@ -72,14 +72,14 @@ def configure(
             "Pass True or False to override."
         ),
     ] = None,
-) -> LoggingConfig:
+) -> LogConfig:
     """Configure logging with the selected backend.
 
     Two paths:
 
     - Programmatic: pass any of the per-field kwargs. Unset fields
       resolve from `GREL_LOG_*` env vars (when `env_load=True`),
-      then from `LoggingConfig` defaults.
+      then from `LogConfig` defaults.
     - Environmental: omit all kwargs. `GREL_LOG_*` env vars populate
       every field.
 
@@ -87,14 +87,14 @@ def configure(
     [`configure_with`][grelmicro.log.configure_with].
 
     Returns:
-        The applied `LoggingConfig`. Snapshot of what was resolved.
+        The applied `LogConfig`. Snapshot of what was resolved.
 
     Raises:
         DependencyNotFoundError: If the selected backend module is not installed.
-        LoggingSettingsValidationError: If configuration is invalid.
+        LogSettingsValidationError: If configuration is invalid.
     """
     config = resolve_config(
-        LoggingConfig,
+        LogConfig,
         explicit=None,
         kwargs={
             "backend": backend,
@@ -107,7 +107,7 @@ def configure(
         },
         env_prefix="GREL_LOG_",
         env_load=env_load,
-        error_type=LoggingSettingsValidationError,
+        error_type=LogSettingsValidationError,
     )
     _apply(config)
     return config
@@ -115,7 +115,7 @@ def configure(
 
 def configure_with(
     config: Annotated[
-        LoggingConfig,
+        LogConfig,
         Doc(
             """
             Pre-built logging configuration.
@@ -126,11 +126,11 @@ def configure_with(
             """
         ),
     ],
-) -> LoggingConfig:
-    """Configure logging from a pre-built `LoggingConfig`.
+) -> LogConfig:
+    """Configure logging from a pre-built `LogConfig`.
 
     Returns:
-        The same `LoggingConfig`, for symmetry with `configure`.
+        The same `LogConfig`, for symmetry with `configure`.
     """
     _apply(config)
     return config
@@ -142,9 +142,9 @@ __all__ = [
     "ErrorDict",
     "JSONRecordDict",
     "Log",
-    "LoggingConfig",
-    "LoggingError",
-    "LoggingSettingsValidationError",
+    "LogConfig",
+    "LogError",
+    "LogSettingsValidationError",
     "RateLimitFilter",
     "RateLimitFilterConfig",
     "configure",
