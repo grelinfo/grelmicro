@@ -17,7 +17,6 @@ from grelmicro.config import ConfigBackend, ExternalConfig, FileConfigAdapter
 from grelmicro.config._external import (
     _coerce_source,
     _detect_scheme,
-    _source_name,
 )
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
@@ -301,7 +300,7 @@ async def test_reload_failure_names_failing_config_source(
         assert rl.config.limit == 20  # noqa: PLR2004
         with caplog.at_level(logging.WARNING, logger="grelmicro"):
             await external.reload()  # must not raise
-        assert "source config" in caplog.text
+        assert "config source" in caplog.text
         assert "secrets" not in caplog.text
         assert "keeping last good config" in caplog.text
         # The bad config load did not change the running config.
@@ -327,7 +326,7 @@ async def test_reload_failure_names_failing_secrets_source(
         assert rl.config.limit == 20  # noqa: PLR2004
         with caplog.at_level(logging.WARNING, logger="grelmicro"):
             await external.reload()  # must not raise
-        assert "source secrets" in caplog.text
+        assert "secrets source" in caplog.text
         assert "keeping last good config" in caplog.text
         # The config source still applied despite the secrets failure.
         assert isinstance(rl.config, SlidingWindowConfig)
@@ -349,7 +348,7 @@ async def test_reload_failure_never_logs_source_values(
     async with external:
         with caplog.at_level(logging.WARNING, logger="grelmicro"):
             await external.reload()  # must not raise
-        assert "source config" in caplog.text
+        assert "config source" in caplog.text
         assert secret_value not in caplog.text
 
 
@@ -466,20 +465,6 @@ def test_config_backend_protocol_accepts_adapters(tmp_path: Path) -> None:
 def test_detect_scheme(text: str, expected: str) -> None:
     """Scheme detection routes URLs and falls back to the filesystem."""
     assert _detect_scheme(text) == expected
-
-
-def test_source_name_includes_role_and_file_path(tmp_path: Path) -> None:
-    """A file source is named by its role and mount path."""
-    name = _source_name("secrets", FileConfigAdapter(tmp_path / "mount"))
-    assert name.startswith("secrets (")
-    assert str(tmp_path / "mount") in name
-
-
-def test_source_name_falls_back_to_backend_class() -> None:
-    """A non-file backend is named by its role and class name."""
-    assert (
-        _source_name("config", _RaisingBackend()) == "config (_RaisingBackend)"
-    )
 
 
 def test_coerce_source_path_builds_file_adapter(tmp_path: Path) -> None:

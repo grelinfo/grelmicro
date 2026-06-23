@@ -40,18 +40,6 @@ def _detect_scheme(text: str) -> str:
     return "file"
 
 
-def _source_name(role: str, src: ConfigBackend) -> str:
-    """Return a log-safe name for a source: its role and adapter short name.
-
-    The role is `config` or `secrets`. The adapter short name is the path
-    of a `FileConfigAdapter` or the backend class name otherwise. No secret
-    value is read, only the source identity.
-    """
-    if isinstance(src, FileConfigAdapter):
-        return f"{role} ({src._path})"  # noqa: SLF001
-    return f"{role} ({type(src).__name__})"
-
-
 def _coerce_source(value: ConfigBackend | str | PathLike[str]) -> ConfigBackend:
     """Build a `ConfigBackend` from a string, path, or pass one through.
 
@@ -242,7 +230,7 @@ class ExternalConfig:
 
         Each source loads under its own guard, so a failure is attributed to
         the failing source and the other source still applies. A source that
-        raises is logged by name and its last seen mapping is kept. Each
+        raises is logged by role and its last seen mapping is kept. Each
         source reports `None` when unchanged, so the last seen mapping is kept
         and reused. Secrets override config on a key collision.
         """
@@ -268,14 +256,15 @@ class ExternalConfig:
 
         Returns the new mapping when the source reports a change, the last
         seen mapping when it reports `None` or raises. A raising source is
-        logged by name, never with its values, so the poll loop continues.
+        logged by role, never with its values, so the poll loop continues.
         """
         try:
             data = await src.load()
         except Exception:  # noqa: BLE001
             logger.warning(
-                "External config source %s failed to load, keeping last good config",
-                _source_name(role, src),
+                "External config reload failed for the %s source, "
+                "keeping last good config",
+                role,
                 exc_info=True,
             )
             return last
