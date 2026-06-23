@@ -8,7 +8,7 @@ import pytest
 
 from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
 from grelmicro.coordination.memory import (
-    MemoryLeaderElectionBackend,
+    MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
 )
 from grelmicro.coordination.tasklock import TaskLock
@@ -88,7 +88,7 @@ async def backend() -> AsyncGenerator[LockBackend]:
 @pytest.fixture
 async def leader_backend() -> AsyncGenerator[LeaderElectionBackend]:
     """Return Memory Leader Election Backend."""
-    async with MemoryLeaderElectionBackend() as backend:
+    async with MemoryLeaderElectionAdapter() as backend:
         yield backend
 
 

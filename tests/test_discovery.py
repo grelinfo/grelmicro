@@ -50,11 +50,11 @@ def test_load_provider_unknown_raises() -> None:
         ("coordination", "memory", "MemoryLockAdapter"),
         ("coordination", "redis", "RedisLockAdapter"),
         ("coordination", "kubernetes", "KubernetesLockAdapter"),
-        ("coordination.election", "memory", "MemoryLeaderElectionBackend"),
+        ("coordination.election", "memory", "MemoryLeaderElectionAdapter"),
         (
             "coordination.election",
             "kubernetes",
-            "KubernetesLeaderElectionBackend",
+            "KubernetesLeaderElectionAdapter",
         ),
         ("cache", "postgres", "PostgresCacheAdapter"),
         ("ratelimiter", "sqlite", "SQLiteRateLimiterAdapter"),

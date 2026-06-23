@@ -331,7 +331,7 @@ isolated from any other advisory lock in the same database.
 """
 
 
-class PostgresLeaderElectionBackend:
+class PostgresLeaderElectionAdapter:
     """Postgres leader election backend.
 
     Wraps a `PostgresProvider` and implements the `LeaderElectionBackend`
@@ -350,11 +350,11 @@ class PostgresLeaderElectionBackend:
 
     Example:
     ```python
-    from grelmicro.coordination.postgres import PostgresLeaderElectionBackend
+    from grelmicro.coordination.postgres import PostgresLeaderElectionAdapter
     from grelmicro.providers.postgres import PostgresProvider
 
     postgres = PostgresProvider("postgresql://localhost:5432/app")
-    backend = PostgresLeaderElectionBackend(provider=postgres)
+    backend = PostgresLeaderElectionAdapter(provider=postgres)
     ```
     """
 

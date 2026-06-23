@@ -129,7 +129,7 @@ class MemoryScheduleAdapter(ScheduleBackend):
         return self._last_fired.get(name)
 
 
-class MemoryLeaderElectionBackend:
+class MemoryLeaderElectionAdapter:
     """In-memory leader election backend for tests and single-process apps.
 
     Stores the `LeaderRecord` in a process-local dict and runs the same

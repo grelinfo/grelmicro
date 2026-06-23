@@ -7,7 +7,7 @@ import pytest
 
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.coordination.redis import (
-    RedisLeaderElectionBackend,
+    RedisLeaderElectionAdapter,
     RedisLockAdapter,
     RedisScheduleAdapter,
 )
@@ -279,12 +279,12 @@ class TestBuilders:
         assert adapter._prefix == "cb:"
 
     def test_leaderelection_builder_binds_provider(self) -> None:
-        """`provider.leaderelection()` returns a `RedisLeaderElectionBackend`."""
+        """`provider.leaderelection()` returns a `RedisLeaderElectionAdapter`."""
         provider = ValkeyProvider(URL)
 
         adapter = provider.leaderelection()
 
-        assert isinstance(adapter, RedisLeaderElectionBackend)
+        assert isinstance(adapter, RedisLeaderElectionAdapter)
         assert adapter._provider is provider
         assert adapter._owns_provider is False
 

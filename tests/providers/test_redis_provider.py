@@ -309,14 +309,14 @@ class TestBuilders:
     def test_leaderelection_builder_binds_provider(self) -> None:
         """`provider.leaderelection()` returns a backend borrowing it."""
         from grelmicro.coordination.redis import (  # noqa: PLC0415
-            RedisLeaderElectionBackend,
+            RedisLeaderElectionAdapter,
         )
 
         provider = RedisProvider(URL)
 
         adapter = provider.leaderelection()
 
-        assert isinstance(adapter, RedisLeaderElectionBackend)
+        assert isinstance(adapter, RedisLeaderElectionAdapter)
         assert adapter.provider is provider
 
     def test_schedule_builder_binds_provider(self) -> None:

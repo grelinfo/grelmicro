@@ -15,7 +15,7 @@ from grelmicro.coordination.leaderelection import (
     LeaderElection,
     LeaderElectionConfig,
 )
-from grelmicro.coordination.memory import MemoryLeaderElectionBackend
+from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 from grelmicro.errors import OutOfContextError
 from grelmicro.errors import WouldBlockError as WouldBlock
 from tests.task._helpers import cancel_group, start_task
@@ -35,7 +35,7 @@ pytestmark = [pytest.mark.timeout(TEST_TIMEOUT)]
 @pytest.fixture
 def backend() -> LeaderElectionBackend:
     """Return Memory Synchronization Backend."""
-    return MemoryLeaderElectionBackend()
+    return MemoryLeaderElectionAdapter()
 
 
 @pytest.fixture
@@ -730,7 +730,7 @@ async def test_graceful_stop_releases_app_resolved_backend() -> None:
 
     # Arrange: an app-resolved election backend, no explicit backend= on the
     # LeaderElection.
-    backend = MemoryLeaderElectionBackend()
+    backend = MemoryLeaderElectionAdapter()
     micro = Grelmicro(uses=[Coordination(election=backend)])
     leader_election = LeaderElection(
         LEADER_NAME,

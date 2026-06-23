@@ -10,7 +10,7 @@ from grelmicro.coordination.abc import LeaderElectionBackend, LockBackend
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import (
-    MemoryLeaderElectionBackend,
+    MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
 )
 from grelmicro.task._interval import IntervalTask
@@ -78,7 +78,7 @@ def test_interval_task_with_lock_default_max_lock_seconds() -> None:
     # Arrange
     backend = MemoryLockAdapter()
     leader = LeaderElection(
-        "test-leader", backend=MemoryLeaderElectionBackend()
+        "test-leader", backend=MemoryLeaderElectionAdapter()
     )
     # Act - leader implies lock, max_lock_seconds defaults to interval * 5
     task = IntervalTask(

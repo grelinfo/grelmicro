@@ -371,10 +371,10 @@ Pick the backend that matches your deployment.
 
 | Backend | Use when | Stores the record in |
 |---|---|---|
-| `MemoryLeaderElectionBackend` | Tests and single-process apps. | A process-local dict (not shared across nodes). |
-| `RedisLeaderElectionBackend` | A Redis-backed cluster. | A Redis hash, updated atomically. |
-| `PostgresLeaderElectionBackend` | Postgres is already in your stack. | A row, updated atomically under an advisory lock. |
-| `KubernetesLeaderElectionBackend` | A Kubernetes-native deployment. | A `coordination.k8s.io` Lease, metadata in its annotations. |
+| `MemoryLeaderElectionAdapter` | Tests and single-process apps. | A process-local dict (not shared across nodes). |
+| `RedisLeaderElectionAdapter` | A Redis-backed cluster. | A Redis hash, updated atomically. |
+| `PostgresLeaderElectionAdapter` | Postgres is already in your stack. | A row, updated atomically under an advisory lock. |
+| `KubernetesLeaderElectionAdapter` | A Kubernetes-native deployment. | A `coordination.k8s.io` Lease, metadata in its annotations. |
 
 A `Provider` builds the matching backend for you: `Coordination(redis)` calls
 `redis.leaderelection()`. Pass a backend instance directly when it has no

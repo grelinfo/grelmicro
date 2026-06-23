@@ -10,7 +10,7 @@ import pytest
 from anyio import sleep
 from testcontainers.redis import RedisContainer
 
-from grelmicro.coordination.redis import RedisLeaderElectionBackend, _as_str
+from grelmicro.coordination.redis import RedisLeaderElectionAdapter, _as_str
 from grelmicro.providers.redis import RedisProvider
 
 pytestmark = [pytest.mark.timeout(30)]
@@ -27,7 +27,7 @@ def test_backend_with_implicit_env_provider(
     """Without `provider=`, the backend builds its own from env vars."""
     monkeypatch.setenv("REDIS_URL", URL)
 
-    backend = RedisLeaderElectionBackend()
+    backend = RedisLeaderElectionAdapter()
 
     assert backend.provider.url == URL
     assert backend._owns_provider is True
@@ -36,7 +36,7 @@ def test_backend_with_implicit_env_provider(
 def test_backend_borrows_external_provider() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = RedisProvider(URL)
-    backend = RedisLeaderElectionBackend(provider=provider)
+    backend = RedisLeaderElectionAdapter(provider=provider)
 
     assert backend.provider is provider
     assert backend._owns_provider is False
@@ -48,7 +48,7 @@ def test_backend_env_prefix_passed_to_implicit_provider(
     """`env_prefix=` reaches the implicit provider."""
     monkeypatch.setenv("CACHE_REDIS_URL", URL)
 
-    backend = RedisLeaderElectionBackend(env_prefix="CACHE_REDIS_")
+    backend = RedisLeaderElectionAdapter(env_prefix="CACHE_REDIS_")
 
     assert backend.provider.url == URL
     assert backend.provider.env_prefix == "CACHE_REDIS_"
@@ -60,14 +60,14 @@ def test_provider_factory_returns_redis_backend() -> None:
 
     backend = provider.leaderelection()
 
-    assert isinstance(backend, RedisLeaderElectionBackend)
+    assert isinstance(backend, RedisLeaderElectionAdapter)
     assert backend.provider is provider
 
 
 def test_rebind_provider_borrows_it(monkeypatch: pytest.MonkeyPatch) -> None:
     """`_rebind_provider` swaps the provider and marks it as not owned."""
     monkeypatch.setenv("REDIS_URL", URL)
-    backend = RedisLeaderElectionBackend()
+    backend = RedisLeaderElectionAdapter()
     assert backend._owns_provider is True
     other = RedisProvider(URL)
 
@@ -101,7 +101,7 @@ class _StubProvider:
 async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
     """When owned, the backend opens and closes its provider."""
     stub = _StubProvider()
-    backend = RedisLeaderElectionBackend(provider=stub)  # ty: ignore[invalid-argument-type]
+    backend = RedisLeaderElectionAdapter(provider=stub)  # ty: ignore[invalid-argument-type]
     backend._owns_provider = True
 
     async with backend:
@@ -114,7 +114,7 @@ async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
 async def test_aenter_aexit_borrowed_provider_left_alone() -> None:
     """An external provider is not entered or exited by the backend."""
     stub = _StubProvider()
-    backend = RedisLeaderElectionBackend(provider=stub)  # ty: ignore[invalid-argument-type]
+    backend = RedisLeaderElectionAdapter(provider=stub)  # ty: ignore[invalid-argument-type]
 
     async with backend:
         pass
@@ -154,16 +154,16 @@ def container() -> Generator[RedisContainer, None, None]:
 @pytest.fixture
 async def backend(
     container: RedisContainer,
-) -> AsyncGenerator[RedisLeaderElectionBackend]:
+) -> AsyncGenerator[RedisLeaderElectionAdapter]:
     """Redis Leader Election Backend bound to the container."""
     port = container.get_exposed_port(6379)
     provider = RedisProvider(f"redis://localhost:{port}/0")
-    async with RedisLeaderElectionBackend(provider=provider) as backend:
+    async with RedisLeaderElectionAdapter(provider=provider) as backend:
         yield backend
 
 
 @pytest.mark.integration
-async def test_acquire_fresh(backend: RedisLeaderElectionBackend) -> None:
+async def test_acquire_fresh(backend: RedisLeaderElectionAdapter) -> None:
     """A fresh election is acquired with zero transitions."""
     name = "acquire_fresh" + uuid4().hex
     token = uuid4().hex
@@ -180,7 +180,7 @@ async def test_acquire_fresh(backend: RedisLeaderElectionBackend) -> None:
 
 @pytest.mark.integration
 async def test_renew_same_holder_keeps_transitions(
-    backend: RedisLeaderElectionBackend,
+    backend: RedisLeaderElectionAdapter,
 ) -> None:
     """Renewing the same holder moves renewed_at but not acquired_at."""
     name = "renew_same" + uuid4().hex
@@ -201,7 +201,7 @@ async def test_renew_same_holder_keeps_transitions(
 
 @pytest.mark.integration
 async def test_live_lease_blocks_other_holder(
-    backend: RedisLeaderElectionBackend,
+    backend: RedisLeaderElectionAdapter,
 ) -> None:
     """A different token cannot take a live lease and sees the holder."""
     name = "live_blocks" + uuid4().hex
@@ -219,7 +219,7 @@ async def test_live_lease_blocks_other_holder(
 
 @pytest.mark.integration
 async def test_takeover_after_expiry_increments_transitions(
-    backend: RedisLeaderElectionBackend,
+    backend: RedisLeaderElectionAdapter,
 ) -> None:
     """A new holder takes an expired lease and increments transitions."""
     name = "takeover" + uuid4().hex
@@ -239,7 +239,7 @@ async def test_takeover_after_expiry_increments_transitions(
 
 @pytest.mark.integration
 async def test_reacquire_after_expiry_keeps_transitions(
-    backend: RedisLeaderElectionBackend,
+    backend: RedisLeaderElectionAdapter,
 ) -> None:
     """Same holder reacquiring an expired lease keeps transitions."""
     name = "reacquire" + uuid4().hex
@@ -257,7 +257,7 @@ async def test_reacquire_after_expiry_keeps_transitions(
 
 @pytest.mark.integration
 async def test_release_held_lease(
-    backend: RedisLeaderElectionBackend,
+    backend: RedisLeaderElectionAdapter,
 ) -> None:
     """The holder can release its live lease."""
     name = "release" + uuid4().hex
@@ -274,7 +274,7 @@ async def test_release_held_lease(
 
 @pytest.mark.integration
 async def test_release_other_holder_denied(
-    backend: RedisLeaderElectionBackend,
+    backend: RedisLeaderElectionAdapter,
 ) -> None:
     """A non-holder cannot release the lease."""
     name = "release_denied" + uuid4().hex
@@ -289,7 +289,7 @@ async def test_release_other_holder_denied(
 
 @pytest.mark.integration
 async def test_get_returns_none_after_expiry(
-    backend: RedisLeaderElectionBackend,
+    backend: RedisLeaderElectionAdapter,
 ) -> None:
     """`get` returns the live record then `None` once it expires."""
     name = "get_expiry" + uuid4().hex
@@ -307,7 +307,7 @@ async def test_get_returns_none_after_expiry(
 
 @pytest.mark.integration
 async def test_metadata_round_trips(
-    backend: RedisLeaderElectionBackend,
+    backend: RedisLeaderElectionAdapter,
 ) -> None:
     """Metadata stored on acquire is returned on get."""
     name = "metadata" + uuid4().hex

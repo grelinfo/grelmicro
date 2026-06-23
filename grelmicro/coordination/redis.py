@@ -312,7 +312,7 @@ class RedisScheduleAdapter(ScheduleBackend):
         return float(stored)
 
 
-class RedisLeaderElectionBackend:
+class RedisLeaderElectionAdapter:
     """Redis leader election backend.
 
     Wraps a `RedisProvider` and implements the `LeaderElectionBackend`

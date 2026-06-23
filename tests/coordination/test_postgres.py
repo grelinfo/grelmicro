@@ -9,7 +9,7 @@ import pytest_mock
 
 from grelmicro.coordination.abc import LeaderElectionBackend
 from grelmicro.coordination.postgres import (
-    PostgresLeaderElectionBackend,
+    PostgresLeaderElectionAdapter,
     _decode_metadata,
 )
 from grelmicro.errors import OutOfContextError
@@ -37,7 +37,7 @@ def test_table_name_invalid(table_name: str) -> None:
     with pytest.raises(
         ValueError, match=r"Table name '.*' is not a valid SQL identifier"
     ):
-        PostgresLeaderElectionBackend(
+        PostgresLeaderElectionAdapter(
             provider=PostgresProvider(URL), table_name=table_name
         )
 
@@ -45,7 +45,7 @@ def test_table_name_invalid(table_name: str) -> None:
 @pytest.mark.timeout(1)
 async def test_out_of_context_errors() -> None:
     """Backend methods raise when called outside the context manager."""
-    backend = PostgresLeaderElectionBackend(provider=PostgresProvider(URL))
+    backend = PostgresLeaderElectionAdapter(provider=PostgresProvider(URL))
     name = "election"
     token = "token"
 
@@ -64,7 +64,7 @@ def test_backend_with_implicit_env_provider(
     """Without `provider=`, the backend builds its own from env vars."""
     monkeypatch.setenv("POSTGRES_URL", URL)
 
-    backend = PostgresLeaderElectionBackend()
+    backend = PostgresLeaderElectionAdapter()
 
     assert backend.provider.url == URL
     assert backend._owns_provider is True
@@ -74,7 +74,7 @@ def test_backend_with_implicit_env_provider(
 def test_backend_borrows_external_provider() -> None:
     """An explicit `provider=` is borrowed, not owned."""
     provider = PostgresProvider(URL)
-    backend = PostgresLeaderElectionBackend(provider=provider)
+    backend = PostgresLeaderElectionAdapter(provider=provider)
 
     assert backend.provider is provider
     assert backend._owns_provider is False
@@ -87,7 +87,7 @@ def test_backend_env_prefix_passed_to_implicit_provider(
     """`env_prefix=` reaches the implicit provider."""
     monkeypatch.setenv("WRITE_POSTGRES_URL", URL)
 
-    backend = PostgresLeaderElectionBackend(env_prefix="WRITE_POSTGRES_")
+    backend = PostgresLeaderElectionAdapter(env_prefix="WRITE_POSTGRES_")
 
     assert backend.provider.url == URL
     assert backend.provider.env_prefix == "WRITE_POSTGRES_"
@@ -102,13 +102,13 @@ def test_env_validation_error_propagates(
     monkeypatch.delenv("POSTGRES_HOST", raising=False)
 
     with pytest.raises(PostgresProviderConfigError):
-        PostgresLeaderElectionBackend()
+        PostgresLeaderElectionAdapter()
 
 
 @pytest.mark.timeout(1)
 def test_custom_table_name() -> None:
     """Custom `table_name=` is stored on the backend."""
-    backend = PostgresLeaderElectionBackend(
+    backend = PostgresLeaderElectionAdapter(
         provider=PostgresProvider(URL), table_name="my_leaders"
     )
 
@@ -122,7 +122,7 @@ def test_provider_factory() -> None:
 
     backend = provider.leaderelection()
 
-    assert isinstance(backend, PostgresLeaderElectionBackend)
+    assert isinstance(backend, PostgresLeaderElectionAdapter)
     assert backend.provider is provider
     assert backend._owns_provider is False
 
@@ -130,7 +130,7 @@ def test_provider_factory() -> None:
 @pytest.mark.timeout(1)
 def test_satisfies_protocol() -> None:
     """The backend satisfies the `LeaderElectionBackend` protocol."""
-    backend = PostgresLeaderElectionBackend(provider=PostgresProvider(URL))
+    backend = PostgresLeaderElectionAdapter(provider=PostgresProvider(URL))
 
     assert isinstance(backend, LeaderElectionBackend)
 
@@ -139,7 +139,7 @@ def test_satisfies_protocol() -> None:
 def test_rebind_provider_borrows_new_provider() -> None:
     """`_rebind_provider` swaps the provider and marks it borrowed."""
     owned = PostgresProvider(URL)
-    backend = PostgresLeaderElectionBackend(provider=owned)
+    backend = PostgresLeaderElectionAdapter(provider=owned)
     backend._owns_provider = True
     shared = PostgresProvider(URL)
 
@@ -159,7 +159,7 @@ async def test_owned_provider_lifecycle(
         provider, "__aenter__", AsyncMock(return_value=provider)
     )
     aexit = mocker.patch.object(provider, "__aexit__", AsyncMock())
-    backend = PostgresLeaderElectionBackend(
+    backend = PostgresLeaderElectionAdapter(
         provider=provider, auto_migrate=False
     )
     backend._owns_provider = True
@@ -181,7 +181,7 @@ async def test_borrowed_provider_lifecycle_left_alone(
         provider, "__aenter__", AsyncMock(return_value=provider)
     )
     aexit = mocker.patch.object(provider, "__aexit__", AsyncMock())
-    backend = PostgresLeaderElectionBackend(
+    backend = PostgresLeaderElectionAdapter(
         provider=provider, auto_migrate=False
     )
 
@@ -215,7 +215,7 @@ _EXPIRE_WAIT = _DURATION + 0.3
 
 
 @pytest.fixture(scope="module")
-async def backend() -> AsyncGenerator[PostgresLeaderElectionBackend]:
+async def backend() -> AsyncGenerator[PostgresLeaderElectionAdapter]:
     """Provide a Postgres-backed leader election backend in a container."""
     from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
 
@@ -226,7 +226,7 @@ async def backend() -> AsyncGenerator[PostgresLeaderElectionBackend]:
         )
         async with (
             provider,
-            PostgresLeaderElectionBackend(provider=provider) as backend,
+            PostgresLeaderElectionAdapter(provider=provider) as backend,
         ):
             yield backend
 
@@ -234,7 +234,7 @@ async def backend() -> AsyncGenerator[PostgresLeaderElectionBackend]:
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_acquire(
-    backend: PostgresLeaderElectionBackend,
+    backend: PostgresLeaderElectionAdapter,
 ) -> None:
     """A fresh election is acquired with transitions at zero."""
     name = "test_acquire" + uuid4().hex
@@ -252,7 +252,7 @@ async def test_acquire(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_renew_keeps_transitions(
-    backend: PostgresLeaderElectionBackend,
+    backend: PostgresLeaderElectionAdapter,
 ) -> None:
     """Renewing the same holder moves renewed_at but not transitions."""
     name = "test_renew" + uuid4().hex
@@ -274,7 +274,7 @@ async def test_renew_keeps_transitions(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_live_lease_not_taken(
-    backend: PostgresLeaderElectionBackend,
+    backend: PostgresLeaderElectionAdapter,
 ) -> None:
     """A live lease cannot be taken by another holder."""
     name = "test_live" + uuid4().hex
@@ -296,7 +296,7 @@ async def test_live_lease_not_taken(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_takeover_after_expiry(
-    backend: PostgresLeaderElectionBackend,
+    backend: PostgresLeaderElectionAdapter,
 ) -> None:
     """A new holder takes over after expiry and bumps transitions."""
     from asyncio import sleep  # noqa: PLC0415
@@ -318,7 +318,7 @@ async def test_takeover_after_expiry(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_release(
-    backend: PostgresLeaderElectionBackend,
+    backend: PostgresLeaderElectionAdapter,
 ) -> None:
     """Release returns True for the holder, False for non-holders."""
     name = "test_release" + uuid4().hex
@@ -335,7 +335,7 @@ async def test_release(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_get_live_and_expired(
-    backend: PostgresLeaderElectionBackend,
+    backend: PostgresLeaderElectionAdapter,
 ) -> None:
     """Get returns the live record then None after expiry."""
     from asyncio import sleep  # noqa: PLC0415
@@ -356,7 +356,7 @@ async def test_get_live_and_expired(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_metadata_roundtrip(
-    backend: PostgresLeaderElectionBackend,
+    backend: PostgresLeaderElectionAdapter,
 ) -> None:
     """Metadata stored as jsonb round-trips through acquire and get."""
     name = "test_metadata" + uuid4().hex
