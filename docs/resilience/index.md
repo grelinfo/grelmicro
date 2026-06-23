@@ -26,6 +26,27 @@ See [Composing patterns](composition.md) for the recommended outside-in order wh
 
 For synchronous, in-process token-bucket rate limiting on a performance-critical sync path (the main example is the logging pipeline), see [`MemoryTokenBucket`](rate-limiter.md#standalone-memorytokenbucket). It powers `grelmicro.log.RateLimitFilter`.
 
+## The AdmissionError family
+
+The gatekeeping primitives refuse a call when they turn it away. Each refusal subclasses `AdmissionError`, so one `except` catches them all:
+
+| Error | Raised by |
+|---|---|
+| `WouldBlockError` | a non-blocking `Lock` acquire that would have blocked |
+| `BulkheadFullError` | a `Bulkhead` with no free permit |
+| `RateLimitExceededError` | a `RateLimiter` over budget |
+| `CircuitBreakerError` | an open `CircuitBreaker` |
+
+```python
+from grelmicro.errors import AdmissionError
+
+try:
+    ...
+except AdmissionError:
+    # turned away by a lock, bulkhead, rate limiter, or circuit breaker
+    ...
+```
+
 ## With FastStream
 
 The same primitives drop into a FastStream consumer without changes.

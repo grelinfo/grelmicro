@@ -77,7 +77,9 @@ async def test_lease_reload(tmp_path):
 
 ## File formats
 
-A single file source is read by its extension. A directory mount stays one file per key.
+A mounted `ConfigMap` or `Secret` is a directory, one file per key. The file name is the `GREL_...` key and the file content is its value. This is the default mounted shape, so point `ExternalConfig` at the mount directory.
+
+A single file source is read by its extension instead:
 
 - `.json`, `.yaml`, `.yml`, and `.toml` files hold a mapping document.
 - Any other file is read as `.env` lines (`KEY=VALUE`, blanks and `#` comments ignored).
