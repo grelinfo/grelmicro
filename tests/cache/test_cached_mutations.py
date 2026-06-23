@@ -407,19 +407,41 @@ class TestDistributedComputePath:
 
 
 class TestLockDefault:
-    """Pin that `lock` defaults to False (no folding) for `@cached`."""
+    """Pin that `lock` defaults to `"local"` (in-process folding)."""
 
-    async def test_default_lock_does_not_fold_concurrent_misses(self) -> None:
-        """With no `lock` argument, concurrent misses each run the function.
+    async def test_default_lock_folds_concurrent_misses(self) -> None:
+        """With no `lock` argument, concurrent misses fold to one call.
 
-        A `lock=True` default would fold them to one call, so the count of
-        two pins the `False` default.
+        The default is `"local"`, an in-process lock that coalesces a
+        burst of misses within the worker, so the count is one.
         """
         cache = _make_cache()
         calls = 0
         barrier = asyncio.Event()
 
         @cached(cache)
+        async def fetch(x: int) -> int:
+            nonlocal calls
+            calls += 1
+            await barrier.wait()
+            return x * 2
+
+        task_a = asyncio.create_task(fetch(5))
+        task_b = asyncio.create_task(fetch(5))
+        await asyncio.sleep(0.05)
+        barrier.set()
+        await task_a
+        await task_b
+
+        assert calls == 1
+
+    async def test_lock_false_does_not_fold_concurrent_misses(self) -> None:
+        """`lock=False` opts out: every concurrent miss runs the function."""
+        cache = _make_cache()
+        calls = 0
+        barrier = asyncio.Event()
+
+        @cached(cache, lock=False)
         async def fetch(x: int) -> int:
             nonlocal calls
             calls += 1

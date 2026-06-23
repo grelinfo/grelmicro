@@ -233,20 +233,19 @@ def cached(  # noqa: PLR0913, C901
             Protect against duplicate work when many callers miss the
             same key at once (the "dog-pile" effect).
 
-            - ``False`` (default): no protection. Every concurrent miss
-              runs the function.
+            - ``"local"`` (default): fold concurrent misses within the
+              worker through an in-process lock, with no backend round-trip
+              on a cold miss. Per-replica recompute is still possible.
             - ``True``: fold concurrent misses to one execution. When the
               active `Grelmicro` app has a lock backend, misses fold
               across replicas through it. Otherwise an in-process lock
               folds them within the worker. An in-process lock is always
               applied first, so the backend is hit once per cold miss.
-            - ``"local"``: force the in-process lock only, even when a
-              lock backend is configured. Use when per-replica recompute
-              is acceptable and you want no backend round-trip on a cold
-              miss.
+            - ``False``: no protection. Every concurrent miss runs the
+              function.
             """,
         ),
-    ] = False,
+    ] = "local",
     early: Annotated[
         float | None,
         Doc(

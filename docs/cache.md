@@ -292,19 +292,19 @@ Arguments not named in the template do not affect the key, so calls that differ 
 
 ### Stampede Protection
 
-A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. Turn on `lock` to fold those misses into one execution, and add `early=` to refresh hot keys before they expire:
+A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. By default `@cached` folds those misses in-process (`lock="local"`). Raise it to `lock=True` to fold across replicas, drop it to `lock=False` to opt out, and add `early=` to refresh hot keys before they expire:
 
 | Setting | What it does | Cost | Use when |
 |---|---|---|---|
-| `lock=False` (default) | no protection | none | misses are cheap or rare |
-| `lock=True` | fold concurrent misses, across replicas when a `Coordination` backend is configured | one backend acquire per cold miss | the common case |
-| `lock="local"` | fold misses in-process only, never touches a backend | free, no I/O | per-replica recompute is fine |
+| `lock="local"` (default) | fold misses in-process only, never touches a backend | free, no I/O | the common case |
+| `lock=True` | fold concurrent misses, across replicas when a `Coordination` backend is configured | one backend acquire per cold miss | you need cross-replica dedup |
+| `lock=False` | no protection, every concurrent miss recomputes | none | misses are cheap or rare |
 | `early=0.1` | probabilistic early refresh (XFetch) in the last 10% of the TTL | one background recompute per refresh | the hottest keys, where no caller should ever block |
 
-`lock=True` always dedups in-process first, so the backend is hit at most once per cold miss. `early=` works alongside either lock mode.
+`lock=True` always dedups in-process first, so the backend is hit at most once per cold miss. `early=` works alongside any lock mode.
 
 ```python
-@cached(cache)                  # default: no stampede protection
+@cached(cache)                  # default: in-process stampede folding
 async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 
