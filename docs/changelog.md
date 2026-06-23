@@ -12,6 +12,7 @@
 * ✨ Type `FireInfo.outcome` as the new `FireOutcome` `StrEnum` (`SUCCESS`, `ERROR`, `SKIPPED`). String comparisons like `outcome == "success"` still work.
 * ✨ Add `Idempotency.run(key, factory)`, a one-call helper that runs an operation once and replays its response. It takes a sync or async factory and mirrors `TTLCache.get_or_set`.
 * ✨ Every component now raises a typed `*SettingsValidationError` for invalid configuration, rooted in the shared `SettingsValidationError` base. Adds `TracingSettingsValidationError`, `HealthSettingsValidationError`, `LoggingSettingsValidationError`, and `IdempotencySettingsValidationError`. Catch `SettingsValidationError` to handle any of them.
+* ✨ Cache adapters (`MemoryCacheAdapter`, `RedisCacheAdapter`, `PostgresCacheAdapter`, `SQLiteCacheAdapter`) now declare the `CacheBackend` protocol explicitly, matching the lock, circuit breaker, and rate limiter adapters.
 
 ## 1.0.0a2 - 2026-06-21
 

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Annotated, Self
 
 from typing_extensions import Doc
 
+from grelmicro.cache._protocol import CacheBackend
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 
-class SQLiteCacheAdapter:
+class SQLiteCacheAdapter(CacheBackend):
     """SQLite cache storage backend.
 
     Borrows the connection and a shared lock from a `SQLiteProvider`

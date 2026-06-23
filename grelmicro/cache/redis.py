@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from typing_extensions import Doc
 
+from grelmicro.cache._protocol import CacheBackend
 from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
 
 if TYPE_CHECKING:
@@ -72,7 +73,7 @@ return 1
 """
 
 
-class RedisCacheAdapter:
+class RedisCacheAdapter(CacheBackend):
     """Redis cache storage backend.
 
     Wraps a `RedisProvider` and implements the cache protocol:
