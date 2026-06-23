@@ -15,12 +15,12 @@ from grelmicro.coordination import Coordination, Lock
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     RateLimiter,
-    RateLimiters,
+    RateLimiterRegistry,
     RateLimitExceededError,
 )
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[Coordination(redis), RateLimiters(redis)])
+micro = Grelmicro(uses=[Coordination(redis), RateLimiterRegistry(redis)])
 
 per_user_limiter = RateLimiter.sliding_window("messages", limit=10, window=60)
 

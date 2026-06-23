@@ -13,7 +13,7 @@ import asyncio
 import pytest
 
 from grelmicro import Grelmicro
-from grelmicro.resilience import CircuitBreakers, RateLimiters
+from grelmicro.resilience import CircuitBreakerRegistry, RateLimiterRegistry
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     CircuitBreakerState,
@@ -35,7 +35,7 @@ CHURN_CYCLES = 1_000
 async def test_rate_limiter_throughput() -> None:
     """Thousands of sequential acquires stay consistent and bounded."""
     backend = MemoryRateLimiterAdapter()
-    async with Grelmicro(uses=[RateLimiters(backend)]):
+    async with Grelmicro(uses=[RateLimiterRegistry(backend)]):
         limiter = RateLimiter(
             "throughput",
             TokenBucketConfig(capacity=ACQUIRES, refill_rate=ACQUIRES),
@@ -55,7 +55,7 @@ async def test_rate_limiter_concurrent_tasks() -> None:
     """Many concurrent tasks share one limiter without losing accounting."""
     backend = MemoryRateLimiterAdapter()
     total = CONCURRENT_TASKS * ACQUIRES_PER_TASK
-    async with Grelmicro(uses=[RateLimiters(backend)]):
+    async with Grelmicro(uses=[RateLimiterRegistry(backend)]):
         limiter = RateLimiter(
             "concurrent",
             TokenBucketConfig(capacity=total, refill_rate=total),
@@ -81,7 +81,7 @@ async def test_rate_limiter_concurrent_tasks() -> None:
 async def test_circuit_breaker_churn() -> None:
     """Repeatedly drive open -> half_open -> closed and back."""
     backend = MemoryCircuitBreakerAdapter()
-    async with Grelmicro(uses=[CircuitBreakers(backend)]):
+    async with Grelmicro(uses=[CircuitBreakerRegistry(backend)]):
         cb = CircuitBreaker.consecutive_count(
             "churn",
             error_threshold=1,

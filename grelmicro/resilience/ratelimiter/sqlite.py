@@ -29,7 +29,7 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
     """SQLite rate limiter adapter.
 
     Internal machinery. Most code should reach SQLite rate limiting
-    through a `SQLiteProvider` and `RateLimiters(provider)`, not by
+    through a `SQLiteProvider` and `RateLimiterRegistry(provider)`, not by
     constructing this adapter directly. The adapter exists for expert
     wiring and for the provider to build.
 

@@ -4,7 +4,7 @@ A `Grelmicro` app is a plain async context manager, so you can construct as many
 
 ## The rule
 
-Most components keep their state on the instance: `Coordination`, `Cache`, `RateLimiters`, `CircuitBreakers`, and `HealthChecks` all hold their own backend, so two overlapping apps never touch each other. They run concurrently with no special handling, the same way a web framework lets you instantiate two `App` objects.
+Most components keep their state on the instance: `Coordination`, `Cache`, `RateLimiterRegistry`, `CircuitBreakerRegistry`, and `HealthChecks` all hold their own backend, so two overlapping apps never touch each other. They run concurrently with no special handling, the same way a web framework lets you instantiate two `App` objects.
 
 `Log` and `Trace` are different. They configure **process-global** state (the stdlib root logger and the OpenTelemetry tracer provider) and restore the previous value on exit. Within one app the exit stack restores in reverse order, so nesting is safe. Across two overlapping apps there is no such ordering guarantee: the first to exit would restore the global and clobber the second app's configuration.
 

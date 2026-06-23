@@ -306,6 +306,9 @@
     "CircuitBreakerMetrics": {
       "()": "(*, name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error)"
     },
+    "CircuitBreakerRegistry": {
+      "()": "(source, *, name=...)"
+    },
     "CircuitBreakerSnapshot": {
       "()": "(state, opened_at, consecutive_error_count=..., consecutive_success_count=...)"
     },
@@ -314,9 +317,6 @@
     },
     "CircuitBreakerStrategy": {
       "()": "(*args, **kwargs)"
-    },
-    "CircuitBreakers": {
-      "()": "(source, *, name=...)"
     },
     "ConsecutiveCountConfig": {
       "()": "(*, kind=..., ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=...)"
@@ -407,11 +407,11 @@
     "RateLimiterConfig": {
       "()": "(*args, **kwargs)"
     },
+    "RateLimiterRegistry": {
+      "()": "(source, *, name=...)"
+    },
     "RateLimiterStrategy": {
       "()": "(*args, **kwargs)"
-    },
-    "RateLimiters": {
-      "()": "(source, *, name=...)"
     },
     "RedisCircuitBreakerAdapter": {
       "()": "(*, provider=..., env_prefix=..., prefix=...)"

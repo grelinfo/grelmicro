@@ -13,7 +13,7 @@ from starlette.status import HTTP_200_OK
 from grelmicro import Grelmicro
 from grelmicro.errors import OutOfContextError
 from grelmicro.fastapi import GrelmicroMiddleware
-from grelmicro.resilience import RateLimiter, RateLimiters
+from grelmicro.resilience import RateLimiter, RateLimiterRegistry
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ pytestmark = [pytest.mark.timeout(5)]
 
 def _build_app(*, with_middleware: bool) -> FastAPI:
     """Build a FastAPI app whose handler resolves a RateLimiter ambiently."""
-    micro = Grelmicro(uses=[RateLimiters(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001

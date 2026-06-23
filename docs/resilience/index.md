@@ -51,7 +51,7 @@ except AdmissionError:
 
 The same primitives drop into a FastStream consumer without changes.
 The lifespan opens the shared Redis provider, `Coordination`, and
-`RateLimiters` once. A handler can then hold a per-key `Lock` and
+`RateLimiterRegistry` once. A handler can then hold a per-key `Lock` and
 consume rate-limit tokens before the actual work runs.
 
 ```python

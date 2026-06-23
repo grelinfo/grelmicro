@@ -19,7 +19,7 @@ from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 from grelmicro import Grelmicro, NoActiveAppError
 from grelmicro.errors import OutOfContextError
 from grelmicro.fastapi import GrelmicroMiddleware
-from grelmicro.resilience import RateLimiter, RateLimiters
+from grelmicro.resilience import RateLimiter, RateLimiterRegistry
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ def _build_starlette_app(
     *, with_middleware: bool
 ) -> tuple[Starlette, Grelmicro]:
     """Build a Starlette app whose handler resolves a RateLimiter ambiently."""
-    micro = Grelmicro(uses=[RateLimiters(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
 
     async def limited(request: Request) -> JSONResponse:  # noqa: ARG001
         limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
@@ -134,7 +134,7 @@ async def test_starlette_middleware_binds_on_websocket_scope() -> None:
 
 def _build_litestar_app(*, with_middleware: bool) -> tuple[Litestar, Grelmicro]:
     """Build a Litestar app whose handler resolves a RateLimiter ambiently."""
-    micro = Grelmicro(uses=[RateLimiters(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
 
     @get("/limited")
     async def handler() -> dict[str, bool]:

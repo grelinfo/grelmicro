@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from grelmicro import Grelmicro
 from grelmicro.errors import OutOfContextError
-from grelmicro.resilience import RateLimiters
+from grelmicro.resilience import RateLimiterRegistry
 from grelmicro.resilience._protocol import (
     RateLimiterStrategy,
     RateLimitResult,
@@ -45,7 +45,7 @@ REFILL_RATE = 1.0
 async def _backend() -> AsyncGenerator[MemoryRateLimiterAdapter]:
     """Open the in-memory backend inside an active `Grelmicro` app."""
     backend = MemoryRateLimiterAdapter()
-    async with Grelmicro(uses=[RateLimiters(backend)]):
+    async with Grelmicro(uses=[RateLimiterRegistry(backend)]):
         yield backend
 
 
@@ -359,7 +359,7 @@ async def test_acquire_with_explicit_memory_backend_needs_no_app() -> None:
 
 
 async def test_acquire_raises_out_of_context_when_component_active() -> None:
-    """An ambient miss raises when a RateLimiters component is active in the process.
+    """An ambient miss raises when a RateLimiterRegistry component is active in the process.
 
     A limiter resolved from a context that does not see the active app
     must refuse rather than silently degrade to a per-process limiter
@@ -367,7 +367,9 @@ async def test_acquire_raises_out_of_context_when_component_active() -> None:
     """
     rl = RateLimiter("test", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
 
-    async with Grelmicro(uses=[RateLimiters(MemoryRateLimiterAdapter())]):
+    async with Grelmicro(
+        uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())]
+    ):
 
         def resolve() -> None:
             # Fresh context: `current()` is unset, the active app is not
@@ -430,7 +432,7 @@ async def test_explicit_backend_bypasses_app() -> None:
     registered = MemoryRateLimiterAdapter()
     my = MemoryRateLimiterAdapter()
 
-    async with Grelmicro(uses=[RateLimiters(registered)]):
+    async with Grelmicro(uses=[RateLimiterRegistry(registered)]):
         rl = RateLimiter(
             "explicit",
             SlidingWindowConfig(limit=LIMIT, window=WINDOW),

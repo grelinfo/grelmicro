@@ -37,7 +37,7 @@ Add `ExternalConfig` to the app and point it at the mount:
 from grelmicro import ExternalConfig, Grelmicro
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import RateLimiter, RateLimiters
+from grelmicro.resilience import RateLimiter, RateLimiterRegistry
 
 redis = RedisProvider("redis://localhost:6379/0")
 
@@ -46,7 +46,7 @@ api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
 micro = Grelmicro(uses=[
     Coordination(redis),
-    RateLimiters(redis.ratelimiter()),
+    RateLimiterRegistry(redis.ratelimiter()),
     ExternalConfig("/etc/grelmicro"),
 ])
 ```

@@ -49,7 +49,7 @@ stateDiagram-v2
 
 By default each replica keeps its own breaker state. A degraded downstream trips one replica's breaker without telling the others, and `error_threshold` errors must happen on every replica before the dependency stops being probed.
 
-Pass a shared `CircuitBreakers(redis_provider)` or `CircuitBreakers(postgres_provider)` to fan that state out. The first replica to trip the breaker opens it for the fleet, the `half_open_capacity` admission cap is enforced globally so probes never exceed the cap across replicas, and manual `transition_to_*` calls are visible everywhere.
+Pass a shared `CircuitBreakerRegistry(redis_provider)` or `CircuitBreakerRegistry(postgres_provider)` to fan that state out. The first replica to trip the breaker opens it for the fleet, the `half_open_capacity` admission cap is enforced globally so probes never exceed the cap across replicas, and manual `transition_to_*` calls are visible everywhere.
 
 !!! tip "Install"
     The Redis backend needs the `redis` extra and the Postgres backend needs the `postgres` extra: `pip install "grelmicro[redis]"` or `pip install "grelmicro[postgres]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
@@ -70,7 +70,7 @@ Pass a shared `CircuitBreakers(redis_provider)` or `CircuitBreakers(postgres_pro
     ```
 
 === "Memory (per-replica)"
-    No setup required. When no `CircuitBreakers` is registered on the `Grelmicro` app, the breaker uses an in-process adapter and state is local to the replica.
+    No setup required. When no `CircuitBreakerRegistry` is registered on the `Grelmicro` app, the breaker uses an in-process adapter and state is local to the replica.
 
 !!! warning
     Use environment variables for connection URLs in production, not hard-coded strings like the example above.

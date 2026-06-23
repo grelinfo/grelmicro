@@ -24,9 +24,9 @@ from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
-    CircuitBreakers,
+    CircuitBreakerRegistry,
     RateLimiter,
-    RateLimiters,
+    RateLimiterRegistry,
 )
 from grelmicro.resilience.errors import CircuitBreakerError
 from grelmicro.task import Tasks
@@ -55,8 +55,8 @@ health = HealthChecks(auto_health=True)
 micro = Grelmicro(
     uses=[
         Cache(redis.cache()),
-        RateLimiters(redis.ratelimiter()),
-        CircuitBreakers(postgres.circuitbreaker()),
+        RateLimiterRegistry(redis.ratelimiter()),
+        CircuitBreakerRegistry(postgres.circuitbreaker()),
         Coordination(lock=redis.lock(), election=redis.leaderelection()),
         health,
         tasks,

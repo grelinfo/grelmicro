@@ -1,4 +1,4 @@
-"""Components for the Grelmicro app object: `RateLimiters`, `CircuitBreakers`."""
+"""Components for the Grelmicro app object: `RateLimiterRegistry`, `CircuitBreakerRegistry`."""
 
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ if TYPE_CHECKING:
     )
 
 
-class RateLimiters:
+class RateLimiterRegistry:
     """`RateLimiterBackend` wrapper exposing `(ratelimiter, name)` registration.
 
-    Registered on a `Grelmicro` app via `Grelmicro(uses=[RateLimiters(redis)])`.
+    Registered on a `Grelmicro` app via `Grelmicro(uses=[RateLimiterRegistry(redis)])`.
     The active app resolves `RateLimiter` patterns to this Component's backend
     on every call.
 
@@ -32,10 +32,10 @@ class RateLimiters:
         ```python
         from grelmicro import Grelmicro
         from grelmicro.providers.redis import RedisProvider
-        from grelmicro.resilience import RateLimiter, RateLimiters
+        from grelmicro.resilience import RateLimiter, RateLimiterRegistry
 
         redis = RedisProvider("redis://localhost:6379/0")
-        micro = Grelmicro(uses=[redis, RateLimiters(redis)])
+        micro = Grelmicro(uses=[redis, RateLimiterRegistry(redis)])
         api = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
 
         async with micro:
@@ -62,7 +62,7 @@ class RateLimiters:
             str,
             Doc(
                 """
-                Registration name. Multiple `RateLimiters` Components may coexist
+                Registration name. Multiple `RateLimiterRegistry` Components may coexist
                 on one `Grelmicro` under different names.
                 """,
             ),
@@ -101,10 +101,10 @@ class RateLimiters:
         return await self._backend.__aexit__(exc_type, exc, tb)
 
 
-class CircuitBreakers:
+class CircuitBreakerRegistry:
     """`CircuitBreakerBackend` wrapper exposing `(circuitbreaker, name)` registration.
 
-    Registered on a `Grelmicro` app via `Grelmicro(uses=[CircuitBreakers(redis)])`.
+    Registered on a `Grelmicro` app via `Grelmicro(uses=[CircuitBreakerRegistry(redis)])`.
     The active app resolves `CircuitBreaker` patterns to this Component's
     backend on every call.
 
@@ -115,10 +115,10 @@ class CircuitBreakers:
         ```python
         from grelmicro import Grelmicro
         from grelmicro.providers.redis import RedisProvider
-        from grelmicro.resilience import CircuitBreaker, CircuitBreakers
+        from grelmicro.resilience import CircuitBreaker, CircuitBreakerRegistry
 
         redis = RedisProvider("redis://localhost:6379/0")
-        micro = Grelmicro(uses=[redis, CircuitBreakers(redis)])
+        micro = Grelmicro(uses=[redis, CircuitBreakerRegistry(redis)])
         payment = CircuitBreaker("payment")
 
         async with micro:
@@ -148,7 +148,7 @@ class CircuitBreakers:
             str,
             Doc(
                 """
-                Registration name. Multiple `CircuitBreakers` Components may coexist
+                Registration name. Multiple `CircuitBreakerRegistry` Components may coexist
                 on one `Grelmicro` under different names.
                 """,
             ),

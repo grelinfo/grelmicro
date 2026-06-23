@@ -15,7 +15,7 @@ import pytest
 from freezegun import freeze_time
 
 from grelmicro import Grelmicro
-from grelmicro.resilience import CircuitBreakers
+from grelmicro.resilience import CircuitBreakerRegistry
 from grelmicro.resilience._protocol import (
     CircuitBreakerSnapshot,
     CircuitBreakerStrategy,
@@ -54,7 +54,7 @@ async def _cb_app(
     _cb_backend: MemoryCircuitBreakerAdapter,
 ) -> AsyncGenerator[Grelmicro]:
     """Open a `Grelmicro` app holding the in-memory CB backend for every test."""
-    async with Grelmicro(uses=[CircuitBreakers(_cb_backend)]) as micro:
+    async with Grelmicro(uses=[CircuitBreakerRegistry(_cb_backend)]) as micro:
         yield micro
 
 
@@ -209,9 +209,9 @@ async def test_memory_strategy_get_snapshot_returns_default_when_unused() -> (
 def test_circuit_raises_out_of_context_on_ambient_miss_with_active_component() -> (
     None
 ):
-    """An ambient miss raises when a CircuitBreakers component is active in the process.
+    """An ambient miss raises when a CircuitBreakerRegistry component is active in the process.
 
-    The autouse `_cb_app` fixture keeps a `CircuitBreakers` component
+    The autouse `_cb_app` fixture keeps a `CircuitBreakerRegistry` component
     active process-wide. A breaker resolved from a context that does not
     see that app must refuse rather than silently degrade to the implicit
     per-process memory adapter.

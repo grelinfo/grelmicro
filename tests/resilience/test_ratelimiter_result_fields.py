@@ -13,7 +13,7 @@ import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.clock import VirtualClock
-from grelmicro.resilience import RateLimiters
+from grelmicro.resilience import RateLimiterRegistry
 from grelmicro.resilience.ratelimiter import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
@@ -35,7 +35,7 @@ async def clock() -> AsyncGenerator[VirtualClock]:
     """Virtual clock plus an open in-memory rate limiter backend."""
     virtual_clock = VirtualClock(start=CLOCK_START)
     backend = MemoryRateLimiterAdapter()
-    async with Grelmicro(uses=[virtual_clock, RateLimiters(backend)]):
+    async with Grelmicro(uses=[virtual_clock, RateLimiterRegistry(backend)]):
         yield virtual_clock
 
 
