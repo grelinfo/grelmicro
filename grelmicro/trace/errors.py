@@ -3,9 +3,9 @@
 from grelmicro.errors import GrelmicroError, SettingsValidationError
 
 
-class TracingError(GrelmicroError):
-    """Base tracing error."""
+class TraceError(GrelmicroError):
+    """Base trace error."""
 
 
-class TracingSettingsValidationError(TracingError, SettingsValidationError):
-    """Tracing Settings Validation Error."""
+class TraceSettingsValidationError(TraceError, SettingsValidationError):
+    """Trace Settings Validation Error."""

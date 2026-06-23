@@ -612,20 +612,20 @@
       "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=..., env_load=...)",
       ".from_config": "(config, *, name=...)"
     },
-    "TracingConfig": {
+    "TraceConfig": {
       "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=...)"
     },
-    "TracingError": null,
-    "TracingExporterType": {
+    "TraceError": null,
+    "TraceExporterType": {
       "()": "(*values)"
     },
-    "TracingProcessorType": {
+    "TraceProcessorType": {
       "()": "(*values)"
     },
-    "TracingSamplerType": {
+    "TraceSamplerType": {
       "()": "(*values)"
     },
-    "TracingSettingsValidationError": {
+    "TraceSettingsValidationError": {
       "()": "(error)"
     },
     "add_context": {

@@ -116,14 +116,14 @@ configure()
 ```
 
 !!! warning "The default exporter expects a collector"
-    `Trace()` defaults to `TracingExporterType.OTLP_HTTP`, which sends spans to an OpenTelemetry collector or endpoint over OTLP HTTP. Without a reachable collector, spans are dropped. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
+    `Trace()` defaults to `TraceExporterType.OTLP_HTTP`, which sends spans to an OpenTelemetry collector or endpoint over OTLP HTTP. Without a reachable collector, spans are dropped. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
 
-    For local development with no collector, set `exporter=TracingExporterType.CONSOLE` to print spans to the console instead. Use `TracingExporterType.NONE` to disable export entirely.
+    For local development with no collector, set `exporter=TraceExporterType.CONSOLE` to print spans to the console instead. Use `TraceExporterType.NONE` to disable export entirely.
 
 ??? note "Provider lifecycle and exporters"
     The provider is installed on enter and restored to the prior global on exit, so sequential apps in tests do not stack providers.
 
-    `Trace()` reads `GREL_TRACE_*` environment variables (see `TracingConfig` for the full field set) or accepts the same fields as keyword arguments. The OTLP HTTP and gRPC exporters require their own packages (`opentelemetry-exporter-otlp-proto-http` or `opentelemetry-exporter-otlp-proto-grpc`) and are imported only when selected.
+    `Trace()` reads `GREL_TRACE_*` environment variables (see `TraceConfig` for the full field set) or accepts the same fields as keyword arguments. The OTLP HTTP and gRPC exporters require their own packages (`opentelemetry-exporter-otlp-proto-http` or `opentelemetry-exporter-otlp-proto-grpc`) and are imported only when selected.
 
 ??? note "Works with all logging backends"
     The tracing context is injected into all three logging backends (stdlib, loguru, structlog). Use whichever logger you prefer:

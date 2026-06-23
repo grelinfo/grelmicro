@@ -8,11 +8,12 @@
       show_submodules: true
       members:
         - Trace
-        - TracingConfig
-        - TracingError
-        - TracingExporterType
-        - TracingProcessorType
-        - TracingSamplerType
+        - TraceConfig
+        - TraceError
+        - TraceExporterType
+        - TraceProcessorType
+        - TraceSamplerType
+        - TraceSettingsValidationError
         - add_context
         - get_context
         - instrument

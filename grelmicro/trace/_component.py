@@ -12,14 +12,14 @@ from typing_extensions import Doc
 from grelmicro._config import resolve_config
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.trace.config import (
-    TracingConfig,
-    TracingExporterType,
-    TracingProcessorType,
-    TracingSamplerType,
+    TraceConfig,
+    TraceExporterType,
+    TraceProcessorType,
+    TraceSamplerType,
 )
 from grelmicro.trace.errors import (
-    TracingError,
-    TracingSettingsValidationError,
+    TraceError,
+    TraceSettingsValidationError,
 )
 
 if TYPE_CHECKING:
@@ -77,7 +77,7 @@ class Trace:
             ),
         ] = "default",
         config: Annotated[
-            TracingConfig | None,
+            TraceConfig | None,
             Doc(
                 """
                 Pre-built configuration. When provided, individual kwargs
@@ -89,16 +89,16 @@ class Trace:
             str | None, Doc("Service name resource attribute.")
         ] = None,
         exporter: Annotated[
-            TracingExporterType | None, Doc("Span exporter.")
+            TraceExporterType | None, Doc("Span exporter.")
         ] = None,
         endpoint: Annotated[str | None, Doc("Exporter endpoint.")] = None,
         headers: Annotated[
             dict[str, str] | None, Doc("Exporter headers.")
         ] = None,
         processor: Annotated[
-            TracingProcessorType | None, Doc("Span processor.")
+            TraceProcessorType | None, Doc("Span processor.")
         ] = None,
-        sampler: Annotated[TracingSamplerType | None, Doc("Sampler.")] = None,
+        sampler: Annotated[TraceSamplerType | None, Doc("Sampler.")] = None,
         sample_ratio: Annotated[
             float | None, Doc("Sample ratio for `traceidratio` sampler.")
         ] = None,
@@ -138,7 +138,7 @@ class Trace:
             "shutdown_timeout": shutdown_timeout,
         }
         self._env_load = env_load
-        self._resolved: TracingConfig | None = None
+        self._resolved: TraceConfig | None = None
         self._provider: Any = None
         self._prior_provider: Any = None
 
@@ -146,10 +146,10 @@ class Trace:
     def from_config(
         cls,
         config: Annotated[
-            TracingConfig,
+            TraceConfig,
             Doc(
                 """
-                The pre-built tracing configuration.
+                The pre-built trace configuration.
 
                 Use this path when the configuration is assembled at
                 startup from a settings tree (for example YAML, Vault,
@@ -164,7 +164,7 @@ class Trace:
             Doc("Registration name. Defaults to `'default'`."),
         ] = "default",
     ) -> Self:
-        """Construct a `Trace` from a pre-built `TracingConfig`."""
+        """Construct a `Trace` from a pre-built `TraceConfig`."""
         return cls(name=name, config=config)
 
     @property
@@ -173,8 +173,8 @@ class Trace:
         return self._name
 
     @property
-    def config(self) -> TracingConfig:
-        """Return the resolved `TracingConfig`.
+    def config(self) -> TraceConfig:
+        """Return the resolved `TraceConfig`.
 
         Raises:
             RuntimeError: If accessed before the component has been entered.
@@ -204,12 +204,12 @@ class Trace:
             raise DependencyNotFoundError(module="opentelemetry-api") from exc
 
         self._resolved = resolve_config(
-            TracingConfig,
+            TraceConfig,
             explicit=self._explicit_config,
             kwargs=self._kwargs,
             env_prefix="GREL_TRACE_",
             env_load=self._env_load,
-            error_type=TracingSettingsValidationError,
+            error_type=TraceSettingsValidationError,
         )
         # `opentelemetry.trace.set_tracer_provider()` refuses to replace an
         # already-installed provider, so `Trace` patches the private
@@ -223,7 +223,7 @@ class Trace:
                 "installed provider. Pin a compatible opentelemetry-api "
                 "release or open an issue against grelmicro."
             )
-            raise TracingError(msg)
+            raise TraceError(msg)
         self._prior_provider = trace._TRACER_PROVIDER  # type: ignore[attr-defined]  # noqa: SLF001
         self._provider = _build_provider(self._resolved)
         trace._TRACER_PROVIDER = self._provider  # type: ignore[attr-defined]  # noqa: SLF001
@@ -301,8 +301,8 @@ async def _run_with_timeout(fn: Any, timeout: float) -> bool:  # noqa: ANN401, A
     return finished
 
 
-def _build_provider(config: TracingConfig) -> Any:  # noqa: ANN401
-    """Build a `TracerProvider` from a `TracingConfig`."""
+def _build_provider(config: TraceConfig) -> Any:  # noqa: ANN401
+    """Build a `TracerProvider` from a `TraceConfig`."""
     try:
         from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
         from opentelemetry.sdk.trace import TracerProvider  # noqa: PLC0415
@@ -324,22 +324,22 @@ def _build_provider(config: TracingConfig) -> Any:  # noqa: ANN401
         resource_attrs["service.name"] = config.service_name
     resource = Resource.create(resource_attrs) if resource_attrs else None
 
-    if config.sampler == TracingSamplerType.ALWAYS_ON:
+    if config.sampler == TraceSamplerType.ALWAYS_ON:
         sampler = ALWAYS_ON
-    elif config.sampler == TracingSamplerType.ALWAYS_OFF:
+    elif config.sampler == TraceSamplerType.ALWAYS_OFF:
         sampler = ALWAYS_OFF
-    elif config.sampler == TracingSamplerType.TRACEIDRATIO:
+    elif config.sampler == TraceSamplerType.TRACEIDRATIO:
         sampler = TraceIdRatioBased(config.sample_ratio)
     else:
         sampler = ParentBased(ALWAYS_ON)
 
     provider = TracerProvider(resource=resource, sampler=sampler)
 
-    if config.exporter != TracingExporterType.NONE:
+    if config.exporter != TraceExporterType.NONE:
         exporter = _build_exporter(config)
         processor_cls = (
             BatchSpanProcessor
-            if config.processor == TracingProcessorType.BATCH
+            if config.processor == TraceProcessorType.BATCH
             else SimpleSpanProcessor
         )
         provider.add_span_processor(processor_cls(exporter))
@@ -347,16 +347,16 @@ def _build_provider(config: TracingConfig) -> Any:  # noqa: ANN401
     return provider
 
 
-def _build_exporter(config: TracingConfig) -> Any:  # noqa: ANN401
+def _build_exporter(config: TraceConfig) -> Any:  # noqa: ANN401
     """Build a span exporter for the configured exporter type."""
-    if config.exporter == TracingExporterType.CONSOLE:
+    if config.exporter == TraceExporterType.CONSOLE:
         from opentelemetry.sdk.trace.export import (  # noqa: PLC0415
             ConsoleSpanExporter,
         )
 
         return ConsoleSpanExporter()
 
-    if config.exporter == TracingExporterType.OTLP_HTTP:  # pragma: no cover
+    if config.exporter == TraceExporterType.OTLP_HTTP:  # pragma: no cover
         try:
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
                 OTLPSpanExporter,

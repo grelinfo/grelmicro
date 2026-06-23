@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 Rename the `Trace` component symbols to the `Trace` stem so they match the component name. `TracingConfig`, `TracingError`, `TracingExporterType`, `TracingProcessorType`, `TracingSamplerType`, and `TracingSettingsValidationError` become `TraceConfig`, `TraceError`, `TraceExporterType`, `TraceProcessorType`, `TraceSamplerType`, and `TraceSettingsValidationError`. Update imports.
 * 💥 Rename the concrete leader election adapters to the `*Adapter` suffix every other pattern already uses. `MemoryLeaderElectionBackend`, `RedisLeaderElectionBackend`, `PostgresLeaderElectionBackend`, and `KubernetesLeaderElectionBackend` become `MemoryLeaderElectionAdapter`, `RedisLeaderElectionAdapter`, `PostgresLeaderElectionAdapter`, and `KubernetesLeaderElectionAdapter`. The `LeaderElectionBackend` protocol keeps its name (protocol stays `*Backend`, concrete stays `*Adapter`). Update direct imports and constructions.
 
 ### Features
@@ -12,7 +13,7 @@
 * ✨ Add a `key=` template to `@cached` for a stable, readable cache key rendered from the arguments, like `@cached(key="user:{user_id}")`. Pass `key_maker=` for the fully dynamic case. Passing both raises `TypeError`.
 * ✨ Type `FireInfo.outcome` as the new `FireOutcome` `StrEnum` (`SUCCESS`, `ERROR`, `SKIPPED`). String comparisons like `outcome == "success"` still work.
 * ✨ Add `Idempotency.run(key, factory)`, a one-call helper that runs an operation once and replays its response. It takes a sync or async factory and mirrors `TTLCache.get_or_set`.
-* ✨ Every component now raises a typed `*SettingsValidationError` for invalid configuration, rooted in the shared `SettingsValidationError` base. Adds `TracingSettingsValidationError`, `HealthSettingsValidationError`, `LoggingSettingsValidationError`, and `IdempotencySettingsValidationError`. Catch `SettingsValidationError` to handle any of them.
+* ✨ Every component now raises a typed `*SettingsValidationError` for invalid configuration, rooted in the shared `SettingsValidationError` base. Adds `TraceSettingsValidationError`, `HealthSettingsValidationError`, `LoggingSettingsValidationError`, and `IdempotencySettingsValidationError`. Catch `SettingsValidationError` to handle any of them.
 * ✨ Cache adapters (`MemoryCacheAdapter`, `RedisCacheAdapter`, `PostgresCacheAdapter`, `SQLiteCacheAdapter`) now declare the `CacheBackend` protocol explicitly, matching the lock, circuit breaker, and rate limiter adapters.
 * ✨ Add `Log.from_config`, `Trace.from_config`, and `Metrics.from_config` to build each component from a pre-built config, matching the declarative path on every other pattern. The `config=` kwarg still works.
 

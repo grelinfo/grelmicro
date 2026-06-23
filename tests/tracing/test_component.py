@@ -10,45 +10,45 @@ from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro.errors import SettingsValidationError
 from grelmicro.trace import (
     Trace,
-    TracingConfig,
-    TracingExporterType,
-    TracingSamplerType,
+    TraceConfig,
+    TraceExporterType,
+    TraceSamplerType,
 )
 from grelmicro.trace.errors import (
-    TracingError,
-    TracingSettingsValidationError,
+    TraceError,
+    TraceSettingsValidationError,
 )
 
 
 def test_tracing_config_accepts_case_insensitive_enums() -> None:
     """Enum fields accept any-case strings via `_missing_`."""
-    config = TracingConfig.model_validate(
+    config = TraceConfig.model_validate(
         {"exporter": "NONE", "sampler": "ALWAYS_OFF"}
     )
-    assert config.exporter == TracingExporterType.NONE
-    assert config.sampler == TracingSamplerType.ALWAYS_OFF
+    assert config.exporter == TraceExporterType.NONE
+    assert config.sampler == TraceSamplerType.ALWAYS_OFF
 
 
 def test_tracing_config_rejects_unknown_enum_value() -> None:
     """Enum fields reject values that no member matches."""
     with pytest.raises(ValueError, match="exporter"):
-        TracingConfig.model_validate({"exporter": "bogus"})
+        TraceConfig.model_validate({"exporter": "bogus"})
 
 
 def test_tracing_config_rejects_none_for_enum() -> None:
-    """`None` does not silently resolve to `TracingExporterType.NONE`."""
+    """`None` does not silently resolve to `TraceExporterType.NONE`."""
     with pytest.raises(ValueError, match="exporter"):
-        TracingConfig.model_validate({"exporter": None})
+        TraceConfig.model_validate({"exporter": None})
 
 
 def test_trace_satisfies_component_protocol() -> None:
     """`Trace` is a runtime-checkable `Component`."""
-    assert isinstance(Trace(exporter=TracingExporterType.NONE), Component)
+    assert isinstance(Trace(exporter=TraceExporterType.NONE), Component)
 
 
 def test_trace_default_kind_and_name() -> None:
     """Default kind is `trace` and default name is `default`."""
-    trace = Trace(exporter=TracingExporterType.NONE)
+    trace = Trace(exporter=TraceExporterType.NONE)
     assert trace.kind == "trace"
     assert trace.name == "default"
 
@@ -58,22 +58,22 @@ def test_trace_is_singleton() -> None:
     with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
         Grelmicro(
             uses=[
-                Trace(exporter=TracingExporterType.NONE),
-                Trace(exporter=TracingExporterType.NONE, name="audit"),
+                Trace(exporter=TraceExporterType.NONE),
+                Trace(exporter=TraceExporterType.NONE, name="audit"),
             ]
         )
 
 
 def test_trace_name_is_read_only() -> None:
     """`Trace.name` is a read-only property."""
-    trace = Trace(exporter=TracingExporterType.NONE)
+    trace = Trace(exporter=TraceExporterType.NONE)
     with pytest.raises(AttributeError):
         trace.name = "other"  # ty: ignore[invalid-assignment]
 
 
 def test_trace_config_unavailable_before_enter() -> None:
     """`Trace.config` raises before the component has been entered."""
-    trace = Trace(exporter=TracingExporterType.NONE)
+    trace = Trace(exporter=TraceExporterType.NONE)
     with pytest.raises(RuntimeError, match="only available inside"):
         _ = trace.config
 
@@ -84,7 +84,7 @@ async def test_trace_installs_provider_on_enter() -> None:
     micro = Grelmicro(
         uses=[
             Trace(
-                exporter=TracingExporterType.NONE,
+                exporter=TraceExporterType.NONE,
                 service_name="test-svc",
             )
         ]
@@ -97,9 +97,9 @@ async def test_trace_installs_provider_on_enter() -> None:
 
 
 async def test_trace_accepts_prebuilt_config() -> None:
-    """`Trace(config=...)` uses the pre-built `TracingConfig` as-is."""
-    config = TracingConfig(
-        exporter=TracingExporterType.NONE, service_name="payments"
+    """`Trace(config=...)` uses the pre-built `TraceConfig` as-is."""
+    config = TraceConfig(
+        exporter=TraceExporterType.NONE, service_name="payments"
     )
     micro = Grelmicro(uses=[Trace(config=config)])
     async with micro:
@@ -108,8 +108,8 @@ async def test_trace_accepts_prebuilt_config() -> None:
 
 def test_trace_from_config_matches_config_kwarg() -> None:
     """`Trace.from_config(cfg)` matches `Trace(config=cfg)`."""
-    config = TracingConfig(
-        exporter=TracingExporterType.NONE, service_name="payments"
+    config = TraceConfig(
+        exporter=TraceExporterType.NONE, service_name="payments"
     )
     trace = Trace.from_config(config)
     assert trace._explicit_config is config
@@ -118,21 +118,21 @@ def test_trace_from_config_matches_config_kwarg() -> None:
 
 def test_trace_from_config_keeps_name() -> None:
     """`Trace.from_config(..., name=...)` keeps the registration name."""
-    config = TracingConfig(exporter=TracingExporterType.NONE)
+    config = TraceConfig(exporter=TraceExporterType.NONE)
     trace = Trace.from_config(config, name="audit")
     assert trace.name == "audit"
 
 
 def test_trace_provider_unavailable_before_enter() -> None:
     """`Trace.provider` raises before the component has been entered."""
-    trace = Trace(exporter=TracingExporterType.NONE)
+    trace = Trace(exporter=TraceExporterType.NONE)
     with pytest.raises(RuntimeError, match="only available inside"):
         _ = trace.provider
 
 
 async def test_trace_console_exporter() -> None:
     """`exporter=console` builds a console exporter pipeline."""
-    micro = Grelmicro(uses=[Trace(exporter=TracingExporterType.CONSOLE)])
+    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.CONSOLE)])
     async with micro:
         assert isinstance(micro.trace.provider, TracerProvider)
 
@@ -142,13 +142,13 @@ async def test_trace_always_off_sampler() -> None:
     micro = Grelmicro(
         uses=[
             Trace(
-                exporter=TracingExporterType.NONE,
-                sampler=TracingSamplerType.ALWAYS_OFF,
+                exporter=TraceExporterType.NONE,
+                sampler=TraceSamplerType.ALWAYS_OFF,
             )
         ]
     )
     async with micro:
-        assert micro.trace.config.sampler == TracingSamplerType.ALWAYS_OFF
+        assert micro.trace.config.sampler == TraceSamplerType.ALWAYS_OFF
 
 
 async def test_trace_always_on_sampler() -> None:
@@ -156,13 +156,13 @@ async def test_trace_always_on_sampler() -> None:
     micro = Grelmicro(
         uses=[
             Trace(
-                exporter=TracingExporterType.NONE,
-                sampler=TracingSamplerType.ALWAYS_ON,
+                exporter=TraceExporterType.NONE,
+                sampler=TraceSamplerType.ALWAYS_ON,
             )
         ]
     )
     async with micro:
-        assert micro.trace.config.sampler == TracingSamplerType.ALWAYS_ON
+        assert micro.trace.config.sampler == TraceSamplerType.ALWAYS_ON
 
 
 async def test_trace_sampler_ratio() -> None:
@@ -170,8 +170,8 @@ async def test_trace_sampler_ratio() -> None:
     micro = Grelmicro(
         uses=[
             Trace(
-                exporter=TracingExporterType.NONE,
-                sampler=TracingSamplerType.TRACEIDRATIO,
+                exporter=TraceExporterType.NONE,
+                sampler=TraceSamplerType.TRACEIDRATIO,
                 sample_ratio=0.25,
             )
         ]
@@ -196,7 +196,7 @@ async def test_trace_shutdown_timeout_logs_warning(
     micro = Grelmicro(
         uses=[
             Trace(
-                exporter=TracingExporterType.NONE,
+                exporter=TraceExporterType.NONE,
                 service_name="slow-svc",
                 shutdown_timeout=0.05,
             )
@@ -224,7 +224,7 @@ async def test_trace_shutdown_exception_logged_not_propagated(
         msg = "exporter broken"
         raise RuntimeError(msg)
 
-    micro = Grelmicro(uses=[Trace(exporter=TracingExporterType.NONE)])
+    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.NONE)])
     async with micro:
         micro.trace.provider.shutdown = _raise  # type: ignore[method-assign]
 
@@ -241,8 +241,8 @@ async def test_trace_raises_when_private_otel_global_missing(
 ) -> None:
     """A future OTel that drops `_TRACER_PROVIDER` surfaces a clear error."""
     monkeypatch.delattr(otel_trace, "_TRACER_PROVIDER", raising=False)
-    micro = Grelmicro(uses=[Trace(exporter=TracingExporterType.NONE)])
-    with pytest.raises(TracingError, match="_TRACER_PROVIDER"):
+    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.NONE)])
+    with pytest.raises(TraceError, match="_TRACER_PROVIDER"):
         async with micro:
             pass
 
@@ -250,15 +250,15 @@ async def test_trace_raises_when_private_otel_global_missing(
 async def test_trace_invalid_env_config_raises_settings_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Invalid env config raises a catchable `TracingSettingsValidationError`."""
+    """Invalid env config raises a catchable `TraceSettingsValidationError`."""
     monkeypatch.setenv("GREL_TRACE_EXPORTER", "bogus")
     micro = Grelmicro(uses=[Trace(env_load=True)])
-    with pytest.raises(TracingSettingsValidationError) as exc_info:
+    with pytest.raises(TraceSettingsValidationError) as exc_info:
         async with micro:
             pass
     assert isinstance(exc_info.value, SettingsValidationError)
 
 
 def test_trace_settings_error_is_settings_validation_error() -> None:
-    """`TracingSettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(TracingSettingsValidationError, SettingsValidationError)
+    """`TraceSettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(TraceSettingsValidationError, SettingsValidationError)
