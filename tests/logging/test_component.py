@@ -61,6 +61,21 @@ async def test_log_accepts_prebuilt_config(reset_stdlib: None) -> None:  # noqa:
         assert micro.log.config is config
 
 
+def test_log_from_config_matches_config_kwarg() -> None:
+    """`Log.from_config(cfg)` matches `Log(config=cfg)`."""
+    config = LoggingConfig(level=LoggingLevelType.WARNING)
+    log = Log.from_config(config)
+    assert log._explicit_config is config
+    assert log.name == "default"
+
+
+def test_log_from_config_keeps_name() -> None:
+    """`Log.from_config(..., name=...)` keeps the registration name."""
+    config = LoggingConfig()
+    log = Log.from_config(config, name="audit")
+    assert log.name == "audit"
+
+
 async def test_log_restores_root_handlers_on_exit(
     reset_stdlib: None,  # noqa: ARG001
 ) -> None:

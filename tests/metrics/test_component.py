@@ -126,6 +126,23 @@ async def test_metrics_accepts_prebuilt_config() -> None:
         assert micro.metrics.config is config
 
 
+def test_metrics_from_config_matches_config_kwarg() -> None:
+    """`Metrics.from_config(cfg)` matches `Metrics(config=cfg)`."""
+    config = MetricsConfig(
+        exporter=MetricsExporterType.NONE, service_name="payments"
+    )
+    metrics = Metrics.from_config(config)
+    assert metrics._explicit_config is config
+    assert metrics.name == "default"
+
+
+def test_metrics_from_config_keeps_name() -> None:
+    """`Metrics.from_config(..., name=...)` keeps the registration name."""
+    config = MetricsConfig(exporter=MetricsExporterType.NONE)
+    metrics = Metrics.from_config(config, name="audit")
+    assert metrics.name == "audit"
+
+
 async def test_metrics_console_exporter() -> None:
     """`exporter=console` builds a periodic console reader pipeline."""
     micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.CONSOLE)])

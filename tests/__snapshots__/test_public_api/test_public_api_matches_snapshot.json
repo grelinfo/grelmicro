@@ -224,7 +224,8 @@
     "ErrorDict": null,
     "JSONRecordDict": null,
     "Log": {
-      "()": "(*, name=..., config=..., backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)"
+      "()": "(*, name=..., config=..., backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)",
+      ".from_config": "(config, *, name=...)"
     },
     "LoggingConfig": {
       "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=...)"
@@ -249,7 +250,8 @@
   },
   "grelmicro.metrics": {
     "Metrics": {
-      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=..., env_load=...)"
+      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=..., env_load=...)",
+      ".from_config": "(config, *, name=...)"
     },
     "MetricsConfig": {
       "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=...)"
@@ -607,7 +609,8 @@
   },
   "grelmicro.trace": {
     "Trace": {
-      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=..., env_load=...)"
+      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=..., env_load=...)",
+      ".from_config": "(config, *, name=...)"
     },
     "TracingConfig": {
       "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=...)"

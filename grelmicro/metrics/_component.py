@@ -153,6 +153,31 @@ class Metrics:
         self._prometheus_registry: Any = None
         self._meters: dict[str, Meter] = {}
 
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            MetricsConfig,
+            Doc(
+                """
+                The pre-built metrics configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a `pydantic-settings` aggregator). The environment
+                path is bypassed and the config is used as-is.
+                """,
+            ),
+        ],
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name. Defaults to `'default'`."),
+        ] = "default",
+    ) -> Self:
+        """Construct a `Metrics` from a pre-built `MetricsConfig`."""
+        return cls(name=name, config=config)
+
     @property
     def name(self) -> str:
         """Return the registration name."""

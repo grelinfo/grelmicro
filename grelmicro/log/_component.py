@@ -130,6 +130,31 @@ class Log:
         self._snapshot_handlers: list[logging.Handler] | None = None
         self._snapshot_level: int | None = None
 
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            LoggingConfig,
+            Doc(
+                """
+                The pre-built logging configuration.
+
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a `pydantic-settings` aggregator). The environment
+                path is bypassed and the config is used as-is.
+                """,
+            ),
+        ],
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name. Defaults to `'default'`."),
+        ] = "default",
+    ) -> Self:
+        """Construct a `Log` from a pre-built `LoggingConfig`."""
+        return cls(name=name, config=config)
+
     @property
     def name(self) -> str:
         """Return the registration name."""
