@@ -15,6 +15,10 @@
 * ✨ Every component now raises a typed `*SettingsValidationError` for invalid configuration, rooted in the shared `SettingsValidationError` base. Adds `TracingSettingsValidationError`, `HealthSettingsValidationError`, `LoggingSettingsValidationError`, and `IdempotencySettingsValidationError`. Catch `SettingsValidationError` to handle any of them.
 * ✨ Cache adapters (`MemoryCacheAdapter`, `RedisCacheAdapter`, `PostgresCacheAdapter`, `SQLiteCacheAdapter`) now declare the `CacheBackend` protocol explicitly, matching the lock, circuit breaker, and rate limiter adapters.
 
+### Fixed
+
+* 🐛 Name the failing source in the `ExternalConfig` reload warning, so a broken config or secrets mount is no longer a generic warning. Each source loads under its own guard, so a config failure no longer hides a working secrets source. Source values are never logged.
+
 ## 1.0.0a2 - 2026-06-21
 
 ### Features
