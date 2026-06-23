@@ -1,7 +1,7 @@
 """End-to-end tests for IntervalTask with TaskLock.
 
-These tests are parametrized over both the old (sync=TaskLock()) and new
-(lease_duration= plus backend=) APIs to avoid duplication.
+These tests build the task through a shared factory that wires a
+``lock=TaskLock(...)`` onto the interval.
 """
 
 import asyncio

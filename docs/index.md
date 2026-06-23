@@ -187,7 +187,7 @@ from grelmicro.resilience import (
     RateLimiterRegistry,
 )
 from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
-from grelmicro.coordination import Coordination, LeaderElection, Lock
+from grelmicro.coordination import Coordination, LeaderElection, Lock, TaskLock
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
@@ -275,7 +275,7 @@ def heartbeat():
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@tasks.interval(seconds=60, lease_duration=300)
+@tasks.interval(seconds=60, lock=TaskLock(lease_duration=300))
 def cleanup():
     logger.info("cleanup")
 

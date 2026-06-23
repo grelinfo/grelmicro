@@ -13,6 +13,7 @@ from grelmicro.coordination.memory import (
     MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
 )
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
@@ -40,7 +41,9 @@ def test_interval_task_with_lock_init() -> None:
     backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
-        seconds=1, function=test1, lease_duration=5, backend=backend
+        seconds=1,
+        function=test1,
+        lock=TaskLock(backend=backend, lease_duration=5),
     )
     # Assert
     assert task.name == "tests.task.samples:test1"
@@ -55,8 +58,7 @@ def test_interval_task_with_lock_init_with_name() -> None:
         seconds=1,
         function=test1,
         name="my-task",
-        lease_duration=5,
-        backend=backend,
+        lock=TaskLock(backend=backend, lease_duration=5),
     )
     # Assert
     assert task.name == "my-task"
@@ -69,21 +71,20 @@ def test_interval_task_with_lock_init_invalid_seconds() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="seconds must be greater than 0"):
         IntervalTask(
-            seconds=0, function=test1, lease_duration=5, backend=backend
+            seconds=0,
+            function=test1,
+            lock=TaskLock(backend=backend, lease_duration=5),
         )
 
 
 def test_interval_task_with_lock_default_lease_duration() -> None:
     """Test IntervalTask with leader uses default lease_duration."""
     # Arrange
-    backend = MemoryLockAdapter()
     leader = LeaderElection(
         "test-leader", backend=MemoryLeaderElectionAdapter()
     )
     # Act - leader implies lock, lease_duration defaults to interval * 5
-    task = IntervalTask(
-        seconds=10, function=test1, leader=leader, backend=backend
-    )
+    task = IntervalTask(seconds=10, function=test1, leader=leader)
     # Assert
     assert task.name == "tests.task.samples:test1"
 
@@ -94,7 +95,9 @@ def test_interval_task_with_lock_custom_lease_duration() -> None:
     backend = MemoryLockAdapter()
     # Act
     task = IntervalTask(
-        seconds=10, function=test1, lease_duration=100, backend=backend
+        seconds=10,
+        function=test1,
+        lock=TaskLock(backend=backend, lease_duration=100),
     )
     # Assert
     assert task.name == "tests.task.samples:test1"
@@ -110,33 +113,20 @@ def test_interval_task_with_lease_duration_validation() -> None:
         match="lease_duration must be greater than or equal to seconds",
     ):
         IntervalTask(
-            seconds=10, function=test1, lease_duration=5, backend=backend
+            seconds=10,
+            function=test1,
+            lock=TaskLock(backend=backend, lease_duration=5),
         )
 
 
-def test_interval_task_min_hold_duration_without_lock() -> None:
-    """Test min_hold_duration requires lease_duration or leader."""
-    with pytest.raises(
-        ValueError,
-        match="min_hold_duration requires lease_duration or leader",
-    ):
-        IntervalTask(seconds=10, function=test1, min_hold_duration=5)
-
-
-def test_interval_task_min_hold_duration_validation() -> None:
-    """Test min_hold_duration must be <= lease_duration."""
+def test_tasklock_min_hold_duration_validation() -> None:
+    """Test TaskLock rejects min_hold_duration greater than lease_duration."""
     backend = MemoryLockAdapter()
     with pytest.raises(
         ValueError,
         match="min_hold_duration must be less than or equal to lease_duration",
     ):
-        IntervalTask(
-            seconds=10,
-            function=test1,
-            lease_duration=20,
-            min_hold_duration=25,
-            backend=backend,
-        )
+        TaskLock(backend=backend, lease_duration=20, min_hold_duration=25)
 
 
 async def test_interval_task_with_lock_and_resource_lock(
@@ -147,8 +137,11 @@ async def test_interval_task_with_lock_and_resource_lock(
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        lease_duration=SECONDS * 5,
-        backend=backend,
+        lock=TaskLock(
+            backend=backend,
+            lease_duration=SECONDS * 5,
+            min_hold_duration=SECONDS,
+        ),
         sync=resource_lock,
     )
     async with asyncio.TaskGroup() as tg:
@@ -165,9 +158,7 @@ def test_interval_task_custom_min_hold_duration() -> None:
     task = IntervalTask(
         seconds=10,
         function=test1,
-        lease_duration=100,
-        min_hold_duration=5,
-        backend=backend,
+        lock=TaskLock(backend=backend, lease_duration=100, min_hold_duration=5),
     )
     assert task.name == "tests.task.samples:test1"
 
@@ -178,8 +169,11 @@ async def test_interval_task_with_lock_start(backend: LockBackend) -> None:
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        lease_duration=SECONDS * 5,
-        backend=backend,
+        lock=TaskLock(
+            backend=backend,
+            lease_duration=SECONDS * 5,
+            min_hold_duration=SECONDS,
+        ),
     )
     # Act
     async with asyncio.TaskGroup() as tg:
@@ -198,8 +192,11 @@ async def test_interval_task_with_lock_execution_error(
     task = IntervalTask(
         seconds=SECONDS,
         function=always_fail,
-        lease_duration=SECONDS * 5,
-        backend=backend,
+        lock=TaskLock(
+            backend=backend,
+            lease_duration=SECONDS * 5,
+            min_hold_duration=SECONDS,
+        ),
     )
     # Act
     async with asyncio.TaskGroup() as tg:
@@ -225,8 +222,11 @@ async def test_interval_task_with_lock_synchronization_error(
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        lease_duration=SECONDS * 5,
-        backend=backend,
+        lock=TaskLock(
+            backend=backend,
+            lease_duration=SECONDS * 5,
+            min_hold_duration=SECONDS,
+        ),
     )
     mocker.patch.object(
         backend, "acquire", side_effect=RuntimeError("backend down")
@@ -265,8 +265,7 @@ async def test_interval_task_with_lock_stop(
     task = IntervalTask(
         seconds=1,
         function=test1,
-        lease_duration=5,
-        backend=backend,
+        lock=TaskLock(backend=backend, lease_duration=5),
     )
 
     async def task_during_runtime_error() -> None:
@@ -302,9 +301,13 @@ async def test_interval_task_with_leader_executes(
         seconds=SECONDS,
         function=samples.set_event_1,
         name="e2e_task",
-        backend=backend,
-        worker="worker_1",
         leader=leader,
+        lock=TaskLock(
+            backend=backend,
+            worker="worker_1",
+            lease_duration=SECONDS * 5,
+            min_hold_duration=SECONDS,
+        ),
     )
 
     # Act
@@ -333,9 +336,13 @@ async def test_interval_task_with_leader_skips_when_not_leader(
         seconds=SECONDS,
         function=samples.set_event_1,
         name="e2e_task",
-        backend=backend,
-        worker="worker_2",
         leader=leader_2,
+        lock=TaskLock(
+            backend=backend,
+            worker="worker_2",
+            lease_duration=SECONDS * 5,
+            min_hold_duration=SECONDS,
+        ),
     )
 
     # Act

@@ -88,7 +88,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     There is no background task that maintains the lock active during execution.
     The lock relies entirely on the TTL (`lease_duration`) set at acquire time.
 
-    This lock is designed to be used as the `sync` parameter of `IntervalTask`.
+    This lock is designed to be used as the `lock` parameter of `@task.interval`.
 
     Supports live reconfiguration via
     `reconfigure(new_config)`.
@@ -109,9 +109,13 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 The name of the resource to lock.
 
                 It will be used as the lock name so make sure it is unique on the lock backend.
+
+                Defaults to `"default"`. When used as the `lock` of
+                `@task.interval`, the default name is re-stamped to the
+                task name so it does not need to be repeated.
                 """
             ),
-        ],
+        ] = "default",
         *,
         backend: Annotated[
             LockBackend | str | None,
@@ -251,6 +255,13 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         instance = cls.__new__(cls)
         instance._setup(name, config, backend)  # noqa: SLF001
         return instance
+
+    def _with_name(self, name: str) -> "TaskLock":
+        """Return a copy bound to a new name, preserving config and backend."""
+        backend: LockBackend | str | None = (
+            self._backend if self._backend is not None else self._backend_name
+        )
+        return type(self).from_config(name, self._config, backend=backend)
 
     def _setup(
         self,

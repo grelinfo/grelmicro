@@ -3,7 +3,6 @@
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any
-from uuid import UUID
 
 from typing_extensions import Doc
 
@@ -11,11 +10,11 @@ from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
     from grelmicro.coordination._protocol import (
-        LockBackend,
         LockPrimitive,
         ScheduleBackend,
     )
     from grelmicro.coordination.leaderelection import LeaderElection
+    from grelmicro.coordination.tasklock import TaskLock
     from grelmicro.task._protocol import Task
 
 
@@ -81,31 +80,21 @@ class TaskRouter:
                 The name of the task.
 
                 If None, a name will be generated automatically from the function.
-                Also used as the lock name when distributed locking is enabled.
                 """,
             ),
         ] = None,
-        lease_duration: Annotated[
-            float | None,
+        lock: Annotated[
+            "TaskLock | None",
             Doc(
                 """
-                The maximum duration in seconds to hold the lock (crash protection).
+                Optional distributed lock for at-most-once scheduling.
 
-                Setting this enables distributed locking: the task runs at most once
-                per interval across all workers. Must be >= ``seconds``.
-                When ``leader`` is set without this, defaults to ``seconds * 5``.
-                """,
-            ),
-        ] = None,
-        min_hold_duration: Annotated[
-            float | None,
-            Doc(
-                """
-                The minimum duration in seconds to hold the lock after task completion.
-
-                Prevents re-execution on other nodes before this duration has elapsed.
-                Defaults to ``seconds`` when distributed locking is enabled.
-                Requires ``lease_duration`` or ``leader`` to be set.
+                Pass a `TaskLock` to run the task at most once per interval
+                across all workers. Its ``lease_duration`` must be >=
+                ``seconds``. When the lock keeps its default ``"default"``
+                name, the task name is used so it does not need to be
+                repeated. The lock's ``lease_duration``, ``min_hold_duration``,
+                ``backend`` and ``worker`` are authoritative.
                 """,
             ),
         ] = None,
@@ -116,30 +105,9 @@ class TaskRouter:
                 Optional leader election for leader gating.
 
                 When provided, the task only executes on the leader worker.
-                Implies distributed locking (lock is automatically configured).
-                """,
-            ),
-        ] = None,
-        backend: Annotated[
-            "LockBackend | None",
-            Doc(
-                """
-                The distributed lock backend.
-
-                By default, resolves through the active `Grelmicro` app's
-                `Coordination` component. Only used when distributed locking
-                is enabled.
-                """,
-            ),
-        ] = None,
-        worker: Annotated[
-            str | UUID | None,
-            Doc(
-                """
-                The worker identity.
-
-                By default, a UUIDv1 will be generated.
-                Only used when distributed locking is enabled.
+                Implies distributed locking (a lock is automatically
+                configured with interval-aware defaults when no ``lock`` is
+                given).
                 """,
             ),
         ] = None,
@@ -150,10 +118,10 @@ class TaskRouter:
                 Optional resource-level synchronization primitive.
 
                 Layered on top of any distributed scheduling chosen via
-                ``lease_duration`` or ``leader``. Use a ``Lock`` to serialise
-                execution against a shared resource. Whether the task runs on
-                every worker or only one is governed by ``lease_duration``
-                and ``leader``, not this parameter.
+                ``lock`` or ``leader``. Use a ``Lock`` to serialise execution
+                against a shared resource. Whether the task runs on every
+                worker or only one is governed by ``lock`` and ``leader``, not
+                this parameter.
                 """,
             ),
         ] = None,
@@ -165,18 +133,17 @@ class TaskRouter:
 
         Supports three modes:
 
-        - **Local**: No lock params, runs on every worker, every interval.
-        - **Distributed lock**: Set ``lease_duration`` to run at most once per
+        - **Local**: No ``lock`` or ``leader``, runs on every worker, every
+          interval.
+        - **Distributed lock**: Pass a ``lock`` to run at most once per
           interval across all workers.
         - **Leader-gated**: Set ``leader`` to restrict execution to the leader
-          worker (lock is implied).
+          worker (a lock is implied).
 
         Raises:
             FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If lease_duration is less than seconds.
-            ValueError: If min_hold_duration is set without lease_duration or leader.
-            ValueError: If min_hold_duration is greater than lease_duration.
+            ValueError: If the lock lease_duration is less than seconds.
         """
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
@@ -188,11 +155,8 @@ class TaskRouter:
                     name=name,
                     function=function,
                     seconds=seconds,
-                    lease_duration=lease_duration,
-                    min_hold_duration=min_hold_duration,
+                    lock=lock,
                     leader=leader,
-                    backend=backend,
-                    worker=worker,
                     sync=sync,
                 ),
             )

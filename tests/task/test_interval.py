@@ -7,6 +7,12 @@ from datetime import datetime, timedelta
 import pytest
 from pytest_mock import MockFixture
 
+from grelmicro.coordination.leaderelection import LeaderElection
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionAdapter,
+    MemoryLockAdapter,
+)
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.task._cron import FireInfo, FireOutcome
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
@@ -71,6 +77,73 @@ def test_interval_task_init_with_invalid_interval() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="seconds must be greater than 0"):
         IntervalTask(seconds=0, function=test1)
+
+
+def test_interval_task_lock_default_name_restamped() -> None:
+    """A default-named lock is re-stamped to the task name."""
+    lease_duration = 300
+    backend = MemoryLockAdapter()
+    task = IntervalTask(
+        seconds=60,
+        function=test1,
+        name="cleanup",
+        lock=TaskLock(backend=backend, lease_duration=lease_duration),
+    )
+    task_lock = task._sync_primitives[0]
+    assert isinstance(task_lock, TaskLock)
+    assert task_lock.name == "cleanup"
+    assert task_lock.config.lease_duration == lease_duration
+
+
+def test_interval_task_lock_explicit_name_honored() -> None:
+    """An explicit-named lock keeps its own name."""
+    backend = MemoryLockAdapter()
+    task = IntervalTask(
+        seconds=60,
+        function=test1,
+        name="cleanup",
+        lock=TaskLock("shared", backend=backend, lease_duration=300),
+    )
+    task_lock = task._sync_primitives[0]
+    assert isinstance(task_lock, TaskLock)
+    assert task_lock.name == "shared"
+
+
+def test_interval_task_lock_lease_less_than_seconds_raises() -> None:
+    """A lock lease_duration below seconds raises ValueError."""
+    backend = MemoryLockAdapter()
+    with pytest.raises(
+        ValueError,
+        match="lease_duration must be greater than or equal to seconds",
+    ):
+        IntervalTask(
+            seconds=60,
+            function=test1,
+            lock=TaskLock(backend=backend, lease_duration=10),
+        )
+
+
+def test_interval_task_leader_auto_locks() -> None:
+    """Leader without an explicit lock auto-configures an interval-aware lock."""
+    seconds = 60
+    leader = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
+    task = IntervalTask(
+        seconds=seconds,
+        function=test1,
+        name="cleanup",
+        leader=leader,
+    )
+    task_locks = [p for p in task._sync_primitives if isinstance(p, TaskLock)]
+    assert len(task_locks) == 1
+    assert task_locks[0].name == "cleanup"
+    assert task_locks[0].config.lease_duration == seconds * 5
+    assert task_locks[0].config.min_hold_duration == seconds
+
+
+def test_interval_task_local_no_sync() -> None:
+    """Neither lock nor leader leaves the task local."""
+    task = IntervalTask(seconds=60, function=test1)
+    assert task._sync_primitives == []
 
 
 async def test_interval_task_start() -> None:

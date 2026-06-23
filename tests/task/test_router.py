@@ -8,6 +8,7 @@ import pytest
 
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.task import TaskRouter
 from grelmicro.task._interval import IntervalTask
 from grelmicro.task.errors import FunctionTypeError, TaskAddOperationError
@@ -157,31 +158,104 @@ def test_router_interval_with_lock() -> None:
     router = TaskRouter()
 
     # Act
-    router.interval(seconds=60, lease_duration=300, backend=backend)(test1)
+    router.interval(
+        seconds=60,
+        lock=TaskLock(backend=backend, lease_duration=300),
+    )(test1)
 
     # Assert
     assert len(router.tasks) == 1
-    assert isinstance(router.tasks[0], IntervalTask)
-    assert router.tasks[0].name == "tests.task.samples:test1"
+    task = router.tasks[0]
+    assert isinstance(task, IntervalTask)
+    assert task.name == "tests.task.samples:test1"
+    task_lock = task._sync_primitives[0]
+    assert isinstance(task_lock, TaskLock)
+    assert task_lock.name == "tests.task.samples:test1"
 
 
-def test_router_interval_with_lock_and_custom_least() -> None:
-    """Test Task Router add interval task with custom min_hold_duration."""
+def test_router_interval_with_lock_default_name_restamped() -> None:
+    """Test a default-named lock is re-stamped to the task name."""
     # Arrange
     backend = MemoryLockAdapter()
     router = TaskRouter()
 
     # Act
     router.interval(
+        name="cleanup",
         seconds=60,
-        lease_duration=300,
-        min_hold_duration=30,
-        backend=backend,
+        lock=TaskLock(backend=backend, lease_duration=300),
+    )(test1)
+
+    # Assert
+    task = router.tasks[0]
+    assert isinstance(task, IntervalTask)
+    task_lock = task._sync_primitives[0]
+    assert isinstance(task_lock, TaskLock)
+    assert task_lock.name == "cleanup"
+
+
+def test_router_interval_with_lock_explicit_name_honored() -> None:
+    """Test an explicit-named lock keeps its name."""
+    # Arrange
+    backend = MemoryLockAdapter()
+    router = TaskRouter()
+
+    # Act
+    router.interval(
+        name="cleanup",
+        seconds=60,
+        lock=TaskLock("shared", backend=backend, lease_duration=300),
+    )(test1)
+
+    # Assert
+    task = router.tasks[0]
+    assert isinstance(task, IntervalTask)
+    task_lock = task._sync_primitives[0]
+    assert isinstance(task_lock, TaskLock)
+    assert task_lock.name == "shared"
+
+
+def test_router_interval_with_lock_and_custom_least() -> None:
+    """Test Task Router add interval task with custom min_hold_duration."""
+    # Arrange
+    min_hold_duration = 30
+    backend = MemoryLockAdapter()
+    router = TaskRouter()
+
+    # Act
+    router.interval(
+        seconds=60,
+        lock=TaskLock(
+            backend=backend,
+            lease_duration=300,
+            min_hold_duration=min_hold_duration,
+        ),
     )(test1)
 
     # Assert
     assert len(router.tasks) == 1
-    assert isinstance(router.tasks[0], IntervalTask)
+    task = router.tasks[0]
+    assert isinstance(task, IntervalTask)
+    task_lock = task._sync_primitives[0]
+    assert isinstance(task_lock, TaskLock)
+    assert task_lock.config.min_hold_duration == min_hold_duration
+
+
+def test_router_interval_lease_less_than_seconds_raises() -> None:
+    """Test a lock lease_duration below seconds raises ValueError."""
+    # Arrange
+    backend = MemoryLockAdapter()
+    router = TaskRouter()
+
+    # Act / Assert
+    with pytest.raises(
+        ValueError,
+        match="lease_duration must be greater than or equal to seconds",
+    ):
+        router.interval(
+            seconds=60,
+            lock=TaskLock(backend=backend, lease_duration=10),
+        )(test1)
 
 
 def test_router_add_task_when_started() -> None:

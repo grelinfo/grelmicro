@@ -1,7 +1,6 @@
 """Shared fixtures for task tests."""
 
 import asyncio
-import warnings
 from collections.abc import AsyncGenerator, Callable
 
 import pytest
@@ -17,10 +16,8 @@ from tests.task import samples
 
 type TaskFactory = Callable[..., IntervalTask]
 
-LOCK_NAME = "test_task_lock"
 
-
-def _create_task_deprecated_api(
+def _create_task(
     *,
     seconds: float,
     function: Callable[..., object],
@@ -30,52 +27,24 @@ def _create_task_deprecated_api(
     min_hold_duration: float,
     lease_duration: float,
 ) -> IntervalTask:
-    """Create IntervalTask using deprecated sync=TaskLock() API."""
-    task_lock = TaskLock(
-        LOCK_NAME,
-        backend=backend,
-        worker=worker,
-        min_hold_duration=min_hold_duration,
-        lease_duration=lease_duration,
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        return IntervalTask(
-            seconds=seconds,
-            function=function,
-            name=name,
-            sync=task_lock,
-        )
-
-
-def _create_task_new_api(
-    *,
-    seconds: float,
-    function: Callable[..., object],
-    name: str,
-    backend: LockBackend,
-    worker: str,
-    min_hold_duration: float,
-    lease_duration: float,
-) -> IntervalTask:
-    """Create IntervalTask using new lease_duration/backend API."""
+    """Create IntervalTask using the lock=TaskLock() API."""
     return IntervalTask(
         seconds=seconds,
         function=function,
         name=name,
-        lease_duration=lease_duration,
-        min_hold_duration=min_hold_duration,
-        backend=backend,
-        worker=worker,
+        lock=TaskLock(
+            backend=backend,
+            worker=worker,
+            min_hold_duration=min_hold_duration,
+            lease_duration=lease_duration,
+        ),
     )
 
 
-@pytest.fixture(params=["deprecated", "new"], ids=["deprecated-api", "new-api"])
-def task_factory(request: pytest.FixtureRequest) -> TaskFactory:
-    """Return a factory that creates IntervalTask with either API style."""
-    if request.param == "deprecated":
-        return _create_task_deprecated_api
-    return _create_task_new_api
+@pytest.fixture
+def task_factory() -> TaskFactory:
+    """Return a factory that creates IntervalTask with a lock."""
+    return _create_task
 
 
 @pytest.fixture

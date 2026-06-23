@@ -159,7 +159,7 @@
       "()": "(*args, **kwargs)"
     },
     "TaskLock": {
-      "()": "(name, *, backend=..., worker=..., min_hold_duration=..., lease_duration=..., env_prefix=..., env_load=...)",
+      "()": "(name=..., *, backend=..., worker=..., min_hold_duration=..., lease_duration=..., env_prefix=..., env_load=...)",
       ".from_config": "(name, config, *, backend=...)"
     },
     "WouldBlockError": null

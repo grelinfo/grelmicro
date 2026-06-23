@@ -4,7 +4,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination, LeaderElection, Lock
+from grelmicro.coordination import (
+    Coordination,
+    LeaderElection,
+    Lock,
+    TaskLock,
+)
 from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 from grelmicro.fastapi import GrelmicroMiddleware
 from grelmicro.log import configure
@@ -72,7 +77,7 @@ def heartbeat():
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@tasks.interval(seconds=60, lease_duration=300)
+@tasks.interval(seconds=60, lock=TaskLock(lease_duration=300))
 def cleanup():
     logger.info("cleanup")
 
