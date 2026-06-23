@@ -9,21 +9,21 @@ from grelmicro.trace._context import add_context, get_context
 from grelmicro.trace._instrument import instrument
 from grelmicro.trace._span import span
 from grelmicro.trace.config import (
-    TracingConfig,
-    TracingExporterType,
-    TracingProcessorType,
-    TracingSamplerType,
+    TraceConfig,
+    TraceExporterType,
+    TraceProcessorType,
+    TraceSamplerType,
 )
-from grelmicro.trace.errors import TracingError, TracingSettingsValidationError
+from grelmicro.trace.errors import TraceError, TraceSettingsValidationError
 
 __all__ = [
     "Trace",
-    "TracingConfig",
-    "TracingError",
-    "TracingExporterType",
-    "TracingProcessorType",
-    "TracingSamplerType",
-    "TracingSettingsValidationError",
+    "TraceConfig",
+    "TraceError",
+    "TraceExporterType",
+    "TraceProcessorType",
+    "TraceSamplerType",
+    "TraceSettingsValidationError",
     "add_context",
     "get_context",
     "instrument",

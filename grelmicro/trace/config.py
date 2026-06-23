@@ -19,7 +19,7 @@ class _CaseInsensitiveEnum(StrEnum):
         return None
 
 
-class TracingExporterType(_CaseInsensitiveEnum):
+class TraceExporterType(_CaseInsensitiveEnum):
     """Span exporter selection."""
 
     OTLP_HTTP = "otlp-http"
@@ -28,14 +28,14 @@ class TracingExporterType(_CaseInsensitiveEnum):
     NONE = "none"
 
 
-class TracingProcessorType(_CaseInsensitiveEnum):
+class TraceProcessorType(_CaseInsensitiveEnum):
     """Span processor selection."""
 
     BATCH = "batch"
     SIMPLE = "simple"
 
 
-class TracingSamplerType(_CaseInsensitiveEnum):
+class TraceSamplerType(_CaseInsensitiveEnum):
     """Sampler selection."""
 
     ALWAYS_ON = "always_on"
@@ -44,8 +44,8 @@ class TracingSamplerType(_CaseInsensitiveEnum):
     TRACEIDRATIO = "traceidratio"
 
 
-class TracingConfig(BaseModel, frozen=True, extra="forbid"):
-    """Tracing Config."""
+class TraceConfig(BaseModel, frozen=True, extra="forbid"):
+    """Trace Config."""
 
     service_name: Annotated[
         str | None,
@@ -55,9 +55,9 @@ class TracingConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = None
     exporter: Annotated[
-        TracingExporterType,
+        TraceExporterType,
         Doc("Span exporter."),
-    ] = TracingExporterType.OTLP_HTTP
+    ] = TraceExporterType.OTLP_HTTP
     endpoint: Annotated[
         str | None,
         Doc(
@@ -73,13 +73,13 @@ class TracingConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = Field(default_factory=dict)
     processor: Annotated[
-        TracingProcessorType,
+        TraceProcessorType,
         Doc("Span processor."),
-    ] = TracingProcessorType.BATCH
+    ] = TraceProcessorType.BATCH
     sampler: Annotated[
-        TracingSamplerType,
+        TraceSamplerType,
         Doc("Sampler."),
-    ] = TracingSamplerType.PARENTBASED_ALWAYS_ON
+    ] = TraceSamplerType.PARENTBASED_ALWAYS_ON
     sample_ratio: Annotated[
         float,
         Doc("Sample ratio for `traceidratio` sampler."),
