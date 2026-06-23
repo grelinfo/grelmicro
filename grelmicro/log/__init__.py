@@ -20,7 +20,7 @@ from grelmicro.log.config import (
     LoggingSerializerType,
     LoggingTimeZoneType,
 )
-from grelmicro.log.errors import LoggingError
+from grelmicro.log.errors import LoggingError, LoggingSettingsValidationError
 from grelmicro.log.types import ErrorDict, JSONRecordDict
 
 
@@ -107,6 +107,7 @@ def configure(
         },
         env_prefix="GREL_LOG_",
         env_load=env_load,
+        error_type=LoggingSettingsValidationError,
     )
     _apply(config)
     return config
@@ -143,6 +144,7 @@ __all__ = [
     "Log",
     "LoggingConfig",
     "LoggingError",
+    "LoggingSettingsValidationError",
     "RateLimitFilter",
     "RateLimitFilterConfig",
     "configure",

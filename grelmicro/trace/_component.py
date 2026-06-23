@@ -17,7 +17,10 @@ from grelmicro.trace.config import (
     TracingProcessorType,
     TracingSamplerType,
 )
-from grelmicro.trace.errors import TracingError
+from grelmicro.trace.errors import (
+    TracingError,
+    TracingSettingsValidationError,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -181,6 +184,7 @@ class Trace:
             kwargs=self._kwargs,
             env_prefix="GREL_TRACE_",
             env_load=self._env_load,
+            error_type=TracingSettingsValidationError,
         )
         # `opentelemetry.trace.set_tracer_provider()` refuses to replace an
         # already-installed provider, so `Trace` patches the private

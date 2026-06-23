@@ -16,7 +16,10 @@ from grelmicro.metrics.config import (
     MetricsConfig,
     MetricsExporterType,
 )
-from grelmicro.metrics.errors import MetricsError
+from grelmicro.metrics.errors import (
+    MetricsError,
+    MetricsSettingsValidationError,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -286,6 +289,7 @@ class Metrics:
             kwargs=self._kwargs,
             env_prefix="GREL_METRICS_",
             env_load=self._env_load,
+            error_type=MetricsSettingsValidationError,
         )
         # `opentelemetry.metrics.set_meter_provider()` refuses to replace an
         # already-installed provider, so `Metrics` patches the private

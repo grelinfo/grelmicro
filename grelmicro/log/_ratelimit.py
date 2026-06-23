@@ -14,6 +14,7 @@ from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._config import resolve_config
+from grelmicro.log.errors import LoggingSettingsValidationError
 from grelmicro.resilience import MemoryTokenBucket
 
 KeyMode = Literal["logger", "level", "global", "template", "rendered"]
@@ -221,6 +222,7 @@ class RateLimitFilter(Filter):
             },
             env_prefix=env_prefix or "GREL_RATE_LIMIT_FILTER_",
             env_load=env_load,
+            error_type=LoggingSettingsValidationError,
         )
         Filter.__init__(self)
         self._setup(config, key)

@@ -7,6 +7,7 @@ from opentelemetry import metrics as otel_metrics
 from opentelemetry.sdk.metrics import MeterProvider
 
 from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
+from grelmicro.errors import SettingsValidationError
 from grelmicro.health import HealthChecks
 from grelmicro.metrics import (
     Metrics,
@@ -14,7 +15,10 @@ from grelmicro.metrics import (
     MetricsExporterType,
 )
 from grelmicro.metrics import _hub as hub
-from grelmicro.metrics.errors import MetricsError
+from grelmicro.metrics.errors import (
+    MetricsError,
+    MetricsSettingsValidationError,
+)
 
 
 def test_metrics_config_accepts_case_insensitive_enums() -> None:
@@ -250,3 +254,20 @@ def test_metrics_singleton_skips_other_kinds() -> None:
         ]
     )
     assert micro is not None
+
+
+async def test_metrics_invalid_env_config_raises_settings_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid env config raises a catchable `MetricsSettingsValidationError`."""
+    monkeypatch.setenv("GREL_METRICS_EXPORTER", "bogus")
+    micro = Grelmicro(uses=[Metrics(env_load=True)])
+    with pytest.raises(MetricsSettingsValidationError) as exc_info:
+        async with micro:
+            pass
+    assert isinstance(exc_info.value, SettingsValidationError)
+
+
+def test_metrics_settings_error_is_settings_validation_error() -> None:
+    """`MetricsSettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(MetricsSettingsValidationError, SettingsValidationError)

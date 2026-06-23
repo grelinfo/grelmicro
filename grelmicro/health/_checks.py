@@ -24,7 +24,10 @@ from grelmicro.health._types import (
     HealthCheckFunc,
     HealthDetails,
 )
-from grelmicro.health.errors import HealthError
+from grelmicro.health.errors import (
+    HealthError,
+    HealthSettingsValidationError,
+)
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
@@ -197,6 +200,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             kwargs={"timeout": timeout, "cache_ttl": cache_ttl},
             env_prefix=env_prefix or "GREL_HEALTH_",
             env_load=env_load,
+            error_type=HealthSettingsValidationError,
         )
         self._setup(config, name=name, auto_health=auto_health)
 

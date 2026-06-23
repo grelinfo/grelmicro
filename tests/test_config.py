@@ -10,7 +10,14 @@ from grelmicro._config import (
     env_segment,
     parse_csv_or_json,
     resolve_config,
+    resolve_config_from_mapping,
 )
+from grelmicro.errors import SettingsValidationError
+
+
+class _SampleSettingsError(SettingsValidationError):
+    """Settings error used to test `error_type` wrapping."""
+
 
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_RETRIES = 3
@@ -183,6 +190,44 @@ def test_invalid_env_value_raises_validation_error(
             kwargs={"name": "a"},
             env_prefix="X_",
             env_load=True,
+        )
+
+
+def test_error_type_wraps_validation_error() -> None:
+    """`error_type` wraps a `ValidationError` into the typed settings error."""
+    with pytest.raises(_SampleSettingsError) as exc_info:
+        resolve_config(
+            _Sample,
+            explicit=None,
+            kwargs={"name": "a", "timeout": -1.0},
+            env_prefix="X_",
+            env_load=False,
+            error_type=_SampleSettingsError,
+        )
+    assert isinstance(exc_info.value, SettingsValidationError)
+
+
+def test_from_mapping_error_type_wraps_validation_error() -> None:
+    """`resolve_config_from_mapping` wraps with `error_type` too."""
+    current = _Sample(name="a")
+    with pytest.raises(_SampleSettingsError) as exc_info:
+        resolve_config_from_mapping(
+            current,
+            env_prefix="X_",
+            mapping={"X_TIMEOUT": "-1.0"},
+            error_type=_SampleSettingsError,
+        )
+    assert isinstance(exc_info.value, SettingsValidationError)
+
+
+def test_from_mapping_without_error_type_raises_validation_error() -> None:
+    """Without `error_type`, the raw `ValidationError` propagates."""
+    current = _Sample(name="a")
+    with pytest.raises(ValidationError):
+        resolve_config_from_mapping(
+            current,
+            env_prefix="X_",
+            mapping={"X_TIMEOUT": "-1.0"},
         )
 
 

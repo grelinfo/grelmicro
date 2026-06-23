@@ -6,9 +6,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from freezegun import freeze_time
-from pydantic import ValidationError
 
-from grelmicro.log import DuplicateFilter, configure
+from grelmicro.log import (
+    DuplicateFilter,
+    LoggingSettingsValidationError,
+    configure,
+)
 from grelmicro.log._dedup import _key_by_rendered
 from tests.logging.conftest import BACKENDS
 
@@ -330,8 +333,8 @@ def test_explicit_key_callable_overrides_mode() -> None:
 
 
 def test_invalid_key_mode_rejected() -> None:
-    """Unknown ``key_mode`` values raise a pydantic ValidationError."""
-    with pytest.raises(ValidationError, match="key_mode"):
+    """Unknown ``key_mode`` values raise a LoggingSettingsValidationError."""
+    with pytest.raises(LoggingSettingsValidationError, match="key_mode"):
         DuplicateFilter(key_mode="bogus")  # ty: ignore[invalid-argument-type]
 
 
@@ -411,8 +414,8 @@ def test_ttl_none_disables_time_expiry() -> None:
 
 @pytest.mark.parametrize("bad_ttl", [0, -0.5, -1])
 def test_non_positive_ttl_rejected(bad_ttl: float) -> None:
-    """Non-positive ``ttl_seconds`` values raise a pydantic ValidationError."""
-    with pytest.raises(ValidationError, match="greater than 0"):
+    """Non-positive ``ttl_seconds`` values raise a LoggingSettingsValidationError."""
+    with pytest.raises(LoggingSettingsValidationError, match="greater than 0"):
         DuplicateFilter(ttl_seconds=bad_ttl)
 
 
@@ -421,8 +424,8 @@ def test_non_positive_ttl_rejected(bad_ttl: float) -> None:
     [(0, 10), (-1, 10), (10, 0), (10, -5)],
 )
 def test_invalid_config_rejected(allowed: int, cache: int) -> None:
-    """Non-positive config values raise a pydantic ValidationError."""
-    with pytest.raises(ValidationError, match="greater than 0"):
+    """Non-positive config values raise a LoggingSettingsValidationError."""
+    with pytest.raises(LoggingSettingsValidationError, match="greater than 0"):
         DuplicateFilter(allowed_repetitions=allowed, cache_size=cache)
 
 

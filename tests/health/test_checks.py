@@ -5,13 +5,14 @@ import logging
 import time
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from grelmicro import (
     ComponentAlreadyRegisteredError,
     ComponentNotRegisteredError,
     Grelmicro,
 )
+from grelmicro.health import HealthSettingsValidationError
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import HealthStatus
 from grelmicro.health._types import HealthDetails
@@ -497,19 +498,19 @@ async def test_timeout_logs_warning(
 
 def test_timeout_zero_raises() -> None:
     """timeout=0 is rejected."""
-    with pytest.raises(ValidationError, match="greater than 0"):
+    with pytest.raises(HealthSettingsValidationError, match="greater than 0"):
         HealthChecks(timeout=0)
 
 
 def test_timeout_negative_raises() -> None:
     """Negative timeout is rejected."""
-    with pytest.raises(ValidationError, match="greater than 0"):
+    with pytest.raises(HealthSettingsValidationError, match="greater than 0"):
         HealthChecks(timeout=-1.0)
 
 
 def test_cache_ttl_negative_raises() -> None:
     """Negative cache_ttl is rejected."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(HealthSettingsValidationError):
         HealthChecks(cache_ttl=-1.0)
 
 
