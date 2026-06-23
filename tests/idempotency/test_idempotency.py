@@ -288,6 +288,91 @@ class TestFingerprint:
 
 
 # ---------------------------------------------------------------------------
+# run helper
+# ---------------------------------------------------------------------------
+
+
+class TestRun:
+    """Test the one-call `run(key, factory)` helper."""
+
+    async def test_first_call_executes_and_returns(
+        self, cache: TTLCache
+    ) -> None:
+        """The first call runs the factory and returns its result."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+        calls = 0
+
+        async def factory() -> dict:
+            nonlocal calls
+            calls += 1
+            return {"status": "ok"}
+
+        result = await idem.run("key-1", factory)
+
+        assert result == {"status": "ok"}
+        assert calls == 1
+
+    async def test_second_call_replays_without_executing(
+        self, cache: TTLCache
+    ) -> None:
+        """A repeated key replays the stored response without re-running."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+        calls = 0
+
+        async def factory() -> dict:
+            nonlocal calls
+            calls += 1
+            return {"n": calls}
+
+        first = await idem.run("key-1", factory)
+        second = await idem.run("key-1", factory)
+
+        assert first == {"n": 1}
+        assert second == {"n": 1}
+        assert calls == 1
+
+    async def test_sync_factory(self, cache: TTLCache) -> None:
+        """A plain sync factory runs and its result is stored."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        result = await idem.run("key-1", lambda: {"status": "ok"})
+
+        assert result == {"status": "ok"}
+        replay = await idem.run("key-1", lambda: {"status": "other"})
+        assert replay == {"status": "ok"}
+
+    async def test_failing_factory_stores_nothing(
+        self, cache: TTLCache
+    ) -> None:
+        """A failing factory stores nothing and a retry runs fresh."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+        calls = 0
+
+        async def factory() -> dict:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                msg = "boom"
+                raise RuntimeError(msg)
+            return {"ok": True}
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await idem.run("key-1", factory)
+
+        assert await idem.run("key-1", factory) == {"ok": True}
+        assert calls == EXPECTED_CALLS_2
+
+    async def test_fingerprint_conflict_raises(self, cache: TTLCache) -> None:
+        """A replay with a different fingerprint raises a conflict."""
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        await idem.run("key-1", lambda: {"status": "ok"}, fingerprint="abc")
+
+        with pytest.raises(IdempotencyConflictError):
+            await idem.run("key-1", lambda: {"status": "ok"}, fingerprint="xyz")
+
+
+# ---------------------------------------------------------------------------
 # Decorator
 # ---------------------------------------------------------------------------
 
