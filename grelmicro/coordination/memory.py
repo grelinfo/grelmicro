@@ -129,8 +129,8 @@ class MemoryScheduleAdapter(ScheduleBackend):
         return self._last_fired.get(name)
 
 
-class MemoryLeaderElectionBackend:
-    """In-memory leader election backend for tests and single-process apps.
+class MemoryLeaderElectionAdapter:
+    """In-memory leader election adapter for tests and single-process apps.
 
     Stores the `LeaderRecord` in a process-local dict and runs the same
     acquire/renew/expire algorithm as the distributed backends. State

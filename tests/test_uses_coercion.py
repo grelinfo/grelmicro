@@ -19,7 +19,7 @@ from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import (
-    MemoryLeaderElectionBackend,
+    MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
 )
 from grelmicro.providers import Provider
@@ -47,8 +47,8 @@ class _MemoryProvider(Provider):
     def leaderelection(
         self,
         **kwargs: object,  # noqa: ARG002
-    ) -> MemoryLeaderElectionBackend:
-        return MemoryLeaderElectionBackend()
+    ) -> MemoryLeaderElectionAdapter:
+        return MemoryLeaderElectionAdapter()
 
     def cache(self, **kwargs: object) -> MemoryCacheAdapter:  # noqa: ARG002
         return MemoryCacheAdapter()

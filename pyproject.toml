@@ -86,10 +86,10 @@ sqlite = "grelmicro.coordination.sqlite:SQLiteLockAdapter"
 kubernetes = "grelmicro.coordination.kubernetes:KubernetesLockAdapter"
 
 [project.entry-points."grelmicro.coordination.election.adapters"]
-memory = "grelmicro.coordination.memory:MemoryLeaderElectionBackend"
-redis = "grelmicro.coordination.redis:RedisLeaderElectionBackend"
-postgres = "grelmicro.coordination.postgres:PostgresLeaderElectionBackend"
-kubernetes = "grelmicro.coordination.kubernetes:KubernetesLeaderElectionBackend"
+memory = "grelmicro.coordination.memory:MemoryLeaderElectionAdapter"
+redis = "grelmicro.coordination.redis:RedisLeaderElectionAdapter"
+postgres = "grelmicro.coordination.postgres:PostgresLeaderElectionAdapter"
+kubernetes = "grelmicro.coordination.kubernetes:KubernetesLeaderElectionAdapter"
 
 [project.entry-points."grelmicro.coordination.schedule.adapters"]
 memory = "grelmicro.coordination.memory:MemoryScheduleAdapter"

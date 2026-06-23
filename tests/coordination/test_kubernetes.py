@@ -18,7 +18,7 @@ from testcontainers.core.container import DockerContainer
 from grelmicro.coordination.abc import LeaderElectionBackend
 from grelmicro.coordination.kubernetes import (
     _MAX_NAME_LENGTH,
-    KubernetesLeaderElectionBackend,
+    KubernetesLeaderElectionAdapter,
     _annotations_to_metadata,
     _lease_to_record,
     _metadata_to_annotations,
@@ -83,9 +83,9 @@ def _make_lease(
 
 def _make_mocked_backend(
     **client_overrides: AsyncMock,
-) -> KubernetesLeaderElectionBackend:
+) -> KubernetesLeaderElectionAdapter:
     """Create a backend with a mocked client."""
-    backend = KubernetesLeaderElectionBackend(namespace="default")
+    backend = KubernetesLeaderElectionAdapter(namespace="default")
     mock_client = AsyncMock()
     for attr, mock in client_overrides.items():
         setattr(mock_client, attr, mock)
@@ -99,7 +99,7 @@ def _make_mocked_backend(
 @pytest.mark.timeout(1)
 async def test_out_of_context_errors() -> None:
     """Backend methods raise when called outside the context manager."""
-    backend = KubernetesLeaderElectionBackend(namespace="default")
+    backend = KubernetesLeaderElectionAdapter(namespace="default")
 
     with pytest.raises(OutOfContextError):
         await backend.acquire_or_renew(name="election", token=TOKEN, duration=1)
@@ -115,7 +115,7 @@ async def test_out_of_context_errors() -> None:
 @pytest.mark.timeout(1)
 async def test_aenter_sets_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """`__aenter__` creates an AsyncClient."""
-    backend = KubernetesLeaderElectionBackend(namespace="default")
+    backend = KubernetesLeaderElectionAdapter(namespace="default")
     monkeypatch.setattr(
         "grelmicro.coordination.kubernetes.AsyncClient",
         lambda **_kwargs: AsyncMock(),
@@ -129,7 +129,7 @@ async def test_aenter_sets_client(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.timeout(1)
 async def test_aexit_closes_client() -> None:
     """`__aexit__` closes and clears the client."""
-    backend = KubernetesLeaderElectionBackend(namespace="default")
+    backend = KubernetesLeaderElectionAdapter(namespace="default")
     mock_client = AsyncMock()
     backend._client = mock_client
 
@@ -145,7 +145,7 @@ async def test_aexit_closes_client() -> None:
 @pytest.mark.timeout(1)
 def test_satisfies_protocol() -> None:
     """The backend satisfies the LeaderElectionBackend protocol."""
-    backend = KubernetesLeaderElectionBackend(namespace="default")
+    backend = KubernetesLeaderElectionAdapter(namespace="default")
 
     assert isinstance(backend, LeaderElectionBackend)
 
@@ -158,7 +158,7 @@ def test_env_var_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """The namespace is read from the environment variable."""
     monkeypatch.setenv("KUBE_NAMESPACE", "my-namespace")
 
-    backend = KubernetesLeaderElectionBackend()
+    backend = KubernetesLeaderElectionAdapter()
 
     assert backend._namespace == "my-namespace"
 
@@ -171,13 +171,13 @@ def test_env_var_settings_validation_error(
     monkeypatch.delenv("KUBE_NAMESPACE", raising=False)
 
     with pytest.raises(SettingsValidationError):
-        KubernetesLeaderElectionBackend()
+        KubernetesLeaderElectionAdapter()
 
 
 @pytest.mark.timeout(1)
 def test_prefix() -> None:
     """The prefix is stored on the backend."""
-    backend = KubernetesLeaderElectionBackend(
+    backend = KubernetesLeaderElectionAdapter(
         namespace="default", prefix="myapp-"
     )
 
@@ -743,9 +743,9 @@ def k3s_container() -> Generator[str]:
 @pytest.fixture
 async def backend(
     k3s_container: str,
-) -> AsyncGenerator[KubernetesLeaderElectionBackend]:
+) -> AsyncGenerator[KubernetesLeaderElectionAdapter]:
     """Open a backend connected to the k3s container."""
-    async with KubernetesLeaderElectionBackend(
+    async with KubernetesLeaderElectionAdapter(
         namespace="default", kubeconfig=k3s_container
     ) as backend:
         yield backend
@@ -753,7 +753,7 @@ async def backend(
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
-async def test_acquire(backend: KubernetesLeaderElectionBackend) -> None:
+async def test_acquire(backend: KubernetesLeaderElectionAdapter) -> None:
     """A fresh election is acquired and creates a live Lease."""
     name = "acquire-" + uuid4().hex
     token = uuid4().hex
@@ -773,7 +773,7 @@ async def test_acquire(backend: KubernetesLeaderElectionBackend) -> None:
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_renew_keeps_transitions(
-    backend: KubernetesLeaderElectionBackend,
+    backend: KubernetesLeaderElectionAdapter,
 ) -> None:
     """Renewing the same holder moves renewed_at but not transitions."""
     name = "renew-" + uuid4().hex
@@ -795,7 +795,7 @@ async def test_renew_keeps_transitions(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_live_lease_not_taken(
-    backend: KubernetesLeaderElectionBackend,
+    backend: KubernetesLeaderElectionAdapter,
 ) -> None:
     """A live lease cannot be taken by another holder."""
     name = "live-" + uuid4().hex
@@ -817,7 +817,7 @@ async def test_live_lease_not_taken(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_takeover_after_expiry(
-    backend: KubernetesLeaderElectionBackend,
+    backend: KubernetesLeaderElectionAdapter,
 ) -> None:
     """A new holder takes over after expiry and bumps transitions."""
     name = "takeover-" + uuid4().hex
@@ -836,7 +836,7 @@ async def test_takeover_after_expiry(
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
-async def test_release(backend: KubernetesLeaderElectionBackend) -> None:
+async def test_release(backend: KubernetesLeaderElectionAdapter) -> None:
     """Release returns True for the holder, False for non-holders."""
     name = "release-" + uuid4().hex
     token = uuid4().hex
@@ -852,7 +852,7 @@ async def test_release(backend: KubernetesLeaderElectionBackend) -> None:
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_get_live_and_expired(
-    backend: KubernetesLeaderElectionBackend,
+    backend: KubernetesLeaderElectionAdapter,
 ) -> None:
     """Get returns the live record then None after expiry."""
     name = "get-" + uuid4().hex
@@ -871,7 +871,7 @@ async def test_get_live_and_expired(
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 async def test_metadata_roundtrip(
-    backend: KubernetesLeaderElectionBackend,
+    backend: KubernetesLeaderElectionAdapter,
 ) -> None:
     """Metadata round-trips through Lease annotations."""
     name = "metadata-" + uuid4().hex

@@ -15,7 +15,7 @@ from grelmicro.coordination import (
     TaskLock,
 )
 from grelmicro.coordination.memory import (
-    MemoryLeaderElectionBackend,
+    MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
     MemoryScheduleAdapter,
 )
@@ -73,7 +73,7 @@ def test_task_lock_factory_binds_backend() -> None:
 
 def test_leader_election_factory_binds_backend() -> None:
     """`coordination.leaderelection(name)` binds the election backend."""
-    backend = MemoryLeaderElectionBackend()
+    backend = MemoryLeaderElectionAdapter()
     coordination = Coordination(election=backend)
     election = coordination.leaderelection("worker")
     assert isinstance(election, LeaderElection)
@@ -89,28 +89,28 @@ def test_lock_backend_property() -> None:
 
 def test_election_backend_property() -> None:
     """`coordination.election_backend` returns the wired election backend."""
-    backend = MemoryLeaderElectionBackend()
+    backend = MemoryLeaderElectionAdapter()
     coordination = Coordination(election=backend)
     assert coordination.election_backend is backend
 
 
 def test_lock_without_lock_backend_raises() -> None:
     """`coordination.lock()` raises when no lock backend is wired."""
-    coordination = Coordination(election=MemoryLeaderElectionBackend())
+    coordination = Coordination(election=MemoryLeaderElectionAdapter())
     with pytest.raises(CoordinationBackendError, match="no lock backend"):
         coordination.lock("cart")
 
 
 def test_task_lock_without_lock_backend_raises() -> None:
     """`coordination.tasklock()` raises when no lock backend is wired."""
-    coordination = Coordination(election=MemoryLeaderElectionBackend())
+    coordination = Coordination(election=MemoryLeaderElectionAdapter())
     with pytest.raises(CoordinationBackendError, match="no lock backend"):
         coordination.tasklock("cleanup")
 
 
 def test_lock_backend_property_without_lock_backend_raises() -> None:
     """`coordination.lock_backend` raises when no lock backend is wired."""
-    coordination = Coordination(election=MemoryLeaderElectionBackend())
+    coordination = Coordination(election=MemoryLeaderElectionAdapter())
     with pytest.raises(CoordinationBackendError, match="no lock backend"):
         _ = coordination.lock_backend
 
@@ -139,7 +139,7 @@ def test_coordination_resolves_both_from_provider() -> None:
     coordination = Coordination(provider)
     assert coordination.lock_backend.__class__.__name__ == "RedisLockAdapter"
     assert coordination.election_backend.__class__.__name__ == (
-        "RedisLeaderElectionBackend"
+        "RedisLeaderElectionAdapter"
     )
 
 
@@ -166,7 +166,7 @@ def test_election_keyword_accepts_provider() -> None:
     provider = RedisProvider("redis://localhost:6379/0")
     coordination = Coordination(election=provider)
     assert coordination.election_backend.__class__.__name__ == (
-        "RedisLeaderElectionBackend"
+        "RedisLeaderElectionAdapter"
     )
 
 
@@ -218,12 +218,12 @@ def test_lock_keyword_accepts_bare_backend_class() -> None:
 
 
 def test_election_keyword_accepts_bare_backend_class() -> None:
-    """`election=MemoryLeaderElectionBackend` instantiates the class."""
+    """`election=MemoryLeaderElectionAdapter` instantiates the class."""
     coordination = Coordination(
-        election=MemoryLeaderElectionBackend,  # ty: ignore[invalid-argument-type]
+        election=MemoryLeaderElectionAdapter,  # ty: ignore[invalid-argument-type]
     )
     assert isinstance(
-        coordination.election_backend, MemoryLeaderElectionBackend
+        coordination.election_backend, MemoryLeaderElectionAdapter
     )
 
 
@@ -234,14 +234,14 @@ def test_keyword_overrides_provider_lock_backend() -> None:
     coordination = Coordination(provider, lock=override)
     assert coordination.lock_backend is override
     assert coordination.election_backend.__class__.__name__ == (
-        "RedisLeaderElectionBackend"
+        "RedisLeaderElectionAdapter"
     )
 
 
 def test_keyword_overrides_provider_election_backend() -> None:
     """`election=` overrides the election backend resolved from `source`."""
     provider = RedisProvider("redis://localhost:6379/0")
-    override = MemoryLeaderElectionBackend()
+    override = MemoryLeaderElectionAdapter()
     coordination = Coordination(provider, election=override)
     assert coordination.election_backend is override
     assert coordination.lock_backend.__class__.__name__ == "RedisLockAdapter"
@@ -313,7 +313,7 @@ async def test_lock_only_lifecycle() -> None:
 
 async def test_election_only_lifecycle() -> None:
     """An election-only component opens and closes its election backend."""
-    backend = MemoryLeaderElectionBackend()
+    backend = MemoryLeaderElectionAdapter()
     micro = Grelmicro(uses=[Coordination(election=backend)])
     async with micro:
         assert micro.coordination.election_backend is backend
@@ -322,7 +322,7 @@ async def test_election_only_lifecycle() -> None:
 async def test_dual_lifecycle_opens_and_closes_both() -> None:
     """Both backends open and close when both are wired."""
     lock_backend = MemoryLockAdapter()
-    election_backend = MemoryLeaderElectionBackend()
+    election_backend = MemoryLeaderElectionAdapter()
     coordination = Coordination(lock=lock_backend, election=election_backend)
     async with Grelmicro(uses=[coordination]):
         assert coordination.lock_backend is lock_backend
@@ -345,8 +345,8 @@ async def test_use_auto_wraps_raw_lock_backend() -> None:
 
 
 async def test_use_auto_wraps_raw_election_backend() -> None:
-    """`micro.use(MemoryLeaderElectionBackend())` auto-wraps the backend."""
-    backend = MemoryLeaderElectionBackend()
+    """`micro.use(MemoryLeaderElectionAdapter())` auto-wraps the backend."""
+    backend = MemoryLeaderElectionAdapter()
     micro = Grelmicro(uses=[backend])
     assert isinstance(micro.coordination, Coordination)
     assert micro.coordination.election_backend is backend
@@ -415,7 +415,7 @@ async def test_aexit_closes_both_when_lock_close_raises() -> None:
             msg = "lock close failed"
             raise RuntimeError(msg)
 
-    class _TrackingElection(MemoryLeaderElectionBackend):
+    class _TrackingElection(MemoryLeaderElectionAdapter):
         closed = False
 
         async def __aexit__(

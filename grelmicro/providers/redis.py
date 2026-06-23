@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
     from grelmicro.cache.redis import RedisCacheAdapter
     from grelmicro.coordination.redis import (
-        RedisLeaderElectionBackend,
+        RedisLeaderElectionAdapter,
         RedisLockAdapter,
         RedisScheduleAdapter,
     )
@@ -404,13 +404,13 @@ class RedisProvider(Provider):
     def leaderelection(
         self,
         **kwargs: Any,  # noqa: ANN401
-    ) -> RedisLeaderElectionBackend:
-        """Build a `RedisLeaderElectionBackend` bound to this provider."""
+    ) -> RedisLeaderElectionAdapter:
+        """Build a `RedisLeaderElectionAdapter` bound to this provider."""
         from grelmicro.coordination.redis import (  # noqa: PLC0415
-            RedisLeaderElectionBackend,
+            RedisLeaderElectionAdapter,
         )
 
-        return RedisLeaderElectionBackend(provider=self, **kwargs)
+        return RedisLeaderElectionAdapter(provider=self, **kwargs)
 
     def schedule(self, **kwargs: Any) -> RedisScheduleAdapter:  # noqa: ANN401
         """Build a `RedisScheduleAdapter` bound to this provider."""

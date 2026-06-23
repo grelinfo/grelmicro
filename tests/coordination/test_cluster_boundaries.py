@@ -23,7 +23,7 @@ from grelmicro.coordination.leaderelection import (
 )
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import (
-    MemoryLeaderElectionBackend,
+    MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
 )
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
@@ -177,7 +177,7 @@ async def test_live_record_expires_at_exact_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """At `now == renewed_at + lease` the record is expired (guard is `>=`)."""
-    backend = MemoryLeaderElectionBackend()
+    backend = MemoryLeaderElectionAdapter()
     _freeze_memory_datetime(monkeypatch, _EPOCH)
     await backend.acquire_or_renew(name="svc", token="w1", duration=_LEASE)
 
@@ -190,7 +190,7 @@ async def test_renew_forwards_renewed_at_and_lease_duration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Renewing the live lease writes the new renewed_at and lease_duration."""
-    backend = MemoryLeaderElectionBackend()
+    backend = MemoryLeaderElectionAdapter()
     _freeze_memory_datetime(monkeypatch, _EPOCH)
     first = await backend.acquire_or_renew(
         name="svc", token="w1", duration=_LEASE

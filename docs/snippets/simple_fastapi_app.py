@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination, LeaderElection, Lock
-from grelmicro.coordination.memory import MemoryLeaderElectionBackend
+from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 from grelmicro.fastapi import GrelmicroMiddleware
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
@@ -26,7 +26,7 @@ redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(
     uses=[
-        Coordination(lock=redis.lock(), election=MemoryLeaderElectionBackend()),
+        Coordination(lock=redis.lock(), election=MemoryLeaderElectionAdapter()),
         CircuitBreakers(MemoryCircuitBreakerAdapter()),
         tasks,
     ]

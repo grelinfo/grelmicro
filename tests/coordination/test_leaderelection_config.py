@@ -11,7 +11,7 @@ from grelmicro.coordination.leaderelection import (
     LeaderElection,
     LeaderElectionConfig,
 )
-from grelmicro.coordination.memory import MemoryLeaderElectionBackend
+from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 
 LEASE_KWARG = 12.0
 RETRY_KWARG = 1.0
@@ -24,7 +24,7 @@ DEFAULT_RETRY = 2.0
 @pytest.fixture
 def backend() -> LeaderElectionBackend:
     """Return a memory backend usable without a running event loop."""
-    return MemoryLeaderElectionBackend()
+    return MemoryLeaderElectionAdapter()
 
 
 async def test_release_is_noop_when_backend_was_never_resolved() -> None:
@@ -42,7 +42,7 @@ def test_construction_does_not_resolve(mocker: MockerFixture) -> None:
 
 async def test_backend_property_resolves_on_every_call() -> None:
     """`le.backend` consults the active `Grelmicro` app on each read."""
-    backend_instance = MemoryLeaderElectionBackend()
+    backend_instance = MemoryLeaderElectionAdapter()
     micro = Grelmicro(uses=[Coordination(election=backend_instance)])
     async with micro:
         le = LeaderElection("svc")

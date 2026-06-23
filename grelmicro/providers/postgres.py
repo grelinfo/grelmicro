@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from grelmicro.cache.postgres import PostgresCacheAdapter
     from grelmicro.coordination.postgres import (
-        PostgresLeaderElectionBackend,
+        PostgresLeaderElectionAdapter,
         PostgresLockAdapter,
         PostgresScheduleAdapter,
     )
@@ -262,13 +262,13 @@ class PostgresProvider(Provider):
     def leaderelection(
         self,
         **kwargs: Any,  # noqa: ANN401
-    ) -> PostgresLeaderElectionBackend:
-        """Build a `PostgresLeaderElectionBackend` bound to this provider."""
+    ) -> PostgresLeaderElectionAdapter:
+        """Build a `PostgresLeaderElectionAdapter` bound to this provider."""
         from grelmicro.coordination.postgres import (  # noqa: PLC0415
-            PostgresLeaderElectionBackend,
+            PostgresLeaderElectionAdapter,
         )
 
-        return PostgresLeaderElectionBackend(provider=self, **kwargs)
+        return PostgresLeaderElectionAdapter(provider=self, **kwargs)
 
     def schedule(self, **kwargs: Any) -> PostgresScheduleAdapter:  # noqa: ANN401
         """Build a `PostgresScheduleAdapter` bound to this provider."""
