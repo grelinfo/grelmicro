@@ -20,13 +20,13 @@ Pick the front door first, the algorithm second, the backend third.
 
 **Components** (wire the front doors into `Grelmicro(uses=[...])`):
 
-* `RateLimiters(backend)` and `CircuitBreakers(backend)`. They
+* `RateLimiterRegistry(backend)` and `CircuitBreakerRegistry(backend)`. They
   register the shared storage. Without them, pass `backend=` on the
   primitive (a memory adapter is fine for tests and single-replica
   services).
 
 **Adapters / backends** (one per storage choice, used inside
-`RateLimiters` / `CircuitBreakers`): `MemoryRateLimiterAdapter`,
+`RateLimiterRegistry` / `CircuitBreakerRegistry`): `MemoryRateLimiterAdapter`,
 `RedisRateLimiterAdapter`, `PostgresRateLimiterAdapter`,
 `SQLiteRateLimiterAdapter`, `MemoryCircuitBreakerAdapter`,
 `RedisCircuitBreakerAdapter`, `PostgresCircuitBreakerAdapter`. End
@@ -55,7 +55,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from grelmicro.resilience._components import CircuitBreakers, RateLimiters
+from grelmicro.resilience._components import (
+    CircuitBreakerRegistry,
+    RateLimiterRegistry,
+)
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience._protocol import (
@@ -171,10 +174,10 @@ __all__ = [
     "CircuitBreakerConfig",
     "CircuitBreakerError",
     "CircuitBreakerMetrics",
+    "CircuitBreakerRegistry",
     "CircuitBreakerSnapshot",
     "CircuitBreakerState",
     "CircuitBreakerStrategy",
-    "CircuitBreakers",
     "ConsecutiveCountConfig",
     "ConstantBackoff",
     "ErrorDetails",
@@ -199,8 +202,8 @@ __all__ = [
     "RateLimiter",
     "RateLimiterBackend",
     "RateLimiterConfig",
+    "RateLimiterRegistry",
     "RateLimiterStrategy",
-    "RateLimiters",
     "RedisCircuitBreakerAdapter",
     "RedisRateLimiterAdapter",
     "ResilienceError",

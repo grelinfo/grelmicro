@@ -2,7 +2,7 @@
 
 A **Provider** is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
-of both. Components like `Coordination`, `Cache`, and `RateLimiters` accept a
+of both. Components like `Coordination`, `Cache`, and `RateLimiterRegistry` accept a
 Provider directly and use its matching adapter under the hood.
 
 Four providers ship today: `RedisProvider`, `ValkeyProvider`, `PostgresProvider`, and
@@ -17,14 +17,14 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import RateLimiters
+from grelmicro.resilience import RateLimiterRegistry
 
 redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(uses=[
     Coordination(redis),
     Cache(redis),
-    RateLimiters(redis),
+    RateLimiterRegistry(redis),
 ])
 
 async with micro:
@@ -44,7 +44,7 @@ public as escape hatches but rarely appear in user code.
     micro = Grelmicro(uses=[
         Coordination(redis),
         Cache(redis),
-        RateLimiters(redis),
+        RateLimiterRegistry(redis),
     ])
     ```
 
@@ -231,7 +231,7 @@ Each Provider exposes factory methods that return its matching adapter:
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
-`RateLimiters(provider)`, and `CircuitBreakers(provider)` call these factories.
+`RateLimiterRegistry(provider)`, and `CircuitBreakerRegistry(provider)` call these factories.
 
 ## Readiness check
 
@@ -259,14 +259,14 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.coordination import Coordination
 from grelmicro.providers.valkey import ValkeyProvider
-from grelmicro.resilience import RateLimiters
+from grelmicro.resilience import RateLimiterRegistry
 
 valkey = ValkeyProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(uses=[
     Coordination(valkey),
     Cache(valkey),
-    RateLimiters(valkey),
+    RateLimiterRegistry(valkey),
 ])
 ```
 
@@ -348,12 +348,12 @@ lock that adapters borrow.
 ```python
 from grelmicro import Grelmicro
 from grelmicro.providers.sqlite import SQLiteProvider
-from grelmicro.resilience import RateLimiters
+from grelmicro.resilience import RateLimiterRegistry
 
 sqlite = SQLiteProvider("app.db")
 
 micro = Grelmicro(uses=[
-    RateLimiters(sqlite),
+    RateLimiterRegistry(sqlite),
 ])
 ```
 
@@ -390,10 +390,10 @@ provider. Pass the adapter directly to its Component:
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.resilience import CircuitBreakers
+from grelmicro.resilience import CircuitBreakerRegistry
 from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
 
 micro = Grelmicro(uses=[
-    CircuitBreakers(MemoryCircuitBreakerAdapter()),
+    CircuitBreakerRegistry(MemoryCircuitBreakerAdapter()),
 ])
 ```

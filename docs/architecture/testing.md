@@ -34,14 +34,14 @@ Time-dependent primitives (`Retry` backoff, `CircuitBreaker` half-open window, `
 ```python
 from grelmicro import Grelmicro
 from grelmicro.clock import VirtualClock
-from grelmicro.resilience import CircuitBreakers
+from grelmicro.resilience import CircuitBreakerRegistry
 from grelmicro.resilience.circuitbreaker import CircuitBreaker, CircuitBreakerState
 from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
 
 
 async def test_breaker_half_opens_after_cooldown() -> None:
     async with VirtualClock() as clock:
-        micro = Grelmicro(uses=[CircuitBreakers(MemoryCircuitBreakerAdapter())])
+        micro = Grelmicro(uses=[CircuitBreakerRegistry(MemoryCircuitBreakerAdapter())])
         async with micro:
             breaker = CircuitBreaker.consecutive_count(
                 "svc", error_threshold=1, reset_timeout=30

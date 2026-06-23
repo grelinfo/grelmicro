@@ -177,10 +177,10 @@ class MemoryRateLimiterAdapter(RateLimiterBackend):
 
     Example:
     ```python
-    from grelmicro.resilience import RateLimiters, RateLimiter
+    from grelmicro.resilience import RateLimiterRegistry, RateLimiter
     from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
-    micro = Grelmicro(uses=[RateLimiters(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
     rl = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
     ```
 

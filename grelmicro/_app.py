@@ -360,7 +360,7 @@ class Grelmicro:
                 f"with no components, so the default component for each kind is "
                 f"ambiguous. Wrap each provider in the components it should "
                 f"serve, for example Cache(provider) or "
-                f"RateLimiters(provider)."
+                f"RateLimiterRegistry(provider)."
             )
             raise AmbiguousProviderError(msg)
         self._register_one_provider(pending[0])
@@ -806,8 +806,8 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
         LockBackend,
     )
     from grelmicro.resilience._components import (  # noqa: PLC0415
-        CircuitBreakers,
-        RateLimiters,
+        CircuitBreakerRegistry,
+        RateLimiterRegistry,
     )
     from grelmicro.resilience._protocol import (  # noqa: PLC0415
         CircuitBreakerBackend,
@@ -821,9 +821,9 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     if isinstance(item, LockBackend):
         return Coordination(lock=item)
     if isinstance(item, CircuitBreakerBackend):
-        return CircuitBreakers(item)
+        return CircuitBreakerRegistry(item)
     if isinstance(item, RateLimiterBackend):
-        return RateLimiters(item)
+        return RateLimiterRegistry(item)
     return None
 
 
@@ -841,8 +841,8 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
         Coordination,
     )
     from grelmicro.resilience._components import (  # noqa: PLC0415
-        CircuitBreakers,
-        RateLimiters,
+        CircuitBreakerRegistry,
+        RateLimiterRegistry,
     )
 
     components: list[Component] = []
@@ -861,11 +861,11 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
 
     ratelimiter = _provider_backend_or_none(provider.ratelimiter)
     if ratelimiter is not None:
-        components.append(RateLimiters(ratelimiter))
+        components.append(RateLimiterRegistry(ratelimiter))
 
     circuitbreaker = _provider_backend_or_none(provider.circuitbreaker)
     if circuitbreaker is not None:
-        components.append(CircuitBreakers(circuitbreaker))
+        components.append(CircuitBreakerRegistry(circuitbreaker))
 
     return components
 

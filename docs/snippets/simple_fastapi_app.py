@@ -9,7 +9,7 @@ from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 from grelmicro.fastapi import GrelmicroMiddleware
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import CircuitBreaker, CircuitBreakers
+from grelmicro.resilience import CircuitBreaker, CircuitBreakerRegistry
 from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
 )
@@ -27,7 +27,7 @@ redis = RedisProvider("redis://localhost:6379/0")
 micro = Grelmicro(
     uses=[
         Coordination(lock=redis.lock(), election=MemoryLeaderElectionAdapter()),
-        CircuitBreakers(MemoryCircuitBreakerAdapter()),
+        CircuitBreakerRegistry(MemoryCircuitBreakerAdapter()),
         tasks,
     ]
 )

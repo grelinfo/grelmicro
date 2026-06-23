@@ -11,7 +11,7 @@ import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.clock import VirtualClock
-from grelmicro.resilience import CircuitBreakers, Retry
+from grelmicro.resilience import CircuitBreakerRegistry, Retry
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     CircuitBreakerError,
@@ -107,7 +107,7 @@ async def test_circuit_breaker_half_open_driven_by_virtual_clock(
 ) -> None:
     """An open breaker moves to half-open after the cool-down elapses."""
     backend = MemoryCircuitBreakerAdapter()
-    async with Grelmicro(uses=[CircuitBreakers(backend)]):
+    async with Grelmicro(uses=[CircuitBreakerRegistry(backend)]):
         cb = CircuitBreaker.consecutive_count(
             "clock_cb",
             error_threshold=1,

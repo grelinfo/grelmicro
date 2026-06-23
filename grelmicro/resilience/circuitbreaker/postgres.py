@@ -55,7 +55,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     ```python
     from grelmicro import Grelmicro
     from grelmicro.providers.postgres import PostgresProvider
-    from grelmicro.resilience import CircuitBreakers, CircuitBreaker
+    from grelmicro.resilience import CircuitBreakerRegistry, CircuitBreaker
     from grelmicro.resilience.circuitbreaker.postgres import (
         PostgresCircuitBreakerAdapter,
     )
@@ -64,7 +64,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     micro = Grelmicro(
         uses=[
             postgres,
-            CircuitBreakers(PostgresCircuitBreakerAdapter(provider=postgres)),
+            CircuitBreakerRegistry(PostgresCircuitBreakerAdapter(provider=postgres)),
         ]
     )
     payments = CircuitBreaker("payments")

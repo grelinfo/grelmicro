@@ -55,10 +55,10 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
     ```python
     from grelmicro import Grelmicro
     from grelmicro.providers.sqlite import SQLiteProvider
-    from grelmicro.resilience import CircuitBreakers, CircuitBreaker
+    from grelmicro.resilience import CircuitBreakerRegistry, CircuitBreaker
 
     sqlite = SQLiteProvider("app.db")
-    micro = Grelmicro(uses=[sqlite, CircuitBreakers(sqlite)])
+    micro = Grelmicro(uses=[sqlite, CircuitBreakerRegistry(sqlite)])
     payments = CircuitBreaker("payments")
     ```
 

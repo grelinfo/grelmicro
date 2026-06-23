@@ -11,7 +11,7 @@ Every backend uses **async** methods because it performs network or disk I/O (Re
 | Kind | Examples | Role |
 |---|---|---|
 | **Provider** | `RedisProvider`, `PostgresProvider` | Owns the connection pool and the vendor config. Components attach to it. |
-| **Component** | `Coordination`, `Cache`, `RateLimiters`, `CircuitBreakers` | Registration on a `Grelmicro` app: `(kind, name)` pair plus lifecycle. Accepts a Provider or a Backend. |
+| **Component** | `Coordination`, `Cache`, `RateLimiterRegistry`, `CircuitBreakerRegistry` | Registration on a `Grelmicro` app: `(kind, name)` pair plus lifecycle. Accepts a Provider or a Backend. |
 | **Backend** | `LockBackend`, `CacheBackend` (Protocol) | Pure interface. Memory backends (`MemoryLockAdapter`) implement it directly. |
 | **Adapter** | `RedisLockAdapter`, `RedisCacheAdapter` | Internal. Built by `Provider.{kind}()` factory. Public escape hatch for custom Providers. |
 | **Pattern** | `Lock`, `TaskLock`, `LeaderElection`, `TTLCache` | The user-facing primitive. Declared at module load, resolves its backend at use time. |
@@ -24,7 +24,7 @@ Not every Pattern needs a backend, and the ones that do behave differently when 
 
 **Backend required.** `Lock`, `TaskLock`, and `LeaderElection` only mean something against a shared store: a lock local to one process is not a lock. They have no safe local fallback, so using one without a registered `Coordination` backend raises.
 
-**Backend optional, degrades safely.** `CircuitBreaker`, `RateLimiter`, and the `@cron` schedule all run without a backend, they just stop coordinating across replicas. A circuit breaker trips per replica, a rate limiter counts per replica, and a `@cron` task runs on every worker instead of once across the fleet. Sharing is a deliberate opt-in, and the safe default differs per Pattern: a circuit breaker is best left local (each replica reacts to what it sees), a rate limiter is often global, and a cron task usually wants the schedule backend so it fires once. Resilience keeps `CircuitBreakers` and `RateLimiters` as separate Components so opting rate limiting into a shared store does not also distribute your circuit breakers.
+**Backend optional, degrades safely.** `CircuitBreaker`, `RateLimiter`, and the `@cron` schedule all run without a backend, they just stop coordinating across replicas. A circuit breaker trips per replica, a rate limiter counts per replica, and a `@cron` task runs on every worker instead of once across the fleet. Sharing is a deliberate opt-in, and the safe default differs per Pattern: a circuit breaker is best left local (each replica reacts to what it sees), a rate limiter is often global, and a cron task usually wants the schedule backend so it fires once. Resilience keeps `CircuitBreakerRegistry` and `RateLimiterRegistry` as separate Components so opting rate limiting into a shared store does not also distribute your circuit breakers.
 
 **Purely local.** `Retry`, `Timeout`, `Bulkhead`, `Shield`, and `Fallback` hold no shared state and never take a backend. Construct and use them directly.
 
@@ -73,14 +73,14 @@ Grelmicro(uses=[MemoryCacheAdapter()])  # same as Cache(MemoryCacheAdapter())
 Grelmicro(uses=[MemoryLockAdapter()])   # wrapped in Coordination
 ```
 
-The adapter kind decides the Component: a cache adapter becomes `Cache`, a lock adapter becomes `Coordination`, a rate limiter adapter becomes `RateLimiters`, a circuit breaker adapter becomes `CircuitBreakers`.
+The adapter kind decides the Component: a cache adapter becomes `Cache`, a lock adapter becomes `Coordination`, a rate limiter adapter becomes `RateLimiterRegistry`, a circuit breaker adapter becomes `CircuitBreakerRegistry`.
 
 **Bare Provider.** A Provider listed with no Components registers one default Component for every kind it serves.
 
 ```python
 redis = RedisProvider("redis://localhost")
 Grelmicro(uses=[redis])
-# registers Coordination, Cache, RateLimiters, CircuitBreakers, all on redis
+# registers Coordination, Cache, RateLimiterRegistry, CircuitBreakerRegistry, all on redis
 ```
 
 A Provider serves a kind when its factory for that kind is implemented. `RedisProvider` and `PostgresProvider` serve all four kinds. `SQLiteProvider` skips leader election. An unserved kind (the factory raises `NotImplementedError`) is skipped. Any other factory error propagates, a misconfigured Provider fails loudly instead of registering a partial app.

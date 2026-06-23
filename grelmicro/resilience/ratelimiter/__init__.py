@@ -188,7 +188,7 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         Raises:
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryRateLimiterAdapter()` for a
-                per-process limiter), register a `RateLimiters`
+                per-process limiter), register a `RateLimiterRegistry`
                 Component, or run the call under the app context (for
                 FastAPI, add `GrelmicroMiddleware`).
         """
@@ -208,7 +208,7 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             msg = (
                 f"RateLimiter({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryRateLimiterAdapter() for a per-process "
-                f"limiter), register a RateLimiters component, or run the "
+                f"limiter), register a RateLimiterRegistry component, or run the "
                 f"call under the app context (for FastAPI add "
                 f"GrelmicroMiddleware)."
             )

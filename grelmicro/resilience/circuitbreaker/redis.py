@@ -44,10 +44,10 @@ class RedisCircuitBreakerAdapter(CircuitBreakerBackend):
     ```python
     from grelmicro import Grelmicro
     from grelmicro.providers.redis import RedisProvider
-    from grelmicro.resilience import CircuitBreakers, CircuitBreaker
+    from grelmicro.resilience import CircuitBreakerRegistry, CircuitBreaker
 
     redis = RedisProvider("redis://localhost:6379/0")
-    micro = Grelmicro(uses=[redis, CircuitBreakers(redis)])
+    micro = Grelmicro(uses=[redis, CircuitBreakerRegistry(redis)])
     payments = CircuitBreaker("payments")
     ```
 

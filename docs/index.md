@@ -116,7 +116,7 @@ async def ping() -> dict[str, str]:
     return {"status": "ok"}
 ```
 
-That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory adapter says per-process on purpose. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[RateLimiters(redis)])` as shown below.
+That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory adapter says per-process on purpose. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[RateLimiterRegistry(redis)])` as shown below.
 
 ### Lifespan with one provider and one component
 
@@ -133,11 +133,11 @@ from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     RateLimitExceededError,
     RateLimiter,
-    RateLimiters,
+    RateLimiterRegistry,
 )
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[RateLimiters(redis)])
+micro = Grelmicro(uses=[RateLimiterRegistry(redis)])
 
 api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
@@ -181,10 +181,10 @@ from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
-    CircuitBreakers,
+    CircuitBreakerRegistry,
     RateLimitExceededError,
     RateLimiter,
-    RateLimiters,
+    RateLimiterRegistry,
 )
 from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
 from grelmicro.coordination import Coordination, LeaderElection, Lock
@@ -204,8 +204,8 @@ tasks.add_task(leader)
 micro = Grelmicro(uses=[
     Coordination(redis),
     Cache(redis),
-    RateLimiters(redis),
-    CircuitBreakers(MemoryCircuitBreakerAdapter()),
+    RateLimiterRegistry(redis),
+    CircuitBreakerRegistry(MemoryCircuitBreakerAdapter()),
     tasks,
     health,
 ])
@@ -289,7 +289,7 @@ def leader_only_task():
 The key shape:
 
 - **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Component and active manager. `async with micro:` opens them all in order, closes in reverse.
-- **One Provider, many Components.** `Coordination(redis)`, `Cache(redis)`, `RateLimiters(redis)` all share the same `RedisProvider` pool. List the Components and grelmicro lifecycles the Provider once. Pass a bare `Grelmicro(uses=[redis])` to register a default Component per kind the Provider serves.
+- **One Provider, many Components.** `Coordination(redis)`, `Cache(redis)`, `RateLimiterRegistry(redis)` all share the same `RedisProvider` pool. List the Components and grelmicro lifecycles the Provider once. Pass a bare `Grelmicro(uses=[redis])` to register a default Component per kind the Provider serves.
 - **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`, and `GrelmicroMiddleware` extends that scope to request handlers. The same `Lock` works in production with Redis and in tests with `MemoryLockAdapter`, no rewiring.
 - **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
 
