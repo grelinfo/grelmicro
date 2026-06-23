@@ -26,8 +26,8 @@ class _CaseInsensitiveEnum(StrEnum):
         return None
 
 
-class LoggingLevelType(_CaseInsensitiveEnum):
-    """Logging Level Enum."""
+class LogLevelType(_CaseInsensitiveEnum):
+    """Log Level Enum."""
 
     DEBUG = "DEBUG"
     INFO = "INFO"
@@ -36,8 +36,8 @@ class LoggingLevelType(_CaseInsensitiveEnum):
     CRITICAL = "CRITICAL"
 
 
-class LoggingFormatType(_CaseInsensitiveEnum):
-    """Logging Format Enum."""
+class LogFormatType(_CaseInsensitiveEnum):
+    """Log Format Enum."""
 
     AUTO = "AUTO"
     JSON = "JSON"
@@ -46,15 +46,15 @@ class LoggingFormatType(_CaseInsensitiveEnum):
     PRETTY = "PRETTY"
 
 
-class LoggingBackendType(_CaseInsensitiveEnum):
-    """Logging Backend Enum."""
+class LogBackendType(_CaseInsensitiveEnum):
+    """Log Backend Enum."""
 
     LOGURU = "loguru"
     STRUCTLOG = "structlog"
     STDLIB = "stdlib"
 
 
-class LoggingSerializerType(_CaseInsensitiveEnum):
+class LogSerializerType(_CaseInsensitiveEnum):
     """JSON Serializer Enum."""
 
     STDLIB = "stdlib"
@@ -62,34 +62,34 @@ class LoggingSerializerType(_CaseInsensitiveEnum):
 
 
 @timezone_name_settings(strict=False)
-class LoggingTimeZoneType(TimeZoneName):
+class LogTimeZoneType(TimeZoneName):
     """Timezone name."""
 
 
-class LoggingConfig(BaseModel, frozen=True, extra="forbid"):
-    """Logging Config."""
+class LogConfig(BaseModel, frozen=True, extra="forbid"):
+    """Log Config."""
 
     backend: Annotated[
-        LoggingBackendType,
+        LogBackendType,
         Doc("Logging backend implementation."),
-    ] = LoggingBackendType.STDLIB
+    ] = LogBackendType.STDLIB
     level: Annotated[
-        LoggingLevelType,
+        LogLevelType,
         Doc("Log level threshold."),
-    ] = LoggingLevelType.INFO
+    ] = LogLevelType.INFO
     format: Annotated[
-        LoggingFormatType | str,
+        LogFormatType | str,
         Doc("Log format. Built-in option or a custom template string."),
         Field(union_mode="left_to_right"),
-    ] = LoggingFormatType.AUTO
+    ] = LogFormatType.AUTO
     timezone: Annotated[
-        LoggingTimeZoneType,  # ty: ignore[invalid-type-form]
+        LogTimeZoneType,  # ty: ignore[invalid-type-form]
         Doc("IANA timezone for timestamps."),
-    ] = LoggingTimeZoneType("UTC")
+    ] = LogTimeZoneType("UTC")
     json_serializer: Annotated[
-        LoggingSerializerType,
+        LogSerializerType,
         Doc("JSON serializer used for structured output."),
-    ] = LoggingSerializerType.STDLIB
+    ] = LogSerializerType.STDLIB
     caller_enabled: Annotated[
         bool,
         Doc("Include caller (function and line) in log records."),

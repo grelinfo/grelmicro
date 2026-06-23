@@ -12,11 +12,11 @@ from zoneinfo import ZoneInfo
 from grelmicro._config import resolve_config
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.log.config import (
-    LoggingConfig,
-    LoggingFormatType,
-    LoggingSerializerType,
+    LogConfig,
+    LogFormatType,
+    LogSerializerType,
 )
-from grelmicro.log.errors import LoggingSettingsValidationError
+from grelmicro.log.errors import LogSettingsValidationError
 
 try:
     from opentelemetry import trace
@@ -319,29 +319,25 @@ def render_pretty_lines(
 
 
 def _resolve_format(
-    log_format: LoggingFormatType | str,
-) -> LoggingFormatType | str:
+    log_format: LogFormatType | str,
+) -> LogFormatType | str:
     """Resolve AUTO format based on TTY and color environment detection."""
-    if log_format == LoggingFormatType.AUTO:
-        return (
-            LoggingFormatType.TEXT
-            if should_colorize()
-            else LoggingFormatType.JSON
-        )
+    if log_format == LogFormatType.AUTO:
+        return LogFormatType.TEXT if should_colorize() else LogFormatType.JSON
     return log_format
 
 
 class LoadedSettings(NamedTuple):
     """Validated logging settings."""
 
-    settings: LoggingConfig
+    settings: LogConfig
     timezone: tzinfo
-    resolved_format: LoggingFormatType | str
+    resolved_format: LogFormatType | str
     json_dumps: Callable[[Mapping[str, Any]], str]
     colors: bool
 
 
-def load_settings(settings: LoggingConfig | None = None) -> LoadedSettings:
+def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
     """Validate and prepare runtime values from a logging config.
 
     When `settings` is `None`, reads `GREL_LOG_*` environment
@@ -349,19 +345,19 @@ def load_settings(settings: LoggingConfig | None = None) -> LoadedSettings:
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
-        LoggingSettingsValidationError: If environment variables are invalid.
+        LogSettingsValidationError: If environment variables are invalid.
     """
     if settings is None:
         settings = resolve_config(
-            LoggingConfig,
+            LogConfig,
             explicit=None,
             kwargs={},
             env_prefix="GREL_LOG_",
-            error_type=LoggingSettingsValidationError,
+            error_type=LogSettingsValidationError,
         )
 
     json_dumps: Callable[[Mapping[str, Any]], str]
-    if settings.json_serializer == LoggingSerializerType.ORJSON:
+    if settings.json_serializer == LogSerializerType.ORJSON:
         if not has_orjson():
             raise DependencyNotFoundError(module="orjson")
         json_dumps = json_dumps_str
@@ -375,7 +371,7 @@ def load_settings(settings: LoggingConfig | None = None) -> LoadedSettings:
     resolved_format = _resolve_format(settings.format)
     colors = (
         should_colorize()
-        if resolved_format in (LoggingFormatType.TEXT, LoggingFormatType.PRETTY)
+        if resolved_format in (LogFormatType.TEXT, LogFormatType.PRETTY)
         else False
     )
 

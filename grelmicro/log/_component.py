@@ -11,14 +11,14 @@ from typing_extensions import Doc
 from grelmicro._config import resolve_config
 from grelmicro.log._apply import apply as _apply
 from grelmicro.log.config import (
-    LoggingBackendType,
-    LoggingConfig,
-    LoggingFormatType,
-    LoggingLevelType,
-    LoggingSerializerType,
-    LoggingTimeZoneType,
+    LogBackendType,
+    LogConfig,
+    LogFormatType,
+    LogLevelType,
+    LogSerializerType,
+    LogTimeZoneType,
 )
-from grelmicro.log.errors import LoggingSettingsValidationError
+from grelmicro.log.errors import LogSettingsValidationError
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -73,7 +73,7 @@ class Log:
             ),
         ] = "default",
         config: Annotated[
-            LoggingConfig | None,
+            LogConfig | None,
             Doc(
                 """
                 Pre-built configuration. When provided, individual kwargs
@@ -82,21 +82,21 @@ class Log:
             ),
         ] = None,
         backend: Annotated[
-            LoggingBackendType | None,
+            LogBackendType | None,
             Doc("Logging backend (`stdlib`, `loguru`, `structlog`)."),
         ] = None,
         level: Annotated[
-            LoggingLevelType | None, Doc("Log level threshold.")
+            LogLevelType | None, Doc("Log level threshold.")
         ] = None,
         format: Annotated[  # noqa: A002
-            LoggingFormatType | str | None, Doc("Log format.")
+            LogFormatType | str | None, Doc("Log format.")
         ] = None,
         timezone: Annotated[
-            LoggingTimeZoneType | None,  # ty: ignore[invalid-type-form]
+            LogTimeZoneType | None,  # ty: ignore[invalid-type-form]
             Doc("IANA timezone for timestamps."),
         ] = None,
         json_serializer: Annotated[
-            LoggingSerializerType | None, Doc("JSON serializer.")
+            LogSerializerType | None, Doc("JSON serializer.")
         ] = None,
         caller_enabled: Annotated[
             bool | None,
@@ -126,7 +126,7 @@ class Log:
             "otel_enabled": otel_enabled,
         }
         self._env_load = env_load
-        self._resolved: LoggingConfig | None = None
+        self._resolved: LogConfig | None = None
         self._snapshot_handlers: list[logging.Handler] | None = None
         self._snapshot_level: int | None = None
 
@@ -134,7 +134,7 @@ class Log:
     def from_config(
         cls,
         config: Annotated[
-            LoggingConfig,
+            LogConfig,
             Doc(
                 """
                 The pre-built logging configuration.
@@ -152,7 +152,7 @@ class Log:
             Doc("Registration name. Defaults to `'default'`."),
         ] = "default",
     ) -> Self:
-        """Construct a `Log` from a pre-built `LoggingConfig`."""
+        """Construct a `Log` from a pre-built `LogConfig`."""
         return cls(name=name, config=config)
 
     @property
@@ -161,8 +161,8 @@ class Log:
         return self._name
 
     @property
-    def config(self) -> LoggingConfig:
-        """Return the resolved `LoggingConfig`.
+    def config(self) -> LogConfig:
+        """Return the resolved `LogConfig`.
 
         Raises:
             RuntimeError: If accessed before the component has been entered.
@@ -179,12 +179,12 @@ class Log:
             self._snapshot_handlers = list(root.handlers)
             self._snapshot_level = root.level
             self._resolved = resolve_config(
-                LoggingConfig,
+                LogConfig,
                 explicit=self._explicit_config,
                 kwargs=self._kwargs,
                 env_prefix="GREL_LOG_",
                 env_load=self._env_load,
-                error_type=LoggingSettingsValidationError,
+                error_type=LogSettingsValidationError,
             )
             _apply(self._resolved)
         return self

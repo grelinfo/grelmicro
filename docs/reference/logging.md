@@ -12,8 +12,9 @@
         - ErrorDict
         - JSONRecordDict
         - Log
-        - LoggingConfig
-        - LoggingError
+        - LogConfig
+        - LogError
+        - LogSettingsValidationError
         - RateLimitFilter
         - RateLimitFilterConfig
         - configure

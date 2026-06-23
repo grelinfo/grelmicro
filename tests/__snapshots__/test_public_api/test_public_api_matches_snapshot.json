@@ -227,11 +227,11 @@
       "()": "(*, name=..., config=..., backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)",
       ".from_config": "(config, *, name=...)"
     },
-    "LoggingConfig": {
+    "LogConfig": {
       "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=...)"
     },
-    "LoggingError": null,
-    "LoggingSettingsValidationError": {
+    "LogError": null,
+    "LogSettingsValidationError": {
       "()": "(error)"
     },
     "RateLimitFilter": {

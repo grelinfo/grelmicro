@@ -11,7 +11,7 @@ from grelmicro.log._shared import (
     render_text_line,
 )
 from grelmicro.log._stdlib import _STANDARD_LOG_RECORD_ATTRS, _BaseFormatter
-from grelmicro.log.config import LoggingFormatType
+from grelmicro.log.config import LogFormatType
 
 if TYPE_CHECKING:
     import logging
@@ -49,13 +49,13 @@ class UvicornFormatter(_UvicornBaseFormatter):
         )
 
         match resolved_format:
-            case LoggingFormatType.LOGFMT:
+            case LogFormatType.LOGFMT:
                 self._format_record = logfmt_dumps
-            case LoggingFormatType.PRETTY:
+            case LogFormatType.PRETTY:
                 self._format_record = lambda r: render_pretty_lines(
                     r, colors=colors
                 )
-            case LoggingFormatType.TEXT:
+            case LogFormatType.TEXT:
                 self._format_record = lambda r: render_text_line(
                     r, colors=colors
                 )

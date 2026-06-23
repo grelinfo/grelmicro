@@ -7,8 +7,8 @@ import logging
 import pytest
 
 from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
-from grelmicro.log import Log, LoggingConfig
-from grelmicro.log.config import LoggingLevelType
+from grelmicro.log import Log, LogConfig
+from grelmicro.log.config import LogLevelType
 
 
 def test_log_satisfies_component_protocol() -> None:
@@ -47,15 +47,15 @@ async def test_log_resolves_config_on_enter(
     reset_stdlib: None,  # noqa: ARG001
 ) -> None:
     """Entering the app resolves the config and configures logging."""
-    micro = Grelmicro(uses=[Log(level=LoggingLevelType.DEBUG)])
+    micro = Grelmicro(uses=[Log(level=LogLevelType.DEBUG)])
     async with micro:
-        assert micro.log.config.level == LoggingLevelType.DEBUG
+        assert micro.log.config.level == LogLevelType.DEBUG
         assert logging.getLogger().level == logging.DEBUG
 
 
 async def test_log_accepts_prebuilt_config(reset_stdlib: None) -> None:  # noqa: ARG001
-    """`Log(config=...)` uses the pre-built `LoggingConfig` as-is."""
-    config = LoggingConfig(level=LoggingLevelType.WARNING)
+    """`Log(config=...)` uses the pre-built `LogConfig` as-is."""
+    config = LogConfig(level=LogLevelType.WARNING)
     micro = Grelmicro(uses=[Log(config=config)])
     async with micro:
         assert micro.log.config is config
@@ -63,7 +63,7 @@ async def test_log_accepts_prebuilt_config(reset_stdlib: None) -> None:  # noqa:
 
 def test_log_from_config_matches_config_kwarg() -> None:
     """`Log.from_config(cfg)` matches `Log(config=cfg)`."""
-    config = LoggingConfig(level=LoggingLevelType.WARNING)
+    config = LogConfig(level=LogLevelType.WARNING)
     log = Log.from_config(config)
     assert log._explicit_config is config
     assert log.name == "default"
@@ -71,7 +71,7 @@ def test_log_from_config_matches_config_kwarg() -> None:
 
 def test_log_from_config_keeps_name() -> None:
     """`Log.from_config(..., name=...)` keeps the registration name."""
-    config = LoggingConfig()
+    config = LogConfig()
     log = Log.from_config(config, name="audit")
     assert log.name == "audit"
 
@@ -85,7 +85,7 @@ async def test_log_restores_root_handlers_on_exit(
     root.addHandler(sentinel)
     before = list(root.handlers)
     root.setLevel(logging.WARNING)
-    micro = Grelmicro(uses=[Log(level=LoggingLevelType.DEBUG)])
+    micro = Grelmicro(uses=[Log(level=LogLevelType.DEBUG)])
     async with micro:
         assert sentinel not in root.handlers
     assert root.handlers == before
