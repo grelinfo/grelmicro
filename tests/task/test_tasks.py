@@ -211,7 +211,7 @@ async def test_tasks_drains_cooperative_task_without_cancel() -> None:
 
     _drain_events.clear()
     tasks = Tasks(auto_start=False, shutdown_timeout=5)
-    tasks.interval(seconds=0.01)(_drain_work)
+    tasks.every(seconds=0.01)(_drain_work)
 
     async with tasks:
         await tasks.start()
@@ -228,7 +228,7 @@ async def test_tasks_interval_wakes_promptly_on_stop() -> None:
     import asyncio  # noqa: PLC0415
 
     tasks = Tasks(auto_start=False, shutdown_timeout=5)
-    tasks.interval(seconds=3600)(_noop_work)  # would otherwise sleep an hour
+    tasks.every(seconds=3600)(_noop_work)  # would otherwise sleep an hour
 
     async with asyncio.timeout(
         2

@@ -10,7 +10,7 @@ A simple scheduler that runs tasks periodically. Use it for lightweight recurrin
 
 ## Quick start
 
-Register a `Tasks` instance with a `Grelmicro` app, then schedule a task with the `interval` decorator:
+Register a `Tasks` instance with a `Grelmicro` app, then schedule a task with the `every` decorator:
 
 ```python
 from grelmicro import Grelmicro
@@ -19,7 +19,7 @@ from grelmicro.task import Tasks
 tasks = Tasks()
 micro = Grelmicro(uses=[tasks])
 
-@tasks.interval(seconds=5)
+@tasks.every(seconds=5)
 async def cleanup() -> None:
     ...
 
@@ -28,7 +28,7 @@ async with micro:
 ```
 
 !!! warning "Per-process by default"
-    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](coordination.md#task-lock) or [`LeaderElection`](coordination.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.interval(...)` three times per tick.
+    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](coordination.md#task-lock) or [`LeaderElection`](coordination.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.every(...)` three times per tick.
 
 !!! note
     This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
@@ -56,7 +56,7 @@ Start it standalone using the application lifespan:
 
 ## Interval Task
 
-Use the `interval` decorator to run a task at a fixed interval:
+Use the `every` decorator to run a task at a fixed interval:
 
 !!! note
     The interval specifies the waiting time between task executions. Ensure that the task execution duration is considered to meet deadlines effectively.
@@ -218,7 +218,7 @@ from grelmicro.task import FireInfo, Tasks
 
 tasks = Tasks()
 
-@tasks.interval(seconds=60)
+@tasks.every(seconds=60)
 async def cleanup() -> None:
     ...
 

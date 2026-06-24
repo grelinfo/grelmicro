@@ -7,7 +7,7 @@ task = Tasks()
 task.add_task(leader)
 
 
-@task.interval(seconds=5)
+@task.every(seconds=5)
 async def my_task():
     if leader.is_leader():
         print("Hello from the leader!")
