@@ -269,19 +269,19 @@ async def protected():
 
 
 # --- Interval Task: run locally on every worker ---
-@tasks.interval(seconds=5)
+@tasks.every(seconds=5)
 def heartbeat():
     logger.info("heartbeat")
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@tasks.interval(seconds=60, lock=TaskLock(lease_duration=300))
+@tasks.every(seconds=60, lock=TaskLock(lease_duration=300))
 def cleanup():
     logger.info("cleanup")
 
 
 # --- Leader-gated Task: only the leader executes ---
-@tasks.interval(seconds=10, leader=leader)
+@tasks.every(seconds=10, leader=leader)
 def leader_only_task():
     logger.info("leader task")
 ```

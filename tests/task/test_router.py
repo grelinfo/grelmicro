@@ -70,9 +70,9 @@ def test_router_interval() -> None:
     sync = Lock(backend=MemoryLockAdapter(), name="testlock")
 
     # Act
-    router.interval(name="test1", seconds=10, sync=sync)(test1)
-    router.interval(name="test2", seconds=20)(test2)
-    router.interval(seconds=10)(test3)
+    router.every(name="test1", seconds=10, sync=sync)(test1)
+    router.every(name="test2", seconds=20)(test2)
+    router.every(seconds=10)(test3)
 
     # Assert
     assert len(router.tasks) == task_count
@@ -94,8 +94,8 @@ def test_router_interval_with_timedelta() -> None:
     seconds = 5
 
     # Act
-    router.interval(seconds=interval)(test1)
-    router.interval(seconds=seconds)(test2)
+    router.every(seconds=interval)(test1)
+    router.every(seconds=seconds)(test2)
 
     # Assert
     assert isinstance(router.tasks[0], IntervalTask)
@@ -110,9 +110,9 @@ def test_router_interval_name_generation() -> None:
     router = TaskRouter()
 
     # Act
-    router.interval(seconds=10)(test1)
-    router.interval(seconds=10)(SimpleClass.static_method)
-    router.interval(seconds=10)(SimpleClass.method)
+    router.every(seconds=10)(test1)
+    router.every(seconds=10)(SimpleClass.static_method)
+    router.every(seconds=10)(SimpleClass.method)
 
     # Assert
     assert router.tasks[0].name == "tests.task.samples:test1"
@@ -131,24 +131,24 @@ def test_router_interval_name_generation_error() -> None:
     # Act
     with pytest.raises(FunctionTypeError, match="nested function"):
 
-        @router.interval(seconds=10)
+        @router.every(seconds=10)
         def nested_function() -> None:
             pass
 
     with pytest.raises(FunctionTypeError, match="lambda"):
-        router.interval(seconds=10)(lambda _: None)
+        router.every(seconds=10)(lambda _: None)
 
     with pytest.raises(FunctionTypeError, match="method"):
-        router.interval(seconds=10)(test_instance.method)
+        router.every(seconds=10)(test_instance.method)
 
     with pytest.raises(FunctionTypeError, match=re.escape("partial()")):
-        router.interval(seconds=10)(partial(test1))
+        router.every(seconds=10)(partial(test1))
 
     with pytest.raises(
         FunctionTypeError,
         match="callable without __module__ or __qualname__ attribute",
     ):
-        router.interval(seconds=10)(object())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        router.every(seconds=10)(object())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_router_interval_with_lock() -> None:
@@ -158,7 +158,7 @@ def test_router_interval_with_lock() -> None:
     router = TaskRouter()
 
     # Act
-    router.interval(
+    router.every(
         seconds=60,
         lock=TaskLock(backend=backend, lease_duration=300),
     )(test1)
@@ -180,7 +180,7 @@ def test_router_interval_with_lock_default_name_restamped() -> None:
     router = TaskRouter()
 
     # Act
-    router.interval(
+    router.every(
         name="cleanup",
         seconds=60,
         lock=TaskLock(backend=backend, lease_duration=300),
@@ -201,7 +201,7 @@ def test_router_interval_with_lock_explicit_name_honored() -> None:
     router = TaskRouter()
 
     # Act
-    router.interval(
+    router.every(
         name="cleanup",
         seconds=60,
         lock=TaskLock("shared", backend=backend, lease_duration=300),
@@ -223,7 +223,7 @@ def test_router_interval_with_lock_and_custom_least() -> None:
     router = TaskRouter()
 
     # Act
-    router.interval(
+    router.every(
         seconds=60,
         lock=TaskLock(
             backend=backend,
@@ -252,7 +252,7 @@ def test_router_interval_lease_less_than_seconds_raises() -> None:
         ValueError,
         match="lease_duration must be greater than or equal to seconds",
     ):
-        router.interval(
+        router.every(
             seconds=60,
             lock=TaskLock(backend=backend, lease_duration=10),
         )(test1)

@@ -57,7 +57,7 @@ class TaskRouter:
 
         self._tasks.append(task)
 
-    def interval(
+    def every(
         self,
         *,
         seconds: Annotated[
@@ -129,7 +129,7 @@ class TaskRouter:
         [Callable[..., Any | Awaitable[Any]]],
         Callable[..., Any | Awaitable[Any]],
     ]:
-        """Decorate function to add it as an interval task.
+        """Decorate a function to run it on a fixed interval.
 
         Supports three modes:
 

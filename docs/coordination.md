@@ -306,7 +306,7 @@ async with task_lock:
 
 !!! tip
     For scheduled tasks, prefer the
-    [`interval()` decorator with `lock=TaskLock(...)`](task.md#distributed-lock),
+    [`every()` decorator with `lock=TaskLock(...)`](task.md#distributed-lock),
     which re-stamps the lock with the task name automatically.
 
 !!! warning

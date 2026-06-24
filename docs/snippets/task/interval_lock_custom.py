@@ -4,7 +4,7 @@ from grelmicro.task import Tasks
 task = Tasks()
 
 
-@task.interval(
+@task.every(
     seconds=60,
     lock=TaskLock(lease_duration=300, min_hold_duration=30),
 )

@@ -4,6 +4,6 @@ from grelmicro.task import Tasks
 task = Tasks()
 
 
-@task.interval(seconds=60, lock=TaskLock(lease_duration=300))
+@task.every(seconds=60, lock=TaskLock(lease_duration=300))
 async def cleanup():
     print("Running cleanup...")

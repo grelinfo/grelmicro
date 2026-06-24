@@ -91,7 +91,7 @@ class Grelmicro:
         tasks,
     ])
 
-    @tasks.interval(seconds=5)
+    @tasks.every(seconds=5)
     async def cleanup(): ...
 
     async with micro:
