@@ -1,6 +1,6 @@
 from fastapi import Depends, Request
 
-from grelmicro.health.fastapi import health_router
+from grelmicro.integrations.fastapi import health_router
 
 
 def require_admin(request: Request) -> None:

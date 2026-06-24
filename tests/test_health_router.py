@@ -17,9 +17,8 @@ from starlette.status import (
 
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.health._checks import HealthChecks
-from grelmicro.health.fastapi import health_router
-
-from .conftest import healthy, healthy_with_details, unhealthy
+from grelmicro.integrations.fastapi import health_router
+from tests.health.conftest import healthy, healthy_with_details, unhealthy
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -428,16 +427,16 @@ def test_openapi_schema(client: TestClient) -> None:
 def test_health_router_raises_without_fastapi() -> None:
     """health_router raises DependencyNotFoundError without FastAPI."""
     with patch.dict(sys.modules, {"fastapi": None, "fastapi.responses": None}):
-        if "grelmicro.health.fastapi" in sys.modules:
-            del sys.modules["grelmicro.health.fastapi"]
-        module = importlib.import_module("grelmicro.health.fastapi")
+        if "grelmicro.integrations.fastapi" in sys.modules:
+            del sys.modules["grelmicro.integrations.fastapi"]
+        module = importlib.import_module("grelmicro.integrations.fastapi")
 
         with pytest.raises(DependencyNotFoundError):
             module.health_router()
 
-    if "grelmicro.health.fastapi" in sys.modules:
-        del sys.modules["grelmicro.health.fastapi"]
-    importlib.import_module("grelmicro.health.fastapi")  # restore
+    if "grelmicro.integrations.fastapi" in sys.modules:
+        del sys.modules["grelmicro.integrations.fastapi"]
+    importlib.import_module("grelmicro.integrations.fastapi")  # restore
 
 
 def test_router_prefix(registry: HealthChecks) -> None:
