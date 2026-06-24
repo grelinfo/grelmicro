@@ -5,8 +5,8 @@ the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
 of both. Components like `Coordination`, `Cache`, and `RateLimiterRegistry` accept a
 Provider directly and use its matching adapter under the hood.
 
-Four providers ship today: `RedisProvider`, `ValkeyProvider`, `PostgresProvider`, and
-`SQLiteProvider`. More will follow.
+Five providers ship today: `RedisProvider`, `ValkeyProvider`, `PostgresProvider`,
+`SQLiteProvider`, and `MemoryProvider`. More will follow.
 
 ## Recommended shape
 
@@ -220,14 +220,14 @@ leader-election adapters touch one key per call and work on Cluster as is.
 
 Each Provider exposes factory methods that return its matching adapter:
 
-| Method                      | Returns                       | RedisProvider | ValkeyProvider | PostgresProvider | SQLiteProvider |
-|----------------------------|-------------------------------|:-------------:|:--------------:|:----------------:|:--------------:|
-| `.lock(**kwargs)`           | `LockBackend` implementation  |       ✓        |       ✓        |        ✓         |       ✓        |
-| `.schedule(**kwargs)`       | `ScheduleBackend` impl        |       ✓        |       ✓        |        ✓         |       ✓        |
-| `.leaderelection(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |       ✓        |        ✓         |      N/A       |
-| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |       ✓        |        ✓         |       ✓        |
-| `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |       ✓        |        ✓         |       ✓        |
-| `.circuitbreaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |       ✓        |        ✓         |       ✓        |
+| Method                      | Returns                       | RedisProvider | ValkeyProvider | PostgresProvider | SQLiteProvider | MemoryProvider |
+|----------------------------|-------------------------------|:-------------:|:--------------:|:----------------:|:--------------:|:--------------:|
+| `.lock(**kwargs)`           | `LockBackend` implementation  |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.schedule(**kwargs)`       | `ScheduleBackend` impl        |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.leaderelection(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |       ✓        |        ✓         |      N/A       |       ✓        |
+| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.circuitbreaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
@@ -236,7 +236,8 @@ pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
 ## Readiness check
 
 Every connection provider ships a built-in `check()` readiness probe: Redis and
-Valkey run `PING`, Postgres and SQLite run `SELECT 1`. A `HealthChecks` registers it as a
+Valkey run `PING`, Postgres and SQLite run `SELECT 1`, and Memory returns
+ready right away. A `HealthChecks` registers it as a
 `provider:{short_name}` check, one provider at a time with
 `health.add_provider(provider)` or for the whole app with
 `HealthChecks(auto_health=True)`. See [Health Checks](health.md#provider-readiness-checks).
@@ -382,18 +383,53 @@ Provider would access `provider.client` before the pool exists and raise
 `OutOfContextError`. `Grelmicro.__aenter__` warns on this ordering, but
 the correct fix is to list the Provider first.
 
-## Memory backends
+## Memory
 
-In-memory backends (`MemoryLockAdapter`, `MemoryCacheAdapter`,
-`MemoryRateLimiterAdapter`, `MemoryCircuitBreakerAdapter`) have no
-provider. Pass the adapter directly to its Component:
+`MemoryProvider` ships every factory: `.lock()`, `.leaderelection()`,
+`.schedule()`, `.cache()`, `.ratelimiter()`, and `.circuitbreaker()`. It owns no
+connection. State lives in process and disappears on restart, so it is for
+tests and single-process apps. Reach for Redis, Postgres, or SQLite for
+durable, distributed coordination.
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.resilience import CircuitBreakerRegistry
-from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
+from grelmicro.cache import Cache
+from grelmicro.coordination import Coordination
+from grelmicro.providers.memory import MemoryProvider
+from grelmicro.resilience import CircuitBreakerRegistry, RateLimiterRegistry
+
+memory = MemoryProvider()
 
 micro = Grelmicro(uses=[
-    CircuitBreakerRegistry(MemoryCircuitBreakerAdapter()),
+    memory,
+    Coordination(lock=memory.lock(), election=memory.leaderelection()),
+    Cache(memory.cache()),
+    RateLimiterRegistry(memory.ratelimiter()),
+    CircuitBreakerRegistry(memory.circuitbreaker()),
 ])
 ```
+
+Each factory hands back one cached adapter per kind, so the provider owns a
+single in-process store per kind. `memory.lock()` called twice returns the same
+backend, so a later call re-fetches the live store for a test or an
+introspection. Wire each kind into one component, the same way you would a Redis
+adapter. A lone `MemoryProvider` resolves every kind, so
+`uses=[memory, Coordination(memory)]` wires the lock, election, and schedule
+backends from it.
+
+To wire a single component, pass the provider straight in:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination
+from grelmicro.providers.memory import MemoryProvider
+
+memory = MemoryProvider()
+
+micro = Grelmicro(uses=[
+    Coordination(memory),
+])
+```
+
+You can still pass a raw adapter (`MemoryLockAdapter`, `MemoryCacheAdapter`, ...)
+to its Component when you do not want a provider.
