@@ -11,7 +11,6 @@ from grelmicro.coordination import (
     TaskLock,
 )
 from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
-from grelmicro.fastapi import GrelmicroMiddleware
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import CircuitBreaker, CircuitBreakerRegistry
@@ -42,12 +41,11 @@ micro = Grelmicro(
 @asynccontextmanager
 async def lifespan(app):
     configure()
-    async with micro:
-        yield
+    yield
 
 
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(GrelmicroMiddleware, micro=micro)
+micro.install(app)
 
 
 # --- Circuit Breaker: protect calls to an unreliable service ---

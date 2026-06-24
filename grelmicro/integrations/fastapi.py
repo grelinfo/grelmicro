@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, MutableMapping
+    from collections.abc import (
+        AsyncIterator,
+        Awaitable,
+        Callable,
+        MutableMapping,
+    )
+
+    from starlette.applications import Starlette
 
     from grelmicro import Grelmicro
 
@@ -17,7 +25,7 @@ if TYPE_CHECKING:
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-__all__ = ["GrelmicroMiddleware"]
+__all__ = ["GrelmicroMiddleware", "install"]
 
 
 class GrelmicroMiddleware:
@@ -36,7 +44,7 @@ class GrelmicroMiddleware:
     from fastapi import FastAPI
 
     from grelmicro import Grelmicro
-    from grelmicro.fastapi import GrelmicroMiddleware
+    from grelmicro.integrations.fastapi import GrelmicroMiddleware
 
     micro = Grelmicro(uses=[...])
 
@@ -86,3 +94,46 @@ class GrelmicroMiddleware:
             await self.app(scope, receive, send)
         finally:
             self.micro._reset_current(token)  # noqa: SLF001
+
+
+def install(
+    app: Annotated[
+        Starlette,
+        Doc("The Starlette or FastAPI application to wire."),
+    ],
+    micro: Annotated[
+        Grelmicro,
+        Doc(
+            "The `Grelmicro` app to open in the lifespan and bind per request."
+        ),
+    ],
+    *,
+    ambient: Annotated[
+        bool,
+        Doc(
+            "Add `GrelmicroMiddleware` so patterns resolve ambiently inside "
+            "request handlers. Default `True`. Pass `False` to skip it."
+        ),
+    ] = True,
+) -> None:
+    """Wire `micro` into a Starlette or FastAPI app.
+
+    Chains `async with micro:` around the app's existing lifespan, so any
+    lifespan already passed to the framework keeps running and the components
+    are open before the first request. When `ambient` is `True`, adds
+    `GrelmicroMiddleware` so patterns resolve through `Grelmicro.current()`
+    inside request handlers.
+
+    Prefer the polymorphic `micro.install(app)`, which detects the framework
+    and calls this for you.
+    """
+    previous = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[Any]:
+        async with previous(app) as state, micro:
+            yield state
+
+    app.router.lifespan_context = lifespan
+    if ambient:
+        app.add_middleware(GrelmicroMiddleware, micro=micro)

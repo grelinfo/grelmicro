@@ -128,7 +128,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.fastapi import GrelmicroMiddleware
+from grelmicro.integrations.fastapi import GrelmicroMiddleware
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     RateLimitExceededError,
@@ -175,7 +175,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache, cached
-from grelmicro.fastapi import GrelmicroMiddleware
+from grelmicro.integrations.fastapi import GrelmicroMiddleware
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider

@@ -94,6 +94,7 @@ nav:
     - reference/clock.md
     - reference/config.md
     - reference/fastapi.md
+    - reference/faststream.md
     - reference/health.md
     - reference/idempotency.md
     - reference/logging.md

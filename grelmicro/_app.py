@@ -572,6 +572,77 @@ class Grelmicro:
         """
         return self._resolve_kind(name)
 
+    def install(
+        self,
+        app: Annotated[  # noqa: ANN401
+            Any,
+            Doc(
+                """
+                A Starlette, FastAPI, or FastStream application. The framework
+                is detected from the object's shape, so the same call wires any
+                of them.
+                """,
+            ),
+        ],
+        *,
+        ambient: Annotated[
+            bool,
+            Doc(
+                """
+                Wire per-handler ambient binding so `Lock(...)`, `@cached`,
+                `RateLimiter...`, and the other patterns resolve through
+                `Grelmicro.current()` inside request handlers and message
+                subscribers. Default `True`. Pass `False` when handlers always
+                pass an explicit `backend=` and the binding is not needed.
+                """,
+            ),
+        ] = True,
+    ) -> None:
+        """Wire the app lifecycle and ambient binding in one call.
+
+        Opens `async with micro:` alongside the framework's own lifecycle, so
+        components are registered before any request or message is handled and
+        closed on shutdown. A custom lifespan already passed to the framework
+        keeps running, chained around this one.
+
+        When `ambient` is `True` (the default), each request handler or message
+        subscriber runs with this app bound as `Grelmicro.current()`, so
+        patterns that omit `backend=` resolve ambiently.
+
+        ```python
+        from fastapi import FastAPI
+
+        from grelmicro import Grelmicro
+
+        micro = Grelmicro(uses=[...])
+        app = FastAPI()
+        micro.install(app)
+        ```
+
+        Raises:
+            TypeError: If `app` is not a recognized Starlette, FastAPI, or
+                FastStream application.
+        """
+        if hasattr(app, "add_middleware") and hasattr(
+            getattr(app, "router", None), "lifespan_context"
+        ):
+            from grelmicro.integrations import fastapi  # noqa: PLC0415
+
+            fastapi.install(app, self, ambient=ambient)
+            return
+        if hasattr(app, "broker") and hasattr(app, "after_shutdown"):
+            from grelmicro.integrations import faststream  # noqa: PLC0415
+
+            faststream.install(app, self, ambient=ambient)
+            return
+        msg = (
+            f"micro.install does not support {type(app).__name__!r}. "
+            f"Supported frameworks are Starlette, FastAPI, and FastStream. "
+            f"For an unsupported framework, open the app in a lifespan with "
+            f"`async with micro:` and add `GrelmicroMiddleware` yourself."
+        )
+        raise TypeError(msg)
+
     def _bind_current(self) -> Any:  # noqa: ANN401
         """Set this app as `current()` for the running task, return a reset token.
 

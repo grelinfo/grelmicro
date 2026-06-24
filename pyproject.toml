@@ -121,6 +121,9 @@ standard = [
     "orjson>=3.10.11",
     "uvloop>=0.21.0; sys_platform != 'win32' and sys_platform != 'cygwin' and platform_python_implementation != 'PyPy'",
 ]
+faststream = [
+    "faststream>=0.7.0",
+]
 postgres = [
     "asyncpg>=0.30.0",
 ]
@@ -166,7 +169,7 @@ dev = [
     "pre-commit>=4.0.1",
     "fastapi>=0.115.5",
     "fastapi-cli>=0.0.5",
-    "faststream>=0.5.30",
+    "faststream>=0.7.0",
     "freezegun>=1.5.2",
     "ty>=0.0.13",
     "loguru>=0.7.2",
