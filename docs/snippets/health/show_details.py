@@ -2,7 +2,7 @@ from ipaddress import ip_address
 
 from fastapi import Depends, Request
 
-from grelmicro.health.fastapi import health_router
+from grelmicro.integrations.fastapi import health_router
 
 
 def from_private_network(request: Request) -> bool:

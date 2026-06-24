@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 
 from grelmicro.health import HealthChecks
-from grelmicro.health.fastapi import health_router
+from grelmicro.integrations.fastapi import health_router
 from grelmicro.resilience import MemoryRateLimiterAdapter, RateLimiter
 
 app = FastAPI()

@@ -17,8 +17,7 @@ from grelmicro.cache.cached import cached
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.coordination import Coordination, LeaderElection, Lock
 from grelmicro.health import HealthChecks
-from grelmicro.health.fastapi import health_router
-from grelmicro.integrations.fastapi import GrelmicroMiddleware
+from grelmicro.integrations.fastapi import GrelmicroMiddleware, health_router
 from grelmicro.log import configure
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider

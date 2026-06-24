@@ -210,8 +210,17 @@
   },
   "grelmicro.integrations": {},
   "grelmicro.integrations.fastapi": {
+    "CheckResultResponse": {
+      "()": "(*, status, critical=..., error=..., details=...)"
+    },
     "GrelmicroMiddleware": {
       "()": "(app, *, micro)"
+    },
+    "HealthzResponse": {
+      "()": "(*, status, checks)"
+    },
+    "health_router": {
+      "()": "(registry=..., *, prefix=..., show_details=..., healthz_dependencies=...)"
     },
     "install": {
       "()": "(app, micro, *, ambient=...)"
