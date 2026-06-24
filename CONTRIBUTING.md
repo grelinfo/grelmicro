@@ -106,22 +106,18 @@ a partially-correct PR is faster than guessing.
 - Work on a branch named for the change, e.g. `feat/<name>` or
   `fix/<name>`.
 - Every commit and PR title **must** follow the
-  [gitmoji](https://gitmoji.dev/) convention. The format (from
-  [gitmoji's spec](https://gitmoji.dev/about)) is:
+  [gitmoji](https://gitmoji.dev/) convention. The format is a single
+  emoji followed by a short imperative sentence:
 
   ```
-  <intention> [scope?][:?] <message>
+  <emoji> <message>
   ```
 
-  - `intention`: a single emoji from the
-    [gitmoji list](https://gitmoji.dev/) that describes what the
-    change does. The [full list](https://gitmoji.dev/) is the
-    source of truth. Pick the one whose meaning fits best.
-  - `scope` (optional): a short contextual string followed by `:`.
-    Repo conventions accept either a Conventional-Commits type
-    (`feat`, `docs`, `chore`, `ci`) or a module name
-    (`resilience`, `logging`, `sync`, `task`).
-  - `message`: a concise imperative summary of the change.
+  - `emoji`: one emoji from the [gitmoji list](https://gitmoji.dev/)
+    that describes what the change does. The emoji replaces the type
+    keyword, so there is no `feat:`, `fix:`, or `docs:` and no scope
+    in parentheses. Pick the emoji whose meaning fits best.
+  - `message`: a concise imperative summary, kept to one line.
 
   The [full gitmoji list](https://gitmoji.dev/) is the source of
   truth. The ones that cover most grelmicro commits, with the
@@ -142,18 +138,18 @@ a partially-correct PR is faster than guessing.
   | 🔥 | `:fire:` | Remove code or files. |
   | 🎨 | `:art:` | Improve structure / format of the code. |
 
-  Sample titles that combine the right emoji with a realistic
-  grelmicro-style message:
+  Sample titles in the current style (emoji, then an imperative
+  sentence, no type keyword or scope):
 
-  - `✨ feat: Add DuplicateFilter for noisy repeated log records (#94)`
-  - `🔒 ci: Grant security-events write to Workflow Lint (#101)`
-  - `👷 ci: Add attestations, wheel verification, and fetch-depth to release`
-  - `📝 docs: Update changelog for 0.13.0 release`
-  - `♻️ resilience: Bind algorithm to strategy once at construction`
+  - `✨ Add DuplicateFilter for noisy repeated log records`
+  - `🔒 Grant security-events write to the workflow lint job`
+  - `👷 Add attestations and wheel verification to the release`
+  - `📝 Update the changelog for the next release`
+  - `♻️ Bind the algorithm to the strategy once at construction`
   - `⬆️ Bump pydantic-extra-types from 2.11.1 to 2.11.2`
 
-- Reference the issue or PR number in parentheses where applicable
-  (e.g. `✨ resilience: Add TokenBucket algorithm (#93)`).
+- The PR number is appended automatically on squash merge
+  (`... (#123)`), so you do not write it in the title yourself.
 - Keep each commit focused. When chaining related commits, pause
   for review between them.
 
@@ -232,7 +228,7 @@ advisory lock in the same database.
 
 - Full English words. No `algo`, `ctx`, `cfg`. The one exception
   is the underscore-prefixed private module names
-  (`_protocol.py`, `_backends.py`).
+  (`_protocol.py`, `_component.py`).
 - Public primitives get short, descriptive class names
   (`RateLimiter`, `Lock`, `CircuitBreaker`).
 - Vendor- or product-specific names do **not** appear in public
@@ -379,8 +375,9 @@ class RateLimiter:
   value the test uses drop the prefix.
 - **100 % line + branch coverage** across unit + integration is
   enforced by the pre-commit `coverage-report` hook
-  (`coverage report --fail-under=100`). CI runs unit, slow, and
-  integration tests on every pull request and push to `main`.
+  (`coverage report --fail-under=100`). Pull requests and pushes to
+  `main` run the unit tier. The nightly schedule and releases run the
+  full unit, slow, and integration suite.
 
 ### Running tests
 
@@ -427,46 +424,45 @@ If you adapt code from another project, even a snippet:
 
 ## Architectural conventions
 
-### Backends
+### Providers, adapters, and components
 
 - Every storage-agnostic primitive (`Lock`, `RateLimiter`, cache,
   ...) has a matching `XBackend` Protocol under the package's
-  `_protocol.py`, with at least a Memory and a Redis
-  implementation.
-- Backends live in a multi-name registry
-  (`grelmicro/_backends.py::BackendRegistry`). Construction is
-  pure: `__init__` performs no registry writes and no I/O. User
-  code wires a backend by calling `<module>.register(backend)`
-  (defaults to the `"default"` name) or
-  `<module>.register(backend, "analytics")` for a named entry,
-  then opens every registered backend via
-  `grelmicro.lifespan()`. Primitives accept `backend=` as an
-  instance override or `backend="<name>"` for a named lookup;
-  the registry is consulted on every call so that
-  `<module>.use(...)` overrides take effect.
+  `_protocol.py`, with at least a Memory and a Redis adapter.
+- A concrete backend is an **adapter** named `<Vendor><Kind>Adapter`
+  (`RedisLockAdapter`, `MemoryCacheAdapter`). A **provider**
+  (`RedisProvider`, `PostgresProvider`, `MemoryProvider`) owns a
+  vendor connection and builds the matching adapters through factory
+  methods (`redis.lock()`, `redis.cache()`).
+- A **component** (`Coordination`, `Cache`, `RateLimiterRegistry`,
+  ...) wraps one kind of backend. The user wires everything through
+  the app: `Grelmicro(uses=[provider, Component(...)])`. Construction
+  is pure: `__init__` performs no I/O and no global writes. The app
+  opens every registered item as one async context manager.
+- Inside `async with micro:` (or under the FastAPI and FastStream
+  integrations in `grelmicro.integrations`), a primitive that omits an
+  explicit backend resolves the active app through
+  `Grelmicro.current()`, so handlers and tasks find their backend
+  without extra wiring.
 
 ### About grelmicro versions
 
-grelmicro follows [Semantic Versioning](https://semver.org). The
-public API is **not stable** until `1.0.0`. The `0.x` line exists
-to converge on a design we want to commit to for `1.x`, the
-enterprise-ready line.
+grelmicro follows [Semantic Versioning](https://semver.org).
 
-While on `0.x`, breaking changes are allowed on a `MINOR` bump
-(`0.14.0` → `0.15.0`) and never on a `PATCH` bump (`0.14.0` →
-`0.14.1`). Pin the minor:
+The 1.0 line is feature-complete and its public API is frozen behind a
+snapshot guard (`tests/test_public_api.py`), so an accidental change to
+the public surface fails CI. Prereleases install explicitly with
+`pip install --pre grelmicro`, while a plain install stays on the
+latest `0.x` until `1.0.0` is final.
 
-```text
-grelmicro>=0.14.0,<0.15.0
-```
+Breaking changes can still land between alpha releases when testing
+finds a flaw, because the prerelease line is where the 1.0 API is
+proven. Each one appears under **Breaking** in
+[`docs/changelog.md`](docs/changelog.md) with a migration note.
 
-Every breaking change appears under **Breaking** in
-[`docs/changelog.md`](docs/changelog.md) with a migration snippet.
-Deprecation shims are optional on `0.x`.
-
-After `1.0.0`, standard semver applies: breaking changes only on
-`MAJOR`, and removals go through at least two `MINOR` releases
-with a `DeprecationWarning` first.
+After `1.0.0`, standard semver applies: breaking changes wait for the
+next `MAJOR`, and a removal goes through a `DeprecationWarning` cycle
+first.
 
 ## Issues and releases
 
@@ -497,6 +493,25 @@ A release happens when one or more `next`-labeled issues are
 closed and the changelog has enough to ship. There is no
 fixed cadence.
 
+## Pull requests
+
+`main` is protected, so every change lands through a pull request.
+
+- **No direct pushes.** Branch from `main`, push your branch, and open
+  a pull request.
+- **CI must be green.** A single `CI Green` check rolls up lint, types,
+  docs, and tests. It is the only required status check.
+- **One approving review** is required, and a new push dismisses a
+  stale approval.
+- **Resolve every conversation** before merge.
+- Merges are **squash** only, so `main` keeps a linear history.
+
+CI is tiered to keep feedback fast. Pull requests and pushes to `main`
+run the light tier (unit tests on the current Python). The nightly
+schedule and every release run the full tier (the Python matrix plus
+the slow, integration, and demo tiers), so a release is always tested
+against everything before it publishes.
+
 ## Before opening a PR
 
 - All pre-commit gates pass locally
@@ -505,7 +520,8 @@ fixed cadence.
 - Every new public symbol has a docstring and a test.
 - `docs/` is updated if user-facing behaviour changed.
 - `docs/changelog.md` has an entry under `## Unreleased`.
-- Commit titles follow the gitmoji + conventional-commit format.
+- Commit titles follow the gitmoji convention (one emoji and an
+  imperative sentence, no type keyword or scope).
 
 Thanks for reading. If a convention in this document surprised
 you, open an issue: either the rule is wrong or the rationale
