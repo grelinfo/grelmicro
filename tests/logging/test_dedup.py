@@ -315,6 +315,44 @@ def test_key_mode_template_ignores_rendering_errors() -> None:
     assert results == [True, False, False]
 
 
+def test_key_mode_logger_collapses_across_messages() -> None:
+    """``key_mode='logger'`` keys per logger, ignoring the message."""
+    filt = DuplicateFilter(allowed_repetitions=1, key_mode="logger")
+
+    results = [
+        filt.filter(_make_record(name="svc", msg="first")),
+        filt.filter(_make_record(name="svc", msg="second")),
+        filt.filter(_make_record(name="other", msg="third")),
+    ]
+
+    assert results == [True, False, True]
+
+
+def test_key_mode_level_collapses_across_loggers() -> None:
+    """``key_mode='level'`` keys per level, ignoring logger and message."""
+    filt = DuplicateFilter(allowed_repetitions=1, key_mode="level")
+
+    results = [
+        filt.filter(_make_record(name="a", level=logging.WARNING, msg="x")),
+        filt.filter(_make_record(name="b", level=logging.WARNING, msg="y")),
+        filt.filter(_make_record(name="a", level=logging.ERROR, msg="z")),
+    ]
+
+    assert results == [True, False, True]
+
+
+def test_key_mode_global_collapses_everything() -> None:
+    """``key_mode='global'`` shares one counter for every record."""
+    filt = DuplicateFilter(allowed_repetitions=1, key_mode="global")
+
+    results = [
+        filt.filter(_make_record(name="a", level=logging.WARNING, msg="x")),
+        filt.filter(_make_record(name="b", level=logging.ERROR, msg="y")),
+    ]
+
+    assert results == [True, False]
+
+
 def test_explicit_key_callable_overrides_mode() -> None:
     """When ``key=`` is set, ``key_mode`` is ignored."""
     filt = DuplicateFilter(

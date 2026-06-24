@@ -50,7 +50,7 @@ def test_rate_limit_from_config_bypasses_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`RateLimitFilter.from_config()` ignores env even when set."""
-    monkeypatch.setenv("GREL_RATE_LIMIT_FILTER_CAPACITY", str(RL_CAPACITY_ENV))
+    monkeypatch.setenv("GREL_RATELIMITFILTER_CAPACITY", str(RL_CAPACITY_ENV))
     cfg = RateLimitFilterConfig(
         capacity=RL_CAPACITY_KWARG, refill_rate=RL_REFILL_RATE_KWARG
     )
@@ -61,10 +61,10 @@ def test_rate_limit_from_config_bypasses_env(
 def test_rate_limit_environmental_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Env vars under ``GREL_RATE_LIMIT_FILTER_*`` populate unset fields."""
-    monkeypatch.setenv("GREL_RATE_LIMIT_FILTER_CAPACITY", str(RL_CAPACITY_ENV))
+    """Env vars under ``GREL_RATELIMITFILTER_*`` populate unset fields."""
+    monkeypatch.setenv("GREL_RATELIMITFILTER_CAPACITY", str(RL_CAPACITY_ENV))
     monkeypatch.setenv(
-        "GREL_RATE_LIMIT_FILTER_REFILL_RATE", str(RL_REFILL_RATE_ENV)
+        "GREL_RATELIMITFILTER_REFILL_RATE", str(RL_REFILL_RATE_ENV)
     )
     flt = RateLimitFilter()
     assert flt.config.capacity == RL_CAPACITY_ENV
@@ -75,9 +75,21 @@ def test_rate_limit_kwargs_override_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Caller kwargs win over env vars."""
-    monkeypatch.setenv("GREL_RATE_LIMIT_FILTER_CAPACITY", str(RL_CAPACITY_ENV))
+    monkeypatch.setenv("GREL_RATELIMITFILTER_CAPACITY", str(RL_CAPACITY_ENV))
     flt = RateLimitFilter(capacity=RL_CAPACITY_KWARG)
     assert flt.config.capacity == RL_CAPACITY_KWARG
+
+
+def test_rate_limit_named_instance_reads_segmented_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``env_name=`` reads ``GREL_RATELIMITFILTER_{NAME}_*``, not the bare prefix."""
+    monkeypatch.setenv("GREL_RATELIMITFILTER_CAPACITY", str(RL_CAPACITY_KWARG))
+    monkeypatch.setenv(
+        "GREL_RATELIMITFILTER_AUDIT_CAPACITY", str(RL_CAPACITY_ENV)
+    )
+    flt = RateLimitFilter(env_name="audit")
+    assert flt.config.capacity == RL_CAPACITY_ENV
 
 
 def test_rate_limit_env_prefix_override(
@@ -91,7 +103,7 @@ def test_rate_limit_env_prefix_override(
 
 def test_rate_limit_env_load_false(monkeypatch: pytest.MonkeyPatch) -> None:
     """``env_load=False`` skips env reads entirely."""
-    monkeypatch.setenv("GREL_RATE_LIMIT_FILTER_CAPACITY", str(RL_CAPACITY_ENV))
+    monkeypatch.setenv("GREL_RATELIMITFILTER_CAPACITY", str(RL_CAPACITY_ENV))
     flt = RateLimitFilter(env_load=False)
     assert flt.config.capacity == RL_DEFAULT_CAPACITY
 
@@ -100,8 +112,8 @@ def test_rate_limit_zero_config_uses_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without env or kwargs, RateLimitFilterConfig defaults take over."""
-    monkeypatch.delenv("GREL_RATE_LIMIT_FILTER_CAPACITY", raising=False)
-    monkeypatch.delenv("GREL_RATE_LIMIT_FILTER_REFILL_RATE", raising=False)
+    monkeypatch.delenv("GREL_RATELIMITFILTER_CAPACITY", raising=False)
+    monkeypatch.delenv("GREL_RATELIMITFILTER_REFILL_RATE", raising=False)
     flt = RateLimitFilter()
     assert flt.config.capacity == RL_DEFAULT_CAPACITY
     assert flt.config.refill_rate == RL_DEFAULT_REFILL_RATE
@@ -133,7 +145,7 @@ def test_duplicate_from_config_bypasses_env(
 ) -> None:
     """`DuplicateFilter.from_config()` ignores env even when set."""
     monkeypatch.setenv(
-        "GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
+        "GREL_DUPLICATEFILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
     )
     cfg = DuplicateFilterConfig(allowed_repetitions=DF_REPS_KWARG)
     flt = DuplicateFilter.from_config(cfg)
@@ -143,11 +155,11 @@ def test_duplicate_from_config_bypasses_env(
 def test_duplicate_environmental_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Env vars under ``GREL_DUPLICATE_FILTER_*`` populate unset fields."""
+    """Env vars under ``GREL_DUPLICATEFILTER_*`` populate unset fields."""
     monkeypatch.setenv(
-        "GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
+        "GREL_DUPLICATEFILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
     )
-    monkeypatch.setenv("GREL_DUPLICATE_FILTER_CACHE_SIZE", str(DF_CACHE_ENV))
+    monkeypatch.setenv("GREL_DUPLICATEFILTER_CACHE_SIZE", str(DF_CACHE_ENV))
     flt = DuplicateFilter()
     assert flt.config.allowed_repetitions == DF_REPS_ENV
     assert flt.config.cache_size == DF_CACHE_ENV
@@ -158,10 +170,24 @@ def test_duplicate_kwargs_override_env(
 ) -> None:
     """Caller kwargs win over env vars."""
     monkeypatch.setenv(
-        "GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
+        "GREL_DUPLICATEFILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
     )
     flt = DuplicateFilter(allowed_repetitions=DF_REPS_KWARG)
     assert flt.config.allowed_repetitions == DF_REPS_KWARG
+
+
+def test_duplicate_named_instance_reads_segmented_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``env_name=`` reads ``GREL_DUPLICATEFILTER_{NAME}_*``, not the bare prefix."""
+    monkeypatch.setenv(
+        "GREL_DUPLICATEFILTER_ALLOWED_REPETITIONS", str(DF_REPS_KWARG)
+    )
+    monkeypatch.setenv(
+        "GREL_DUPLICATEFILTER_AUDIT_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
+    )
+    flt = DuplicateFilter(env_name="audit")
+    assert flt.config.allowed_repetitions == DF_REPS_ENV
 
 
 def test_duplicate_env_prefix_override(
@@ -178,7 +204,7 @@ def test_duplicate_env_prefix_override(
 def test_duplicate_env_load_false(monkeypatch: pytest.MonkeyPatch) -> None:
     """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv(
-        "GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
+        "GREL_DUPLICATEFILTER_ALLOWED_REPETITIONS", str(DF_REPS_ENV)
     )
     flt = DuplicateFilter(env_load=False)
     assert flt.config.allowed_repetitions == DF_DEFAULT_REPS
@@ -189,9 +215,9 @@ def test_duplicate_zero_config_uses_defaults(
 ) -> None:
     """Without env or kwargs, DuplicateFilterConfig defaults take over."""
     monkeypatch.delenv(
-        "GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS", raising=False
+        "GREL_DUPLICATEFILTER_ALLOWED_REPETITIONS", raising=False
     )
-    monkeypatch.delenv("GREL_DUPLICATE_FILTER_CACHE_SIZE", raising=False)
+    monkeypatch.delenv("GREL_DUPLICATEFILTER_CACHE_SIZE", raising=False)
     flt = DuplicateFilter()
     assert flt.config.allowed_repetitions == DF_DEFAULT_REPS
     assert flt.config.cache_size == DF_DEFAULT_CACHE

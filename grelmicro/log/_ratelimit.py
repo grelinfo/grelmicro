@@ -8,16 +8,15 @@ records per second. Simple burst behaviour and predictable refill.
 
 from collections.abc import Callable
 from logging import Filter, LogRecord
-from typing import Annotated, Literal, Self
+from typing import Annotated, Self
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro._config import resolve_config
+from grelmicro._config import default_env_prefix, resolve_config
+from grelmicro.log._shared import KeyMode
 from grelmicro.log.errors import LogSettingsValidationError
 from grelmicro.resilience import MemoryTokenBucket
-
-KeyMode = Literal["logger", "level", "global", "template", "rendered"]
 
 
 class RateLimitFilterConfig(BaseModel, frozen=True, extra="forbid"):
@@ -141,7 +140,7 @@ class RateLimitFilter(Filter):
 
                 Default: 5. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the environment
-                variable ``GREL_RATE_LIMIT_FILTER_CAPACITY`` if
+                variable ``GREL_RATELIMITFILTER_CAPACITY`` if
                 present, otherwise falls back to the
                 ``RateLimitFilterConfig`` default.
                 """
@@ -161,9 +160,9 @@ class RateLimitFilter(Filter):
             KeyMode | None,
             Doc(
                 """
-                Default key strategy: "logger" (default), "level",
-                "global", "template" or "rendered". Ignored when
-                ``key`` is set.
+                Default key strategy: ``"logger"`` (default),
+                ``"level"``, ``"global"``, ``"template"``, or
+                ``"rendered"``. Ignored when ``key`` is set.
                 """
             ),
         ] = None,
@@ -187,13 +186,28 @@ class RateLimitFilter(Filter):
                 "to avoid collisions."
             ),
         ] = None,
+        env_name: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable namespace segment.
+
+                Default: ``"default"``, which reads the bare prefix.
+                A named instance segments its env vars under the name,
+                so ``env_name="audit"`` reads
+                ``GREL_RATELIMITFILTER_AUDIT_*``.
+                """
+            ),
+        ] = "default",
         env_prefix: Annotated[
             str | None,
             Doc(
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: ``GREL_RATE_LIMIT_FILTER_``.
+                Default: ``GREL_RATELIMITFILTER_``. A named instance
+                segments via ``env_name`` to
+                ``GREL_RATELIMITFILTER_{NAME}_``.
                 """
             ),
         ] = None,
@@ -220,7 +234,8 @@ class RateLimitFilter(Filter):
                 "key_mode": key_mode,
                 "cost": cost,
             },
-            env_prefix=env_prefix or "GREL_RATE_LIMIT_FILTER_",
+            env_prefix=env_prefix
+            or default_env_prefix("RATELIMITFILTER", env_name),
             env_load=env_load,
             error_type=LogSettingsValidationError,
         )
