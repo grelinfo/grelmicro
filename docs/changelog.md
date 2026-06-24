@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 Move the framework integration modules into `grelmicro.integrations`. `grelmicro.fastapi` becomes `grelmicro.integrations.fastapi`, so `GrelmicroMiddleware` is now `from grelmicro.integrations.fastapi import GrelmicroMiddleware`, and the new FastStream wiring lives at `grelmicro.integrations.faststream`.
 * 💥 Collapse the four `@task.interval` lock passthroughs into one typed `lock=TaskLock(...)`. The `lease_duration`, `min_hold_duration`, `backend`, and `worker` parameters are removed. Pass a `TaskLock` instead, like `@task.interval(seconds=60, lock=TaskLock(lease_duration=300))`. The lock keeps its default `"default"` name and is re-stamped to the task name, so you never repeat it. The lock's settings are authoritative. `leader=` and `sync=` stay separate, self-documenting parameters.
 * 💥 `HealthChecks` now namespaces its env vars per instance: the default instance keeps `GREL_HEALTH_*`, but a named instance reads `GREL_HEALTH_{NAME_UPPER}_*` (matching `Lock`, `CircuitBreaker`, and the other named components). Update env vars for any named `HealthChecks`.
 * 💥 Replace the six manual circuit-breaker control methods with two operator verbs. `isolate()` forces the breaker open until reset, `reset()` returns it to normal automatic operation starting `CLOSED`. Replace `transition_to_forced_open()` with `isolate()` and `restart()` with `reset()`. The remaining `transition_to_closed`, `transition_to_open`, `transition_to_half_open`, and `transition_to_forced_closed` are removed.
@@ -22,6 +23,7 @@
 
 ### Features
 
+* ✨ Add `micro.install(app)`, one call that wires the lifecycle and per-handler ambient binding for Starlette, FastAPI, and FastStream. Pass `ambient=False` to skip the binding.
 * ✨ Accept a `timedelta` for the interval `seconds=`, like `@task.interval(seconds=timedelta(minutes=2))`. A plain number of seconds still works.
 * ✨ Add a `key=` template to `@cached` for a stable, readable cache key rendered from the arguments, like `@cached(key="user:{user_id}")`. Pass `key_maker=` for the fully dynamic case. Passing both raises `TypeError`.
 * ✨ Type `FireInfo.outcome` as the new `FireOutcome` `StrEnum` (`SUCCESS`, `ERROR`, `SKIPPED`). String comparisons like `outcome == "success"` still work.

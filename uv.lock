@@ -478,6 +478,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+faststream = [
+    { name = "faststream" },
+]
 kubernetes = [
     { name = "lightkube" },
 ]
@@ -567,6 +570,7 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'sqlite'", specifier = ">=0.20.0" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30.0" },
     { name = "fast-depends", specifier = ">=2.0.0" },
+    { name = "faststream", marker = "extra == 'faststream'", specifier = ">=0.7.0" },
     { name = "lightkube", marker = "extra == 'kubernetes'", specifier = ">=0.15.0" },
     { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
@@ -585,7 +589,7 @@ requires-dist = [
     { name = "uvloop", marker = "platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32' and extra == 'standard'", specifier = ">=0.21.0" },
     { name = "valkey", marker = "extra == 'valkey'", specifier = ">=6" },
 ]
-provides-extras = ["standard", "postgres", "redis", "sqlite", "kubernetes", "opentelemetry", "structlog", "valkey", "yaml"]
+provides-extras = ["standard", "faststream", "postgres", "redis", "sqlite", "kubernetes", "opentelemetry", "structlog", "valkey", "yaml"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -593,7 +597,7 @@ dev = [
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "fastapi", specifier = ">=0.115.5" },
     { name = "fastapi-cli", specifier = ">=0.0.5" },
-    { name = "faststream", specifier = ">=0.5.30" },
+    { name = "faststream", specifier = ">=0.7.0" },
     { name = "freezegun", specifier = ">=1.5.2" },
     { name = "hypothesis", specifier = ">=6.100.0" },
     { name = "lightkube", specifier = ">=0.15.0" },

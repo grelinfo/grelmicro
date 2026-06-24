@@ -164,11 +164,6 @@
     },
     "WouldBlockError": null
   },
-  "grelmicro.fastapi": {
-    "GrelmicroMiddleware": {
-      "()": "(app, *, micro)"
-    }
-  },
   "grelmicro.health": {
     "CheckResult": null,
     "HealthCheckFunc": null,
@@ -211,6 +206,20 @@
     },
     "idempotent": {
       "()": "(idempotency, *, key, fingerprint=...)"
+    }
+  },
+  "grelmicro.integrations": {},
+  "grelmicro.integrations.fastapi": {
+    "GrelmicroMiddleware": {
+      "()": "(app, *, micro)"
+    },
+    "install": {
+      "()": "(app, micro, *, ambient=...)"
+    }
+  },
+  "grelmicro.integrations.faststream": {
+    "install": {
+      "()": "(app, micro, *, ambient=...)"
     }
   },
   "grelmicro.log": {

@@ -15,10 +15,11 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
+from starlette.testclient import TestClient
 
 from grelmicro import Grelmicro, NoActiveAppError
 from grelmicro.errors import OutOfContextError
-from grelmicro.fastapi import GrelmicroMiddleware
+from grelmicro.integrations.fastapi import GrelmicroMiddleware
 from grelmicro.resilience import RateLimiter, RateLimiterRegistry
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
@@ -119,6 +120,28 @@ async def test_starlette_middleware_binds_on_websocket_scope() -> None:
 
     payload = next(m for m in sent if m["type"] == "websocket.send")
     assert json.loads(str(payload["text"])) == {"allowed": True}
+
+
+def test_starlette_install_wires_lifecycle_and_binding() -> None:
+    """`micro.install(app)` opens micro and binds it inside a Starlette handler.
+
+    Driven through `TestClient` so the Starlette lifespan (where install
+    chained `async with micro:`) runs and opens the components.
+    """
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+
+    async def limited(request: Request) -> JSONResponse:  # noqa: ARG001
+        limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+        result = await limiter.acquire(key="client")
+        return JSONResponse({"allowed": result.allowed})
+
+    app = Starlette(routes=[Route("/limited", limited)])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        response = client.get("/limited")
+    assert response.status_code == HTTP_200_OK
+    assert response.json() == {"allowed": True}
 
 
 # ---------------------------------------------------------------------------

@@ -140,7 +140,7 @@ Resolution order, in priority:
 Ambient resolution reads `Grelmicro.current()`, which is per asyncio task. A FastAPI request handler runs in its own task, outside the `async with micro:` block, so a bare `Lock("cart")` cannot see the app there and raises `OutOfContextError`. Add the middleware to extend the app scope to every request:
 
 ```python
-from grelmicro.fastapi import GrelmicroMiddleware
+from grelmicro.integrations.fastapi import GrelmicroMiddleware
 
 app.add_middleware(GrelmicroMiddleware, micro=micro)
 ```

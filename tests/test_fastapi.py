@@ -12,7 +12,7 @@ from starlette.status import HTTP_200_OK
 
 from grelmicro import Grelmicro
 from grelmicro.errors import OutOfContextError
-from grelmicro.fastapi import GrelmicroMiddleware
+from grelmicro.integrations.fastapi import GrelmicroMiddleware
 from grelmicro.resilience import RateLimiter, RateLimiterRegistry
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
@@ -108,3 +108,65 @@ async def _noop_receive() -> dict[str, object]:
 
 async def _noop_send(message: object) -> None:  # noqa: ARG001
     return None
+
+
+def _build_installed_app(
+    *, ambient: bool = True, custom_lifespan: list[str] | None = None
+) -> FastAPI:
+    """Build a FastAPI app wired with `micro.install(app)`."""
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+
+    if custom_lifespan is not None:
+
+        @asynccontextmanager
+        async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
+            custom_lifespan.append("enter")
+            yield
+            custom_lifespan.append("exit")
+
+        app = FastAPI(lifespan=lifespan)
+    else:
+        app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, bool]:
+        limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+        result = await limiter.acquire(key="client")
+        return {"allowed": result.allowed}
+
+    micro.install(app, ambient=ambient)
+    return app
+
+
+def test_install_wires_lifecycle_and_ambient_binding() -> None:
+    """`micro.install(app)` opens micro and binds it inside the handler."""
+    app = _build_installed_app()
+    with TestClient(app) as client:
+        response = client.get("/limited")
+    assert response.status_code == HTTP_200_OK
+    assert response.json() == {"allowed": True}
+
+
+def test_install_ambient_false_skips_middleware() -> None:
+    """`ambient=False` opens micro but does not bind it per request."""
+    app = _build_installed_app(ambient=False)
+    with TestClient(app) as client, pytest.raises(OutOfContextError):
+        client.get("/limited")
+
+
+def test_install_chains_existing_lifespan() -> None:
+    """A lifespan already passed to FastAPI keeps running around micro."""
+    events: list[str] = []
+    app = _build_installed_app(custom_lifespan=events)
+    with TestClient(app) as client:
+        response = client.get("/limited")
+    assert response.status_code == HTTP_200_OK
+    assert response.json() == {"allowed": True}
+    assert events == ["enter", "exit"]
+
+
+def test_install_rejects_unknown_app() -> None:
+    """`micro.install` raises TypeError for an unsupported object."""
+    micro = Grelmicro()
+    with pytest.raises(TypeError, match="Starlette, FastAPI, and FastStream"):
+        micro.install(object())
