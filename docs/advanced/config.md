@@ -67,8 +67,10 @@ instance). This is rare in practice.
 | `Lock("cart")` | `GREL_LOCK_CART_` |
 | `TaskLock("etl")` | `GREL_TASKLOCK_ETL_` |
 | `LeaderElection("svc")` | `GREL_LEADERELECTION_SVC_` |
-| `RateLimitFilter()` | `GREL_RATE_LIMIT_FILTER_` |
-| `DuplicateFilter()` | `GREL_DUPLICATE_FILTER_` |
+| `RateLimitFilter()` | `GREL_RATELIMITFILTER_` |
+| `RateLimitFilter(env_name="audit")` | `GREL_RATELIMITFILTER_AUDIT_` |
+| `DuplicateFilter()` | `GREL_DUPLICATEFILTER_` |
+| `DuplicateFilter(env_name="audit")` | `GREL_DUPLICATEFILTER_AUDIT_` |
 | `HealthChecks()` | `GREL_HEALTH_` |
 | `log.configure()` | `GREL_LOG_` |
 

@@ -10,15 +10,14 @@ from collections.abc import Callable, Hashable
 from logging import Filter, LogRecord
 from threading import Lock
 from time import monotonic
-from typing import Annotated, Literal, Self
+from typing import Annotated, Self
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro._config import resolve_config
+from grelmicro._config import default_env_prefix, resolve_config
+from grelmicro.log._shared import KeyMode
 from grelmicro.log.errors import LogSettingsValidationError
-
-KeyMode = Literal["rendered", "template"]
 
 
 class DuplicateFilterConfig(BaseModel, frozen=True, extra="forbid"):
@@ -41,11 +40,14 @@ class DuplicateFilterConfig(BaseModel, frozen=True, extra="forbid"):
     key_mode: Annotated[
         KeyMode,
         Doc(
-            'Default key strategy. "template" (default) uses '
-            "``str(record.msg)`` and is ~3x faster; ``%``-style "
-            "parameterized calls collapse across argument values. "
-            '"rendered" uses ``record.getMessage()`` to '
-            "distinguish per-subject."
+            'Default key strategy. `"logger"` keys per logger name. '
+            '`"level"` keys per log level. `"global"` shares one '
+            'counter for every record. `"template"` (default) keys '
+            "per (logger, level, `str(record.msg)`): collapses "
+            "across arg values of the same template and is about 3x "
+            'faster. `"rendered"` keys per (logger, level, '
+            "`record.getMessage()`): distinguishes fully-rendered "
+            "messages."
         ),
     ] = "template"
     ttl: Annotated[
@@ -81,9 +83,27 @@ def _key_by_template(record: LogRecord) -> tuple[str, int, str]:
     return (record.name, record.levelno, str(record.msg))
 
 
+def _key_by_logger(record: LogRecord) -> str:
+    """Return the logger name."""
+    return record.name
+
+
+def _key_by_level(record: LogRecord) -> int:
+    """Return the numeric log level."""
+    return record.levelno
+
+
+def _key_by_global(record: LogRecord) -> str:  # noqa: ARG001
+    """Return a constant key so every record shares one counter."""
+    return ""
+
+
 _KEY_FUNCS: dict[KeyMode, Callable[[LogRecord], Hashable]] = {
-    "rendered": _key_by_rendered,
+    "logger": _key_by_logger,
+    "level": _key_by_level,
+    "global": _key_by_global,
     "template": _key_by_template,
+    "rendered": _key_by_rendered,
 }
 
 
@@ -120,7 +140,7 @@ class DuplicateFilter(Filter):
 
                 Default: 5. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the environment
-                variable ``GREL_DUPLICATE_FILTER_ALLOWED_REPETITIONS``
+                variable ``GREL_DUPLICATEFILTER_ALLOWED_REPETITIONS``
                 if present, otherwise falls back to the
                 ``DuplicateFilterConfig`` default.
                 """
@@ -141,9 +161,9 @@ class DuplicateFilter(Filter):
             KeyMode | None,
             Doc(
                 """
-                Default key strategy: ``"template"`` (default) uses
-                ``str(record.msg)``; ``"rendered"`` uses
-                ``record.getMessage()``. Ignored when ``key`` is set.
+                Default key strategy: ``"logger"``, ``"level"``,
+                ``"global"``, ``"template"`` (default), or
+                ``"rendered"``. Ignored when ``key`` is set.
                 """
             ),
         ] = None,
@@ -163,13 +183,28 @@ class DuplicateFilter(Filter):
                 "record and returns any hashable value."
             ),
         ] = None,
+        env_name: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable namespace segment.
+
+                Default: ``"default"``, which reads the bare prefix.
+                A named instance segments its env vars under the name,
+                so ``env_name="audit"`` reads
+                ``GREL_DUPLICATEFILTER_AUDIT_*``.
+                """
+            ),
+        ] = "default",
         env_prefix: Annotated[
             str | None,
             Doc(
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: ``GREL_DUPLICATE_FILTER_``.
+                Default: ``GREL_DUPLICATEFILTER_``. A named instance
+                segments via ``env_name`` to
+                ``GREL_DUPLICATEFILTER_{NAME}_``.
                 """
             ),
         ] = None,
@@ -196,7 +231,8 @@ class DuplicateFilter(Filter):
                 "key_mode": key_mode,
                 "ttl": ttl,
             },
-            env_prefix=env_prefix or "GREL_DUPLICATE_FILTER_",
+            env_prefix=env_prefix
+            or default_env_prefix("DUPLICATEFILTER", env_name),
             env_load=env_load,
             error_type=LogSettingsValidationError,
         )

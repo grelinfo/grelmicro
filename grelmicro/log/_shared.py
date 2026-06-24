@@ -6,7 +6,7 @@ import re
 import sys
 from collections.abc import Callable, Mapping
 from datetime import datetime, tzinfo
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 from zoneinfo import ZoneInfo
 
 from grelmicro._config import resolve_config
@@ -24,6 +24,9 @@ except ImportError:  # pragma: no cover
     trace: Any = None
 
 from grelmicro._json import has_orjson, json_default, json_dumps_str
+
+KeyMode = Literal["logger", "level", "global", "template", "rendered"]
+"""Shared key strategy vocabulary for the log filters."""
 
 
 def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:

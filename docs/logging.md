@@ -319,7 +319,17 @@ uvicorn app:app --log-config uvicorn_log_config.json
 
 After **5** identical records, the filter silently drops any further occurrences. It tracks up to **100** distinct keys in an LRU cache.
 
-`key_mode="template"` (default) uses the raw format string as the key, so `%`-style calls with different arguments share one counter. It is also about **3 times faster** than rendered keying. Use `key_mode="rendered"` to track each rendered message separately, or pass `key=` for a custom fingerprint:
+`key_mode="template"` (default) uses the raw format string as the key, so `%`-style calls with different arguments share one counter. It is also about **3 times faster** than rendered keying. `DuplicateFilter` and `RateLimitFilter` share the same five `key_mode` values:
+
+| `key_mode` | Counter scope | Good for |
+|---|---|---|
+| `"logger"` | One counter per logger name | Collapse every record from a noisy logger |
+| `"level"` | One counter per log level | Collapse all records at a level |
+| `"global"` | One shared counter | Collapse everything into one budget |
+| `"template"` (default) | One counter per (logger, level, `str(record.msg)`) | Shares across arg values of the same template |
+| `"rendered"` | One counter per (logger, level, `record.getMessage()`) | Distinguishes fully-rendered messages |
+
+Use `key_mode="rendered"` to track each rendered message separately, or pass `key=` for a custom fingerprint:
 
 ```python
 logger.addFilter(DuplicateFilter(key_mode="rendered"))

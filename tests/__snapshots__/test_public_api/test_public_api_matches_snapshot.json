@@ -224,7 +224,7 @@
   },
   "grelmicro.log": {
     "DuplicateFilter": {
-      "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl=..., key=..., env_prefix=..., env_load=...)",
+      "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl=..., key=..., env_name=..., env_prefix=..., env_load=...)",
       ".from_config": "(config, *, key=...)"
     },
     "DuplicateFilterConfig": {
@@ -244,7 +244,7 @@
       "()": "(error)"
     },
     "RateLimitFilter": {
-      "()": "(*, capacity=..., refill_rate=..., key_mode=..., cost=..., key=..., env_prefix=..., env_load=...)",
+      "()": "(*, capacity=..., refill_rate=..., key_mode=..., cost=..., key=..., env_name=..., env_prefix=..., env_load=...)",
       ".from_config": "(config, *, key=...)"
     },
     "RateLimitFilterConfig": {
