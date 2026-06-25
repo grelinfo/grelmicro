@@ -26,6 +26,8 @@
 
 ### Features
 
+* ✨ Add `RateLimiter.wait()`, a blocking admission verb that waits until tokens are available then consumes them. It polls on the clock seam (so `VirtualClock` drives it in tests), waits as long as needed by default, and raises `RateLimitExceededError` once an optional `max_wait` budget is exceeded. A `cost` larger than the limit raises `ValueError` instead of waiting forever.
+* ✨ Add `LeaderElection.lead(func, *, repeat=False)`, which runs a coroutine only while the worker holds leadership and cancels it the instant leadership is lost, so no stale work outlives the lease. It returns the body's result if it finishes while still leader, or `None` if cancelled. Pass `repeat=True` to re-run after re-acquiring leadership.
 * ✨ Add `micro.install(app)`, one call that wires the lifecycle and per-handler ambient binding for Starlette, FastAPI, and FastStream. Pass `ambient=False` to skip the binding.
 * ✨ Accept a `timedelta` for the interval `seconds=`, like `@task.every(seconds=timedelta(minutes=2))`. A plain number of seconds still works.
 * ✨ Add a `key=` template to `@cached` for a stable, readable cache key rendered from the arguments, like `@cached(key="user:{user_id}")`. Pass `key_maker=` for the fully dynamic case. Passing both raises `TypeError`.

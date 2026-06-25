@@ -3,6 +3,7 @@
 import asyncio
 import math
 from asyncio import Event, sleep
+from contextlib import suppress
 
 import pytest
 from pydantic import ValidationError
@@ -942,3 +943,164 @@ async def test_leaderelection_backend_out_of_context() -> None:
         OutOfContextError, match="LeaderElection\\('out-of-context'\\)"
     ):
         _ = election.backend
+
+
+# --- lead() ------------------------------------------------------------------
+
+
+@pytest.fixture
+def stable_leader(backend: LeaderElectionBackend) -> LeaderElection:
+    """Return a leader whose lease never lapses, so loss is driven manually.
+
+    Lease and renew deadline are large enough that `is_leader()` stays
+    `True` after a manual `_update_state(is_leader=True)`, letting each
+    `lead()` test control loss explicitly with no renew-loop racing.
+    """
+    config = LeaderElectionConfig(
+        worker="worker_lead",
+        lease_duration=100,
+        renew_deadline=90,
+        retry_interval=1,
+        error_interval=30,
+        backend_timeout=5,
+    )
+    return LeaderElection.from_config(LEADER_NAME, config, backend=backend)
+
+
+async def test_lead_runs_while_leader_and_returns_result(
+    stable_leader: LeaderElection,
+) -> None:
+    """`lead` runs the body while leader and returns its result."""
+    await stable_leader._update_state(
+        is_leader=True, reason_if_no_more_leader=""
+    )
+
+    async def work() -> str:
+        return "done"
+
+    assert await stable_leader.lead(work) == "done"
+
+
+async def test_lead_passes_positional_args(
+    stable_leader: LeaderElection,
+) -> None:
+    """`lead` forwards positional arguments to the body."""
+    await stable_leader._update_state(
+        is_leader=True, reason_if_no_more_leader=""
+    )
+
+    async def add(left: int, right: int) -> int:
+        return left + right
+
+    left, right = 2, 3
+    assert await stable_leader.lead(add, left, right) == left + right
+
+
+async def test_lead_propagates_body_exception(
+    stable_leader: LeaderElection,
+) -> None:
+    """An exception raised by the body propagates out of `lead`."""
+    await stable_leader._update_state(
+        is_leader=True, reason_if_no_more_leader=""
+    )
+
+    async def boom() -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    with pytest.raises(ValueError, match="boom"):
+        await stable_leader.lead(boom)
+
+
+async def test_lead_waits_for_leadership_before_running(
+    stable_leader: LeaderElection,
+) -> None:
+    """`lead` blocks until leadership is acquired, then runs the body."""
+    started = Event()
+
+    async def work() -> str:
+        started.set()
+        return "ran"
+
+    async with asyncio.TaskGroup() as tg:
+        task = tg.create_task(stable_leader.lead(work))
+        await sleep(0)
+        assert not started.is_set()  # not leader yet
+
+        await stable_leader._update_state(
+            is_leader=True, reason_if_no_more_leader=""
+        )
+        assert await task == "ran"
+
+    assert started.is_set()
+
+
+async def test_lead_cancels_body_on_leadership_loss(
+    stable_leader: LeaderElection,
+) -> None:
+    """Losing leadership cancels the in-flight body and returns `None`."""
+    await stable_leader._update_state(
+        is_leader=True, reason_if_no_more_leader=""
+    )
+    started = Event()
+    cancelled = Event()
+
+    async def work() -> None:
+        started.set()
+        try:
+            await sleep(100)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    async with asyncio.TaskGroup() as tg:
+        task = tg.create_task(stable_leader.lead(work))
+        await started.wait()
+
+        await stable_leader._update_state(
+            is_leader=False, reason_if_no_more_leader="lost"
+        )
+        assert await task is None
+
+    assert cancelled.is_set()
+
+
+async def test_lead_repeat_reruns_after_reacquire(
+    stable_leader: LeaderElection,
+) -> None:
+    """With `repeat=True` the body re-runs after leadership is re-acquired."""
+    await stable_leader._update_state(
+        is_leader=True, reason_if_no_more_leader=""
+    )
+    runs = 0
+    running = Event()
+
+    async def work() -> None:
+        nonlocal runs
+        runs += 1
+        running.set()
+        await sleep(100)
+
+    first_run, second_run = 1, 2
+    task = asyncio.ensure_future(stable_leader.lead(work, repeat=True))
+    try:
+        await running.wait()
+        assert runs == first_run
+
+        # Lose leadership: the body is cancelled and lead loops back.
+        await stable_leader._update_state(
+            is_leader=False, reason_if_no_more_leader="lost"
+        )
+        running.clear()
+        await sleep(0)
+
+        # Re-acquire: the body runs a second time.
+        await stable_leader._update_state(
+            is_leader=True, reason_if_no_more_leader=""
+        )
+        await running.wait()
+        assert runs == second_run
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task

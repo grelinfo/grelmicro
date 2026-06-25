@@ -40,6 +40,16 @@ if not result:
 
 Use `acquire_or_raise` when a surrounding layer should turn the rejection into a response: it raises `RateLimitExceededError`, which is an `AdmissionError` (the shared base, exported from the top-level `grelmicro` package for every "turned away" rejection: rate limiter, bulkhead, open circuit breaker, non-blocking lock), so one `except AdmissionError` catches them all.
 
+### Waiting until allowed
+
+`wait` blocks until tokens are available, then consumes them. Use it to smooth a burst into the limit instead of rejecting it, for example when calling a rate-limited upstream:
+
+```python
+--8<-- "resilience/ratelimiter_wait.py"
+```
+
+It polls `acquire` on the clock seam, sleeping `retry_after` between attempts, so a denied call never consumes tokens. By default it waits as long as needed. Pass `max_wait` to bound the wait: it raises `RateLimitExceededError` once the budget would be exceeded. A `cost` larger than the limit raises `ValueError` instead of waiting forever.
+
 ### One fleet-wide limit
 
 When the limiter protects a service with one shared budget (no per-user or per-IP split), omit `key`. It defaults to `"default"`, and the limiter's own `name` already namespaces the bucket on the backend:
