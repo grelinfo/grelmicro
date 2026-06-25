@@ -11,6 +11,8 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
 from grelmicro._config import Reconfigurable, default_env_prefix
+from grelmicro.clock import monotonic as clock_monotonic
+from grelmicro.clock import sleep as clock_sleep
 from grelmicro.metrics import _emit
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -50,6 +52,10 @@ def __getattr__(name: str) -> object:
 
 
 logger = logging.getLogger(__name__)
+
+_MIN_POLL_INTERVAL = 0.005
+"""Floor for the `wait` poll sleep, avoiding a busy-loop on a zero or
+coarse `retry_after` from a distributed backend."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -548,6 +554,74 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
                 self._log_fail_open(key, exc)
                 return
             raise
+
+    async def wait(
+        self,
+        *,
+        key: Annotated[
+            str,
+            Doc(
+                "Identifier for rate limiting"
+                " (e.g. IP address, user ID, session)."
+                " Defaults to `default` for the single-bucket case."
+                " The limiter's `name` already namespaces the backend"
+                " key, so the default bucket is `name:default`."
+            ),
+        ] = "default",
+        cost: Annotated[
+            int,
+            Doc("Number of tokens to consume."),
+        ] = 1,
+        max_wait: Annotated[
+            float | None,
+            Doc(
+                "Maximum number of seconds to wait before giving up."
+                " `None` (the default) waits indefinitely."
+            ),
+        ] = None,
+    ) -> RateLimitResult:
+        """Wait until tokens are available, then consume them.
+
+        Polls `acquire` on the clock seam, sleeping `retry_after`
+        between attempts, until the request is admitted. A denied
+        `acquire` consumes nothing, so retrying is safe.
+
+        With `max_wait` set, gives up once the budget would be exceeded
+        and raises `RateLimitExceededError`. The default waits forever:
+
+        ```python
+        await limiter.wait(key="user-1")
+        result = await limiter.wait(key="user-1", cost=3, max_wait=2.0)
+        ```
+
+        The wait runs on the clock seam, so `VirtualClock` drives it in
+        tests without real sleeping.
+
+        Returns:
+            The allowed RateLimitResult once tokens are consumed.
+
+        Raises:
+            ValueError: If `cost` is not between 1 and the algorithm's
+                limit/capacity. Guards the otherwise unsatisfiable wait
+                when `cost` exceeds capacity.
+            RateLimitExceededError: If `max_wait` elapses before the
+                request is admitted.
+        """
+        _validate_cost(cost, _config_limit(self._state.config))
+        deadline = None if max_wait is None else clock_monotonic() + max_wait
+        while True:
+            result = await self.acquire(key=key, cost=cost)
+            if result.allowed:
+                return result
+            delay = result.retry_after
+            if deadline is not None:
+                remaining = deadline - clock_monotonic()
+                if remaining <= 0 or delay > remaining:
+                    raise RateLimitExceededError(
+                        key=key,
+                        retry_after=result.retry_after,
+                    )
+            await clock_sleep(max(delay, _MIN_POLL_INTERVAL))
 
     async def _apply_reconfigure(
         self,

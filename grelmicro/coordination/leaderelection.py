@@ -1,7 +1,8 @@
 """Leader Election."""
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from contextlib import suppress
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
@@ -538,6 +539,80 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                     )
             except TimeoutError:
                 pass
+
+    async def lead[T](
+        self,
+        func: Annotated[
+            Callable[..., Awaitable[T]],
+            Doc("Coroutine function to run only while this worker leads."),
+        ],
+        /,
+        *args: object,
+        repeat: Annotated[
+            bool,
+            Doc(
+                "Re-run `func` after re-acquiring leadership instead of"
+                " returning once leadership is lost."
+            ),
+        ] = False,
+    ) -> T | None:
+        """Run `func(*args)` only while this worker holds leadership.
+
+        Waits for leadership, then runs `func(*args)` in a child task.
+        The moment leadership is lost the task is cancelled, so no stale
+        work outlives the lease. This is the difference from a plain
+        `if is_leader():` check, which keeps running until the next poll.
+
+        Returns `func`'s result if it finishes while still leader, or
+        `None` if leadership was lost first and the body was cancelled.
+        With `repeat=True`, waits to re-acquire and runs `func` again
+        instead of returning, looping until the surrounding scope is
+        cancelled.
+
+        Requires the `LeaderElection` service to be running concurrently
+        (wired through `Tasks`, or run as a task), since it renews the
+        lease and drives the leadership changes `lead` waits on.
+
+        Any exception raised by `func` propagates out of `lead`.
+
+        Cancellation is cooperative: it takes effect at the body's next
+        `await`. Pair with `is_leader_confirmed_within` or a fencing
+        token for writes that must never overlap a successor.
+
+        ```python
+        async def emit_metrics() -> None:
+            while True:
+                await push_snapshot()
+                await asyncio.sleep(10)
+
+        await election.lead(emit_metrics, repeat=True)
+        ```
+        """
+        while True:
+            result = await self._lead_once(func, *args)
+            if not repeat:
+                return result
+
+    async def _lead_once[T](
+        self, func: Callable[..., Awaitable[T]], *args: object
+    ) -> T | None:
+        """Wait for leadership, run `func` once, cancel it if leadership ends."""
+        await self.wait_for_leader()
+        work: asyncio.Future[T] = asyncio.ensure_future(func(*args))
+        loss = asyncio.ensure_future(self.wait_lose_leader())
+        try:
+            await asyncio.wait(
+                {work, loss}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if work.done():
+                return work.result()
+            return None
+        finally:
+            for task in (work, loss):
+                if not task.done():
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
 
     async def __call__(
         self,

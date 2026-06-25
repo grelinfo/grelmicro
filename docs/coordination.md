@@ -337,6 +337,25 @@ it. The Memory backend needs no extra service, so this runs as-is:
 Only the leader runs `run_once_in_the_cluster`. Every other worker skips it until
 it becomes the leader.
 
+### Run only while leader
+
+`@tasks.every(..., leader=leader)` gates each tick. When you have one long-lived
+piece of work that should run for as long as you lead and stop the instant you do
+not, use `lead`:
+
+```python
+--8<-- "coordination/lead.py"
+```
+
+`lead` waits for leadership, runs the coroutine in a child task, and **cancels it
+the moment leadership is lost**, so no stale work outlives the lease. It returns
+the result if the body finishes while still leader, or `None` if it was cancelled.
+Pass `repeat=True` to re-run after re-acquiring leadership. Cancellation is
+cooperative: it lands at the body's next `await`, so pair it with
+`is_leader_confirmed_within` or a fencing token for writes that must never overlap
+a successor. The `LeaderElection` service must be running concurrently (added to
+`Tasks` above) to renew the lease and drive the leadership changes `lead` waits on.
+
 ### Independent backend
 
 Leader election is **not** a `Lock`. A `Lock` is short-lived mutual exclusion. A
