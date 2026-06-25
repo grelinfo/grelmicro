@@ -1383,10 +1383,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#memory-backends" class="md-nav__link">
+  <a href="#memory" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Memory backends
+        Memory
       
     </span>
   </a>
@@ -1501,6 +1501,8 @@
   
     
     
+      
+        
       
         
       
@@ -1667,6 +1669,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2726,10 +2756,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#memory-backends" class="md-nav__link">
+  <a href="#memory" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Memory backends
+        Memory
       
     </span>
   </a>
@@ -2759,24 +2789,24 @@
 <h1 id="providers">Providers</h1>
 <p>A <strong>Provider</strong> is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
-of both. Components like <code>Coordination</code>, <code>Cache</code>, and <code>RateLimiters</code> accept a
+of both. Components like <code>Coordination</code>, <code>Cache</code>, and <code>RateLimiterRegistry</code> accept a
 Provider directly and use its matching adapter under the hood.</p>
-<p>Four providers ship today: <code>RedisProvider</code>, <code>ValkeyProvider</code>, <code>PostgresProvider</code>, and
-<code>SQLiteProvider</code>. More will follow.</p>
+<p>Five providers ship today: <code>RedisProvider</code>, <code>ValkeyProvider</code>, <code>PostgresProvider</code>,
+<code>SQLiteProvider</code>, and <code>MemoryProvider</code>. More will follow.</p>
 <h2 id="recommended-shape">Recommended shape</h2>
 <p>Pass a Provider to every Component that needs the same connection:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiters</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiterRegistry</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
 <span class="p">])</span>
 
 <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
@@ -2793,7 +2823,7 @@ you can drop the top-level entry and let the Components carry it:</p>
 <div class="highlight"><pre><span></span><code><span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
 <p>The shared <code>redis</code> opens once, before the Components that hold it.
@@ -2932,12 +2962,14 @@ leader-election adapters touch one key per call and work on Cluster as is.</p>
 <th style="text-align: center;">ValkeyProvider</th>
 <th style="text-align: center;">PostgresProvider</th>
 <th style="text-align: center;">SQLiteProvider</th>
+<th style="text-align: center;">MemoryProvider</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>.lock(**kwargs)</code></td>
 <td><code>LockBackend</code> implementation</td>
+<td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
@@ -2950,6 +2982,7 @@ leader-election adapters touch one key per call and work on Cluster as is.</p>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
 </tr>
 <tr>
 <td><code>.leaderelection(**kwargs)</code></td>
@@ -2958,10 +2991,12 @@ leader-election adapters touch one key per call and work on Cluster as is.</p>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">N/A</td>
+<td style="text-align: center;">✓</td>
 </tr>
 <tr>
 <td><code>.cache(**kwargs)</code></td>
 <td><code>CacheBackend</code> implementation</td>
+<td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
@@ -2974,10 +3009,12 @@ leader-election adapters touch one key per call and work on Cluster as is.</p>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
 </tr>
 <tr>
 <td><code>.circuitbreaker(**kwargs)</code></td>
 <td><code>CircuitBreakerBackend</code> impl</td>
+<td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
 <td style="text-align: center;">✓</td>
@@ -2987,10 +3024,11 @@ leader-election adapters touch one key per call and work on Cluster as is.</p>
 </table>
 <p>Factories that do not apply raise <code>NotImplementedError</code> with a message
 pointing to the right alternative. <code>Coordination(provider)</code>, <code>Cache(provider)</code>,
-<code>RateLimiters(provider)</code>, and <code>CircuitBreakers(provider)</code> call these factories.</p>
+<code>RateLimiterRegistry(provider)</code>, and <code>CircuitBreakerRegistry(provider)</code> call these factories.</p>
 <h2 id="readiness-check">Readiness check</h2>
 <p>Every connection provider ships a built-in <code>check()</code> readiness probe: Redis and
-Valkey run <code>PING</code>, Postgres and SQLite run <code>SELECT 1</code>. A <code>HealthChecks</code> registers it as a
+Valkey run <code>PING</code>, Postgres and SQLite run <code>SELECT 1</code>, and Memory returns
+ready right away. A <code>HealthChecks</code> registers it as a
 <code>provider:{short_name}</code> check, one provider at a time with
 <code>health.add_provider(provider)</code> or for the whole app with
 <code>HealthChecks(auto_health=True)</code>. See <a href="../health/#provider-readiness-checks">Health Checks</a>.</p>
@@ -3006,14 +3044,14 @@ Lock, LeaderElection, Schedule, TTLCache, RateLimiter, and CircuitBreaker.</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.valkey</span><span class="w"> </span><span class="kn">import</span> <span class="n">ValkeyProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiters</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiterRegistry</span>
 
 <span class="n">valkey</span> <span class="o">=</span> <span class="n">ValkeyProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">valkey</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">valkey</span><span class="p">),</span>
-    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">valkey</span><span class="p">),</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">valkey</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
 <p>Set <code>VALKEY_URL</code> (or <code>VALKEY_HOST</code> + <code>VALKEY_PORT</code> + <code>VALKEY_DB</code> +
@@ -3075,12 +3113,12 @@ provider owns one <code>aiosqlite</code> connection (autocommit, WAL) and a shar
 lock that adapters borrow.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.sqlite</span><span class="w"> </span><span class="kn">import</span> <span class="n">SQLiteProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiters</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiterRegistry</span>
 
 <span class="n">sqlite</span> <span class="o">=</span> <span class="n">SQLiteProvider</span><span class="p">(</span><span class="s2">&quot;app.db&quot;</span><span class="p">)</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">sqlite</span><span class="p">),</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">sqlite</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
 <p>Set <code>SQLITE_PATH</code> for env-driven construction. Construction forms:</p>
@@ -3102,18 +3140,48 @@ its lifecycle.</p>
 Provider would access <code>provider.client</code> before the pool exists and raise
 <code>OutOfContextError</code>. <code>Grelmicro.__aenter__</code> warns on this ordering, but
 the correct fix is to list the Provider first.</p>
-<h2 id="memory-backends">Memory backends</h2>
-<p>In-memory backends (<code>MemoryLockAdapter</code>, <code>MemoryCacheAdapter</code>,
-<code>MemoryRateLimiterAdapter</code>, <code>MemoryCircuitBreakerAdapter</code>) have no
-provider. Pass the adapter directly to its Component:</p>
+<h2 id="memory">Memory</h2>
+<p><code>MemoryProvider</code> ships every factory: <code>.lock()</code>, <code>.leaderelection()</code>,
+<code>.schedule()</code>, <code>.cache()</code>, <code>.ratelimiter()</code>, and <code>.circuitbreaker()</code>. It owns no
+connection. State lives in process and disappears on restart, so it is for
+tests and single-process apps. Reach for Redis, Postgres, or SQLite for
+durable, distributed coordination.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreakers</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerAdapter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryProvider</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreakerRegistry</span><span class="p">,</span> <span class="n">RateLimiterRegistry</span>
+
+<span class="n">memory</span> <span class="o">=</span> <span class="n">MemoryProvider</span><span class="p">()</span>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-    <span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()),</span>
+    <span class="n">memory</span><span class="p">,</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">memory</span><span class="o">.</span><span class="n">lock</span><span class="p">(),</span> <span class="n">election</span><span class="o">=</span><span class="n">memory</span><span class="o">.</span><span class="n">leaderelection</span><span class="p">()),</span>
+    <span class="n">Cache</span><span class="p">(</span><span class="n">memory</span><span class="o">.</span><span class="n">cache</span><span class="p">()),</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">memory</span><span class="o">.</span><span class="n">ratelimiter</span><span class="p">()),</span>
+    <span class="n">CircuitBreakerRegistry</span><span class="p">(</span><span class="n">memory</span><span class="o">.</span><span class="n">circuitbreaker</span><span class="p">()),</span>
 <span class="p">])</span>
 </code></pre></div>
+<p>Each factory hands back one cached adapter per kind, so the provider owns a
+single in-process store per kind. <code>memory.lock()</code> called twice returns the same
+backend, so a later call re-fetches the live store for a test or an
+introspection. Wire each kind into one component, the same way you would a Redis
+adapter. A lone <code>MemoryProvider</code> resolves every kind, so
+<code>uses=[memory, Coordination(memory)]</code> wires the lock, election, and schedule
+backends from it.</p>
+<p>To wire a single component, pass the provider straight in:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryProvider</span>
+
+<span class="n">memory</span> <span class="o">=</span> <span class="n">MemoryProvider</span><span class="p">()</span>
+
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">Coordination</span><span class="p">(</span><span class="n">memory</span><span class="p">),</span>
+<span class="p">])</span>
+</code></pre></div>
+<p>You can still pass a raw adapter (<code>MemoryLockAdapter</code>, <code>MemoryCacheAdapter</code>, ...)
+to its Component when you do not want a provider.</p>
 
 
 

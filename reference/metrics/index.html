@@ -1310,6 +1310,8 @@
       
         
       
+        
+      
     
     
     
@@ -1449,6 +1451,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -1696,6 +1726,17 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;prometheus_registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.metrics.Metrics.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
       
     </span>
   </a>
@@ -2861,6 +2902,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.metrics.Metrics.from_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.metrics.Metrics.meter" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3718,6 +3770,84 @@ to render the exposition format.</p>
 <div class="doc doc-object doc-function">
 
 
+<h4 id="grelmicro.metrics.Metrics.from_config" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">from_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_config</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MetricsConfig&lt;/span&gt; (&lt;code&gt;grelmicro.metrics.config.MetricsConfig&lt;/code&gt;)" href="#grelmicro.metrics.MetricsConfig">MetricsConfig</a></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Construct a <code>Metrics</code> from a pre-built <code>MetricsConfig</code>.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The pre-built metrics configuration.</p>
+<p>Use this path when the configuration is assembled at
+startup from a settings tree (for example YAML, Vault,
+or a <code>pydantic-settings</code> aggregator). The environment
+path is bypassed and the config is used as-is.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MetricsConfig&lt;/span&gt; (&lt;code&gt;grelmicro.metrics.config.MetricsConfig&lt;/code&gt;)" href="#grelmicro.metrics.MetricsConfig">MetricsConfig</a></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>name</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Registration name. Defaults to <code>'default'</code>.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>&#39;default&#39;</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h4 id="grelmicro.metrics.Metrics.meter" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">meter</span>
 
@@ -4139,7 +4269,7 @@ to render the exposition format.</p>
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">gauge</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">unit</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">description</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Any">Any</span></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="opentelemetry.metrics._Gauge">_Gauge</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -4710,11 +4840,14 @@ to render the exposition format.</p>
 
 
 </h3>
-
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">MetricsSettingsValidationError</span><span class="p">(</span>
+    <span class="n">error</span><span class="p">:</span> <span class="n"><span title="pydantic.ValidationError">ValidationError</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
 
     <div class="doc doc-contents ">
             <p class="doc doc-class-bases">
-              Bases: <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MetricsError&lt;/span&gt; (&lt;code&gt;grelmicro.metrics.errors.MetricsError&lt;/code&gt;)" href="#grelmicro.metrics.MetricsError">MetricsError</a></code>, <code><span title="ValueError">ValueError</span></code></p>
+              Bases: <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MetricsError&lt;/span&gt; (&lt;code&gt;grelmicro.metrics.errors.MetricsError&lt;/code&gt;)" href="#grelmicro.metrics.MetricsError">MetricsError</a></code>, <code><span title="grelmicro.errors.SettingsValidationError">SettingsValidationError</span></code></p>
 
 
 
@@ -4727,6 +4860,23 @@ to render the exposition format.</p>
 
 
 
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
 
     </div>
 

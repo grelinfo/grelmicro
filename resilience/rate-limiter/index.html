@@ -836,6 +836,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#waiting-until-allowed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Waiting until allowed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#one-fleet-wide-limit" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1576,6 +1587,8 @@
       
         
       
+        
+      
     
     
     
@@ -1715,6 +1728,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2637,6 +2678,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#waiting-until-allowed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Waiting until allowed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#one-fleet-wide-limit" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2897,6 +2949,23 @@
     <span class="o">...</span>
 </code></pre></div>
 <p>Use <code>acquire_or_raise</code> when a surrounding layer should turn the rejection into a response: it raises <code>RateLimitExceededError</code>, which is an <code>AdmissionError</code> (the shared base, exported from the top-level <code>grelmicro</code> package for every "turned away" rejection: rate limiter, bulkhead, open circuit breaker, non-blocking lock), so one <code>except AdmissionError</code> catches them all.</p>
+<h3 id="waiting-until-allowed">Waiting until allowed</h3>
+<p><code>wait</code> blocks until tokens are available, then consumes them. Use it to smooth a burst into the limit instead of rejecting it, for example when calling a rate-limited upstream:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span>
+
+<span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">token_bucket</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">capacity</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">serve</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="c1"># Block until a token frees up, then proceed.</span>
+    <span class="k">await</span> <span class="n">api_limiter</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">user_id</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">serve_bounded</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="c1"># Give up after 2 seconds, raising RateLimitExceededError.</span>
+    <span class="k">await</span> <span class="n">api_limiter</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">cost</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">max_wait</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+</code></pre></div>
+<p>It polls <code>acquire</code> on the clock seam, sleeping <code>retry_after</code> between attempts, so a denied call never consumes tokens. By default it waits as long as needed. Pass <code>max_wait</code> to bound the wait: it raises <code>RateLimitExceededError</code> once the budget would be exceeded. A <code>cost</code> larger than the limit raises <code>ValueError</code> instead of waiting forever.</p>
 <h3 id="one-fleet-wide-limit">One fleet-wide limit</h3>
 <p>When the limiter protects a service with one shared budget (no per-user or per-IP split), omit <code>key</code>. It defaults to <code>"default"</code>, and the limiter's own <code>name</code> already namespaces the bucket on the backend:</p>
 <div class="highlight"><pre><span></span><code><span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">token_bucket</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">capacity</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">refill_rate</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
@@ -2998,28 +3067,28 @@
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiters</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiterRegistry</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.postgres</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiters</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiterRegistry</span>
 
 <span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="s2">&quot;postgresql://localhost:5432/app&quot;</span><span class="p">)</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">RateLimiters</span><span class="p">(</span><span class="n">postgres</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">postgres</span><span class="p">)])</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.sqlite</span><span class="w"> </span><span class="kn">import</span> <span class="n">SQLiteProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiters</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiterRegistry</span>
 
 <span class="n">sqlite</span> <span class="o">=</span> <span class="n">SQLiteProvider</span><span class="p">(</span><span class="s2">&quot;rate_limit.db&quot;</span><span class="p">)</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">sqlite</span><span class="p">,</span> <span class="n">RateLimiters</span><span class="p">(</span><span class="n">sqlite</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">sqlite</span><span class="p">,</span> <span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">sqlite</span><span class="p">)])</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">

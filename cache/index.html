@@ -632,6 +632,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#custom-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stampede-protection" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1529,6 +1540,8 @@
       
         
       
+        
+      
     
     
     
@@ -1668,6 +1681,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2690,6 +2731,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#custom-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stampede-protection" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3070,8 +3122,36 @@ Redis or Memcached.</p>
     <span class="k">return</span> <span class="k">await</span> <span class="n">db</span><span class="o">.</span><span class="n">fetch_user</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
 </code></pre></div>
 <p>Passing both <code>cache</code> and <code>ttl</code>, or neither, raises <code>TypeError</code>.</p>
+<h3 id="custom-keys">Custom Keys</h3>
+<p>By default <code>@cached</code> derives the key from the <code>repr()</code> of the arguments. Pass <code>key=</code> for a stable, readable key instead. The template fills in from the call's arguments, so <code>key="user:{user_id}"</code> keys the entry under <code>user:42</code> for a call with <code>user_id=42</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@cached</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="s2">&quot;user:</span><span class="si">{user_id}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_user</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">db</span><span class="o">.</span><span class="n">fetch_user</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+</code></pre></div>
+<p>Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a <code>key_maker</code> callable instead. It receives <code>(func, args, kwargs)</code> and returns the key. Passing both <code>key</code> and <code>key_maker</code> raises <code>TypeError</code>. A custom key fully determines the lookup, so <code>typed=</code> has no effect when <code>key=</code> or <code>key_maker</code> is set.</p>
+<div class="highlight"><span class="filename">key.py</span><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span><span class="p">,</span> <span class="n">JsonSerializer</span><span class="p">,</span> <span class="n">cached</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCacheAdapter</span>
+
+<span class="n">cache</span> <span class="o">=</span> <span class="n">Cache</span><span class="p">(</span><span class="n">MemoryCacheAdapter</span><span class="p">())</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">cache</span><span class="p">])</span>
+
+<span class="n">ttl_cache</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">ttl</span><span class="p">(</span><span class="n">ttl</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">serializer</span><span class="o">=</span><span class="n">JsonSerializer</span><span class="p">())</span>
+
+
+<span class="nd">@cached</span><span class="p">(</span><span class="n">ttl_cache</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="s2">&quot;user:</span><span class="si">{user_id}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_user</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">user_id</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Alice&quot;</span><span class="p">}</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
+        <span class="c1"># Keyed under &quot;user:1&quot; instead of the default argument-repr key.</span>
+        <span class="k">await</span> <span class="n">get_user</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">ttl_cache</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="s2">&quot;user:1&quot;</span><span class="p">)</span>
+</code></pre></div>
 <h3 id="stampede-protection">Stampede Protection</h3>
-<p>A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. Turn on <code>lock</code> to fold those misses into one execution, and add <code>early=</code> to refresh hot keys before they expire:</p>
+<p>A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. By default <code>@cached</code> folds those misses in-process (<code>lock="local"</code>). Raise it to <code>lock=True</code> to fold across replicas, drop it to <code>lock=False</code> to opt out, and add <code>early=</code> to refresh hot keys before they expire:</p>
 <table>
 <thead>
 <tr>
@@ -3083,22 +3163,22 @@ Redis or Memcached.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>lock=False</code> (default)</td>
-<td>no protection</td>
-<td>none</td>
-<td>misses are cheap or rare</td>
+<td><code>lock="local"</code> (default)</td>
+<td>fold misses in-process only, never touches a backend</td>
+<td>free, no I/O</td>
+<td>the common case</td>
 </tr>
 <tr>
 <td><code>lock=True</code></td>
 <td>fold concurrent misses, across replicas when a <code>Coordination</code> backend is configured</td>
 <td>one backend acquire per cold miss</td>
-<td>the common case</td>
+<td>you need cross-replica dedup</td>
 </tr>
 <tr>
-<td><code>lock="local"</code></td>
-<td>fold misses in-process only, never touches a backend</td>
-<td>free, no I/O</td>
-<td>per-replica recompute is fine</td>
+<td><code>lock=False</code></td>
+<td>no protection, every concurrent miss recomputes</td>
+<td>none</td>
+<td>misses are cheap or rare</td>
 </tr>
 <tr>
 <td><code>early=0.1</code></td>
@@ -3108,8 +3188,8 @@ Redis or Memcached.</p>
 </tr>
 </tbody>
 </table>
-<p><code>lock=True</code> always dedups in-process first, so the backend is hit at most once per cold miss. <code>early=</code> works alongside either lock mode.</p>
-<div class="highlight"><pre><span></span><code><span class="nd">@cached</span><span class="p">(</span><span class="n">cache</span><span class="p">)</span>                  <span class="c1"># default: no stampede protection</span>
+<p><code>lock=True</code> always dedups in-process first, so the backend is hit at most once per cold miss. <code>early=</code> works alongside any lock mode.</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@cached</span><span class="p">(</span><span class="n">cache</span><span class="p">)</span>                  <span class="c1"># default: in-process stampede folding</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_user</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
     <span class="k">return</span> <span class="k">await</span> <span class="n">db</span><span class="o">.</span><span class="n">fetch_user</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
 
@@ -3168,10 +3248,16 @@ Redis or Memcached.</p>
 <td>Max entries in the private per-function cache, <code>0</code> means unlimited (used only when <code>ttl</code> is set).</td>
 </tr>
 <tr>
+<td><code>key</code></td>
+<td><code>str</code></td>
+<td><code>None</code></td>
+<td>Key template rendered from the arguments, like <code>"user:{user_id}"</code>. Mutually exclusive with <code>key_maker</code>.</td>
+</tr>
+<tr>
 <td><code>key_maker</code></td>
 <td><code>Callable</code></td>
 <td><code>None</code></td>
-<td>Custom key generation function. Receives <code>(func, args, kwargs)</code>.</td>
+<td>Custom key generation function. Receives <code>(func, args, kwargs)</code>. Mutually exclusive with <code>key</code>.</td>
 </tr>
 <tr>
 <td><code>skip</code></td>

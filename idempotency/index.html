@@ -570,6 +570,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#one-call-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-call form
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#decorator" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1445,6 +1456,8 @@
       
         
       
+        
+      
     
     
     
@@ -1584,6 +1597,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2516,6 +2557,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#one-call-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-call form
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#decorator" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2645,6 +2697,29 @@
 </code></pre></div>
 <p>On a first execution, <code>replayed</code> is <code>False</code>. Call <code>op.store(response)</code> to persist the response. On a replay, <code>replayed</code> is <code>True</code> and <code>op.response</code> carries the stored value.</p>
 <p>Exiting the block without calling <code>op.store(...)</code> on a first execution stores nothing. The operation opted out and a later call with the same key executes fresh.</p>
+<h2 id="one-call-form">One-call form</h2>
+<p><code>idem.run(key, factory)</code> owns the block. It runs the factory once, stores the response, and replays it on a repeated key. The factory can be sync or async. It mirrors <code>TTLCache.get_or_set</code>.</p>
+<div class="highlight"><span class="filename">run.py</span><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCacheAdapter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.idempotency</span><span class="w"> </span><span class="kn">import</span> <span class="n">Idempotency</span>
+
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Cache</span><span class="p">(</span><span class="n">MemoryCacheAdapter</span><span class="p">())])</span>
+
+<span class="n">idem</span> <span class="o">=</span> <span class="n">Idempotency</span><span class="p">(</span><span class="s2">&quot;charge&quot;</span><span class="p">,</span> <span class="n">ttl</span><span class="o">=</span><span class="mi">3600</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">do_charge</span><span class="p">(</span><span class="n">amount</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;amount&quot;</span><span class="p">:</span> <span class="n">amount</span><span class="p">}</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
+        <span class="c1"># The factory runs only on a first call, then the response replays.</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">idem</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;key-1&quot;</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">do_charge</span><span class="p">(</span><span class="mi">100</span><span class="p">))</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+</code></pre></div>
+<p>The first call for a key runs the factory and stores its return value. A later call with the same key replays the stored value without running the factory. A failing factory stores nothing, so a later retry runs fresh. Pass <code>fingerprint=</code> to guard against a key reused with a different payload.</p>
 <h2 id="decorator">Decorator</h2>
 <p><code>@idempotent</code> derives the key from the call arguments and stores the return value. It mirrors <code>@cached</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.idempotency</span><span class="w"> </span><span class="kn">import</span> <span class="n">idempotent</span>
@@ -2688,7 +2763,8 @@
 </ul>
 <h2 id="configuration">Configuration</h2>
 <p>Build with keyword arguments and tune <code>ttl</code> in deployment. Set
-<code>GREL_IDEMPOTENCY_{NAME}_TTL</code> to change it without code changes. The instance
+<code>GREL_IDEMPOTENCY_{NAME}_TTL</code> to change it without code changes (the default
+instance drops the name segment and reads <code>GREL_IDEMPOTENCY_TTL</code>). The instance
 reconfigures live from a mounted ConfigMap. See
 <a href="../architecture/reconfigure/">Live reconfiguration</a>.</p>
 <div class="admonition tip">

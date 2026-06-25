@@ -1308,6 +1308,8 @@
       
         
       
+        
+      
     
     
     
@@ -1447,6 +1449,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2570,10 +2600,10 @@
 <li><strong>Forward compatibility.</strong> A future Redis-backed circuit breaker (issue #188) shares state across replicas. Switching is a backend swap, not an API change.</li>
 </ol>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreakers</span><span class="p">,</span> <span class="n">CircuitBreaker</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreakerRegistry</span><span class="p">,</span> <span class="n">CircuitBreaker</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerAdapter</span>
 
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">())])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">CircuitBreakerRegistry</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">())])</span>
 <span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;payment&quot;</span><span class="p">)</span>
 
 

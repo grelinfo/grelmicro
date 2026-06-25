@@ -1308,6 +1308,8 @@
       
         
       
+        
+      
     
     
     
@@ -1447,6 +1449,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -1962,6 +1992,17 @@
     <span class="md-ellipsis">
       
         Name normalisation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-default-instance-owns-the-bare-prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The default instance owns the bare prefix
       
     </span>
   </a>
@@ -2522,6 +2563,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-default-instance-owns-the-bare-prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The default instance owns the bare prefix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#hot-path-discipline" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2628,7 +2680,7 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Single-instance components</strong> (<code>HealthChecks</code>, <code>RateLimitFilter</code>, <code>DuplicateFilter</code>, <code>log.configure</code>) drop the positional name because the application typically holds one:</p>
+<p><strong>Single-instance components</strong> (<code>HealthChecks</code>, <code>Log</code>, <code>Trace</code>, <code>Metrics</code>, <code>RateLimitFilter</code>, <code>DuplicateFilter</code>, <code>log.configure</code>) drop the positional name because the application typically holds one:</p>
 <table>
 <thead>
 <tr>
@@ -2658,7 +2710,7 @@
     <span class="n">LockConfig</span><span class="p">,</span>
     <span class="n">explicit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">kwargs</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;lease_duration&quot;</span><span class="p">:</span> <span class="n">lease_duration</span><span class="p">,</span> <span class="o">...</span><span class="p">},</span>
-    <span class="n">env_prefix</span><span class="o">=</span><span class="n">env_prefix</span> <span class="ow">or</span> <span class="sa">f</span><span class="s2">&quot;GREL_LOCK_</span><span class="si">{</span><span class="n">env_segment</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="si">}</span><span class="s2">_&quot;</span><span class="p">,</span>
+    <span class="n">env_prefix</span><span class="o">=</span><span class="n">env_prefix</span> <span class="ow">or</span> <span class="n">default_env_prefix</span><span class="p">(</span><span class="s2">&quot;LOCK&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">),</span>
     <span class="n">env_load</span><span class="o">=</span><span class="n">env_load</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -2672,6 +2724,27 @@
 <li>Strip leading and trailing underscores.</li>
 </ol>
 <p>A name that produces an empty segment or one starting with a digit is rejected at construction with an actionable error.</p>
+<h2 id="the-default-instance-owns-the-bare-prefix">The default instance owns the bare prefix</h2>
+<p><code>grelmicro._config.default_env_prefix</code> builds the prefix from the component and the name. The default instance drops the name segment, so a <code>Lock("default")</code> reads <code>GREL_LOCK_LEASE_DURATION</code>, not <code>GREL_LOCK_DEFAULT_LEASE_DURATION</code>. A named instance keeps it: <code>Lock("cart")</code> reads <code>GREL_LOCK_CART_LEASE_DURATION</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Instance</th>
+<th>Prefix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Lock("default")</code></td>
+<td><code>GREL_LOCK_</code></td>
+</tr>
+<tr>
+<td><code>Lock("cart")</code></td>
+<td><code>GREL_LOCK_CART_</code></td>
+</tr>
+</tbody>
+</table>
+<p>The trade-off: the default instance owns the bare <code>GREL_{COMPONENT}_</code> namespace, so a named instance whose name collides with a field prefix can alias a default field. A <code>Lock("lease")</code> reads <code>GREL_LOCK_LEASE_DURATION</code>, the same key the default instance uses for its <code>lease_duration</code> field. This is rare in practice. The rule: the default instance owns the bare prefix, so name your other instances to avoid field-name collisions.</p>
 <h2 id="hot-path-discipline">Hot-path discipline</h2>
 <p>The config model is a frozen <code>BaseModel</code> with <code>extra="forbid"</code>. The hot path holds one reference to that instance and reads attributes off it. This is the budget the design protects:</p>
 <ul>
@@ -2787,7 +2860,7 @@
 <td><code>grelmicro.health</code></td>
 </tr>
 <tr>
-<td><code>LoggingConfig</code></td>
+<td><code>LogConfig</code></td>
 <td><code>grelmicro.log</code></td>
 </tr>
 </tbody>

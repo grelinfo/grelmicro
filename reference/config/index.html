@@ -1310,6 +1310,8 @@
       
         
       
+        
+      
     
     
     
@@ -1597,6 +1599,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2666,16 +2696,16 @@
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">ExternalConfig</span><span class="p">(</span>
-    <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config.abc.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a></span>
+    <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config._protocol.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a></span>
     <span class="o">|</span> <span class="n"><span title="str">str</span></span>
     <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
     <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">secrets</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config.abc.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a></span>
+    <span class="n">secrets</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config._protocol.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a></span>
     <span class="o">|</span> <span class="n"><span title="str">str</span></span>
     <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
     <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">interval</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">=</span> <span class="n"><span title="grelmicro.config._external._DEFAULT_INTERVAL">_DEFAULT_INTERVAL</span></span><span class="p">,</span>
+    <span class="n">reload_interval</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">=</span> <span class="n"><span title="grelmicro.config._external._DEFAULT_INTERVAL">_DEFAULT_INTERVAL</span></span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -2755,7 +2785,7 @@ the non-sensitive <code>GREL_...</code> keys.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config.abc.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a> | <span title="str">str</span> | <span title="os.PathLike">PathLike</span>[<span title="str">str</span>] | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config._protocol.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a> | <span title="str">str</span> | <span title="os.PathLike">PathLike</span>[<span title="str">str</span>] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -2776,7 +2806,7 @@ the non-sensitive <code>GREL_...</code> keys.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config.abc.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a> | <span title="str">str</span> | <span title="os.PathLike">PathLike</span>[<span title="str">str</span>] | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ConfigBackend&lt;/span&gt; (&lt;code&gt;grelmicro.config._protocol.ConfigBackend&lt;/code&gt;)" href="#grelmicro.config.ConfigBackend">ConfigBackend</a> | <span title="str">str</span> | <span title="os.PathLike">PathLike</span>[<span title="str">str</span>] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -2787,12 +2817,12 @@ the non-sensitive <code>GREL_...</code> keys.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>interval</code>
+                <code>reload_interval</code>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Seconds between polls of the sources. Each poll re-applies
-only what changed.</p>
+                <p>Seconds between reloads of the sources. Each reload
+re-applies only what changed.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">

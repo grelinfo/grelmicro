@@ -1512,6 +1512,8 @@
       
         
       
+        
+      
     
     
     
@@ -1651,6 +1653,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2734,14 +2764,14 @@
 <li><strong>Error handling</strong>: errors are caught and logged, so a failing task does not stop the scheduler.</li>
 </ul>
 <h2 id="quick-start">Quick start</h2>
-<p>Register a <code>Tasks</code> instance with a <code>Grelmicro</code> app, then schedule a task with the <code>interval</code> decorator:</p>
+<p>Register a <code>Tasks</code> instance with a <code>Grelmicro</code> app, then schedule a task with the <code>every</code> decorator:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
 <span class="n">tasks</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">tasks</span><span class="p">])</span>
 
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="o">...</span>
 
@@ -2750,7 +2780,7 @@
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Per-process by default</p>
-<p><code>Tasks</code> runs schedules <strong>in the local process only</strong>. Every process that boots a <code>Tasks</code> instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with <a href="../coordination/#task-lock"><code>TaskLock</code></a> or <a href="../coordination/#leader-election"><code>LeaderElection</code></a>. Without one of those, a 3-replica deployment runs the same <code>@tasks.interval(...)</code> three times per tick.</p>
+<p><code>Tasks</code> runs schedules <strong>in the local process only</strong>. Every process that boots a <code>Tasks</code> instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with <a href="../coordination/#task-lock"><code>TaskLock</code></a> or <a href="../coordination/#leader-election"><code>LeaderElection</code></a>. Without one of those, a 3-replica deployment runs the same <code>@tasks.every(...)</code> three times per tick.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -2805,10 +2835,11 @@
 </div>
 </div>
 <h2 id="interval-task">Interval Task</h2>
-<p>Use the <code>interval</code> decorator to run a task at a fixed interval:</p>
+<p>Use the <code>every</code> decorator to run a task at a fixed interval:</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The interval specifies the waiting time between task executions. Ensure that the task execution duration is considered to meet deadlines effectively.</p>
+<p>The interval is measured from the end of one run to the start of the next (end-to-start). A run that takes longer than the interval pushes the next attempt back.</p>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Sensitive workflows: pass an explicit <code>name=</code></p>
@@ -2827,7 +2858,7 @@ should not leak through operational surfaces.</p>
 <span class="n">task</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 
 
-<span class="nd">@task</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<span class="nd">@task</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">my_task</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -2838,7 +2869,7 @@ should not leak through operational surfaces.</p>
 <span class="n">task</span> <span class="o">=</span> <span class="n">TaskRouter</span><span class="p">()</span>
 
 
-<span class="nd">@task</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<span class="nd">@task</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">my_task</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -2846,13 +2877,14 @@ should not leak through operational surfaces.</p>
 </div>
 </div>
 <h3 id="distributed-lock">Distributed Lock</h3>
-<p>Set <code>max_lock_seconds</code> to enable distributed locking: the task runs at most once per interval across all workers. This uses a built-in <a href="../coordination/#task-lock"><code>TaskLock</code></a> automatically.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
+<p>Pass a <a href="../coordination/#task-lock"><code>TaskLock</code></a> via <code>lock</code> to enable distributed locking: the task runs at most once per interval across all workers. The lock keeps its default <code>"default"</code> name, so the task name is used and you never repeat it.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">TaskLock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
 <span class="n">task</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 
 
-<span class="nd">@task</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">max_lock_seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+<span class="nd">@task</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="n">TaskLock</span><span class="p">(</span><span class="n">lease_duration</span><span class="o">=</span><span class="mi">300</span><span class="p">))</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Running cleanup...&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -2866,54 +2898,55 @@ should not leak through operational surfaces.</p>
 <tbody>
 <tr>
 <td><code>seconds</code></td>
-<td>Duration in seconds between each scheduling attempt. Each worker retries every N seconds, but only one executes per interval.</td>
+<td>Duration between each scheduling attempt, as a number of seconds or a <code>timedelta</code>. Each worker retries every interval, but only one executes per interval.</td>
 </tr>
 <tr>
-<td><code>max_lock_seconds</code></td>
-<td>Crash protection TTL. Must be &gt;= <code>seconds</code>. If a worker crashes, the lock expires after this duration.</td>
-</tr>
-<tr>
-<td><code>min_lock_seconds</code></td>
-<td>Minimum duration to hold the lock after task completion. Prevents re-execution on other nodes too soon. Defaults to <code>seconds</code>.</td>
+<td><code>lock</code></td>
+<td>A <code>TaskLock</code> for at-most-once scheduling. Its <code>lease_duration</code> is the crash-protection TTL and must be &gt;= <code>seconds</code>. Its <code>min_hold_duration</code> keeps the lock held after completion to prevent re-execution too soon.</td>
 </tr>
 </tbody>
 </table>
+<p>The <code>lock</code> is authoritative: its <code>lease_duration</code>, <code>min_hold_duration</code>, <code>backend</code>, and <code>worker</code> are used as set.</p>
 <h3 id="leader-gating">Leader Gating</h3>
-<p>Restrict the task to the leader worker with a <a href="../coordination/#leader-election">Leader Election</a>, so only one worker executes it. Setting <code>leader</code> also enables distributed locking, with <code>max_lock_seconds</code> defaulting to <code>seconds * 5</code>:</p>
+<p>Restrict the task to the leader worker with a <a href="../coordination/#leader-election">Leader Election</a>, so only one worker executes it. Setting <code>leader</code> also enables distributed locking. Without a <code>lock</code>, one is configured with <code>lease_duration</code> of <code>seconds * 5</code> and <code>min_hold_duration</code> of <code>seconds</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">LeaderElection</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionAdapter</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
-<span class="n">leader</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;my-service&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">MemoryLeaderElectionBackend</span><span class="p">())</span>
+<span class="n">leader</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;my-service&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">MemoryLeaderElectionAdapter</span><span class="p">())</span>
 <span class="n">task</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 <span class="n">task</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader</span><span class="p">)</span>
 
 
-<span class="nd">@task</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader</span><span class="p">)</span>
+<span class="nd">@task</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Running cleanup...&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="custom-lock-timing">Custom Lock Timing</h3>
-<p>For long-running tasks, customize both <code>max_lock_seconds</code> and <code>min_lock_seconds</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
+<p>For long-running tasks, customize both <code>lease_duration</code> and <code>min_hold_duration</code> on the <code>TaskLock</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">TaskLock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
 <span class="n">task</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 
 
-<span class="nd">@task</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">max_lock_seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">min_lock_seconds</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="nd">@task</span><span class="o">.</span><span class="n">every</span><span class="p">(</span>
+    <span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span>
+    <span class="n">lock</span><span class="o">=</span><span class="n">TaskLock</span><span class="p">(</span><span class="n">lease_duration</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">min_hold_duration</span><span class="o">=</span><span class="mi">30</span><span class="p">),</span>
+<span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">long_task</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Running long task...&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="resource-lock">Resource Lock</h3>
 <p>Combine distributed locking with a <a href="../coordination/#lock"><code>Lock</code></a> to synchronize access to a shared resource during task execution. Pass the <code>Lock</code> via the <code>sync</code> parameter:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">TaskLock</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
 <span class="n">task</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 <span class="n">resource_lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;shared-resource&quot;</span><span class="p">)</span>
 
 
-<span class="nd">@task</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">max_lock_seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span> <span class="n">sync</span><span class="o">=</span><span class="n">resource_lock</span><span class="p">)</span>
+<span class="nd">@task</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="n">TaskLock</span><span class="p">(</span><span class="n">lease_duration</span><span class="o">=</span><span class="mi">300</span><span class="p">),</span> <span class="n">sync</span><span class="o">=</span><span class="n">resource_lock</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Running cleanup...&quot;</span><span class="p">)</span>
 </code></pre></div>
@@ -3029,16 +3062,17 @@ Node B:  [skip] → ... → [skip] → ... → [acquire] → [execute]
   or <code>None</code> when the task has not started yet. For interval tasks, this is
   computed from the last loop instant. For cron tasks, it comes from the
   parsed expression.</li>
-<li><strong><code>last_fire</code></strong>: a <code>FireInfo</code> with the <code>started_at</code> timestamp, outcome
-  (<code>"success"</code>, <code>"error"</code>, or <code>"skipped"</code>), and duration in seconds. <code>None</code>
-  before the first fire.</li>
+<li><strong><code>last_fire</code></strong>: a <code>FireInfo</code> with the <code>started_at</code> timestamp, outcome (a
+  <code>FireOutcome</code> enum: <code>SUCCESS</code>, <code>ERROR</code>, or <code>SKIPPED</code>), and duration in
+  seconds. <code>None</code> before the first fire. <code>FireOutcome</code> is a <code>StrEnum</code>, so each
+  member compares equal to its string value (<code>outcome == "success"</code>).</li>
 </ul>
 <p>Access the task object via <code>tasks.tasks</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">FireInfo</span><span class="p">,</span> <span class="n">Tasks</span>
 
 <span class="n">tasks</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="o">...</span>
 
@@ -3059,7 +3093,7 @@ Node B:  [skip] → ... → [skip] → ... → [acquire] → [execute]
 <span class="n">router</span> <span class="o">=</span> <span class="n">TaskRouter</span><span class="p">()</span>
 
 
-<span class="nd">@router</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<span class="nd">@router</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">my_task</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Hello, World!&quot;</span><span class="p">)</span>
 </code></pre></div>

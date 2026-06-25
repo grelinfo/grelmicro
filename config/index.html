@@ -1407,6 +1407,8 @@
       
         
       
+        
+      
     
     
     
@@ -1546,6 +1548,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2543,6 +2573,11 @@ variable for the field and grelmicro reads it at startup.</p>
 <p>The instance name becomes the namespace. Names with hyphens, dots, slashes, or
 colons normalise into uppercase segments (<code>payments-eu</code> becomes <code>PAYMENTS_EU</code>,
 <code>cart.v2</code> becomes <code>CART_V2</code>).</p>
+<p>The default instance drops the name segment, so a <code>Lock("default")</code> reads the
+bare <code>GREL_LOCK_LEASE_DURATION</code>. Because the default instance owns the bare
+<code>GREL_{PATTERN}_</code> namespace, name your other instances to avoid clashing with a
+field name (a <code>Lock("lease")</code> would share <code>GREL_LOCK_LEASE_DURATION</code> with the
+default instance). This is rare in practice.</p>
 <p>A value passed in code wins over the environment. So a hard-coded
 <code>Lock("cart", lease_duration=60)</code> ignores <code>GREL_LOCK_CART_LEASE_DURATION</code>. Leave
 a field out of the constructor to let the deployment set it.</p>
@@ -2555,6 +2590,10 @@ a field out of the constructor to let the deployment set it.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>Lock("default")</code></td>
+<td><code>GREL_LOCK_</code></td>
+</tr>
 <tr>
 <td><code>Lock("cart")</code></td>
 <td><code>GREL_LOCK_CART_</code></td>
@@ -2569,11 +2608,19 @@ a field out of the constructor to let the deployment set it.</p>
 </tr>
 <tr>
 <td><code>RateLimitFilter()</code></td>
-<td><code>GREL_RATE_LIMIT_FILTER_</code></td>
+<td><code>GREL_RATELIMITFILTER_</code></td>
+</tr>
+<tr>
+<td><code>RateLimitFilter(env_name="audit")</code></td>
+<td><code>GREL_RATELIMITFILTER_AUDIT_</code></td>
 </tr>
 <tr>
 <td><code>DuplicateFilter()</code></td>
-<td><code>GREL_DUPLICATE_FILTER_</code></td>
+<td><code>GREL_DUPLICATEFILTER_</code></td>
+</tr>
+<tr>
+<td><code>DuplicateFilter(env_name="audit")</code></td>
+<td><code>GREL_DUPLICATEFILTER_AUDIT_</code></td>
 </tr>
 <tr>
 <td><code>HealthChecks()</code></td>

@@ -4,12 +4,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination, LeaderElection, Lock
-from grelmicro.coordination.memory import MemoryLeaderElectionBackend
-from grelmicro.fastapi import GrelmicroMiddleware
+from grelmicro.coordination import (
+    Coordination,
+    LeaderElection,
+    Lock,
+    TaskLock,
+)
+from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import CircuitBreaker, CircuitBreakers
+from grelmicro.resilience import CircuitBreaker, CircuitBreakerRegistry
 from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
 )
@@ -26,8 +30,8 @@ redis = RedisProvider("redis://localhost:6379/0")
 
 micro = Grelmicro(
     uses=[
-        Coordination(lock=redis.lock(), election=MemoryLeaderElectionBackend()),
-        CircuitBreakers(MemoryCircuitBreakerAdapter()),
+        Coordination(lock=redis.lock(), election=MemoryLeaderElectionAdapter()),
+        CircuitBreakerRegistry(MemoryCircuitBreakerAdapter()),
         tasks,
     ]
 )
@@ -37,12 +41,11 @@ micro = Grelmicro(
 @asynccontextmanager
 async def lifespan(app):
     configure()
-    async with micro:
-        yield
+    yield
 
 
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(GrelmicroMiddleware, micro=micro)
+micro.install(app)
 
 
 # --- Circuit Breaker: protect calls to an unreliable service ---
@@ -66,18 +69,18 @@ async def protected():
 
 
 # --- Interval Task: run locally on every worker ---
-@tasks.interval(seconds=5)
+@tasks.every(seconds=5)
 def heartbeat():
     logger.info("heartbeat")
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@tasks.interval(seconds=60, max_lock_seconds=300)
+@tasks.every(seconds=60, lock=TaskLock(lease_duration=300))
 def cleanup():
     logger.info("cleanup")
 
 
 # --- Leader-gated Task: only the leader executes ---
-@tasks.interval(seconds=10, leader=leader_election)
+@tasks.every(seconds=10, leader=leader_election)
 def leader_only_task():
     logger.info("leader task")

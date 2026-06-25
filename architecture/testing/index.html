@@ -1308,6 +1308,8 @@
       
         
       
+        
+      
     
     
     
@@ -1447,6 +1449,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2543,7 +2573,7 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockBackend</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_swap_for_block</span><span class="p">(</span><span class="n">micro</span><span class="p">:</span> <span class="n">Grelmicro</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -2563,14 +2593,14 @@
 <p>Time-dependent primitives (<code>Retry</code> backoff, <code>CircuitBreaker</code> half-open window, <code>RateLimiter</code> refill, <code>Shield</code> adaptive gate) read time through grelmicro's clock seam. Install a <code>VirtualClock</code> and advance it by hand to drive that behavior without waiting real seconds:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.clock</span><span class="w"> </span><span class="kn">import</span> <span class="n">VirtualClock</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreakers</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreakerRegistry</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">CircuitBreakerState</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerAdapter</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_breaker_half_opens_after_cooldown</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="k">async</span> <span class="k">with</span> <span class="n">VirtualClock</span><span class="p">()</span> <span class="k">as</span> <span class="n">clock</span><span class="p">:</span>
-        <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">())])</span>
+        <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">CircuitBreakerRegistry</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">())])</span>
         <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
             <span class="n">breaker</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="o">.</span><span class="n">consecutive_count</span><span class="p">(</span>
                 <span class="s2">&quot;svc&quot;</span><span class="p">,</span> <span class="n">error_threshold</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">reset_timeout</span><span class="o">=</span><span class="mi">30</span>
@@ -2635,7 +2665,7 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">LockBackend</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_login</span><span class="p">(</span><span class="n">micro</span><span class="p">:</span> <span class="n">Grelmicro</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>

@@ -1459,6 +1459,8 @@
       
         
       
+        
+      
     
     
     
@@ -1598,6 +1600,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2695,7 +2725,7 @@
 <h2 id="configuration">Configuration</h2>
 <p><code>Bulkhead</code> follows the three-paths configuration contract.</p>
 <h3 id="environmental">Environmental</h3>
-<p>Prefix: <code>GREL_BULKHEAD_{NAME_UPPER}_</code></p>
+<p>Prefix: <code>GREL_BULKHEAD_{NAME_UPPER}_</code>. The default instance drops the name segment and reads <code>GREL_BULKHEAD_*</code>.</p>
 <table>
 <thead>
 <tr>

@@ -1310,6 +1310,8 @@
       
         
       
+        
+      
     
     
     
@@ -1449,6 +1451,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -1782,10 +1812,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.task.TaskRouter.interval" class="md-nav__link">
+  <a href="#grelmicro.task.TaskRouter.every" class="md-nav__link">
     <span class="md-ellipsis">
       
-        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;interval
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;every
       
     </span>
   </a>
@@ -2630,10 +2660,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.task.TaskRouter.interval" class="md-nav__link">
+  <a href="#grelmicro.task.TaskRouter.every" class="md-nav__link">
     <span class="md-ellipsis">
       
-        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;interval
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;every
       
     </span>
   </a>
@@ -2798,7 +2828,7 @@
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">Tasks</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">auto_start</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">tasks</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="grelmicro.task.abc.Task">Task</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tasks</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="grelmicro.task._protocol.Task">Task</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">shutdown_timeout</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">=</span> <span class="mf">30.0</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -2854,7 +2884,7 @@
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="list">list</span>[<span title="grelmicro.task.abc.Task">Task</span>] | None</code>
+                      <code><span title="list">list</span>[<span title="grelmicro.task._protocol.Task">Task</span>] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -2980,7 +3010,7 @@ Set to <code>0</code> to cancel immediately without draining.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">TaskRouter</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">tasks</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="grelmicro.task.abc.Task">Task</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">TaskRouter</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">tasks</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="grelmicro.task._protocol.Task">Task</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3014,7 +3044,7 @@ multiple files. It would then be included in the <code>Tasks</code>, or in anoth
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="list">list</span>[<span title="grelmicro.task.abc.Task">Task</span>] | None</code>
+                      <code><span title="list">list</span>[<span title="grelmicro.task._protocol.Task">Task</span>] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -3057,7 +3087,7 @@ multiple files. It would then be included in the <code>Tasks</code>, or in anoth
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">tasks</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="grelmicro.task.abc.Task">Task</span></span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">tasks</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="grelmicro.task._protocol.Task">Task</span></span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3079,7 +3109,7 @@ multiple files. It would then be included in the <code>Tasks</code>, or in anoth
 
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_task</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n"><span title="grelmicro.task.abc.Task">Task</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_task</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n"><span title="grelmicro.task._protocol.Task">Task</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3094,21 +3124,18 @@ multiple files. It would then be included in the <code>Tasks</code>, or in anoth
 <div class="doc doc-object doc-function">
 
 
-<h4 id="grelmicro.task.TaskRouter.interval" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">interval</span>
+<h4 id="grelmicro.task.TaskRouter.every" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">every</span>
 
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">interval</span><span class="p">(</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">every</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span><span class="p">,</span>
+    <span class="n">seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="n"><span title="datetime.timedelta">timedelta</span></span><span class="p">,</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">max_lock_seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">min_lock_seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">lock</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TaskLock&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.tasklock.TaskLock&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.TaskLock">TaskLock</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">leader</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElection&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.leaderelection.LeaderElection&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.LeaderElection">LeaderElection</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">sync</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.LockPrimitive">LockPrimitive</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">sync</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.LockPrimitive">LockPrimitive</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span>
     <span class="p">[</span><span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]]],</span>
     <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span>
@@ -3117,14 +3144,15 @@ multiple files. It would then be included in the <code>Tasks</code>, or in anoth
 
     <div class="doc doc-contents ">
 
-        <p>Decorate function to add it as an interval task.</p>
+        <p>Decorate a function to run it on a fixed interval.</p>
 <p>Supports three modes:</p>
 <ul>
-<li><strong>Local</strong>: No lock params, runs on every worker, every interval.</li>
-<li><strong>Distributed lock</strong>: Set <code>max_lock_seconds</code> to run at most once per
+<li><strong>Local</strong>: No <code>lock</code> or <code>leader</code>, runs on every worker, every
+  interval.</li>
+<li><strong>Distributed lock</strong>: Pass a <code>lock</code> to run at most once per
   interval across all workers.</li>
 <li><strong>Leader-gated</strong>: Set <code>leader</code> to restrict execution to the leader
-  worker (lock is implied).</li>
+  worker (a lock is implied).</li>
 </ul>
 
 
@@ -3142,14 +3170,15 @@ multiple files. It would then be included in the <code>Tasks</code>, or in anoth
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>The duration in seconds between each task run.</p>
+                <p>The duration between each task run.</p>
+<p>Accepts a number of seconds or a <code>timedelta</code>.</p>
 <p>Accuracy is not guaranteed and may vary with system load. Consider the
 execution time of the task when setting the interval.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="float">float</span></code>
+                      <code><span title="float">float</span> | <span title="datetime.timedelta">timedelta</span></code>
                   </span>
               </p>
             </td>
@@ -3161,8 +3190,7 @@ execution time of the task when setting the interval.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>The name of the task.</p>
-<p>If None, a name will be generated automatically from the function.
-Also used as the lock name when distributed locking is enabled.</p>
+<p>If None, a name will be generated automatically from the function.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -3178,42 +3206,22 @@ Also used as the lock name when distributed locking is enabled.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>max_lock_seconds</code>
+                <code>lock</code>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>The maximum duration in seconds to hold the lock (crash protection).</p>
-<p>Setting this enables distributed locking: the task runs at most once
-per interval across all workers. Must be &gt;= <code>seconds</code>.
-When <code>leader</code> is set without this, defaults to <code>seconds * 5</code>.</p>
+                <p>Optional distributed lock for at-most-once scheduling.</p>
+<p>Pass a <code>TaskLock</code> to run the task at most once per interval
+across all workers. Its <code>lease_duration</code> must be &gt;=
+<code>seconds</code>. When the lock keeps its default <code>"default"</code>
+name, the task name is used so it does not need to be
+repeated. The lock's <code>lease_duration</code>, <code>min_hold_duration</code>,
+<code>backend</code> and <code>worker</code> are authoritative.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="float">float</span> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>min_lock_seconds</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>The minimum duration in seconds to hold the lock after task completion.</p>
-<p>Prevents re-execution on other nodes before this duration has elapsed.
-Defaults to <code>seconds</code> when distributed locking is enabled.
-Requires <code>max_lock_seconds</code> or <code>leader</code> to be set.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="float">float</span> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TaskLock&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.tasklock.TaskLock&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.TaskLock">TaskLock</a> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -3230,57 +3238,14 @@ Requires <code>max_lock_seconds</code> or <code>leader</code> to be set.</p>
               <div class="doc-md-description">
                 <p>Optional leader election for leader gating.</p>
 <p>When provided, the task only executes on the leader worker.
-Implies distributed locking (lock is automatically configured).</p>
+Implies distributed locking (a lock is automatically
+configured with interval-aware defaults when no <code>lock</code> is
+given).</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
                       <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElection&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.leaderelection.LeaderElection&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.LeaderElection">LeaderElection</a> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>backend</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>The distributed lock backend.</p>
-<p>By default, resolves through the active <code>Grelmicro</code> app's
-<code>Coordination</code> component. Only used when distributed locking
-is enabled.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="../coordination/#grelmicro.coordination.LockBackend">LockBackend</a> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>worker</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>The worker identity.</p>
-<p>By default, a UUIDv1 will be generated.
-Only used when distributed locking is enabled.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="str">str</span> | <span title="uuid.UUID">UUID</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -3297,15 +3262,15 @@ Only used when distributed locking is enabled.</p>
               <div class="doc-md-description">
                 <p>Optional resource-level synchronization primitive.</p>
 <p>Layered on top of any distributed scheduling chosen via
-<code>max_lock_seconds</code> or <code>leader</code>. Use a <code>Lock</code> to serialise
-execution against a shared resource. Whether the task runs on
-every worker or only one is governed by <code>max_lock_seconds</code>
-and <code>leader</code>, not this parameter.</p>
+<code>lock</code> or <code>leader</code>. Use a <code>Lock</code> to serialise execution
+against a shared resource. Whether the task runs on every
+worker or only one is governed by <code>lock</code> and <code>leader</code>, not
+this parameter.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.LockPrimitive">LockPrimitive</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.LockPrimitive">LockPrimitive</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -3358,31 +3323,7 @@ and <code>leader</code>, not this parameter.</p>
             </td>
             <td class="doc-raises-details">
               <div class="doc-md-description">
-                <p>If max_lock_seconds is less than seconds.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-              <span class="doc-raises-annotation">
-                  <code><span title="ValueError">ValueError</span></code>
-              </span>
-            </td>
-            <td class="doc-raises-details">
-              <div class="doc-md-description">
-                <p>If min_lock_seconds is set without max_lock_seconds or leader.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-              <span class="doc-raises-annotation">
-                  <code><span title="ValueError">ValueError</span></code>
-              </span>
-            </td>
-            <td class="doc-raises-details">
-              <div class="doc-md-description">
-                <p>If min_lock_seconds is greater than max_lock_seconds.</p>
+                <p>If the lock lease_duration is less than seconds.</p>
               </div>
             </td>
           </tr>
@@ -3408,8 +3349,8 @@ and <code>leader</code>, not this parameter.</p>
     <span class="n">timezone</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;UTC&quot;</span><span class="p">,</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">misfire_grace_seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.ScheduleBackend">ScheduleBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">sync</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.LockPrimitive">LockPrimitive</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.ScheduleBackend">ScheduleBackend</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">sync</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.LockPrimitive">LockPrimitive</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span>
     <span class="p">[</span><span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]]],</span>
     <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span>
@@ -3542,7 +3483,7 @@ task runs on every worker, every fire.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.ScheduleBackend">ScheduleBackend</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.ScheduleBackend">ScheduleBackend</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -3566,7 +3507,7 @@ backend, not this parameter.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.LockPrimitive">LockPrimitive</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.LockPrimitive">LockPrimitive</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>

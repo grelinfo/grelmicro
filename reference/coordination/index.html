@@ -1310,6 +1310,8 @@
       
         
       
+        
+      
     
     
     
@@ -1449,6 +1451,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2254,6 +2284,17 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;wait_lose_leader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.coordination.LeaderElection.lead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;lead
       
     </span>
   </a>
@@ -3888,6 +3929,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.coordination.LeaderElection.lead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;lead
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.coordination.LeaderElection.guard" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4270,16 +4322,16 @@
     <span class="n">source</span><span class="p">:</span> <span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span> <span class="o">|</span> <span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">lock</span><span class="p">:</span> <span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span>
-    <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span>
-    <span class="o">|</span> <span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span><span class="p">]</span>
+    <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span>
+    <span class="o">|</span> <span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span><span class="p">]</span>
     <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">election</span><span class="p">:</span> <span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span>
-    <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span>
-    <span class="o">|</span> <span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span><span class="p">]</span>
+    <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span>
+    <span class="o">|</span> <span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span><span class="p">]</span>
     <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">schedule</span><span class="p">:</span> <span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span>
-    <span class="o">|</span> <span class="n"><span title="grelmicro.coordination.abc.ScheduleBackend">ScheduleBackend</span></span>
-    <span class="o">|</span> <span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span> <span class="o">|</span> <span class="n"><span title="grelmicro.coordination.abc.ScheduleBackend">ScheduleBackend</span></span><span class="p">]</span>
+    <span class="o">|</span> <span class="n"><span title="grelmicro.coordination._protocol.ScheduleBackend">ScheduleBackend</span></span>
+    <span class="o">|</span> <span class="n"><span title="type">type</span></span><span class="p">[</span><span class="n"><span title="grelmicro.providers._base.Provider">Provider</span></span> <span class="o">|</span> <span class="n"><span title="grelmicro.coordination._protocol.ScheduleBackend">ScheduleBackend</span></span><span class="p">]</span>
     <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span><span class="p">,</span>
 <span class="p">)</span>
@@ -4366,7 +4418,7 @@ lock backend resolved from <code>source</code>.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.providers._base.Provider">Provider</span> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="type">type</span>[<span title="grelmicro.providers._base.Provider">Provider</span> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a>] | None</code>
+                      <code><span title="grelmicro.providers._base.Provider">Provider</span> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="type">type</span>[<span title="grelmicro.providers._base.Provider">Provider</span> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a>] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4390,7 +4442,7 @@ from <code>source</code>.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.providers._base.Provider">Provider</span> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a> | <span title="type">type</span>[<span title="grelmicro.providers._base.Provider">Provider</span> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a>] | None</code>
+                      <code><span title="grelmicro.providers._base.Provider">Provider</span> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a> | <span title="type">type</span>[<span title="grelmicro.providers._base.Provider">Provider</span> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a>] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4413,7 +4465,7 @@ Overrides the schedule backend resolved from <code>source</code>.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.providers._base.Provider">Provider</span> | <span title="grelmicro.coordination.abc.ScheduleBackend">ScheduleBackend</span> | <span title="type">type</span>[<span title="grelmicro.providers._base.Provider">Provider</span> | <span title="grelmicro.coordination.abc.ScheduleBackend">ScheduleBackend</span>] | None</code>
+                      <code><span title="grelmicro.providers._base.Provider">Provider</span> | <span title="grelmicro.coordination._protocol.ScheduleBackend">ScheduleBackend</span> | <span title="type">type</span>[<span title="grelmicro.providers._base.Provider">Provider</span> | <span title="grelmicro.coordination._protocol.ScheduleBackend">ScheduleBackend</span>] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4523,7 +4575,7 @@ coexist on one <code>Grelmicro</code> under different names.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">lock_backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">lock_backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -4571,7 +4623,7 @@ coexist on one <code>Grelmicro</code> under different names.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">election_backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">election_backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -4619,7 +4671,7 @@ coexist on one <code>Grelmicro</code> under different names.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">schedule_backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.ScheduleBackend">ScheduleBackend</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">schedule_backend</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.ScheduleBackend">ScheduleBackend</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -4809,10 +4861,10 @@ coexist on one <code>Grelmicro</code> under different names.</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">Lock</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">retry_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">retry_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">retry_jitter</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_load</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -4878,7 +4930,7 @@ Changing it raises <code>ValueError</code>. See
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="str">str</span> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4917,14 +4969,15 @@ Changing it raises <code>ValueError</code>. See
                 <p>The duration in seconds for the lock to be held by default.</p>
 <p>Default: 60. When unset and env reads are enabled (see <code>env_load</code> and
 <code>GREL_ENV_LOAD</code>), resolves from the environment
-variable <code>GREL_LOCK_{NAME_UPPER}_LEASE_DURATION</code> if
-present, otherwise falls back to the <code>LockConfig</code>
-default.</p>
+variable <code>GREL_LOCK_LEASE_DURATION</code> for the default
+instance (<code>GREL_LOCK_{NAME_UPPER}_LEASE_DURATION</code> for a
+named one) if present, otherwise falls back to the
+<code>LockConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4944,13 +4997,15 @@ default.</p>
 the lock backend. When unset and env reads are enabled (see <code>env_load</code> and
 <code>GREL_ENV_LOAD</code>), resolves from the
 environment variable
-<code>GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL</code> if present,
-otherwise falls back to the <code>LockConfig</code> default.</p>
+<code>GREL_LOCK_RETRY_INTERVAL</code> for the default instance
+(<code>GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL</code> for a named
+one) if present, otherwise falls back to the
+<code>LockConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4971,8 +5026,10 @@ retry_interval * uniform(1 - retry_jitter, 1 + retry_jitter).
 Set to 0 to disable jitter. When unset and env reads are
 enabled (see <code>env_load</code> and <code>GREL_ENV_LOAD</code>), resolves
 from the environment variable
-<code>GREL_LOCK_{NAME_UPPER}_RETRY_JITTER</code> if present, otherwise
-falls back to the <code>LockConfig</code> default.</p>
+<code>GREL_LOCK_RETRY_JITTER</code> for the default instance
+(<code>GREL_LOCK_{NAME_UPPER}_RETRY_JITTER</code> for a named one)
+if present, otherwise falls back to the <code>LockConfig</code>
+default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -4993,7 +5050,8 @@ falls back to the <code>LockConfig</code> default.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Override the auto-derived environment variable prefix.</p>
-<p>Default: <code>GREL_LOCK_{NAME_UPPER}_</code>. Set this to a
+<p>Default: <code>GREL_LOCK_</code> for the default instance,
+<code>GREL_LOCK_{NAME_UPPER}_</code> for a named one. Set this to a
 custom prefix when the application uses a different
 naming convention, for example <code>MYAPP_LOCK_CART_</code>.</p>
               </div>
@@ -5090,7 +5148,7 @@ override the flag for this construction.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5176,7 +5234,7 @@ call under the app context (for FastAPI, add
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.lock.LockConfig">LockConfig</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -5245,7 +5303,7 @@ path is bypassed and the config is used as-is.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="str">str</span> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -5274,7 +5332,7 @@ path is bypassed and the config is used as-is.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">acquire</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="grelmicro.coordination._handle.LockHandle">LockHandle</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">acquire</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="grelmicro.coordination._handle.LockHandle">LockHandle</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5306,7 +5364,7 @@ TimeoutError.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -5704,7 +5762,7 @@ None and this method raises <code>LockNotOwnedError</code>.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">do_acquire</span><span class="p">(</span><span class="n">token</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">do_acquire</span><span class="p">(</span><span class="n">token</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5752,7 +5810,7 @@ runs concurrently.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span></code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></code>
                   </span>
               </p>
             </td>
@@ -5981,7 +6039,7 @@ the lock was not acquired.</p>
 
 </h4>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">do_thread_acquire</span><span class="p">(</span>
-    <span class="n">thread_id</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">thread_id</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="grelmicro.coordination._handle.LockHandle">LockHandle</span></span>
 </code></pre></div>
 
@@ -6260,12 +6318,12 @@ to other threads.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">TaskLock</span><span class="p">(</span>
-    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">min_lock_seconds</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">max_lock_seconds</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">min_hold_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_load</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
@@ -6273,18 +6331,18 @@ to other threads.</p>
 
     <div class="doc doc-contents ">
             <p class="doc doc-class-bases">
-              Bases: <code><span title="grelmicro._config.Reconfigurable">Reconfigurable</span>[<span title="grelmicro.coordination.tasklock.TaskLockConfig">TaskLockConfig</span>]</code>, <code><span title="grelmicro.coordination.abc.LockPrimitive">LockPrimitive</span></code></p>
+              Bases: <code><span title="grelmicro._config.Reconfigurable">Reconfigurable</span>[<span title="grelmicro.coordination.tasklock.TaskLockConfig">TaskLockConfig</span>]</code>, <code><span title="grelmicro.coordination._protocol.LockPrimitive">LockPrimitive</span></code></p>
 
 
 
         <p>Task Lock.</p>
 <p>A distributed lock for scheduled tasks. Unlike a regular Lock,
 TaskLock does not release immediately on context manager exit. Instead, it keeps
-the lock held for at least <code>min_lock_seconds</code> seconds to prevent re-execution
+the lock held for at least <code>min_hold_duration</code> seconds to prevent re-execution
 on other nodes.</p>
 <p>There is no background task that maintains the lock active during execution.
-The lock relies entirely on the TTL (<code>max_lock_seconds</code>) set at acquire time.</p>
-<p>This lock is designed to be used as the <code>sync</code> parameter of <code>IntervalTask</code>.</p>
+The lock relies entirely on the TTL (<code>lease_duration</code>) set at acquire time.</p>
+<p>This lock is designed to be used as the <code>lock</code> parameter of <code>@task.interval</code>.</p>
 <p>Supports live reconfiguration via
 <code>reconfigure(new_config)</code>.
 A swap takes effect on the next call. An exit re-acquire uses
@@ -6311,11 +6369,18 @@ change. Changing it raises <code>ValueError</code>. See
               <div class="doc-md-description">
                 <p>The name of the resource to lock.</p>
 <p>It will be used as the lock name so make sure it is unique on the lock backend.</p>
+<p>Defaults to <code>"default"</code>. When used as the <code>lock</code> of
+<code>@task.interval</code>, the default name is re-stamped to the
+task name so it does not need to be repeated.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
                       <code><span title="str">str</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>&#39;default&#39;</code>
                   </span>
               </p>
             </td>
@@ -6332,7 +6397,7 @@ change. Changing it raises <code>ValueError</code>. See
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="str">str</span> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -6364,7 +6429,7 @@ change. Changing it raises <code>ValueError</code>. See
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>min_lock_seconds</code>
+                <code>min_hold_duration</code>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
@@ -6373,14 +6438,15 @@ change. Changing it raises <code>ValueError</code>. See
 before this duration has elapsed. When unset and env reads
 are enabled (see <code>env_load</code> and <code>GREL_ENV_LOAD</code>),
 resolves from the environment variable
-<code>GREL_TASKLOCK_{NAME_UPPER}_MIN_LOCK_SECONDS</code> if
-present, otherwise falls back to the
+<code>GREL_TASKLOCK_MIN_HOLD_DURATION</code> for the default
+instance (<code>GREL_TASKLOCK_{NAME_UPPER}_MIN_HOLD_DURATION</code>
+for a named one) if present, otherwise falls back to the
 <code>TaskLockConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -6391,7 +6457,7 @@ present, otherwise falls back to the
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>max_lock_seconds</code>
+                <code>lease_duration</code>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
@@ -6399,14 +6465,15 @@ present, otherwise falls back to the
 <p>Default: 60. Acts as the TTL on acquire. When unset and env reads
 are enabled (see <code>env_load</code> and <code>GREL_ENV_LOAD</code>),
 resolves from the environment variable
-<code>GREL_TASKLOCK_{NAME_UPPER}_MAX_LOCK_SECONDS</code> if
-present, otherwise falls back to the
+<code>GREL_TASKLOCK_LEASE_DURATION</code> for the default instance
+(<code>GREL_TASKLOCK_{NAME_UPPER}_LEASE_DURATION</code> for a named
+one) if present, otherwise falls back to the
 <code>TaskLockConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -6422,8 +6489,9 @@ present, otherwise falls back to the
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Override the auto-derived environment variable prefix.</p>
-<p>Default: <code>GREL_TASKLOCK_{NAME_UPPER}_</code>. Set this to
-a custom prefix when the application uses a different
+<p>Default: <code>GREL_TASKLOCK_</code> for the default instance,
+<code>GREL_TASKLOCK_{NAME_UPPER}_</code> for a named one. Set this
+to a custom prefix when the application uses a different
 naming convention.</p>
               </div>
               <p>
@@ -6519,7 +6587,7 @@ override the flag for this construction.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -6605,7 +6673,7 @@ call under the app context (for FastAPI, add
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.tasklock.TaskLockConfig">TaskLockConfig</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -6672,7 +6740,7 @@ path is bypassed and the config is used as-is.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="str">str</span> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LockBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LockBackend&lt;/code&gt;)" href="#grelmicro.coordination.LockBackend">LockBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -6706,7 +6774,7 @@ path is bypassed and the config is used as-is.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Renew the lease for another <code>max_lock_seconds</code> without releasing.</p>
+        <p>Renew the lease for another <code>lease_duration</code> without releasing.</p>
 
 
 <table>
@@ -6809,7 +6877,7 @@ path is bypassed and the config is used as-is.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">do_acquire</span><span class="p">(</span><span class="n">token</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">do_acquire</span><span class="p">(</span><span class="n">token</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -6850,14 +6918,14 @@ path is bypassed and the config is used as-is.</p>
               <div class="doc-md-description">
                 <p>The lease duration to request, in seconds. The
 caller captures this from
-<code>self._config.max_lock_seconds</code> at the start of the
+<code>self._config.lease_duration</code> at the start of the
 operation so a concurrent <code>reconfigure</code> cannot change
 the duration mid-acquire.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span></code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></code>
                   </span>
               </p>
             </td>
@@ -7213,7 +7281,7 @@ release are atomic with respect to other threads.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">do_exit</span><span class="p">(</span><span class="n">token</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">min_lock_seconds</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">do_exit</span><span class="p">(</span><span class="n">token</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">min_hold_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -7247,20 +7315,20 @@ release are atomic with respect to other threads.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>min_lock_seconds</code>
+                <code>min_hold_duration</code>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>The minimum hold duration to enforce, in
 seconds. The caller captures this from
-<code>self._config.min_lock_seconds</code> at the start of the
+<code>self._config.min_hold_duration</code> at the start of the
 operation so the comparison and the
 remaining-duration calculation always agree.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span></code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></code>
                   </span>
               </p>
             </td>
@@ -7293,14 +7361,14 @@ remaining-duration calculation always agree.</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">LeaderElection</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">worker</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="uuid.UUID">UUID</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">renew_deadline</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">retry_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">renew_deadline</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">retry_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">retry_jitter</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">backend_timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">error_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend_timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">error_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_load</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">metadata</span><span class="p">:</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -7309,7 +7377,7 @@ remaining-duration calculation always agree.</p>
 
     <div class="doc doc-contents ">
             <p class="doc doc-class-bases">
-              Bases: <code><span title="grelmicro._config.Reconfigurable">Reconfigurable</span>[<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionConfig&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.leaderelection.LeaderElectionConfig&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionConfig">LeaderElectionConfig</a>]</code>, <code><span title="grelmicro.coordination.abc.LockPrimitive">LockPrimitive</span></code>, <code><span title="grelmicro.task.abc.Task">Task</span></code></p>
+              Bases: <code><span title="grelmicro._config.Reconfigurable">Reconfigurable</span>[<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionConfig&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.leaderelection.LeaderElectionConfig&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionConfig">LeaderElectionConfig</a>]</code>, <code><span title="grelmicro.coordination._protocol.LockPrimitive">LockPrimitive</span></code>, <code><span title="grelmicro.task._protocol.Task">Task</span></code></p>
 
 
 
@@ -7363,7 +7431,7 @@ backend.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a> | <span title="str">str</span> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -7405,14 +7473,15 @@ can only be acquired by another worker after it has
 expired. When unset and env reads are enabled (see <code>env_load</code> and
 <code>GREL_ENV_LOAD</code>), resolves from the environment
 variable
-<code>GREL_LEADERELECTION_{NAME_UPPER}_LEASE_DURATION</code> if
-present, otherwise falls back to the
+<code>GREL_LEADERELECTION_LEASE_DURATION</code> for the default
+instance (<code>GREL_LEADERELECTION_{NAME_UPPER}_LEASE_DURATION</code>
+for a named one) if present, otherwise falls back to the
 <code>LeaderElectionConfig</code> default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -7438,7 +7507,7 @@ time.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -7463,7 +7532,7 @@ can delay new leader elections.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -7510,7 +7579,7 @@ will wait before giving up the current operation.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -7533,7 +7602,7 @@ the logs when the lock backend is unavailable.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="grelmicro.coordination.abc.Seconds">Seconds</span> | None</code>
+                      <code><span title="grelmicro.coordination._protocol.Seconds">Seconds</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -7549,9 +7618,10 @@ the logs when the lock backend is unavailable.</p>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Override the auto-derived environment variable prefix.</p>
-<p>Default: <code>GREL_LEADERELECTION_{NAME_UPPER}_</code>. Set
-this to a custom prefix when the application uses a
-different naming convention.</p>
+<p>Default: <code>GREL_LEADERELECTION_</code> for the default
+instance, <code>GREL_LEADERELECTION_{NAME_UPPER}_</code> for a
+named one. Set this to a custom prefix when the
+application uses a different naming convention.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -7673,7 +7743,7 @@ workers read them via <code>LeaderElection.record</code>.</p>
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
       &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderRecord&lt;/code&gt;)" href="#grelmicro.coordination.LeaderRecord">LeaderRecord</a></span> <span class="o">|</span> <span class="kc">None</span>
+  &lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderRecord&lt;/code&gt;)" href="#grelmicro.coordination.LeaderRecord">LeaderRecord</a></span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -7701,7 +7771,7 @@ metadata. Updated on every renew loop iteration.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -7732,7 +7802,7 @@ backend can point at a different vendor than its lock backend.</p>
             <td class="doc-raises-details">
               <div class="doc-md-description">
                 <p>No backend resolved in this scope. Pass
-<code>backend=</code> (a <code>MemoryLeaderElectionBackend()</code> for a
+<code>backend=</code> (a <code>MemoryLeaderElectionAdapter()</code> for a
 per-process election), register a <code>Coordination</code>
 Component, or run the call under the app context (for
 FastAPI, add <code>GrelmicroMiddleware</code>).</p>
@@ -7765,7 +7835,7 @@ FastAPI, add <code>GrelmicroMiddleware</code>).</p>
     <span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionConfig&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.leaderelection.LeaderElectionConfig&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionConfig">LeaderElectionConfig</a></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">metadata</span><span class="p">:</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
@@ -7833,7 +7903,7 @@ path is bypassed and the config is used as-is.</p>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a> | <span title="str">str</span> | None</code>
+                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;LeaderElectionBackend&lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderElectionBackend&lt;/code&gt;)" href="#grelmicro.coordination.LeaderElectionBackend">LeaderElectionBackend</a> | <span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -8088,6 +8158,106 @@ less than <code>renew_deadline</code>.</p>
 <div class="doc doc-object doc-function">
 
 
+<h4 id="grelmicro.coordination.LeaderElection.lead" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">lead</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lead</span><span class="p">(</span>
+    <span class="n">func</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="grelmicro.coordination.leaderelection.LeaderElection.lead[T]">T</span></span><span class="p">]],</span>
+    <span class="o">/</span><span class="p">,</span>
+    <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n"><span title="object">object</span></span><span class="p">,</span>
+    <span class="n">repeat</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="grelmicro.coordination.leaderelection.LeaderElection.lead[T]">T</span></span> <span class="o">|</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run <code>func(*args)</code> only while this worker holds leadership.</p>
+<p>Waits for leadership, then runs <code>func(*args)</code> in a child task.
+The moment leadership is lost the task is cancelled, so no stale
+work outlives the lease. This is the difference from a plain
+<code>if is_leader():</code> check, which keeps running until the next poll.</p>
+<p>Returns <code>func</code>'s result if it finishes while still leader, or
+<code>None</code> if leadership was lost first and the body was cancelled.
+With <code>repeat=True</code>, waits to re-acquire and runs <code>func</code> again
+instead of returning, looping until the surrounding scope is
+cancelled.</p>
+<p>Requires the <code>LeaderElection</code> service to be running concurrently
+(wired through <code>Tasks</code>, or run as a task), since it renews the
+lease and drives the leadership changes <code>lead</code> waits on.</p>
+<p>Any exception raised by <code>func</code> propagates out of <code>lead</code>.</p>
+<p>Cancellation is cooperative: it takes effect at the body's next
+<code>await</code>. Pair with <code>is_leader_confirmed_within</code> or a fencing
+token for writes that must never overlap a successor.</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">emit_metrics</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">push_snapshot</span><span class="p">()</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+
+<span class="k">await</span> <span class="n">election</span><span class="o">.</span><span class="n">lead</span><span class="p">(</span><span class="n">emit_metrics</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>func</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Coroutine function to run only while this worker leads.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="collections.abc.Callable">Callable</span>[..., <span title="collections.abc.Awaitable">Awaitable</span>[<span title="grelmicro.coordination.leaderelection.LeaderElection.lead[T]">T</span>]]</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>repeat</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Re-run <code>func</code> after re-acquiring leadership instead of returning once leadership is lost.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="bool">bool</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>False</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h4 id="grelmicro.coordination.LeaderElection.guard" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">guard</span>
 
@@ -8169,7 +8339,7 @@ the guard skips the current tick and retries on the next interval.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">15</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">lease_duration</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">15</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -8194,7 +8364,7 @@ the guard skips the current tick and retries on the next interval.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">renew_deadline</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">10</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">renew_deadline</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">10</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -8219,7 +8389,7 @@ the guard skips the current tick and retries on the next interval.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">retry_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">2</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">retry_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">2</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -8244,7 +8414,7 @@ the guard skips the current tick and retries on the next interval.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend_timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">5</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">backend_timeout</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">5</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -8269,7 +8439,7 @@ the guard skips the current tick and retries on the next interval.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">error_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination.abc.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">30</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">error_interval</span><span class="p">:</span> <span class="n"><span title="grelmicro.coordination._protocol.Seconds">Seconds</span></span> <span class="o">=</span> <span class="mi">30</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -8386,7 +8556,7 @@ Lease), storing the record alongside.</p>
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
       &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderRecord&lt;/code&gt;)" href="#grelmicro.coordination.LeaderRecord">LeaderRecord</a></span>
+  &lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderRecord&lt;/code&gt;)" href="#grelmicro.coordination.LeaderRecord">LeaderRecord</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -8569,7 +8739,7 @@ not hold it.</p>
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
       &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro.coordination.abc.LeaderRecord&lt;/code&gt;)" href="#grelmicro.coordination.LeaderRecord">LeaderRecord</a></span> <span class="o">|</span> <span class="kc">None</span>
+  &lt;/span&gt; (&lt;code&gt;grelmicro.coordination._protocol.LeaderRecord&lt;/code&gt;)" href="#grelmicro.coordination.LeaderRecord">LeaderRecord</a></span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

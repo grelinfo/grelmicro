@@ -1454,6 +1454,8 @@
       
         
       
+        
+      
     
     
     
@@ -1593,6 +1595,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2646,7 +2676,7 @@
 </p>
 
 <blockquote>
-<p><strong>Project status: 1.0 alpha.</strong> The 1.0 line is feature-complete and its public API is frozen behind a snapshot guard. Prereleases install explicitly: <code>pip install --pre grelmicro</code> (stable installs stay on 0.27 until <code>1.0.0</code> final). Breaking changes can still land between alphas if testing finds a flaw. After <code>1.0.0</code>, standard semver applies. See the <a href="https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions">versioning policy</a>.</p>
+<p><strong>Project status: 1.0 beta.</strong> The 1.0 line is feature-complete and its public API is frozen behind a snapshot guard. Prereleases install explicitly: <code>pip install --pre grelmicro</code> (stable installs stay on 0.27 until <code>1.0.0</code> final). Breaking changes can still land between betas if testing finds a flaw. After <code>1.0.0</code>, standard semver applies. See the <a href="https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions">versioning policy</a>.</p>
 </blockquote>
 <hr />
 <p><strong>Documentation</strong>: <a href="https://grelinfo.github.io/grelmicro">https://grelinfo.github.io/grelmicro/</a></p>
@@ -2743,7 +2773,7 @@ open<span class="w"> </span>http://localhost:8000/docs
         <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;throttled&quot;</span><span class="p">}</span>
     <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;ok&quot;</span><span class="p">}</span>
 </code></pre></div>
-<p>That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory adapter says per-process on purpose. Swap to a fleet-wide backend later by composing it inside <code>Grelmicro(uses=[RateLimiters(redis)])</code> as shown below.</p>
+<p>That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory adapter says per-process on purpose. Swap to a fleet-wide backend later by composing it inside <code>Grelmicro(uses=[RateLimiterRegistry(redis)])</code> as shown below.</p>
 <h3 id="lifespan-with-one-provider-and-one-component">Lifespan with one provider and one component</h3>
 <p>To make the rate limiter fleet-wide, wrap it in a <code>Grelmicro</code> container with one provider and one component, bind it to FastAPI's lifespan, and add the middleware so request handlers see the app.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
@@ -2751,16 +2781,16 @@ open<span class="w"> </span>http://localhost:8000/docs
 <span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.integrations.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">RateLimitExceededError</span><span class="p">,</span>
     <span class="n">RateLimiter</span><span class="p">,</span>
-    <span class="n">RateLimiters</span><span class="p">,</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">redis</span><span class="p">)])</span>
 
 <span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
@@ -2793,19 +2823,19 @@ open<span class="w"> </span>http://localhost:8000/docs
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span><span class="p">,</span> <span class="n">JsonSerializer</span><span class="p">,</span> <span class="n">TTLCache</span><span class="p">,</span> <span class="n">cached</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.integrations.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.health</span><span class="w"> </span><span class="kn">import</span> <span class="n">HealthChecks</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span> <span class="k">as</span> <span class="n">configure_logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">CircuitBreaker</span><span class="p">,</span>
-    <span class="n">CircuitBreakers</span><span class="p">,</span>
+    <span class="n">CircuitBreakerRegistry</span><span class="p">,</span>
     <span class="n">RateLimitExceededError</span><span class="p">,</span>
     <span class="n">RateLimiter</span><span class="p">,</span>
-    <span class="n">RateLimiters</span><span class="p">,</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryCircuitBreakerAdapter</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">LeaderElection</span><span class="p">,</span> <span class="n">Lock</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">LeaderElection</span><span class="p">,</span> <span class="n">Lock</span><span class="p">,</span> <span class="n">TaskLock</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
@@ -2822,8 +2852,8 @@ open<span class="w"> </span>http://localhost:8000/docs
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
     <span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()),</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
+    <span class="n">CircuitBreakerRegistry</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()),</span>
     <span class="n">tasks</span><span class="p">,</span>
     <span class="n">health</span><span class="p">,</span>
 <span class="p">])</span>
@@ -2887,26 +2917,26 @@ open<span class="w"> </span>http://localhost:8000/docs
 
 
 <span class="c1"># --- Interval Task: run locally on every worker ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">heartbeat</span><span class="p">():</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;heartbeat&quot;</span><span class="p">)</span>
 
 
 <span class="c1"># --- Distributed Task: run once per interval across all workers ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">max_lock_seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="n">TaskLock</span><span class="p">(</span><span class="n">lease_duration</span><span class="o">=</span><span class="mi">300</span><span class="p">))</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">():</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;cleanup&quot;</span><span class="p">)</span>
 
 
 <span class="c1"># --- Leader-gated Task: only the leader executes ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">leader_only_task</span><span class="p">():</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;leader task&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>The key shape:</p>
 <ul>
 <li><strong>One container, one lifespan.</strong> <code>Grelmicro(uses=[...])</code> lists every Component and active manager. <code>async with micro:</code> opens them all in order, closes in reverse.</li>
-<li><strong>One Provider, many Components.</strong> <code>Coordination(redis)</code>, <code>Cache(redis)</code>, <code>RateLimiters(redis)</code> all share the same <code>RedisProvider</code> pool. List the Components and grelmicro lifecycles the Provider once. Pass a bare <code>Grelmicro(uses=[redis])</code> to register a default Component per kind the Provider serves.</li>
+<li><strong>One Provider, many Components.</strong> <code>Coordination(redis)</code>, <code>Cache(redis)</code>, <code>RateLimiterRegistry(redis)</code> all share the same <code>RedisProvider</code> pool. List the Components and grelmicro lifecycles the Provider once. Pass a bare <code>Grelmicro(uses=[redis])</code> to register a default Component per kind the Provider serves.</li>
 <li><strong>Patterns are declared at module load.</strong> <code>Lock("cart")</code>, <code>TTLCache(ttl=60)</code>, <code>CircuitBreaker("svc")</code> carry no backend reference. They resolve through the active app inside <code>async with</code>, and <code>GrelmicroMiddleware</code> extends that scope to request handlers. The same <code>Lock</code> works in production with Redis and in tests with <code>MemoryLockAdapter</code>, no rewiring.</li>
 <li><strong>Pay only for what you import.</strong> <code>import grelmicro</code> does not pull in <code>redis</code>, <code>psycopg</code>, or any other vendor SDK. First-party Providers live under <code>grelmicro.providers.{vendor}</code> and load only when you import them.</li>
 </ul>

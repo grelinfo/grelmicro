@@ -1308,6 +1308,8 @@
       
         
       
+        
+      
     
     
     
@@ -1447,6 +1449,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2254,6 +2284,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -2270,6 +2318,47 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#later" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Later
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2349,6 +2438,36 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#later" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Later
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -2369,14 +2488,26 @@
 
 <h1 id="roadmap">Roadmap</h1>
 <p>Post-1.0 items planned for future releases. All are purely additive. No dates are promised.</p>
+<h2 id="next">Next</h2>
+<p>The first post-1.0 cycle: small, high-demand, additive.</p>
+<ul>
+<li><strong>Rate-limit response headers</strong>: a helper that renders the <code>RateLimit-*</code> and <code>X-RateLimit-*</code> headers (RFC 9211) from a <code>RateLimitResult</code>, pairing with the limiter and <code>wait()</code>.</li>
+<li><strong>Named cron helpers</strong>: <code>@tasks.daily(at=...)</code>, <code>@tasks.hourly()</code>, and <code>@tasks.weekly()</code> over the existing cron engine, for schedules a stranger reads at a glance.</li>
+<li><strong>FastAPI Idempotency-Key integration</strong>: map the Idempotency pattern onto the HTTP <code>Idempotency-Key</code> header in the FastAPI integration.</li>
+<li><strong>Circuit breaker state-change callbacks</strong>: <code>on_open</code>, <code>on_half_open</code>, and <code>on_close</code> hooks so an operator can react to a trip, not only observe it in metrics.</li>
+<li><strong>Observability depth</strong>: metric exemplars and lock-acquire latency.</li>
+</ul>
+<h2 id="later">Later</h2>
+<p>Demand-gated. Built when a concrete need shows up.</p>
 <ul>
 <li><strong>Fleet-wide retry budgets</strong>: cap the retry-to-call ratio across replicas through distributed backends.</li>
 <li><strong>Request hedging on Shield</strong>: fire a backup attempt after a latency threshold, take the fastest, cancel the loser.</li>
 <li><strong>Distributed <code>Semaphore</code>, then read-write locks</strong>: new classes on <code>LockBackend</code>. No hooks needed.</li>
 <li><strong>Adaptive <code>Bulkhead</code></strong>: the CUBIC machinery inside Shield, exposed as <code>Bulkhead.adaptive()</code>.</li>
 <li><strong>Deadline propagation</strong>: a contextvar deadline that <code>Timeout</code>, <code>Retry</code>, and <code>Shield</code> respect.</li>
+<li><strong>Resilience composition</strong>: a horizontal <code>compose()</code> for assembling a policy list at runtime, plus slow-call rate as a trip input to the failure-rate breaker.</li>
 <li><strong>Framework depth</strong>: <code>Depends()</code> helpers, an ASGI per-route rate-limit middleware, Litestar and FastStream integration.</li>
-<li><strong>Observability depth</strong>: provider pool metrics, lock acquire latency, metric exemplars.</li>
+<li><strong>Provider pool metrics</strong>: connection-pool gauges per provider.</li>
 <li><strong>More backends</strong>: MySQL/MariaDB, MongoDB, etcd/ZooKeeper.</li>
 <li><strong>Multi-window rate limits and task pause/resume</strong>: additive features with lower urgency.</li>
 <li><strong>Uniform admission guard</strong>: a <code>@guard(on_reject=...)</code> decorator over the shared <code>AdmissionError</code> base (was issue #356).</li>

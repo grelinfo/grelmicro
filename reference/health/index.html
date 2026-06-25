@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://grelinfo.github.io/grelmicro/reference/health/">
       
       
-        <link rel="prev" href="../fastapi/">
+        <link rel="prev" href="../faststream/">
       
       
         <link rel="next" href="../idempotency/">
@@ -1310,6 +1310,8 @@
       
         
       
+        
+      
     
     
     
@@ -1449,6 +1451,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -1859,34 +1889,6 @@
         
       </ul>
     </nav>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#grelmicro.health.fastapi" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;fastapi
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label=" fastapi">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.health.fastapi.health_router" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;health_router
-      
-    </span>
-  </a>
   
 </li>
         
@@ -3100,34 +3102,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#grelmicro.health.fastapi" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;fastapi
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label=" fastapi">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#grelmicro.health.fastapi.health_router" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;health_router
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -3151,7 +3125,7 @@
 <h1 id="health">Health</h1>
 <ul>
 <li><strong>Start here</strong>: <a href="../../health/">Health Checks guide</a></li>
-<li><strong>FastAPI integration</strong>: <a href="../../health/"><code>health_router</code></a> for liveness, readiness, and health endpoints.</li>
+<li><strong>FastAPI integration</strong>: <a href="../fastapi/"><code>health_router</code></a> for liveness, readiness, and health endpoints.</li>
 </ul>
 
 
@@ -3531,8 +3505,9 @@ coexist on one <code>Grelmicro</code> under different names.</p>
 exceed this duration are reported as <code>error</code>.</p>
 <p>Default: 5.0. When unset and env reads are enabled (see <code>env_load</code> and
 <code>GREL_ENV_LOAD</code>), resolves from the
-environment variable <code>GREL_HEALTH_TIMEOUT</code> if
-present, otherwise falls back to the
+environment variable <code>GREL_HEALTH_TIMEOUT</code> (or
+<code>GREL_HEALTH_{NAME_UPPER}_TIMEOUT</code> for a named instance)
+if present, otherwise falls back to the
 <code>HealthChecksConfig</code> default.</p>
               </div>
               <p>
@@ -3556,8 +3531,9 @@ present, otherwise falls back to the
                 <p>Per-check cache TTL in seconds. Set to 0 to disable.</p>
 <p>Default: 1.0. When unset and env reads are enabled (see <code>env_load</code> and
 <code>GREL_ENV_LOAD</code>), resolves from the
-environment variable <code>GREL_HEALTH_CACHE_TTL</code> if
-present, otherwise falls back to the
+environment variable <code>GREL_HEALTH_CACHE_TTL</code> (or
+<code>GREL_HEALTH_{NAME_UPPER}_CACHE_TTL</code> for a named instance)
+if present, otherwise falls back to the
 <code>HealthChecksConfig</code> default.</p>
               </div>
               <p>
@@ -3579,7 +3555,8 @@ present, otherwise falls back to the
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Override the auto-derived environment variable prefix.</p>
-<p>Default: <code>GREL_HEALTH_</code>.</p>
+<p>Default: <code>GREL_HEALTH_</code> for the default instance,
+<code>GREL_HEALTH_{NAME_UPPER}_</code> for a named one.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -4612,217 +4589,6 @@ same check coalesce via single-flight.</p>
 
 </div>
 
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-module">
-
-
-
-<h2 id="grelmicro.health.fastapi" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">grelmicro.health.fastapi</span>
-
-
-</h2>
-
-    <div class="doc doc-contents first">
-
-        <p>FastAPI Health Check Router.</p>
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="grelmicro.health.fastapi.health_router" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">health_router</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">health_router</span><span class="p">(</span>
-    <span class="n">registry</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthChecks&lt;/span&gt; (&lt;code&gt;grelmicro.health._checks.HealthChecks&lt;/code&gt;)" href="#grelmicro.health.HealthChecks">HealthChecks</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
-    <span class="n">show_details</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="n"><span title="fastapi.params.Depends">Depends</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">healthz_dependencies</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="fastapi.params.Depends">Depends</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="fastapi.APIRouter">APIRouter</span></span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Create a FastAPI router with health check endpoints.</p>
-<p>Provides three endpoints:</p>
-<ul>
-<li><code>GET/HEAD {prefix}/livez</code>: Liveness probe. Never runs
-  checkers. Always returns <code>200</code> with an empty body.</li>
-<li><code>GET/HEAD {prefix}/readyz</code>: Readiness probe. Runs critical
-  checkers only. Returns <code>200</code> or <code>503</code> with an empty body.</li>
-<li><code>GET/HEAD {prefix}/healthz</code>: Aggregate JSON report.</li>
-</ul>
-<p>All responses set <code>Cache-Control: no-store</code>.</p>
-
-
-<table>
-      <thead>
-        <tr>
-          <th><span class="doc-section-title">PARAMETER</span></th>
-          <th><span>DESCRIPTION</span></th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>registry</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Health checks instance whose checks the router runs. When omitted, the router resolves the default instance from the active <code>Grelmicro</code> app (<code>Grelmicro(uses=[HealthChecks(...)])</code>).</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;HealthChecks&lt;/span&gt; (&lt;code&gt;grelmicro.health._checks.HealthChecks&lt;/code&gt;)" href="#grelmicro.health.HealthChecks">HealthChecks</a> | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>prefix</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>URL prefix for health endpoints (e.g. '/api/v1').</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="str">str</span></code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>&#39;&#39;</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>show_details</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>Whether <code>/healthz</code> includes each check's verbose <code>details</code> field (versions, hostnames, pool stats, ...):</p>
-<ul>
-<li><code>False</code> (default): details are stripped. Safe for public endpoints.</li>
-<li><code>True</code>: details are always included. Use only if <code>/healthz</code> is private.</li>
-<li><code>Depends(fn)</code> where <code>fn</code> returns <code>bool</code>: wires <code>fn</code> into FastAPI's DI graph, so <code>Depends</code> chains, <code>yield</code> cleanup, <code>Security</code>, <code>Request</code> injection, and async all work naturally. Return <code>True</code> to show details, <code>False</code> to strip them. Raising <code>HTTPException</code> blocks the endpoint, so return <code>False</code> instead when you want a soft strip.</li>
-</ul>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="bool">bool</span> | <span title="fastapi.params.Depends">Depends</span></code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>False</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>healthz_dependencies</code>
-            </td>
-            <td class="doc-param-details">
-              <div class="doc-md-description">
-                <p>FastAPI dependencies applied to <code>/healthz</code>. A failing dependency blocks the entire endpoint (<code>401</code>/<code>403</code>). Use to hide <code>/healthz</code> from the public while leaving <code>/livez</code> and <code>/readyz</code> open to orchestrators and load balancers. Independent of <code>show_details</code>.</p>
-              </div>
-              <p>
-                  <span class="doc-param-annotation">
-                    <b>TYPE:</b>
-                      <code><span title="list">list</span>[<span title="fastapi.params.Depends">Depends</span>] | None</code>
-                  </span>
-                  <span class="doc-param-default">
-                    <b>DEFAULT:</b>
-                      <code>None</code>
-                  </span>
-              </p>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-<table>
-      <thead>
-        <tr>
-          <th><span class="doc-section-title">RAISES</span></th>
-          <th><span>DESCRIPTION</span></th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-              <span class="doc-raises-annotation">
-                  <code><span title="grelmicro.errors.DependencyNotFoundError">DependencyNotFoundError</span></code>
-              </span>
-            </td>
-            <td class="doc-raises-details">
-              <div class="doc-md-description">
-                <p>If <code>fastapi</code> is not installed.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-              <span class="doc-raises-annotation">
-                  <code><span title="TypeError">TypeError</span></code>
-              </span>
-            </td>
-            <td class="doc-raises-details">
-              <div class="doc-md-description">
-                <p>If <code>show_details</code> is neither a bool nor a
-<code>Depends(...)</code> value.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-    </div>
-
-</div>
 
 
 

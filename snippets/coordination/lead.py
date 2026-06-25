@@ -1,3 +1,5 @@
+import asyncio
+
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
@@ -12,6 +14,12 @@ leader = micro.coordination.leaderelection("worker")
 tasks.add_task(leader)
 
 
-@tasks.every(seconds=10, leader=leader)
-async def run_once_in_the_cluster() -> None:
-    print("only the leader runs this")
+async def emit_metrics() -> None:
+    while True:  # cancelled the instant leadership is lost
+        print("leader heartbeat")
+        await asyncio.sleep(10)
+
+
+async def run() -> None:
+    # Runs only while leader, re-running after any re-acquisition.
+    await leader.lead(emit_metrics, repeat=True)

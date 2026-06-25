@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro.health import HealthChecks, HealthDetails
-from grelmicro.health.fastapi import health_router
+from grelmicro.integrations.fastapi import health_router
 
 health = HealthChecks()
 

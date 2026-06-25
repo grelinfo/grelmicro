@@ -1308,6 +1308,8 @@
       
         
       
+        
+      
     
     
     
@@ -1447,6 +1449,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2699,7 +2729,7 @@
 </tr>
 <tr>
 <td><strong>Component</strong></td>
-<td><code>Coordination</code>, <code>Cache</code>, <code>RateLimiters</code>, <code>CircuitBreakers</code></td>
+<td><code>Coordination</code>, <code>Cache</code>, <code>RateLimiterRegistry</code>, <code>CircuitBreakerRegistry</code></td>
 <td>Registration on a <code>Grelmicro</code> app: <code>(kind, name)</code> pair plus lifecycle. Accepts a Provider or a Backend.</td>
 </tr>
 <tr>
@@ -2723,7 +2753,7 @@
 <h2 id="distribution-model">Distribution model</h2>
 <p>Not every Pattern needs a backend, and the ones that do behave differently when one is missing. What a Pattern does without a registered backend sorts it into three tiers.</p>
 <p><strong>Backend required.</strong> <code>Lock</code>, <code>TaskLock</code>, and <code>LeaderElection</code> only mean something against a shared store: a lock local to one process is not a lock. They have no safe local fallback, so using one without a registered <code>Coordination</code> backend raises.</p>
-<p><strong>Backend optional, degrades safely.</strong> <code>CircuitBreaker</code>, <code>RateLimiter</code>, and the <code>@cron</code> schedule all run without a backend, they just stop coordinating across replicas. A circuit breaker trips per replica, a rate limiter counts per replica, and a <code>@cron</code> task runs on every worker instead of once across the fleet. Sharing is a deliberate opt-in, and the safe default differs per Pattern: a circuit breaker is best left local (each replica reacts to what it sees), a rate limiter is often global, and a cron task usually wants the schedule backend so it fires once. Resilience keeps <code>CircuitBreakers</code> and <code>RateLimiters</code> as separate Components so opting rate limiting into a shared store does not also distribute your circuit breakers.</p>
+<p><strong>Backend optional, degrades safely.</strong> <code>CircuitBreaker</code>, <code>RateLimiter</code>, and the <code>@cron</code> schedule all run without a backend, they just stop coordinating across replicas. A circuit breaker trips per replica, a rate limiter counts per replica, and a <code>@cron</code> task runs on every worker instead of once across the fleet. Sharing is a deliberate opt-in, and the safe default differs per Pattern: a circuit breaker is best left local (each replica reacts to what it sees), a rate limiter is often global, and a cron task usually wants the schedule backend so it fires once. Resilience keeps <code>CircuitBreakerRegistry</code> and <code>RateLimiterRegistry</code> as separate Components so opting rate limiting into a shared store does not also distribute your circuit breakers.</p>
 <p><strong>Purely local.</strong> <code>Retry</code>, <code>Timeout</code>, <code>Bulkhead</code>, <code>Shield</code>, and <code>Fallback</code> hold no shared state and never take a backend. Construct and use them directly.</p>
 <p><code>Coordination</code> groups the coordination backends (lock, leader election, schedule) under one Component because they belong to one domain, though you can still wire each to a different backend (<code>Coordination(lock=..., election=..., schedule=...)</code>). Resilience instead exposes one Component per shared Pattern, because each carries an independent sharing decision.</p>
 <h2 id="construction-vs-registration">Construction vs registration</h2>
@@ -2756,11 +2786,11 @@
 <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">MemoryCacheAdapter</span><span class="p">()])</span>  <span class="c1"># same as Cache(MemoryCacheAdapter())</span>
 <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">MemoryLockAdapter</span><span class="p">()])</span>   <span class="c1"># wrapped in Coordination</span>
 </code></pre></div>
-<p>The adapter kind decides the Component: a cache adapter becomes <code>Cache</code>, a lock adapter becomes <code>Coordination</code>, a rate limiter adapter becomes <code>RateLimiters</code>, a circuit breaker adapter becomes <code>CircuitBreakers</code>.</p>
+<p>The adapter kind decides the Component: a cache adapter becomes <code>Cache</code>, a lock adapter becomes <code>Coordination</code>, a rate limiter adapter becomes <code>RateLimiterRegistry</code>, a circuit breaker adapter becomes <code>CircuitBreakerRegistry</code>.</p>
 <p><strong>Bare Provider.</strong> A Provider listed with no Components registers one default Component for every kind it serves.</p>
 <div class="highlight"><pre><span></span><code><span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost&quot;</span><span class="p">)</span>
 <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">])</span>
-<span class="c1"># registers Coordination, Cache, RateLimiters, CircuitBreakers, all on redis</span>
+<span class="c1"># registers Coordination, Cache, RateLimiterRegistry, CircuitBreakerRegistry, all on redis</span>
 </code></pre></div>
 <p>A Provider serves a kind when its factory for that kind is implemented. <code>RedisProvider</code> and <code>PostgresProvider</code> serve all four kinds. <code>SQLiteProvider</code> skips leader election. An unserved kind (the factory raises <code>NotImplementedError</code>) is skipped. Any other factory error propagates, a misconfigured Provider fails loudly instead of registering a partial app.</p>
 <p>This auto-registration is all-or-nothing. The moment you list <strong>any</strong> explicit Component, every Provider in the list becomes lifecycle-only and registers nothing. The list then reads the way it runs: a lone Provider is a full default app, a Provider beside Components is just a shared connection the Components wire themselves.</p>
@@ -2805,7 +2835,7 @@
 </ol>
 <h2 id="request-handlers-and-the-ambient-scope">Request handlers and the ambient scope</h2>
 <p>Ambient resolution reads <code>Grelmicro.current()</code>, which is per asyncio task. A FastAPI request handler runs in its own task, outside the <code>async with micro:</code> block, so a bare <code>Lock("cart")</code> cannot see the app there and raises <code>OutOfContextError</code>. Add the middleware to extend the app scope to every request:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.integrations.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
 
 <span class="n">app</span><span class="o">.</span><span class="n">add_middleware</span><span class="p">(</span><span class="n">GrelmicroMiddleware</span><span class="p">,</span> <span class="n">micro</span><span class="o">=</span><span class="n">micro</span><span class="p">)</span>
 </code></pre></div>
@@ -2845,6 +2875,7 @@
 <h2 id="connection-pool-isolation">Connection pool isolation</h2>
 <p>Components share a connection pool through a <code>Provider</code>: pass the same <code>RedisProvider</code> to two Components (<code>Coordination(redis)</code>, <code>Cache(redis)</code>) and they share one pool. To isolate pools, build distinct Providers with different <code>env_prefix=</code> values (<code>CACHE_REDIS_</code>, <code>SESSION_REDIS_</code>) and pass each to the matching Component.</p>
 <p>The default behavior is <strong>share when possible, isolate when asked</strong>. Distinct Providers opt into per-domain isolation.</p>
+<p>A Provider is shared by identity: every Component that uses the same Provider attaches to the same connection pool. To break that sharing, build a distinct Provider with its own <code>env_prefix=</code>, pass a separate Provider instance, or wrap an externally owned client with <code>from_client</code>. There is no <code>shared=False</code> flag.</p>
 <h2 id="error-handling">Error handling</h2>
 <p>Accessing a Component that has not been registered raises <code>ComponentNotRegisteredError</code> with a descriptive message. Resolving a Pattern outside any <code>async with micro:</code> block raises <code>NoActiveAppError</code>.</p>
 

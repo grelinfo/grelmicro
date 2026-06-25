@@ -1310,6 +1310,8 @@
       
         
       
+        
+      
     
     
     
@@ -2444,6 +2446,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -6796,6 +6826,7 @@ known in advance.</p>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">ttl</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">maxsize</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">key_maker</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span>
         <span class="p">[</span>
             <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">],</span>
@@ -6807,7 +6838,7 @@ known in advance.</p>
     <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">skip</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><span title="typing.Any">Any</span></span><span class="p">],</span> <span class="n"><span title="bool">bool</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">typed</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">lock</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;local&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">lock</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;local&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;local&quot;</span><span class="p">,</span>
     <span class="n">early</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">stale_ttl</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">tags</span><span class="p">:</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
@@ -6935,12 +6966,41 @@ cache. <code>0</code> (the default) means unlimited. Only used when
           </tr>
           <tr class="doc-section-item">
             <td>
+                <code>key</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Cache key template rendered from the call's arguments, so
+<code>key="user:{user_id}"</code> keys the entry under <code>user:42</code> for
+a call with <code>user_id=42</code>. A literal template with no
+placeholders keys every call under the same string. Use it
+instead of the default argument-repr key when you want a
+stable, readable key. A <code>key</code> template fully determines the
+key, so <code>typed</code> does not apply. Passing both <code>key</code> and
+<code>key_maker</code> raises <code>TypeError</code>.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span> | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
                 <code>key_maker</code>
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Optional custom key generation function. Receives
-<code>(func, args, kwargs)</code> and must return a string key.</p>
+<code>(func, args, kwargs)</code> and must return a string key. Use it
+for the fully dynamic case. For a simple template, pass <code>key=</code>
+instead. Passing both <code>key</code> and <code>key_maker</code> raises <code>TypeError</code>.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -7005,17 +7065,16 @@ separately (e.g. <code>3</code> vs <code>3.0</code>).</p>
                 <p>Protect against duplicate work when many callers miss the
 same key at once (the "dog-pile" effect).</p>
 <ul>
-<li><code>False</code> (default): no protection. Every concurrent miss
-  runs the function.</li>
+<li><code>"local"</code> (default): fold concurrent misses within the
+  worker through an in-process lock, with no backend round-trip
+  on a cold miss. Per-replica recompute is still possible.</li>
 <li><code>True</code>: fold concurrent misses to one execution. When the
   active <code>Grelmicro</code> app has a lock backend, misses fold
   across replicas through it. Otherwise an in-process lock
   folds them within the worker. An in-process lock is always
   applied first, so the backend is hit once per cold miss.</li>
-<li><code>"local"</code>: force the in-process lock only, even when a
-  lock backend is configured. Use when per-replica recompute
-  is acceptable and you want no backend round-trip on a cold
-  miss.</li>
+<li><code>False</code>: no protection. Every concurrent miss runs the
+  function.</li>
 </ul>
               </div>
               <p>
@@ -7025,7 +7084,7 @@ same key at once (the "dog-pile" effect).</p>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
-                      <code>False</code>
+                      <code>&#39;local&#39;</code>
                   </span>
               </p>
             </td>
@@ -7130,8 +7189,8 @@ once with <code>cache.delete_tags(...)</code>.</p>
             </td>
             <td class="doc-raises-details">
               <div class="doc-md-description">
-                <p>If both <code>cache</code> and <code>ttl</code> are given, or if
-neither is given.</p>
+                <p>If both <code>cache</code> and <code>ttl</code> are given, if neither is
+given, or if both <code>key</code> and <code>key_maker</code> are given.</p>
               </div>
             </td>
           </tr>
@@ -7262,6 +7321,8 @@ positive.</p>
 </code></pre></div>
 
     <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CacheBackend&lt;/span&gt; (&lt;code&gt;grelmicro.cache._protocol.CacheBackend&lt;/code&gt;)" href="#grelmicro.cache.CacheBackend">CacheBackend</a></code></p>
 
 
 
@@ -7570,6 +7631,8 @@ Expired entries are removed lazily on access.</p>
 </code></pre></div>
 
     <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CacheBackend&lt;/span&gt; (&lt;code&gt;grelmicro.cache._protocol.CacheBackend&lt;/code&gt;)" href="#grelmicro.cache.CacheBackend">CacheBackend</a></code></p>
 
 
 
@@ -7986,6 +8049,8 @@ same prefix, so this sweeps them too.</p>
 </code></pre></div>
 
     <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CacheBackend&lt;/span&gt; (&lt;code&gt;grelmicro.cache._protocol.CacheBackend&lt;/code&gt;)" href="#grelmicro.cache.CacheBackend">CacheBackend</a></code></p>
 
 
 

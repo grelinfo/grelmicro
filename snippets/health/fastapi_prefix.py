@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from grelmicro.health.fastapi import health_router
+from grelmicro.integrations.fastapi import health_router
 
 app = FastAPI()
 app.include_router(health_router(prefix="/api/v1"))

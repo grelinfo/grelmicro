@@ -1310,6 +1310,8 @@
       
         
       
+        
+      
     
     
     
@@ -1707,6 +1709,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2902,7 +2932,7 @@ window, or a rate limiter refill can be driven instantly instead of waiting
 real seconds.</p>
 <p>Register it on an app or install it directly, then advance time by hand:</p>
 <div class="highlight"><pre><span></span><code><span class="n">clock</span> <span class="o">=</span> <span class="n">VirtualClock</span><span class="p">()</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">clock</span><span class="p">,</span> <span class="n">CircuitBreakers</span><span class="p">(</span><span class="o">...</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">clock</span><span class="p">,</span> <span class="n">CircuitBreakerRegistry</span><span class="p">(</span><span class="o">...</span><span class="p">)])</span>
 
 <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
     <span class="k">await</span> <span class="n">call</span><span class="p">()</span>              <span class="c1"># trips the breaker</span>
@@ -3160,6 +3190,38 @@ explicitly (<code>Grelmicro(uses=[RealClock()])</code>) only to make the choice
 visible, or to shadow a <code>VirtualClock</code> in a nested scope.</p>
 
         <p>Initialize the clock.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>name</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Registration name when used as a component.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>&#39;default&#39;</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
 

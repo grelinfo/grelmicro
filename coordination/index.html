@@ -721,6 +721,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#run-only-while-leader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run only while leader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#independent-backend" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1595,6 +1606,8 @@
       
         
       
+        
+      
     
     
     
@@ -1734,6 +1747,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2789,6 +2830,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#run-only-while-leader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run only while leader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#independent-backend" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2971,7 +3023,7 @@ backends and resolves them for you.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.kubernetes</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">KubernetesLeaderElectionBackend</span><span class="p">,</span>
+    <span class="n">KubernetesLeaderElectionAdapter</span><span class="p">,</span>
     <span class="n">KubernetesLockAdapter</span><span class="p">,</span>
 <span class="p">)</span>
 
@@ -2979,7 +3031,7 @@ backends and resolves them for you.</p>
     <span class="n">uses</span><span class="o">=</span><span class="p">[</span>
         <span class="n">Coordination</span><span class="p">(</span>
             <span class="n">lock</span><span class="o">=</span><span class="n">KubernetesLockAdapter</span><span class="p">(</span><span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">),</span>
-            <span class="n">election</span><span class="o">=</span><span class="n">KubernetesLeaderElectionBackend</span><span class="p">(</span><span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">),</span>
+            <span class="n">election</span><span class="o">=</span><span class="n">KubernetesLeaderElectionAdapter</span><span class="p">(</span><span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">),</span>
         <span class="p">)</span>
     <span class="p">]</span>
 <span class="p">)</span>
@@ -2998,7 +3050,7 @@ backends and resolves them for you.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">MemoryLeaderElectionBackend</span><span class="p">,</span>
+    <span class="n">MemoryLeaderElectionAdapter</span><span class="p">,</span>
     <span class="n">MemoryLockAdapter</span><span class="p">,</span>
 <span class="p">)</span>
 
@@ -3006,7 +3058,7 @@ backends and resolves them for you.</p>
     <span class="n">uses</span><span class="o">=</span><span class="p">[</span>
         <span class="n">Coordination</span><span class="p">(</span>
             <span class="n">lock</span><span class="o">=</span><span class="n">MemoryLockAdapter</span><span class="p">(),</span>
-            <span class="n">election</span><span class="o">=</span><span class="n">MemoryLeaderElectionBackend</span><span class="p">(),</span>
+            <span class="n">election</span><span class="o">=</span><span class="n">MemoryLeaderElectionAdapter</span><span class="p">(),</span>
         <span class="p">)</span>
     <span class="p">]</span>
 <span class="p">)</span>
@@ -3080,8 +3132,9 @@ a <code>Provider</code>, a backend instance, or a zero-arg class.</p>
 </table>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
-<p>Feel free to create your own backend and contribute it. The <code>coordination.abc</code>
-module holds the protocols for new backends.</p>
+<p>Feel free to create your own backend and contribute it. The backend
+protocols (<code>LockBackend</code>, <code>LeaderElectionBackend</code>, <code>ScheduleBackend</code>) are
+exported from <code>grelmicro.coordination</code>.</p>
 </div>
 <h3 id="choosing-a-backend">Choosing a backend</h3>
 <p>Pick the backend that matches your deployment, not the fastest one on paper.</p>
@@ -3155,7 +3208,7 @@ and acts as the instance identity.</p>
 </code></pre></div>
 <h3 id="environment-variables">Environment variables</h3>
 <p>Tune any field in deployment without code changes.</p>
-<p>Prefix: <code>GREL_LOCK_{NAME_UPPER}_</code></p>
+<p>Prefix: <code>GREL_LOCK_{NAME_UPPER}_</code>. The default instance drops the name segment and reads <code>GREL_LOCK_*</code>.</p>
 <table>
 <thead>
 <tr>
@@ -3314,30 +3367,30 @@ write, and have the resource compare it against its stored high-water mark.</p>
 it does not release immediately. It keeps the lock held for a configurable
 minimum duration to stop re-execution on other nodes.</p>
 <p>No background task keeps the lock active during execution. The lock relies on the
-TTL (<code>max_lock_seconds</code>) set at acquire time. If the task runs longer than
-<code>max_lock_seconds</code>, the lock expires and another node may acquire it.</p>
+TTL (<code>lease_duration</code>) set at acquire time. If the task runs longer than
+<code>lease_duration</code>, the lock expires and another node may acquire it.</p>
 <ul>
-<li><strong><code>min_lock_seconds</code></strong>: minimum duration to hold the lock after the task
+<li><strong><code>min_hold_duration</code></strong>: minimum duration to hold the lock after the task
   completes. Stops another node from re-executing too soon.</li>
-<li><strong><code>max_lock_seconds</code></strong>: maximum duration to hold the lock. Acts as a TTL for
+<li><strong><code>lease_duration</code></strong>: maximum duration to hold the lock. Acts as a TTL for
   crash and deadlock protection.</li>
 </ul>
 <p>Call <code>refresh()</code> on a <code>TaskLock</code> to renew the lease while the task body is
 still running. Raises <code>LockNotOwnedError</code> when the lease was lost:</p>
 <div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">with</span> <span class="n">task_lock</span><span class="p">:</span>
     <span class="k">await</span> <span class="n">long_operation_part1</span><span class="p">()</span>
-    <span class="k">await</span> <span class="n">task_lock</span><span class="o">.</span><span class="n">refresh</span><span class="p">()</span>  <span class="c1"># extend before max_lock_seconds elapses</span>
+    <span class="k">await</span> <span class="n">task_lock</span><span class="o">.</span><span class="n">refresh</span><span class="p">()</span>  <span class="c1"># extend before lease_duration elapses</span>
     <span class="k">await</span> <span class="n">long_operation_part2</span><span class="p">()</span>
 </code></pre></div>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>For scheduled tasks, prefer the
-<a href="../task/#distributed-lock"><code>interval()</code> decorator with <code>max_lock_seconds</code></a>,
-which configures a <code>TaskLock</code> automatically with sensible defaults.</p>
+<a href="../task/#distributed-lock"><code>every()</code> decorator with <code>lock=TaskLock(...)</code></a>,
+which re-stamps the lock with the task name automatically.</p>
 </div>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>When the lock expires before the task completes (<code>max_lock_seconds</code>
+<p>When the lock expires before the task completes (<code>lease_duration</code>
 exceeded), another node may acquire the lock and execute concurrently. A
 warning is logged in this case.</p>
 </div>
@@ -3356,24 +3409,62 @@ compaction.</p>
 it. The Memory backend needs no extra service, so this runs as-is:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionAdapter</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
 <span class="n">tasks</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span>
-    <span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Coordination</span><span class="p">(</span><span class="n">election</span><span class="o">=</span><span class="n">MemoryLeaderElectionBackend</span><span class="p">()),</span> <span class="n">tasks</span><span class="p">]</span>
+    <span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Coordination</span><span class="p">(</span><span class="n">election</span><span class="o">=</span><span class="n">MemoryLeaderElectionAdapter</span><span class="p">()),</span> <span class="n">tasks</span><span class="p">]</span>
 <span class="p">)</span>
 
 <span class="n">leader</span> <span class="o">=</span> <span class="n">micro</span><span class="o">.</span><span class="n">coordination</span><span class="o">.</span><span class="n">leaderelection</span><span class="p">(</span><span class="s2">&quot;worker&quot;</span><span class="p">)</span>
 <span class="n">tasks</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader</span><span class="p">)</span>
 
 
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_once_in_the_cluster</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;only the leader runs this&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Only the leader runs <code>run_once_in_the_cluster</code>. Every other worker skips it until
 it becomes the leader.</p>
+<h3 id="run-only-while-leader">Run only while leader</h3>
+<p><code>@tasks.every(..., leader=leader)</code> gates each tick. When you have one long-lived
+piece of work that should run for as long as you lead and stop the instant you do
+not, use <code>lead</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionAdapter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
+
+<span class="n">tasks</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span>
+    <span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Coordination</span><span class="p">(</span><span class="n">election</span><span class="o">=</span><span class="n">MemoryLeaderElectionAdapter</span><span class="p">()),</span> <span class="n">tasks</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="n">leader</span> <span class="o">=</span> <span class="n">micro</span><span class="o">.</span><span class="n">coordination</span><span class="o">.</span><span class="n">leaderelection</span><span class="p">(</span><span class="s2">&quot;worker&quot;</span><span class="p">)</span>
+<span class="n">tasks</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">emit_metrics</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>  <span class="c1"># cancelled the instant leadership is lost</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;leader heartbeat&quot;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="c1"># Runs only while leader, re-running after any re-acquisition.</span>
+    <span class="k">await</span> <span class="n">leader</span><span class="o">.</span><span class="n">lead</span><span class="p">(</span><span class="n">emit_metrics</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p><code>lead</code> waits for leadership, runs the coroutine in a child task, and <strong>cancels it
+the moment leadership is lost</strong>, so no stale work outlives the lease. It returns
+the result if the body finishes while still leader, or <code>None</code> if it was cancelled.
+Pass <code>repeat=True</code> to re-run after re-acquiring leadership. Cancellation is
+cooperative: it lands at the body's next <code>await</code>, so pair it with
+<code>is_leader_confirmed_within</code> or a fencing token for writes that must never overlap
+a successor. The <code>LeaderElection</code> service must be running concurrently (added to
+<code>Tasks</code> above) to renew the lease and drive the leadership changes <code>lead</code> waits on.</p>
 <h3 id="independent-backend">Independent backend</h3>
 <p>Leader election is <strong>not</strong> a <code>Lock</code>. A <code>Lock</code> is short-lived mutual exclusion. A
 leader election is a long-lived role: "am I currently the leader?" The two answer
@@ -3383,7 +3474,7 @@ different questions and often want different backends.</p>
 Kubernetes Lease, native to the cluster and visible with <code>kubectl</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.kubernetes</span><span class="w"> </span><span class="kn">import</span> <span class="n">KubernetesLeaderElectionBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.kubernetes</span><span class="w"> </span><span class="kn">import</span> <span class="n">KubernetesLeaderElectionAdapter</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
@@ -3392,7 +3483,7 @@ Kubernetes Lease, native to the cluster and visible with <code>kubectl</code>:</
     <span class="n">uses</span><span class="o">=</span><span class="p">[</span>
         <span class="n">Coordination</span><span class="p">(</span>
             <span class="n">lock</span><span class="o">=</span><span class="n">redis</span><span class="p">,</span>  <span class="c1"># Lock on Redis: low-latency mutual exclusion</span>
-            <span class="n">election</span><span class="o">=</span><span class="n">KubernetesLeaderElectionBackend</span><span class="p">(</span>  <span class="c1"># leader on a K8s Lease</span>
+            <span class="n">election</span><span class="o">=</span><span class="n">KubernetesLeaderElectionAdapter</span><span class="p">(</span>  <span class="c1"># leader on a K8s Lease</span>
                 <span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;default&quot;</span>
             <span class="p">),</span>
         <span class="p">),</span>
@@ -3435,22 +3526,22 @@ renew loop iteration.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>MemoryLeaderElectionBackend</code></td>
+<td><code>MemoryLeaderElectionAdapter</code></td>
 <td>Tests and single-process apps.</td>
 <td>A process-local dict (not shared across nodes).</td>
 </tr>
 <tr>
-<td><code>RedisLeaderElectionBackend</code></td>
+<td><code>RedisLeaderElectionAdapter</code></td>
 <td>A Redis-backed cluster.</td>
 <td>A Redis hash, updated atomically.</td>
 </tr>
 <tr>
-<td><code>PostgresLeaderElectionBackend</code></td>
+<td><code>PostgresLeaderElectionAdapter</code></td>
 <td>Postgres is already in your stack.</td>
 <td>A row, updated atomically under an advisory lock.</td>
 </tr>
 <tr>
-<td><code>KubernetesLeaderElectionBackend</code></td>
+<td><code>KubernetesLeaderElectionAdapter</code></td>
 <td>A Kubernetes-native deployment.</td>
 <td>A <code>coordination.k8s.io</code> Lease, metadata in its annotations.</td>
 </tr>
@@ -3466,10 +3557,10 @@ directly inside an <code>asyncio.TaskGroup</code>:</p>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">LeaderElection</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionAdapter</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
 
-<span class="n">leader</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;cluster_group&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">MemoryLeaderElectionBackend</span><span class="p">())</span>
+<span class="n">leader</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;cluster_group&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">MemoryLeaderElectionAdapter</span><span class="p">())</span>
 <span class="n">coordination</span> <span class="o">=</span> <span class="n">Coordination</span><span class="p">(</span><span class="n">election</span><span class="o">=</span><span class="n">leader</span><span class="o">.</span><span class="n">backend</span><span class="p">)</span>
 <span class="n">task</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
 <span class="n">task</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader</span><span class="p">)</span>
@@ -3479,9 +3570,9 @@ directly inside an <code>asyncio.TaskGroup</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">LeaderElection</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionBackend</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionAdapter</span>
 
-<span class="n">leader</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;cluster_group&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">MemoryLeaderElectionBackend</span><span class="p">())</span>
+<span class="n">leader</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;cluster_group&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">MemoryLeaderElectionAdapter</span><span class="p">())</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>

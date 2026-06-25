@@ -1457,6 +1457,8 @@
       
         
       
+        
+      
     
     
     
@@ -1596,6 +1598,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2707,7 +2737,7 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">Log</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.trace</span><span class="w"> </span><span class="kn">import</span> <span class="n">Trace</span><span class="p">,</span> <span class="n">TracingExporterType</span><span class="p">,</span> <span class="n">instrument</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.trace</span><span class="w"> </span><span class="kn">import</span> <span class="n">Trace</span><span class="p">,</span> <span class="n">TraceExporterType</span><span class="p">,</span> <span class="n">instrument</span>
 
 
 <span class="nd">@instrument</span>
@@ -2720,7 +2750,7 @@
         <span class="n">Log</span><span class="p">(),</span>
         <span class="n">Trace</span><span class="p">(</span>
             <span class="n">service_name</span><span class="o">=</span><span class="s2">&quot;orders&quot;</span><span class="p">,</span>
-            <span class="n">exporter</span><span class="o">=</span><span class="n">TracingExporterType</span><span class="o">.</span><span class="n">CONSOLE</span><span class="p">,</span>
+            <span class="n">exporter</span><span class="o">=</span><span class="n">TraceExporterType</span><span class="o">.</span><span class="n">CONSOLE</span><span class="p">,</span>
         <span class="p">),</span>
     <span class="p">]</span>
 <span class="p">)</span>
@@ -2735,13 +2765,13 @@
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">The default exporter expects a collector</p>
-<p><code>Trace()</code> defaults to <code>TracingExporterType.OTLP_HTTP</code>, which sends spans to an OpenTelemetry collector or endpoint over OTLP HTTP. Without a reachable collector, spans are dropped. A bounded <code>shutdown_timeout</code> (default <code>5.0</code> seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.</p>
-<p>For local development with no collector, set <code>exporter=TracingExporterType.CONSOLE</code> to print spans to the console instead. Use <code>TracingExporterType.NONE</code> to disable export entirely.</p>
+<p><code>Trace()</code> defaults to <code>TraceExporterType.OTLP_HTTP</code>, which sends spans to an OpenTelemetry collector or endpoint over OTLP HTTP. Without a reachable collector, spans are dropped. A bounded <code>shutdown_timeout</code> (default <code>5.0</code> seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.</p>
+<p>For local development with no collector, set <code>exporter=TraceExporterType.CONSOLE</code> to print spans to the console instead. Use <code>TraceExporterType.NONE</code> to disable export entirely.</p>
 </div>
 <details class="note">
 <summary>Provider lifecycle and exporters</summary>
 <p>The provider is installed on enter and restored to the prior global on exit, so sequential apps in tests do not stack providers.</p>
-<p><code>Trace()</code> reads <code>GREL_TRACE_*</code> environment variables (see <code>TracingConfig</code> for the full field set) or accepts the same fields as keyword arguments. The OTLP HTTP and gRPC exporters require their own packages (<code>opentelemetry-exporter-otlp-proto-http</code> or <code>opentelemetry-exporter-otlp-proto-grpc</code>) and are imported only when selected.</p>
+<p><code>Trace()</code> reads <code>GREL_TRACE_*</code> environment variables (see <code>TraceConfig</code> for the full field set) or accepts the same fields as keyword arguments. The OTLP HTTP and gRPC exporters require their own packages (<code>opentelemetry-exporter-otlp-proto-http</code> or <code>opentelemetry-exporter-otlp-proto-grpc</code>) and are imported only when selected.</p>
 </details>
 <details class="note">
 <summary>Works with all logging backends</summary>

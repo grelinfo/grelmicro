@@ -514,6 +514,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#faststream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FastStream
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#next" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1401,6 +1412,8 @@
       
         
       
+        
+      
     
     
     
@@ -1540,6 +1553,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2472,6 +2513,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#faststream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FastStream
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#next" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2504,7 +2556,8 @@
 
 <h1 id="wiring-an-app">Wiring an App</h1>
 <p>A real app swaps the memory backend for a shared service and runs the patterns
-behind a web framework. This page wires one provider and the FastAPI middleware.</p>
+behind a web framework. This page wires one provider, then installs the app into
+FastAPI and FastStream with one call.</p>
 <h2 id="one-provider-one-line">One provider, one line</h2>
 <p>A provider owns the connection. Pass it to <code>uses=</code> and grelmicro registers a
 default component for every kind the provider serves:</p>
@@ -2535,21 +2588,23 @@ above. The <a href="../config/">Configuration</a> page shows the deployment stor
 <p>The lock finds the registered Redis backend through the active app. No <code>backend=</code>
 argument needed.</p>
 <h2 id="fastapi">FastAPI</h2>
-<p>Open the app in the lifespan and add the middleware. The middleware binds the
-active app to each request, so patterns resolve their backends inside route
-handlers.</p>
+<p>Call <code>micro.install(app)</code>. One call wires both pieces:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">LeaderElection</span><span class="p">,</span> <span class="n">Lock</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionBackend</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Coordination</span><span class="p">,</span>
+    <span class="n">LeaderElection</span><span class="p">,</span>
+    <span class="n">Lock</span><span class="p">,</span>
+    <span class="n">TaskLock</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionAdapter</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">CircuitBreakers</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">CircuitBreakerRegistry</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">MemoryCircuitBreakerAdapter</span><span class="p">,</span>
 <span class="p">)</span>
@@ -2566,8 +2621,8 @@ handlers.</p>
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span>
     <span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">redis</span><span class="o">.</span><span class="n">lock</span><span class="p">(),</span> <span class="n">election</span><span class="o">=</span><span class="n">MemoryLeaderElectionBackend</span><span class="p">()),</span>
-        <span class="n">CircuitBreakers</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()),</span>
+        <span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">redis</span><span class="o">.</span><span class="n">lock</span><span class="p">(),</span> <span class="n">election</span><span class="o">=</span><span class="n">MemoryLeaderElectionAdapter</span><span class="p">()),</span>
+        <span class="n">CircuitBreakerRegistry</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()),</span>
         <span class="n">tasks</span><span class="p">,</span>
     <span class="p">]</span>
 <span class="p">)</span>
@@ -2577,12 +2632,11 @@ handlers.</p>
 <span class="nd">@asynccontextmanager</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lifespan</span><span class="p">(</span><span class="n">app</span><span class="p">):</span>
     <span class="n">configure</span><span class="p">()</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-        <span class="k">yield</span>
+    <span class="k">yield</span>
 
 
 <span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">(</span><span class="n">lifespan</span><span class="o">=</span><span class="n">lifespan</span><span class="p">)</span>
-<span class="n">app</span><span class="o">.</span><span class="n">add_middleware</span><span class="p">(</span><span class="n">GrelmicroMiddleware</span><span class="p">,</span> <span class="n">micro</span><span class="o">=</span><span class="n">micro</span><span class="p">)</span>
+<span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
 
 
 <span class="c1"># --- Circuit Breaker: protect calls to an unreliable service ---</span>
@@ -2606,24 +2660,55 @@ handlers.</p>
 
 
 <span class="c1"># --- Interval Task: run locally on every worker ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">heartbeat</span><span class="p">():</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;heartbeat&quot;</span><span class="p">)</span>
 
 
 <span class="c1"># --- Distributed Task: run once per interval across all workers ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">max_lock_seconds</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="n">TaskLock</span><span class="p">(</span><span class="n">lease_duration</span><span class="o">=</span><span class="mi">300</span><span class="p">))</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">():</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;cleanup&quot;</span><span class="p">)</span>
 
 
 <span class="c1"># --- Leader-gated Task: only the leader executes ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">interval</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader_election</span><span class="p">)</span>
+<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader_election</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">leader_only_task</span><span class="p">():</span>
     <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;leader task&quot;</span><span class="p">)</span>
 </code></pre></div>
-<p>The lifespan opens <code>micro</code> once at startup and closes it at shutdown. Every route
-that uses a pattern resolves through the app the middleware bound.</p>
+<p>The lifecycle is always required. <code>install</code> always wires it: it opens <code>micro</code>
+once at startup and closes it at shutdown, so every component is ready before
+the first request. A lifespan you already pass to <code>FastAPI(lifespan=...)</code> keeps
+running, chained around <code>micro</code>.</p>
+<p>The per-handler ambient binding is optional. <code>install</code> wires it by default, so
+patterns like <code>Lock("cart")</code> and <code>RateLimiter.sliding_window(...)</code> resolve their
+backends inside route handlers with no <code>backend=</code> argument. Pass <code>ambient=False</code>
+when your handlers always pass an explicit <code>backend=</code> and do not need it:</p>
+<div class="highlight"><pre><span></span><code><span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">ambient</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="faststream">FastStream</h2>
+<p>The same call wires a FastStream app:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">faststream</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastStream</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">faststream.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisBroker</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
+
+<span class="n">broker</span> <span class="o">=</span> <span class="n">RedisBroker</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+
+<span class="n">app</span> <span class="o">=</span> <span class="n">FastStream</span><span class="p">(</span><span class="n">broker</span><span class="p">)</span>
+<span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
+
+
+<span class="nd">@broker</span><span class="o">.</span><span class="n">subscriber</span><span class="p">(</span><span class="s2">&quot;orders&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">order</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;orders&quot;</span><span class="p">):</span>
+        <span class="o">...</span>
+</code></pre></div>
+<p><code>install</code> opens <code>micro</code> on startup, closes it after shutdown, and binds the app
+around each consumed message so patterns resolve inside subscribers. Pass
+<code>ambient=False</code> to skip the per-message binding.</p>
 <h2 id="next">Next</h2>
 <p>Read the per-pattern pages for <a href="../cache/">cache</a>, <a href="../coordination/">coordination</a>,
 <a href="../task/">scheduling</a>, and <a href="../resilience/">resilience</a>. When you deploy,

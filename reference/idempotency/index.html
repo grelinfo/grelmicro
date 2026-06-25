@@ -1310,6 +1310,8 @@
       
         
       
+        
+      
     
     
     
@@ -1469,6 +1471,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../health/" class="md-nav__link">
         
   
@@ -1596,6 +1626,17 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.idempotency.Idempotency.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;run
       
     </span>
   </a>
@@ -2635,6 +2676,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#grelmicro.idempotency.Idempotency.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;run
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2936,8 +2988,10 @@ two different <code>Idempotency</code> instances does not collide.</p>
 <p>Default: 86400. When unset and env reads are enabled (see
 <code>env_load</code> and <code>GREL_ENV_LOAD</code>), resolves from the
 environment variable
-<code>GREL_IDEMPOTENCY_{NAME_UPPER}_TTL</code> if present, otherwise
-falls back to the <code>IdempotencyConfig</code> default.</p>
+<code>GREL_IDEMPOTENCY_TTL</code> for the default instance
+(<code>GREL_IDEMPOTENCY_{NAME_UPPER}_TTL</code> for a named one) if
+present, otherwise falls back to the <code>IdempotencyConfig</code>
+default.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -3026,7 +3080,8 @@ passed to the internally composed <code>TTLCache</code>. Defaults to
             <td class="doc-param-details">
               <div class="doc-md-description">
                 <p>Override the auto-derived environment variable prefix.</p>
-<p>Default: <code>GREL_IDEMPOTENCY_{NAME_UPPER}_</code>.</p>
+<p>Default: <code>GREL_IDEMPOTENCY_</code> for the default instance,
+<code>GREL_IDEMPOTENCY_{NAME_UPPER}_</code> for a named one.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
@@ -3233,6 +3288,107 @@ bypassed and the config is used as-is.</p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
                       <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CacheSerializer&lt;/span&gt; (&lt;code&gt;grelmicro.cache.serializers.CacheSerializer&lt;/code&gt;)" href="../cache/#grelmicro.cache.CacheSerializer">CacheSerializer</a>[<span title="grelmicro.idempotency._idempotency.T">T</span>] | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.idempotency.Idempotency.run" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">run</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">run</span><span class="p">(</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
+    <span class="n">factory</span><span class="p">:</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[],</span> <span class="n"><span title="grelmicro.idempotency._idempotency.T">T</span></span><span class="p">]</span> <span class="o">|</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[],</span> <span class="n"><span title="collections.abc.Awaitable">Awaitable</span></span><span class="p">[</span><span class="n"><span title="grelmicro.idempotency._idempotency.T">T</span></span><span class="p">]],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fingerprint</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="grelmicro.idempotency._idempotency.T">T</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run an operation once for <code>key</code>, then replay its response.</p>
+<p>On a first execution the <code>factory</code> runs, its result is stored,
+and the result is returned. A later call with the same key within
+<code>ttl</code> replays the stored response without running the <code>factory</code>
+again. A failing <code>factory</code> stores nothing, so a later retry runs
+fresh.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>key</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>The idempotency key derived from the request.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>factory</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Sync or async callable that produces the response on a first execution. Awaited when it returns a coroutine.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="collections.abc.Callable">Callable</span>[[], <span title="grelmicro.idempotency._idempotency.T">T</span>] | <span title="collections.abc.Callable">Callable</span>[[], <span title="collections.abc.Awaitable">Awaitable</span>[<span title="grelmicro.idempotency._idempotency.T">T</span>]]</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>fingerprint</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Payload fingerprint for this call.</p>
+<p>Overrides the instance-level <code>fingerprint</code>. A replay with
+a different fingerprint raises <code>IdempotencyConflictError</code>.
+When None, the instance default applies.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>

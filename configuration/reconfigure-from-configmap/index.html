@@ -1434,6 +1434,8 @@
       
         
       
+        
+      
     
     
     
@@ -1573,6 +1575,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2595,7 +2625,7 @@
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExternalConfig</span><span class="p">,</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span><span class="p">,</span> <span class="n">Lock</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span><span class="p">,</span> <span class="n">RateLimiters</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">RateLimiter</span><span class="p">,</span> <span class="n">RateLimiterRegistry</span>
 
 <span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
 
@@ -2604,7 +2634,7 @@
 
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span>
     <span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">),</span>
-    <span class="n">RateLimiters</span><span class="p">(</span><span class="n">redis</span><span class="o">.</span><span class="n">ratelimiter</span><span class="p">()),</span>
+    <span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">redis</span><span class="o">.</span><span class="n">ratelimiter</span><span class="p">()),</span>
     <span class="n">ExternalConfig</span><span class="p">(</span><span class="s2">&quot;/etc/grelmicro&quot;</span><span class="p">),</span>
 <span class="p">])</span>
 </code></pre></div>
@@ -2628,7 +2658,8 @@
         <span class="k">assert</span> <span class="n">ledger_lock</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">lease_duration</span> <span class="o">==</span> <span class="mi">30</span>
 </code></pre></div>
 <h2 id="file-formats">File formats</h2>
-<p>A single file source is read by its extension. A directory mount stays one file per key.</p>
+<p>A mounted <code>ConfigMap</code> or <code>Secret</code> is a directory, one file per key. The file name is the <code>GREL_...</code> key and the file content is its value. This is the default mounted shape, so point <code>ExternalConfig</code> at the mount directory.</p>
+<p>A single file source is read by its extension instead:</p>
 <ul>
 <li><code>.json</code>, <code>.yaml</code>, <code>.yml</code>, and <code>.toml</code> files hold a mapping document.</li>
 <li>Any other file is read as <code>.env</code> lines (<code>KEY=VALUE</code>, blanks and <code>#</code> comments ignored).</li>

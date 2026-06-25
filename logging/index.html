@@ -1606,6 +1606,8 @@
       
         
       
+        
+      
     
     
     
@@ -1745,6 +1747,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -3398,7 +3428,44 @@ pip<span class="w"> </span>install<span class="w"> </span>grelmicro<span class="
 <span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">())</span>
 </code></pre></div>
 <p>After <strong>5</strong> identical records, the filter silently drops any further occurrences. It tracks up to <strong>100</strong> distinct keys in an LRU cache.</p>
-<p><code>key_mode="template"</code> (default) uses the raw format string as the key, so <code>%</code>-style calls with different arguments share one counter. It is also about <strong>3 times faster</strong> than rendered keying. Use <code>key_mode="rendered"</code> to track each rendered message separately, or pass <code>key=</code> for a custom fingerprint:</p>
+<p><code>key_mode="template"</code> (default) uses the raw format string as the key, so <code>%</code>-style calls with different arguments share one counter. It is also about <strong>3 times faster</strong> than rendered keying. <code>DuplicateFilter</code> and <code>RateLimitFilter</code> share the same five <code>key_mode</code> values:</p>
+<table>
+<thead>
+<tr>
+<th><code>key_mode</code></th>
+<th>Counter scope</th>
+<th>Good for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"logger"</code></td>
+<td>One counter per logger name</td>
+<td>Collapse every record from a noisy logger</td>
+</tr>
+<tr>
+<td><code>"level"</code></td>
+<td>One counter per log level</td>
+<td>Collapse all records at a level</td>
+</tr>
+<tr>
+<td><code>"global"</code></td>
+<td>One shared counter</td>
+<td>Collapse everything into one budget</td>
+</tr>
+<tr>
+<td><code>"template"</code> (default)</td>
+<td>One counter per (logger, level, <code>str(record.msg)</code>)</td>
+<td>Shares across arg values of the same template</td>
+</tr>
+<tr>
+<td><code>"rendered"</code></td>
+<td>One counter per (logger, level, <code>record.getMessage()</code>)</td>
+<td>Distinguishes fully-rendered messages</td>
+</tr>
+</tbody>
+</table>
+<p>Use <code>key_mode="rendered"</code> to track each rendered message separately, or pass <code>key=</code> for a custom fingerprint:</p>
 <div class="highlight"><pre><span></span><code><span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">(</span><span class="n">key_mode</span><span class="o">=</span><span class="s2">&quot;rendered&quot;</span><span class="p">))</span>
 <span class="n">logger</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">DuplicateFilter</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">exc_info</span><span class="p">)))</span>
 </code></pre></div>

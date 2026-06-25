@@ -9,7 +9,7 @@ from grelmicro.task import Tasks
 tasks = Tasks(shutdown_timeout=25)
 
 
-@tasks.interval(seconds=5)
+@tasks.every(seconds=5)
 async def heartbeat() -> None:
     """Run periodic work; finishes the current run before shutdown."""
 

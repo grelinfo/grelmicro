@@ -1308,6 +1308,8 @@
       
         
       
+        
+      
     
     
     
@@ -1447,6 +1449,34 @@
     
   
     FastAPI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FastStream
   
 
     
@@ -2461,7 +2491,7 @@
 <h1 id="multiple-apps-in-one-process">Multiple apps in one process</h1>
 <p>A <code>Grelmicro</code> app is a plain async context manager, so you can construct as many as you like. Whether two can be <strong>active at the same time</strong> depends on what they configure.</p>
 <h2 id="the-rule">The rule</h2>
-<p>Most components keep their state on the instance: <code>Coordination</code>, <code>Cache</code>, <code>RateLimiters</code>, <code>CircuitBreakers</code>, and <code>HealthChecks</code> all hold their own backend, so two overlapping apps never touch each other. They run concurrently with no special handling, the same way a web framework lets you instantiate two <code>App</code> objects.</p>
+<p>Most components keep their state on the instance: <code>Coordination</code>, <code>Cache</code>, <code>RateLimiterRegistry</code>, <code>CircuitBreakerRegistry</code>, and <code>HealthChecks</code> all hold their own backend, so two overlapping apps never touch each other. They run concurrently with no special handling, the same way a web framework lets you instantiate two <code>App</code> objects.</p>
 <p><code>Log</code> and <code>Trace</code> are different. They configure <strong>process-global</strong> state (the stdlib root logger and the OpenTelemetry tracer provider) and restore the previous value on exit. Within one app the exit stack restores in reverse order, so nesting is safe. Across two overlapping apps there is no such ordering guarantee: the first to exit would restore the global and clobber the second app's configuration.</p>
 <p>Because they own a single global, these components are singletons: registering a second <code>Log</code> (or <code>Trace</code>) on the same app raises <code>ComponentAlreadyRegisteredError</code>, even under a different name. There is only one root logger to configure, so a second instance has nothing of its own to own.</p>
 <p>So grelmicro also blocks the cross-app case that is unsafe: opening a second app that owns <code>Log</code> or <code>Trace</code> while another app that owns one is still active raises <code>MultipleActiveAppsError</code>. Apps without those components overlap freely.</p>
