@@ -69,24 +69,46 @@ async def lock(locks: list[Lock]) -> Lock:
     return locks[WORKER_1]
 
 
-@pytest.fixture
-async def reentrant_thread_lock(backend: LockBackend) -> Lock:
-    """Lock with a lease long enough to outlive thread-scheduling jitter.
+# A lease long enough that it never expires during a from-thread test, even
+# under heavy parallel load. Each `from_thread` call is a thread<->loop
+# round-trip, and the shared session loop can be starved by parallel neighbors,
+# so the default 10 ms lease would lapse mid-sequence and flake. The 5 s module
+# timeout still catches a genuine hang. Tests that assert lease *expiry* keep
+# the short-lease `lock`/`locks` fixtures.
+THREAD_LEASE_DURATION = 30.0
 
-    The reentrant-from-thread tests do *acquire → attempt-reacquire-raises →
-    release* in a single worker thread. On Python 3.12 under CI load that
-    sequence can exceed a 10 ms lease, which makes the outer release race
-    with lease expiry and spuriously raise ``LockNotOwnedError``. Use this
-    fixture only for tests that need the slow-path guarantee; the default
-    ``lock`` fixture keeps its 10 ms lease for expiry tests and the rest.
+
+@pytest.fixture
+async def thread_locks(backend: LockBackend) -> list[Lock]:
+    """Locks whose lease outlives thread<->loop round-trip jitter."""
+    return [
+        Lock(
+            backend=backend,
+            name=LOCK_NAME,
+            worker=f"worker_{i}",
+            lease_duration=THREAD_LEASE_DURATION,
+            retry_interval=0.001,
+        )
+        for i in range(WORKER_COUNT)
+    ]
+
+
+@pytest.fixture
+async def thread_lock(thread_locks: list[Lock]) -> Lock:
+    """Single generous-lease lock for from-thread tests."""
+    return thread_locks[WORKER_1]
+
+
+@pytest.fixture
+async def reentrant_thread_lock(thread_lock: Lock) -> Lock:
+    """Generous-lease lock for the reentrant-from-thread tests.
+
+    The reentrant-from-thread tests do *acquire -> attempt-reacquire-raises ->
+    release* in one worker thread. Under CI load that sequence can exceed a
+    10 ms lease, racing the outer release with lease expiry and spuriously
+    raising ``LockNotOwnedError``. The generous lease removes that race.
     """
-    return Lock(
-        backend=backend,
-        name=LOCK_NAME,
-        worker=f"worker_{WORKER_1}",
-        lease_duration=0.5,
-        retry_interval=0.001,
-    )
+    return thread_lock
 
 
 async def test_lock_key_prefix(backend: LockBackend, lock: Lock) -> None:
@@ -116,8 +138,9 @@ async def test_lock_owned(locks: list[Lock]) -> None:
     assert worker_2_owned_after is False
 
 
-async def test_lock_from_thread_owned(locks: list[Lock]) -> None:
+async def test_lock_from_thread_owned(thread_locks: list[Lock]) -> None:
     """Test Lock from thread owned."""
+    locks = thread_locks
     # Arrange
     worker_1_owned_before = None
     worker_2_owned_before = None
@@ -160,8 +183,11 @@ async def test_lock_context_manager(lock: Lock) -> None:
     assert locked_after is False
 
 
-async def test_lock_from_thread_context_manager_acquire(lock: Lock) -> None:
+async def test_lock_from_thread_context_manager_acquire(
+    thread_lock: Lock,
+) -> None:
     """Test Lock from thread context manager."""
+    lock = thread_lock
     # Arrange
     locked_before = None
     locked_inside = None
@@ -204,14 +230,31 @@ async def test_lock_context_manager_wait(lock: Lock, locks: list[Lock]) -> None:
 
 
 async def test_lock_from_thread_context_manager_wait(
-    lock: Lock, locks: list[Lock]
+    backend: LockBackend,
 ) -> None:
     """Test Lock from thread context manager wait."""
-    # Arrange
+    # Arrange: a blocker whose lease is short enough to expire so the waiter
+    # can take over, but long enough that the first `locked()` check still sees
+    # it held; and a generous-lease waiter that holds safely across the slow
+    # thread<->loop round-trips of the `with` body and its release.
+    blocker = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker=f"worker_{WORKER_1}",
+        lease_duration=0.05,
+        retry_interval=0.001,
+    )
+    waiter = Lock(
+        backend=backend,
+        name=LOCK_NAME,
+        worker=f"worker_{WORKER_2}",
+        lease_duration=THREAD_LEASE_DURATION,
+        retry_interval=0.001,
+    )
     locked_before = None
     locked_inside = None
     locked_after = None
-    await locks[WORKER_1].acquire()
+    await blocker.acquire()
 
     # Act
     def sync() -> None:
@@ -219,10 +262,10 @@ async def test_lock_from_thread_context_manager_wait(
         nonlocal locked_inside
         nonlocal locked_after
 
-        locked_before = lock.from_thread.locked()
-        with locks[WORKER_2].from_thread:
-            locked_inside = lock.from_thread.locked()
-        locked_after = lock.from_thread.locked()
+        locked_before = waiter.from_thread.locked()
+        with waiter.from_thread:
+            locked_inside = waiter.from_thread.locked()
+        locked_after = waiter.from_thread.locked()
 
     await asyncio.to_thread(sync)
 
@@ -244,8 +287,9 @@ async def test_lock_acquire(lock: Lock) -> None:
     assert locked_after is True
 
 
-async def test_lock_from_thread_acquire(lock: Lock) -> None:
+async def test_lock_from_thread_acquire(thread_lock: Lock) -> None:
     """Test Lock from thread acquire."""
+    lock = thread_lock
     # Arrange
     locked_before = None
     locked_after = None
@@ -303,8 +347,9 @@ async def test_lock_acquire_wait(lock: Lock, locks: list[Lock]) -> None:
     assert locked_after is True
 
 
-async def test_lock_from_thread_acquire_wait(lock: Lock) -> None:
+async def test_lock_from_thread_acquire_wait(thread_lock: Lock) -> None:
     """Test Lock from thread acquire wait."""
+    lock = thread_lock
     # Arrange
     locked_before = None
     locked_after = None
@@ -337,8 +382,9 @@ async def test_lock_acquire_nowait(lock: Lock) -> None:
     assert locked_after is True
 
 
-async def test_lock_from_thread_acquire_nowait(lock: Lock) -> None:
+async def test_lock_from_thread_acquire_nowait(thread_lock: Lock) -> None:
     """Test Lock from thread wait acquire."""
+    lock = thread_lock
     # Arrange
     locked_before = None
     locked_after = None
@@ -370,9 +416,10 @@ async def test_lock_acquire_nowait_would_block(locks: list[Lock]) -> None:
 
 
 async def test_lock_from_thread_acquire_nowait_would_block(
-    locks: list[Lock],
+    thread_locks: list[Lock],
 ) -> None:
     """Test Lock from thread wait acquire would block."""
+    locks = thread_locks
     # Arrange
     await locks[WORKER_1].acquire()
 
@@ -417,8 +464,9 @@ async def test_lock_release_acquired(lock: Lock) -> None:
     assert locked_after is False
 
 
-async def test_lock_from_thread_release_acquired(lock: Lock) -> None:
+async def test_lock_from_thread_release_acquired(thread_lock: Lock) -> None:
     """Test Lock from thread release acquired."""
+    lock = thread_lock
     # Arrange
     locked_before = None
     locked_after = None
@@ -604,8 +652,9 @@ async def test_context_manager_binds_handle(lock: Lock) -> None:
         assert held.fencing_token >= 1
 
 
-async def test_from_thread_acquire_returns_handle(lock: Lock) -> None:
+async def test_from_thread_acquire_returns_handle(thread_lock: Lock) -> None:
     """`from_thread.acquire` returns a LockHandle."""
+    lock = thread_lock
     handles: list[LockHandle] = []
 
     def sync() -> None:
@@ -619,8 +668,11 @@ async def test_from_thread_acquire_returns_handle(lock: Lock) -> None:
     assert handles[0].fencing_token >= 1
 
 
-async def test_from_thread_acquire_nowait_returns_handle(lock: Lock) -> None:
+async def test_from_thread_acquire_nowait_returns_handle(
+    thread_lock: Lock,
+) -> None:
     """`from_thread.acquire_nowait` returns a LockHandle."""
+    lock = thread_lock
     handles: list[LockHandle] = []
 
     def sync() -> None:
@@ -634,8 +686,11 @@ async def test_from_thread_acquire_nowait_returns_handle(lock: Lock) -> None:
     assert handles[0].fencing_token >= 1
 
 
-async def test_from_thread_context_manager_binds_handle(lock: Lock) -> None:
+async def test_from_thread_context_manager_binds_handle(
+    thread_lock: Lock,
+) -> None:
     """`with lock.from_thread as held` binds the LockHandle."""
+    lock = thread_lock
     handles: list[LockHandle] = []
 
     def sync() -> None:
@@ -793,8 +848,11 @@ async def test_lock_reentrant_from_thread_acquire_nowait_then_acquire(
     await asyncio.to_thread(sync)
 
 
-async def test_lock_from_thread_reacquire_after_release(lock: Lock) -> None:
+async def test_lock_from_thread_reacquire_after_release(
+    thread_lock: Lock,
+) -> None:
     """Test Lock from_thread can be acquired again after release."""
+    lock = thread_lock
 
     def sync() -> None:
         lock.from_thread.acquire()
@@ -806,9 +864,10 @@ async def test_lock_from_thread_reacquire_after_release(lock: Lock) -> None:
 
 
 async def test_lock_from_thread_reacquire_after_context_manager(
-    lock: Lock,
+    thread_lock: Lock,
 ) -> None:
     """Test Lock from_thread can be acquired again after context manager exit."""
+    lock = thread_lock
 
     def sync() -> None:
         with lock.from_thread:
@@ -1262,8 +1321,9 @@ async def test_from_thread_acquire_timeout_succeeds_when_freed_in_time(
     assert handle.fencing_token >= 1
 
 
-async def test_from_thread_extend(lock: Lock) -> None:
+async def test_from_thread_extend(thread_lock: Lock) -> None:
     """A thread extend renews the lease and keeps the fencing token."""
+    lock = thread_lock
     # Arrange
     acquired: LockHandle | None = None
     extended: LockHandle | None = None

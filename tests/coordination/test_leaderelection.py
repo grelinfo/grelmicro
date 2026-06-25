@@ -27,9 +27,18 @@ BACKEND_LOCK_NAME = f"leader:{LEADER_NAME}"
 WORKERS = 4
 WORKER_1 = 0
 WORKER_2 = 1
-TEST_TIMEOUT = 1
-LEASE_DURATION = 0.02
-RENEW_DEADLINE = 0.015
+# 5s, not 1s: under CPU-oversubscribed parallel CI a correct test can still be
+# starved well past a 1s budget. The timeout only guards against genuine hangs.
+TEST_TIMEOUT = 5
+# Lease and renew deadline are sized for CPU-oversubscribed CI. `is_leader()`
+# lapses once `monotonic() - last_confirmation >= renew_deadline`, and the OS can
+# preempt the whole process (so the renew loop cannot refresh) between a
+# `wait_for_leader()` return and the next `is_leader()` read. A 15 ms deadline
+# lapsed under that preemption and flaked; ~70 ms gives ample wall-clock slack
+# while the renew loop still runs every 5 ms and lapse-style tests still resolve
+# fast (well under the timeout).
+LEASE_DURATION = 0.1
+RENEW_DEADLINE = 0.07
 
 pytestmark = [pytest.mark.timeout(TEST_TIMEOUT)]
 

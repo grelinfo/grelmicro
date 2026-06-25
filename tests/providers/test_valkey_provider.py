@@ -18,7 +18,10 @@ from grelmicro.resilience.circuitbreaker.redis import (
 )
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 
-pytestmark = [pytest.mark.timeout(1)]
+# 5s, not 1s: pytest-timeout measures wall-clock, and under CPU-oversubscribed
+# parallel CI even a trivial construction test can be starved past a 1s budget.
+# The timeout only guards against a genuine hang.
+pytestmark = [pytest.mark.timeout(5)]
 
 URL = "redis://:test_password@test_host:1234/0"
 
