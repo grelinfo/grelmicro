@@ -446,6 +446,32 @@ class RedisProvider(Provider):
         """`PING` Redis to prove the connection is reachable."""
         await self._client.ping()
 
+    def instrument(self, tracer_provider: Any) -> bool:  # noqa: ANN401
+        """Attach the Redis OpenTelemetry instrumentor to this client.
+
+        Uses per-instance `instrument_client`, so only this provider's client
+        is traced, not every Redis client in the process. Returns `False` when
+        `opentelemetry-instrumentation-redis` is not installed.
+        """
+        try:
+            from opentelemetry.instrumentation.redis import (  # noqa: PLC0415
+                RedisInstrumentor,
+            )
+        except ImportError:  # pragma: no cover
+            return False
+        self._instrumentor = RedisInstrumentor()
+        self._instrumentor.instrument_client(
+            self._client, tracer_provider=tracer_provider
+        )
+        return True
+
+    def uninstrument(self) -> None:
+        """Detach the Redis instrumentor from this client."""
+        instrumentor = getattr(self, "_instrumentor", None)
+        if instrumentor is not None:
+            instrumentor.uninstrument_client(self._client)
+            self._instrumentor = None
+
     async def __aenter__(self) -> Self:
         """Open the provider. The client is already constructed eagerly."""
         return self

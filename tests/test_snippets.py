@@ -27,6 +27,7 @@ _SNIPPETS_DIR = Path(__file__).resolve().parent.parent / "docs" / "snippets"
 # (logging / tracing setup). Compiled and built by MkDocs, not run here.
 _COMPILE_ONLY = {
     "trace/component.py",
+    "trace/autoinstrument.py",
     "log/component.py",
 }
 

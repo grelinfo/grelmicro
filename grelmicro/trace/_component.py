@@ -25,6 +25,8 @@ from grelmicro.trace.errors import (
 if TYPE_CHECKING:
     from types import TracebackType
 
+    from grelmicro.trace._autoinstrument import InstrumentDirective
+
 
 _logger = logging.getLogger(__name__)
 
@@ -105,6 +107,26 @@ class Trace:
         resource_attributes: Annotated[
             dict[str, str] | None, Doc("Extra resource attributes.")
         ] = None,
+        instrument: Annotated[
+            InstrumentDirective,
+            Doc(
+                """
+                Auto-instrumentation selection for active providers and the
+                FastAPI app, bound to this app's tracer provider. `True` (the
+                default) instruments every active provider plus the FastAPI
+                app. A missing `opentelemetry-instrumentation-*` package is a
+                no-op, so default-on does nothing until the extras are
+                installed.
+
+                - `False`: instrument nothing (the `@instrument` decorator
+                  still works).
+                - `"redis"` or `["redis", "fastapi"]`: instrument only the
+                  named targets. An unknown name raises.
+                - `{"redis": False}`: instrument every active target except
+                  the named ones.
+                """
+            ),
+        ] = True,
         shutdown_timeout: Annotated[
             float | None,
             Doc(
@@ -138,6 +160,7 @@ class Trace:
             "shutdown_timeout": shutdown_timeout,
         }
         self._env_load = env_load
+        self._instrument = instrument
         self._resolved: TraceConfig | None = None
         self._provider: Any = None
         self._prior_provider: Any = None
@@ -171,6 +194,11 @@ class Trace:
     def name(self) -> str:
         """Return the registration name."""
         return self._name
+
+    @property
+    def instrument(self) -> InstrumentDirective:
+        """Return the auto-instrumentation selection directive."""
+        return self._instrument
 
     @property
     def config(self) -> TraceConfig:

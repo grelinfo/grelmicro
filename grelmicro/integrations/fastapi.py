@@ -1,7 +1,8 @@
 """FastAPI integration: middleware, install helper, and health router."""
 
+import logging
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from pydantic import BaseModel
 from typing_extensions import Doc
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from starlette.applications import Starlette
 
     from grelmicro import Grelmicro
+    from grelmicro.trace._component import Trace
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -37,6 +39,52 @@ __all__ = [
     "health_router",
     "install",
 ]
+
+_logger = logging.getLogger(__name__)
+
+
+def _instrument_app(app: "Starlette", micro: "Grelmicro") -> None:
+    """Auto-instrument the FastAPI app per `Trace(instrument=...)`.
+
+    Runs at install time with no explicit `TracerProvider`. OTel's proxy
+    tracer resolves to the provider `Trace` installs during the lifespan, so
+    request spans land in grelmicro's pipeline. It is a no-op without
+    `opentelemetry-instrumentation-fastapi` installed.
+    """
+    from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
+        explicit_names,
+        is_selected,
+    )
+
+    component = next(
+        (c for c in micro.components if getattr(c, "kind", None) == "trace"),
+        None,
+    )
+    if component is None:
+        return
+    trace = cast("Trace", component)
+    directive = trace.instrument
+    if not is_selected("fastapi", directive):
+        return
+    try:
+        from fastapi import FastAPI  # noqa: PLC0415
+    except ImportError:  # pragma: no cover
+        return
+    if not isinstance(app, FastAPI):
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import (  # noqa: PLC0415
+            FastAPIInstrumentor,
+        )
+    except ImportError:  # pragma: no cover
+        names = explicit_names(directive)
+        if names is not None and "fastapi" in names:
+            _logger.warning(
+                "Trace named 'fastapi' for instrumentation but "
+                "opentelemetry-instrumentation-fastapi is not installed."
+            )
+        return
+    FastAPIInstrumentor.instrument_app(app)
 
 
 class GrelmicroMiddleware:
@@ -148,6 +196,7 @@ def install(
     app.router.lifespan_context = lifespan
     if ambient:
         app.add_middleware(GrelmicroMiddleware, micro=micro)
+    _instrument_app(app, micro)
 
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}

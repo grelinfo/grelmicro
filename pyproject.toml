@@ -144,6 +144,11 @@ opentelemetry = [
     "opentelemetry-exporter-prometheus>=0.41b0",
     "prometheus-client>=0.19.0",
 ]
+instrumentation = [
+    "opentelemetry-instrumentation-fastapi>=0.41b0",
+    "opentelemetry-instrumentation-redis>=0.41b0",
+    "opentelemetry-instrumentation-asyncpg>=0.41b0",
+]
 structlog = [
     "structlog>=24.1.0",
     "orjson>=3.10.11",
@@ -182,6 +187,9 @@ dev = [
     "opentelemetry-exporter-otlp-proto-http>=1.20.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
     "opentelemetry-exporter-prometheus>=0.41b0",
+    "opentelemetry-instrumentation-fastapi>=0.41b0",
+    "opentelemetry-instrumentation-redis>=0.41b0",
+    "opentelemetry-instrumentation-asyncpg>=0.41b0",
     "prometheus-client>=0.19.0",
     "structlog>=24.1.0",
     "aiosqlite>=0.20.0",

@@ -8,7 +8,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
 from typing_extensions import Doc
 
@@ -664,6 +664,41 @@ class Grelmicro:
             for item in self._items
         )
 
+    def _instrument_providers(self) -> None:
+        """Auto-instrument active providers per the `Trace(instrument=...)` set.
+
+        Runs after every item is open, so provider clients exist and the
+        `TracerProvider` is installed. The framework integration instruments
+        itself separately in `micro.install(app)`.
+        """
+        component = next(
+            (
+                item
+                for item in self.components
+                if getattr(item, "kind", None) == "trace"
+            ),
+            None,
+        )
+        providers = self.providers
+        if component is None or not providers:
+            return
+        from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
+            KNOWN_FRAMEWORKS,
+            instrument_providers,
+            uninstrument_providers,
+            validate_directive,
+        )
+
+        trace = cast("Trace", component)
+        directive = trace.instrument
+        known = {provider.short_name for provider in providers}
+        validate_directive(directive, known | KNOWN_FRAMEWORKS)
+        instrumented = instrument_providers(
+            providers, trace.provider, directive
+        )
+        if instrumented and self._exit_stack is not None:  # pragma: no branch
+            self._exit_stack.callback(uninstrument_providers, instrumented)
+
     async def __aenter__(self) -> Self:
         """Open every registered item in registration order.
 
@@ -689,6 +724,7 @@ class Grelmicro:
         try:
             for item in self._items:
                 await self._exit_stack.enter_async_context(item)
+            self._instrument_providers()
         except BaseException:
             _active_apps.remove(self)
             _current_micro.reset(self._token)

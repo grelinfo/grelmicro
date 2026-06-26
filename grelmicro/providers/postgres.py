@@ -96,6 +96,7 @@ class PostgresProvider(Provider):
     """
 
     short_name: ClassVar[str] = "postgres"
+    _asyncpg_instrumented: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -305,6 +306,37 @@ class PostgresProvider(Provider):
     async def check(self) -> None:
         """Run `SELECT 1` to prove the pool can serve a connection."""
         await self.client.fetchval("SELECT 1")
+
+    def instrument(self, tracer_provider: Any) -> bool:  # noqa: ANN401
+        """Attach the asyncpg OpenTelemetry instrumentor.
+
+        asyncpg has no per-pool API, so this patches `asyncpg.Connection` once
+        per process. The class-level guard keeps a second Postgres provider
+        from double-instrumenting. Returns `False` when
+        `opentelemetry-instrumentation-asyncpg` is not installed.
+        """
+        if PostgresProvider._asyncpg_instrumented:
+            return True
+        try:
+            from opentelemetry.instrumentation.asyncpg import (  # noqa: PLC0415
+                AsyncPGInstrumentor,
+            )
+        except ImportError:  # pragma: no cover
+            return False
+        AsyncPGInstrumentor().instrument(tracer_provider=tracer_provider)
+        PostgresProvider._asyncpg_instrumented = True
+        return True
+
+    def uninstrument(self) -> None:
+        """Reverse the process-wide asyncpg patch."""
+        if not PostgresProvider._asyncpg_instrumented:
+            return
+        from opentelemetry.instrumentation.asyncpg import (  # noqa: PLC0415
+            AsyncPGInstrumentor,
+        )
+
+        AsyncPGInstrumentor().uninstrument()
+        PostgresProvider._asyncpg_instrumented = False
 
     async def __aenter__(self) -> Self:
         """Open the asyncpg pool when the provider owns it."""

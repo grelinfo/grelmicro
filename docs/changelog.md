@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add native auto-instrumentation to `Trace`. `Trace(instrument=...)` traces incoming FastAPI requests and Redis and Postgres calls against the app's tracer provider, no per-handler decoration. On by default, a no-op until the new `instrumentation` extra is installed. Pass `False`, a name or list to select, or a `{name: False}` map to exclude. Redis attaches per-client, asyncpg is patched process-wide, and Valkey and SQLite stay on `@instrument`.
+
 ## 1.0.0b1 - 2026-06-25
 
 ### Breaking
