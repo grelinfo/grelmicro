@@ -298,7 +298,7 @@ async def test_app_with_trace_no_providers() -> None:
 
 
 def test_install_instruments_fastapi_by_default() -> None:
-    """`micro.install(app)` instruments a FastAPI app by default."""
+    """`micro.install(app)` instruments a FastAPI app at install time."""
     app = FastAPI()
     Grelmicro(uses=[_none_trace()]).install(app)
     try:
@@ -331,6 +331,26 @@ def test_install_without_trace_skips_fastapi() -> None:
 # --- end-to-end span ---------------------------------------------------------
 
 
+@pytest.fixture
+def _isolate_tracer_provider() -> Iterator[None]:
+    """Give the test a clean OTel global so the proxy resolves deterministically.
+
+    `instrument_app` runs at install time with the proxy tracer, which
+    resolves the process-global provider at request time. Other tests in the
+    suite leave a provider in that global, so reset it to the default proxy
+    here and restore it after.
+    """
+    from opentelemetry import trace as otel_trace  # noqa: PLC0415
+
+    saved = otel_trace._TRACER_PROVIDER
+    otel_trace._TRACER_PROVIDER = None
+    try:
+        yield
+    finally:
+        otel_trace._TRACER_PROVIDER = saved
+
+
+@pytest.mark.usefixtures("_isolate_tracer_provider")
 def test_fastapi_request_produces_server_span() -> None:
     """A request through an instrumented app emits a SERVER span."""
     exporter = InMemorySpanExporter()
@@ -344,6 +364,8 @@ def test_fastapi_request_produces_server_span() -> None:
     micro.install(app)
     try:
         with TestClient(app) as client:
+            # The lifespan installed Trace's provider; the app's proxy tracer
+            # resolves to it, so capture spans from that exact provider.
             micro.trace.provider.add_span_processor(
                 SimpleSpanProcessor(exporter)
             )

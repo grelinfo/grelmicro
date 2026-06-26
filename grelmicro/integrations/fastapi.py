@@ -46,9 +46,11 @@ _logger = logging.getLogger(__name__)
 def _instrument_app(app: "Starlette", micro: "Grelmicro") -> None:
     """Auto-instrument the FastAPI app per `Trace(instrument=...)`.
 
-    Runs at install time with no explicit `TracerProvider`. OTel's proxy
-    tracer resolves to the provider `Trace` installs during the lifespan, so
-    request spans land in grelmicro's pipeline. It is a no-op without
+    Runs at install time, before the app serves, because the framework builds
+    its middleware stack on first use and the request-span middleware must be
+    in place by then. With no explicit `TracerProvider`, OTel's proxy tracer
+    resolves to the provider `Trace` installs during the lifespan, so request
+    spans land in grelmicro's pipeline. It is a no-op without
     `opentelemetry-instrumentation-fastapi` installed.
     """
     from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
