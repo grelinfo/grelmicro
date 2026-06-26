@@ -142,6 +142,15 @@ class ValkeyProvider(RedisProvider):
         """Whether the underlying client is a Valkey Cluster client."""
         return isinstance(self._client, self._cluster_class)
 
+    def instrument(self, tracer_provider: Any) -> bool:  # noqa: ANN401, ARG002
+        """Report that Valkey has no OpenTelemetry instrumentor.
+
+        The Redis instrumentor patches `redis.*`, not `valkey.*`, so it does
+        not trace valkey-py. Returns `False` so a named valkey target warns.
+        Use the `@instrument` decorator for valkey spans.
+        """
+        return False
+
     @classmethod
     def from_config(
         cls,

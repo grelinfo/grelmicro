@@ -145,3 +145,42 @@ configure()
     ```
 
     All produce the same JSON output with tracing context included.
+
+## Automatic instrumentation
+
+`@instrument` traces your own functions. To trace incoming HTTP requests and database or cache calls without touching every handler, `Trace` auto-instruments the providers and the FastAPI app it runs with.
+
+Install the instrumentor packages alongside the OpenTelemetry SDK:
+
+```bash
+pip install "grelmicro[opentelemetry,instrumentation]"
+```
+
+You can instead install a single `opentelemetry-instrumentation-*` package (for example `opentelemetry-instrumentation-redis`) to trace only that backend.
+
+Then `Trace` does the rest. Request spans wrap each handler, and Redis and Postgres spans nest under them, all bound to the app's tracer provider:
+
+```python
+--8<-- "trace/autoinstrument.py"
+```
+
+`instrument` is on by default and degrades to a no-op when an instrumentor package is absent, so it does nothing until you install the extras. Redis attaches to the exact client the provider owns. Postgres patches asyncpg for the whole process, because asyncpg has no per-pool hook, so every asyncpg connection is traced.
+
+Select what to instrument:
+
+```python
+Trace(instrument=False)                   # nothing (the @instrument decorator still works)
+Trace(instrument=["redis", "fastapi"])    # only the named targets, an unknown name raises
+Trace(instrument={"redis": False})        # every active target except the named ones
+```
+
+What is covered:
+
+| Target | Spans | Notes |
+|---|---|---|
+| FastAPI | Incoming HTTP requests | wired by `micro.install(app)`, FastAPI apps only |
+| Redis | Cache and lock commands | per-client, cluster included |
+| Postgres (asyncpg) | Queries | patches asyncpg process-wide |
+| Valkey, SQLite | None | Not auto-instrumented yet. Use `@instrument` for these. |
+
+Under a FastStream app, the provider spans (Redis, Postgres) are produced, but FastStream message spans are not auto-instrumented yet. Use `@instrument` for handler spans.

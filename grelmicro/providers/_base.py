@@ -141,3 +141,19 @@ class Provider(AbstractAsyncContextManager["Provider"]):
             f"Register a custom check with health.check(...) instead."
         )
         raise NotImplementedError(msg)
+
+    def instrument(self, tracer_provider: Any) -> bool:  # noqa: ANN401, ARG002
+        """Attach OpenTelemetry instrumentation for this Provider's client.
+
+        Called by `Trace(instrument=...)` after the app is open, with the
+        app's `TracerProvider`. Returns whether instrumentation is in effect.
+        The default returns `True`: a Provider with no native client to trace
+        (such as Memory) has nothing to attach and that is not a failure.
+        Subclasses override to attach the matching instrumentor, preferring
+        per-instance attachment, and return `False` when the instrumentor
+        package is absent so a named-but-uninstrumented target can warn.
+        """
+        return True
+
+    def uninstrument(self) -> None:
+        """Reverse `instrument`. The default is a no-op."""
