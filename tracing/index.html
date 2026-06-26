@@ -1086,6 +1086,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#automatic-instrumentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic instrumentation
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2624,6 +2635,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#automatic-instrumentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic instrumentation
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2792,6 +2814,70 @@
 </code></pre></div>
 <p>All produce the same JSON output with tracing context included.</p>
 </details>
+<h2 id="automatic-instrumentation">Automatic instrumentation</h2>
+<p><code>@instrument</code> traces your own functions. To trace incoming HTTP requests and database or cache calls without touching every handler, <code>Trace</code> auto-instruments the providers and the FastAPI app it runs with.</p>
+<p>Install the instrumentor packages alongside the OpenTelemetry SDK:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[opentelemetry,instrumentation]&quot;</span>
+</code></pre></div>
+<p>You can instead install a single <code>opentelemetry-instrumentation-*</code> package (for example <code>opentelemetry-instrumentation-redis</code>) to trace only that backend.</p>
+<p>Then <code>Trace</code> does the rest. Request spans wrap each handler, and Redis and Postgres spans nest under them, all bound to the app's tracer provider:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.postgres</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresProvider</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.trace</span><span class="w"> </span><span class="kn">import</span> <span class="n">Trace</span>
+
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span>
+    <span class="n">uses</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">Trace</span><span class="p">(</span><span class="n">service_name</span><span class="o">=</span><span class="s2">&quot;payments-api&quot;</span><span class="p">),</span>  <span class="c1"># instrument=True is the default</span>
+        <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://cache&quot;</span><span class="p">),</span>
+        <span class="n">PostgresProvider</span><span class="p">(</span><span class="s2">&quot;postgresql://db/payments&quot;</span><span class="p">),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+
+<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
+<span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>  <span class="c1"># the FastAPI app is instrumented too</span>
+</code></pre></div>
+<p><code>instrument</code> is on by default and degrades to a no-op when an instrumentor package is absent, so it does nothing until you install the extras. Redis attaches to the exact client the provider owns. Postgres patches asyncpg for the whole process, because asyncpg has no per-pool hook, so every asyncpg connection is traced.</p>
+<p>Select what to instrument:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>                   <span class="c1"># nothing (the @instrument decorator still works)</span>
+<span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;redis&quot;</span><span class="p">,</span> <span class="s2">&quot;fastapi&quot;</span><span class="p">])</span>    <span class="c1"># only the named targets, an unknown name raises</span>
+<span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;redis&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">})</span>        <span class="c1"># every active target except the named ones</span>
+</code></pre></div>
+<p>What is covered:</p>
+<table>
+<thead>
+<tr>
+<th>Target</th>
+<th>Spans</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FastAPI</td>
+<td>Incoming HTTP requests</td>
+<td>wired by <code>micro.install(app)</code>, FastAPI apps only</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td>Cache and lock commands</td>
+<td>per-client, cluster included</td>
+</tr>
+<tr>
+<td>Postgres (asyncpg)</td>
+<td>Queries</td>
+<td>patches asyncpg process-wide</td>
+</tr>
+<tr>
+<td>Valkey, SQLite</td>
+<td>None</td>
+<td>Not auto-instrumented yet. Use <code>@instrument</code> for these.</td>
+</tr>
+</tbody>
+</table>
+<p>Under a FastStream app, the provider spans (Redis, Postgres) are produced, but FastStream message spans are not auto-instrumented yet. Use <code>@instrument</code> for handler spans.</p>
 
 
 

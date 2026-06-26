@@ -1840,6 +1840,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.trace.Trace.instrument" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;instrument
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.trace.Trace.config" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2925,6 +2936,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.trace.Trace.instrument" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;instrument
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.trace.Trace.config" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3393,6 +3415,7 @@ with structured context through a single decorator.</p>
     <span class="n">sampler</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TraceSamplerType&lt;/span&gt; (&lt;code&gt;grelmicro.trace.config.TraceSamplerType&lt;/code&gt;)" href="#grelmicro.trace.TraceSamplerType">TraceSamplerType</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">sample_ratio</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">resource_attributes</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">instrument</span><span class="p">:</span> <span class="n"><span title="grelmicro.trace._autoinstrument.InstrumentDirective">InstrumentDirective</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">shutdown_timeout</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_load</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
@@ -3644,6 +3667,39 @@ must be <code>None</code>. The env path is bypassed.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
+                <code>instrument</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Auto-instrumentation selection for active providers and the
+FastAPI app, bound to this app's tracer provider. <code>True</code> (the
+default) instruments every active provider plus the FastAPI
+app. A missing <code>opentelemetry-instrumentation-*</code> package is a
+no-op, so default-on does nothing until the extras are
+installed.</p>
+<ul>
+<li><code>False</code>: instrument nothing (the <code>@instrument</code> decorator
+  still works).</li>
+<li><code>"redis"</code> or <code>["redis", "fastapi"]</code>: instrument only the
+  named targets. An unknown name raises.</li>
+<li><code>{"redis": False}</code>: instrument every active target except
+  the named ones.</li>
+</ul>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="grelmicro.trace._autoinstrument.InstrumentDirective">InstrumentDirective</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>True</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
                 <code>shutdown_timeout</code>
             </td>
             <td class="doc-param-details">
@@ -3766,6 +3822,30 @@ must be <code>None</code>. The env path is bypassed.</p>
     <div class="doc doc-contents ">
 
         <p>Return the registration name.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="grelmicro.trace.Trace.instrument" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">instrument</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">instrument</span><span class="p">:</span> <span class="n"><span title="grelmicro.trace._autoinstrument.InstrumentDirective">InstrumentDirective</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the auto-instrumentation selection directive.</p>
 
     </div>
 
