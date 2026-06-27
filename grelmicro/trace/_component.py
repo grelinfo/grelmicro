@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
@@ -97,6 +98,19 @@ class Trace:
         headers: Annotated[
             dict[str, str] | None, Doc("Exporter headers.")
         ] = None,
+        basic_auth: Annotated[
+            tuple[str, str] | None,
+            Doc(
+                """
+                HTTP Basic auth credentials as a `(username, password)`
+                pair. grelmicro builds the `Authorization: Basic` header and
+                attaches it to the OTLP exporter directly, so it never goes
+                through the fragile `OTEL_EXPORTER_OTLP_HEADERS` encoding.
+                From the environment, set `GREL_TRACE_BASIC_AUTH_USERNAME`
+                and `GREL_TRACE_BASIC_AUTH_PASSWORD` instead.
+                """
+            ),
+        ] = None,
         processor: Annotated[
             TraceProcessorType | None, Doc("Span processor.")
         ] = None,
@@ -146,6 +160,9 @@ class Trace:
         ] = None,
     ) -> None:
         """Initialize the component (defer provider build until `__aenter__`)."""
+        if basic_auth is not None and len(basic_auth) != 2:  # noqa: PLR2004
+            msg = "basic_auth must be a (username, password) tuple."
+            raise TypeError(msg)
         self._name = name
         self._explicit_config = config
         self._kwargs = {
@@ -153,6 +170,8 @@ class Trace:
             "exporter": exporter,
             "endpoint": endpoint,
             "headers": headers,
+            "basic_auth_username": basic_auth[0] if basic_auth else None,
+            "basic_auth_password": basic_auth[1] if basic_auth else None,
             "processor": processor,
             "sampler": sampler,
             "sample_ratio": sample_ratio,
@@ -363,8 +382,9 @@ def _build_provider(config: TraceConfig) -> Any:  # noqa: ANN401
 
     provider = TracerProvider(resource=resource, sampler=sampler)
 
-    if config.exporter != TraceExporterType.NONE:
-        exporter = _build_exporter(config)
+    exporter_type = _resolve_exporter_type(config)
+    if exporter_type != TraceExporterType.NONE:
+        exporter = _build_exporter(config, exporter_type)
         processor_cls = (
             BatchSpanProcessor
             if config.processor == TraceProcessorType.BATCH
@@ -375,16 +395,39 @@ def _build_provider(config: TraceConfig) -> Any:  # noqa: ANN401
     return provider
 
 
-def _build_exporter(config: TraceConfig) -> Any:  # noqa: ANN401
-    """Build a span exporter for the configured exporter type."""
-    if config.exporter == TraceExporterType.CONSOLE:
+def _resolve_exporter_type(config: TraceConfig) -> TraceExporterType:
+    """Resolve the `auto` exporter against the configured endpoint.
+
+    `auto` becomes `otlp-http` when an endpoint is resolvable (the
+    `endpoint` field, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or
+    `OTEL_EXPORTER_OTLP_ENDPOINT`) and `none` otherwise. Any explicit
+    exporter is returned unchanged.
+    """
+    if config.exporter != TraceExporterType.AUTO:
+        return config.exporter
+    endpoint_configured = (
+        config.endpoint is not None
+        or bool(os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"))
+        or bool(os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"))
+    )
+    if endpoint_configured:
+        return TraceExporterType.OTLP_HTTP
+    return TraceExporterType.NONE
+
+
+def _build_exporter(
+    config: TraceConfig,
+    exporter_type: TraceExporterType,
+) -> Any:  # noqa: ANN401
+    """Build a span exporter for the resolved exporter type."""
+    if exporter_type == TraceExporterType.CONSOLE:
         from opentelemetry.sdk.trace.export import (  # noqa: PLC0415
             ConsoleSpanExporter,
         )
 
         return ConsoleSpanExporter()
 
-    if config.exporter == TraceExporterType.OTLP_HTTP:  # pragma: no cover
+    if exporter_type == TraceExporterType.OTLP_HTTP:  # pragma: no cover
         try:
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
                 OTLPSpanExporter,
@@ -393,12 +436,7 @@ def _build_exporter(config: TraceConfig) -> Any:  # noqa: ANN401
             raise DependencyNotFoundError(
                 module="opentelemetry-exporter-otlp-proto-http"
             ) from exc
-        kwargs: dict[str, Any] = {}
-        if config.endpoint is not None:
-            kwargs["endpoint"] = config.endpoint
-        if config.headers:
-            kwargs["headers"] = config.headers
-        return OTLPSpanExporter(**kwargs)
+        return OTLPSpanExporter(**_exporter_kwargs(config))
 
     try:  # pragma: no cover
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
@@ -408,11 +446,23 @@ def _build_exporter(config: TraceConfig) -> Any:  # noqa: ANN401
         raise DependencyNotFoundError(
             module="opentelemetry-exporter-otlp-proto-grpc"
         ) from exc
-    kwargs = {}  # pragma: no cover
-    if config.endpoint is not None:  # pragma: no cover
+    return OTLPSpanExporter(**_exporter_kwargs(config))  # pragma: no cover
+
+
+def _exporter_kwargs(config: TraceConfig) -> dict[str, Any]:
+    """Build the shared `endpoint`/`headers` kwargs for the OTLP exporters.
+
+    Merges any configured Basic-auth credentials into the headers as an
+    `Authorization: Basic` value, so the credentials ride on the exporter
+    rather than the env-parsed `OTEL_EXPORTER_OTLP_HEADERS`.
+    """
+    kwargs: dict[str, Any] = {}
+    if config.endpoint is not None:
         kwargs["endpoint"] = config.endpoint
-    if config.headers:  # pragma: no cover
-        kwargs["headers"] = config.headers
-    return OTLPSpanExporter(  # pragma: no cover
-        **kwargs,  # ty: ignore[invalid-argument-type]
-    )
+    headers = dict(config.headers)
+    authorization = config.authorization_header
+    if authorization is not None:
+        headers["Authorization"] = authorization
+    if headers:
+        kwargs["headers"] = headers
+    return kwargs

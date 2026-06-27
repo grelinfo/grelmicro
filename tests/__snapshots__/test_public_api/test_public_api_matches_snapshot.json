@@ -627,11 +627,11 @@
   },
   "grelmicro.trace": {
     "Trace": {
-      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., instrument=..., shutdown_timeout=..., env_load=...)",
+      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., basic_auth=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., instrument=..., shutdown_timeout=..., env_load=...)",
       ".from_config": "(config, *, name=...)"
     },
     "TraceConfig": {
-      "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=...)"
+      "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., basic_auth_username=..., basic_auth_password=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., shutdown_timeout=...)"
     },
     "TraceError": null,
     "TraceExporterType": {
