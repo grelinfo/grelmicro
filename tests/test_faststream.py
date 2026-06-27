@@ -13,7 +13,7 @@ faststream_redis = pytest.importorskip("faststream.redis")
 from faststream import FastStream  # noqa: E402
 from faststream.redis import RedisBroker, TestRedisBroker  # noqa: E402
 
-from grelmicro import Grelmicro  # noqa: E402
+from grelmicro import AmbientBindingError, Grelmicro  # noqa: E402
 from grelmicro.resilience import RateLimiter, RateLimiterRegistry  # noqa: E402
 from grelmicro.resilience.ratelimiter.memory import (  # noqa: E402
     MemoryRateLimiterAdapter,
@@ -81,9 +81,34 @@ async def test_install_ambient_false_still_opens_lifecycle() -> None:
         opened.append(bool(micro.components))
         return True
 
-    micro.install(app, ambient=False)
+    with pytest.warns(UserWarning, match="ambient=False"):
+        micro.install(app, ambient=False)
 
     async with TestRedisBroker(broker), _running(app):
         await broker.request("ping", "limited")
 
     assert opened == [True]
+
+
+def test_install_ambient_false_strict_raises() -> None:
+    """`strict=True` turns the ambient-binding warning into an error."""
+    micro = Grelmicro(
+        strict=True, uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())]
+    )
+    with pytest.raises(AmbientBindingError, match="ratelimiter:default"):
+        micro.install(FastStream(RedisBroker()), ambient=False)
+
+
+def test_check_ambient_binding_true_when_installed() -> None:
+    """`check_ambient_binding` is True once the broker middleware is wired."""
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    app = FastStream(RedisBroker())
+    micro.install(app)
+    assert micro.check_ambient_binding(app) is True
+
+
+def test_check_ambient_binding_false_without_middleware() -> None:
+    """`check_ambient_binding` is False when the broker middleware is absent."""
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    app = FastStream(RedisBroker())
+    assert micro.check_ambient_binding(app) is False

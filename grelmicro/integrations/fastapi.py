@@ -198,6 +198,8 @@ def install(
     app.router.lifespan_context = lifespan
     if ambient:
         app.add_middleware(GrelmicroMiddleware, micro=micro)
+    else:
+        micro._on_ambient_disabled()  # noqa: SLF001
     _instrument_app(app, micro)
 
 
