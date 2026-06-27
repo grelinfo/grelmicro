@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from base64 import b64encode
+
 import pytest
 from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -14,6 +16,7 @@ from grelmicro.trace import (
     TraceExporterType,
     TraceSamplerType,
 )
+from grelmicro.trace._component import _exporter_kwargs, _resolve_exporter_type
 from grelmicro.trace.errors import (
     TraceError,
     TraceSettingsValidationError,
@@ -262,3 +265,139 @@ async def test_trace_invalid_env_config_raises_settings_error(
 def test_trace_settings_error_is_settings_validation_error() -> None:
     """`TraceSettingsValidationError` is a `SettingsValidationError`."""
     assert issubclass(TraceSettingsValidationError, SettingsValidationError)
+
+
+def test_exporter_defaults_to_auto() -> None:
+    """The exporter field defaults to `auto`."""
+    assert TraceConfig().exporter == TraceExporterType.AUTO
+
+
+def test_auto_exporter_resolves_none_without_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`auto` becomes `none` when no endpoint is configured."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    assert _resolve_exporter_type(TraceConfig()) == TraceExporterType.NONE
+
+
+def test_auto_exporter_resolves_otlp_http_with_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`auto` becomes `otlp-http` when the endpoint field is set."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    config = TraceConfig(endpoint="https://obs.example.com/v1/traces")
+    assert _resolve_exporter_type(config) == TraceExporterType.OTLP_HTTP
+
+
+@pytest.mark.parametrize(
+    "env_var",
+    ["OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"],
+)
+def test_auto_exporter_resolves_otlp_http_with_otel_env(
+    env_var: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`auto` honours the standard OTEL endpoint env vars."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    monkeypatch.setenv(env_var, "https://obs.example.com")
+    assert _resolve_exporter_type(TraceConfig()) == TraceExporterType.OTLP_HTTP
+
+
+def test_explicit_exporter_unchanged_without_endpoint() -> None:
+    """An explicit exporter is never downgraded by auto-resolution."""
+    config = TraceConfig(exporter=TraceExporterType.CONSOLE)
+    assert _resolve_exporter_type(config) == TraceExporterType.CONSOLE
+
+
+async def test_auto_exporter_enters_inert_without_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A default `Trace()` enters cleanly and exports nothing."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    micro = Grelmicro(uses=[Trace(service_name="orders")])
+    async with micro:
+        assert micro.trace.config.exporter == TraceExporterType.AUTO
+
+
+def test_basic_auth_header_is_base64_encoded() -> None:
+    """`authorization_header` encodes `username:password` per RFC 7617."""
+    config = TraceConfig(
+        basic_auth_username="me@example.com", basic_auth_password="s3cret"
+    )
+    expected = b64encode(b"me@example.com:s3cret").decode("ascii")
+    assert config.authorization_header == f"Basic {expected}"
+
+
+def test_basic_auth_header_none_when_unset() -> None:
+    """`authorization_header` is `None` without credentials."""
+    assert TraceConfig().authorization_header is None
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["basic_auth_username", "basic_auth_password"],
+)
+def test_basic_auth_requires_both_fields(field: str) -> None:
+    """Username and password must be set together."""
+    with pytest.raises(ValueError, match="must be set together"):
+        TraceConfig.model_validate({field: "value"})
+
+
+def test_basic_auth_conflicts_with_authorization_header() -> None:
+    """`basic_auth` plus an explicit Authorization header is rejected."""
+    with pytest.raises(ValueError, match="Authorization header"):
+        TraceConfig(
+            basic_auth_username="me",
+            basic_auth_password="secret",
+            headers={"authorization": "Bearer abc"},
+        )
+
+
+def test_exporter_kwargs_injects_authorization() -> None:
+    """`_exporter_kwargs` attaches the Basic header alongside other headers."""
+    config = TraceConfig(
+        endpoint="https://obs.example.com/v1/traces",
+        headers={"X-Org": "default"},
+        basic_auth_username="me",
+        basic_auth_password="secret",
+    )
+    kwargs = _exporter_kwargs(config)
+    assert kwargs["endpoint"] == "https://obs.example.com/v1/traces"
+    assert kwargs["headers"]["X-Org"] == "default"
+    assert kwargs["headers"]["Authorization"].startswith("Basic ")
+
+
+def test_exporter_kwargs_empty_without_endpoint_or_headers() -> None:
+    """`_exporter_kwargs` is empty when nothing is configured."""
+    assert _exporter_kwargs(TraceConfig()) == {}
+
+
+def test_trace_basic_auth_kwarg_splits_into_fields() -> None:
+    """`Trace(basic_auth=(u, p))` maps onto the two config fields."""
+    trace = Trace(exporter=TraceExporterType.NONE, basic_auth=("me", "secret"))
+    assert trace._kwargs["basic_auth_username"] == "me"
+    assert trace._kwargs["basic_auth_password"] == "secret"
+
+
+def test_trace_basic_auth_rejects_non_pair() -> None:
+    """`Trace(basic_auth=...)` requires a 2-tuple."""
+    with pytest.raises(TypeError, match="username, password"):
+        Trace(basic_auth=("only",))  # ty: ignore[invalid-argument-type]
+
+
+async def test_trace_basic_auth_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Credentials resolve from `GREL_TRACE_BASIC_AUTH_*`."""
+    monkeypatch.setenv("GREL_TRACE_BASIC_AUTH_USERNAME", "me@example.com")
+    monkeypatch.setenv("GREL_TRACE_BASIC_AUTH_PASSWORD", "s3cret")
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE, env_load=True)]
+    )
+    async with micro:
+        assert micro.trace.config.basic_auth_username == "me@example.com"
+        assert micro.trace.config.basic_auth_password == "s3cret"

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Auto-disable `Trace` until an endpoint is configured. The exporter now defaults to `TraceExporterType.AUTO`, which exports over OTLP HTTP when an endpoint is set (the `endpoint` argument, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and no-ops otherwise. Register `Trace()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`. ([#476](https://github.com/grelinfo/grelmicro/issues/476))
+* ✨ Add first-class HTTP Basic auth to `Trace`. Pass `basic_auth=(username, password)` or set `GREL_TRACE_BASIC_AUTH_USERNAME` and `GREL_TRACE_BASIC_AUTH_PASSWORD`, and the `Authorization: Basic` header is built and attached to the exporter directly, bypassing the fragile `OTEL_EXPORTER_OTLP_HEADERS` encoding. ([#476](https://github.com/grelinfo/grelmicro/issues/476))
+
 ## 1.0.0b3 - 2026-06-26
 
 ### Features

@@ -115,10 +115,23 @@ configure()
 --8<-- "trace/component.py"
 ```
 
-!!! warning "The default exporter expects a collector"
-    `Trace()` defaults to `TraceExporterType.OTLP_HTTP`, which sends spans to an OpenTelemetry collector or endpoint over OTLP HTTP. Without a reachable collector, spans are dropped. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
+!!! tip "Off until an endpoint is configured"
+    `Trace()` defaults to `TraceExporterType.AUTO`. It exports over OTLP HTTP when an endpoint is configured (the `endpoint` argument, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and otherwise no-ops. So you register `Trace()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
 
-    For local development with no collector, set `exporter=TraceExporterType.CONSOLE` to print spans to the console instead. Use `TraceExporterType.NONE` to disable export entirely.
+    For local development, set `exporter=TraceExporterType.CONSOLE` to print spans to the console. Use `TraceExporterType.NONE` to force export off even when an endpoint is set.
+
+!!! note "Basic auth in one line"
+    Backends like OpenObserve want an `Authorization: Basic` header. Pass `basic_auth=(username, password)` and `Trace` builds and attaches it to the exporter:
+
+    ```python
+    Trace(
+        service_name="orders",
+        endpoint="https://obs.example.com/api/default/v1/traces",
+        basic_auth=("me@example.com", password),
+    )
+    ```
+
+    From the environment, set `GREL_TRACE_BASIC_AUTH_USERNAME` and `GREL_TRACE_BASIC_AUTH_PASSWORD` instead. The header is attached on the exporter directly, so it bypasses the `OTEL_EXPORTER_OTLP_HEADERS` encoding where base64 padding (`=`) can be mangled or dropped.
 
 ??? note "Provider lifecycle and exporters"
     The provider is installed on enter and restored to the prior global on exit, so sequential apps in tests do not stack providers.
