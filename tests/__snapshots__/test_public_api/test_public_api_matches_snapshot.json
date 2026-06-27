@@ -4,6 +4,7 @@
       "()": "(kind, short_name, available)"
     },
     "AdmissionError": null,
+    "AmbientBindingError": null,
     "AmbiguousProviderError": null,
     "Component": {
       "()": "(*args, **kwargs)"

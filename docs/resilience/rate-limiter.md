@@ -164,6 +164,16 @@ Use **Redis** in production when you already run Redis and want the lowest-laten
 !!! tip
     The rate limiter uses the same backend registry pattern as the synchronization primitives. See [Backend Architecture](../architecture/backends.md) for details.
 
+!!! note "Coming from 0.x: register a backend, then `install` the app"
+    In 0.x you opened a global backend in the lifespan (`async with RedisRateLimiterBackend(...)`). In 1.0 you register a `RateLimiterRegistry` on the app and wire the app with `micro.install(app)`:
+
+    ```python
+    micro = Grelmicro(uses=[RateLimiterRegistry(RedisRateLimiterAdapter())])
+    micro.install(app)  # opens the registry AND binds it per request
+    ```
+
+    `install` is the important part. A module-level `RateLimiter("auth")` resolves its backend from the active app per request, which only works when `install` adds its middleware. Open `async with micro:` in a hand-written lifespan without `install` and the app starts up healthy, then raises `OutOfContextError` on the first rate-limited request. See [Wiring an App](../wiring.md) for the guard and the `micro.check_ambient_binding(app)` test helper.
+
 ## Result fields
 
 `RateLimitResult` is the same across algorithms and carries everything needed for HTTP rate limit headers. The `HTTP header` column shows the [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) name first and the legacy `X-RateLimit-*` name second. Pick whichever convention your API already uses.
