@@ -161,7 +161,7 @@ configure()
 
 ## Automatic instrumentation
 
-`@instrument` traces your own functions. To trace incoming HTTP requests and database or cache calls without touching every handler, `Trace` auto-instruments the providers and the FastAPI app it runs with.
+`@instrument` traces your own functions. To trace incoming HTTP requests and database or cache calls without touching every handler, `Trace` auto-instruments the FastAPI app, the providers it manages, and **every other library you use** that ships an OpenTelemetry instrumentor.
 
 Install the instrumentor packages alongside the OpenTelemetry SDK:
 
@@ -169,22 +169,22 @@ Install the instrumentor packages alongside the OpenTelemetry SDK:
 pip install "grelmicro[opentelemetry,instrumentation]"
 ```
 
-You can instead install a single `opentelemetry-instrumentation-*` package (for example `opentelemetry-instrumentation-redis`) to trace only that backend.
+The `instrumentation` extra bundles the FastAPI, Redis, and asyncpg instrumentors. **The set of installed `opentelemetry-instrumentation-*` packages defines what gets traced** : add `opentelemetry-instrumentation-sqlalchemy` or `opentelemetry-instrumentation-httpx` and `Trace` wires them too, with no code change. This matters when your app uses its own database client (a SQLAlchemy or asyncpg engine) instead of a grelmicro `PostgresProvider` : the spans appear all the same.
 
-Then `Trace` does the rest. Request spans wrap each handler, and Redis and Postgres spans nest under them, all bound to the app's tracer provider:
+Then `Trace` does the rest. Request spans wrap each handler, and database, cache, and outbound HTTP spans nest under them, all bound to the app's tracer provider:
 
 ```python
 --8<-- "trace/autoinstrument.py"
 ```
 
-`instrument` is on by default and degrades to a no-op when an instrumentor package is absent, so it does nothing until you install the extras. Redis attaches to the exact client the provider owns. Postgres patches asyncpg for the whole process, because asyncpg has no per-pool hook, so every asyncpg connection is traced.
+`instrument` is on by default and degrades to a no-op when an instrumentor package is absent, so it does nothing until you install the extras. A grelmicro-managed Redis client is traced precisely (per-client). Every other installed instrumentor is attached process-wide, so a library the app uses through its own client is traced without a grelmicro provider.
 
-Select what to instrument:
+Select what to instrument by OpenTelemetry instrumentor name (the same names as `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS`):
 
 ```python
-Trace(instrument=False)                   # nothing (the @instrument decorator still works)
-Trace(instrument=["redis", "fastapi"])    # only the named targets, an unknown name raises
-Trace(instrument={"redis": False})        # every active target except the named ones
+Trace(instrument=False)                      # nothing (the @instrument decorator still works)
+Trace(instrument=["fastapi", "asyncpg"])     # only the named targets, an unknown name raises
+Trace(instrument={"sqlalchemy": False})      # every installed target except the named ones
 ```
 
 What is covered:
@@ -192,8 +192,12 @@ What is covered:
 | Target | Spans | Notes |
 |---|---|---|
 | FastAPI | Incoming HTTP requests | wired by `micro.install(app)`, FastAPI apps only |
-| Redis | Cache and lock commands | per-client, cluster included |
-| Postgres (asyncpg) | Queries | patches asyncpg process-wide |
-| Valkey, SQLite | None | Not auto-instrumented yet. Use `@instrument` for these. |
+| Redis | Cache and lock commands | per-client when grelmicro owns the client, cluster included |
+| asyncpg | Queries | covers a grelmicro `PostgresProvider` and any app-owned asyncpg or SQLAlchemy-on-asyncpg engine |
+| Any other installed instrumentor | Per that library | e.g. `sqlalchemy`, `httpx`, `psycopg` : install the package and it is wired |
+| Valkey, SQLite | None | No OpenTelemetry package exists. Use `@instrument` for these. |
 
-Under a FastStream app, the provider spans (Redis, Postgres) are produced, but FastStream message spans are not auto-instrumented yet. Use `@instrument` for handler spans.
+!!! note "asyncpg and SQLAlchemy together"
+    If both the asyncpg and SQLAlchemy instrumentors are installed they would double-span the same queries (SQLAlchemy runs through asyncpg). `Trace` keeps asyncpg and drops SQLAlchemy with a warning. Pass `instrument={"asyncpg": False}` to trace at the SQLAlchemy layer instead.
+
+Under a FastStream app, the provider and library spans are produced, but FastStream message spans are not auto-instrumented yet. Use `@instrument` for handler spans.
