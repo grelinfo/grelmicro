@@ -1,16 +1,16 @@
-# grelmicro 1.0 launch checklist
+# grelmicro launch checklist
 
 Maintainer planning doc (not published to the docs site). Tracks the launch tasks that need a human: posting, badges, and the demo recording. Issues [#172](https://github.com/grelinfo/grelmicro/issues/172), [#177](https://github.com/grelinfo/grelmicro/issues/177), [#178](https://github.com/grelinfo/grelmicro/issues/178).
 
 ## Pre-launch (do before posting)
 
-- [ ] Tag and publish the 1.0 release on PyPI; confirm `pip install grelmicro` resolves it.
+- [ ] Tag and publish the launch release on PyPI. Confirm `pip install grelmicro` resolves it.
 - [ ] `docs/benchmarks.md` numbers re-run on a clean machine and dated.
 - [ ] The [FastAPI demo](examples/fastapi-demo) starts from a fresh clone in three commands.
 - [ ] Record the demo asset (see below) and embed it in the README.
 - [ ] Enable the badges (see below).
 - [ ] README "Why grelmicro" leads with one sentence a stranger understands.
-- [ ] CHANGELOG `Unreleased` section moved under the `1.0` heading.
+- [ ] CHANGELOG `Unreleased` section moved under the release version heading.
 
 ## Launch channels (#172)
 
@@ -18,7 +18,7 @@ Post in this order, spacing them out over a day so you can answer comments:
 
 | Channel | Format | Notes |
 |---|---|---|
-| Hacker News (Show HN) | "Show HN: grelmicro — async microservice toolkit for FastAPI" | Post in the morning ET. Link the repo, not a blog. Be present for the first 2 hours. |
+| Hacker News (Show HN) | "Show HN: grelmicro - async microservice toolkit for FastAPI" | Post in the morning ET. Link the repo, not a blog. Be present for the first 2 hours. |
 | r/Python | Text post | Lead with the problem (distributed primitives for FastAPI), then the demo. Flair: "Show and Tell". |
 | r/FastAPI | Text post | Focus on the FastAPI integration and the demo. |
 | dev.to | Article | "Distributed primitives for FastAPI without the boilerplate". Embed the demo asset. |
@@ -62,7 +62,7 @@ Ready-to-post copy for each channel. Adjust the version number and demo link bef
 
 ### Show HN
 
-**Title (79 chars):** `Show HN: grelmicro 1.0 - async microservice toolkit for Python`
+**Title (79 chars):** `Show HN: grelmicro - async microservice toolkit for Python`
 
 **First comment (from the author, post within 5 minutes):**
 
@@ -82,11 +82,11 @@ Ready-to-post copy for each channel. Adjust the version number and demo link bef
 
 ### r/Python
 
-**Title:** `grelmicro 1.0: one async toolkit for distributed locks, rate limits, circuit breakers, cache, cron, and health checks`
+**Title:** `grelmicro: one async toolkit for distributed locks, rate limits, circuit breakers, cache, cron, and health checks`
 
 **Body:**
 
-grelmicro 1.0 is out. It is an async Python toolkit that ships the microservice patterns you keep reimplementing, behind a unified API.
+grelmicro is out. It is an async Python toolkit that ships the microservice patterns you keep reimplementing, behind a unified API.
 
 What it covers: distributed locks and leader election, cache with stampede protection and serve-stale-on-error, rate limiting (token bucket and sliding window), circuit breakers with live reconfiguration, idempotency keys, interval and cron scheduled tasks, structured JSON logging, OpenTelemetry tracing, and health check endpoints (`/livez`, `/readyz`, `/healthz`).
 
@@ -105,11 +105,11 @@ Why not separate libraries? If you only need one pattern, a focused library is o
 
 ### r/FastAPI
 
-**Title:** `grelmicro 1.0: locks, rate limits, circuit breakers, cache, and health checks for FastAPI - one toolkit, one lifespan`
+**Title:** `grelmicro: locks, rate limits, circuit breakers, cache, and health checks for FastAPI - one toolkit, one lifespan`
 
 **Body:**
 
-grelmicro 1.0 is a toolkit built for FastAPI and any asyncio app that needs distributed coordination.
+grelmicro is a toolkit built for FastAPI and any asyncio app that needs distributed coordination.
 
 The FastAPI integration is three lines: wire `Grelmicro(uses=[...])` into your lifespan and add `GrelmicroMiddleware`. After that, `Lock("cart")`, `RateLimiter.sliding_window(...)`, and `@cached(ttl_cache)` resolve ambiently in request handlers with no explicit `backend=` argument.
 

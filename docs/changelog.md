@@ -1,23 +1,6 @@
 # Changelog
 
-## 1.0.0b4 - 2026-06-28
-
-### Features
-
-* ✨ Trace FastStream messages. `micro.install(faststream_app)` now wires the broker's OpenTelemetry telemetry middleware against the app's tracer, so consumed and published messages get spans with no per-handler decoration. Selected by the same `Trace(instrument=...)` directive under the `faststream` name, and a no-op when the broker's faststream telemetry support is not installed. ([#470](https://github.com/grelinfo/grelmicro/issues/470))
-* ✨ Trace Valkey commands. grelmicro ships a first-party `ValkeyInstrumentor` (valkey-py has no official OpenTelemetry package), registered as a standard `opentelemetry_instrumentor` entry point so `Trace(instrument=...)` discovers it like any other library, and `ValkeyProvider` uses it. It reuses the Redis span factories against the `valkey.*` classes, so Valkey spans match the Redis ones. ([#479](https://github.com/grelinfo/grelmicro/issues/479))
-* ✨ Trace any library the app uses, not just grelmicro-managed providers. `Trace(instrument=True)` now sweeps every installed `opentelemetry-instrumentation-*` package and attaches it to the app's tracer, so an app's own SQLAlchemy or asyncpg engine, httpx client, and the like are traced with no grelmicro provider. The set of installed instrumentors defines coverage (no new hard dependency), names follow the OpenTelemetry instrumentor names, and the asyncpg/SQLAlchemy pair is de-duplicated to avoid double spans. ([#479](https://github.com/grelinfo/grelmicro/issues/479))
-* ✨ Fail fast on a missing ambient binding. `micro.install(app, ambient=False)` now warns at startup when ambient-resolving components are registered (it raises `AmbientBindingError` under `Grelmicro(strict=True)`), and the new `micro.check_ambient_binding(app)` returns whether the binding middleware is wired so a test can catch a forgotten `micro.install(app)` before it 500s on the first request. ([#471](https://github.com/grelinfo/grelmicro/issues/471))
-* ✨ Auto-disable `Trace` until an endpoint is configured. The exporter now defaults to `TraceExporterType.AUTO`, which exports over OTLP HTTP when an endpoint is set (the `endpoint` argument, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and no-ops otherwise. Register `Trace()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`. ([#476](https://github.com/grelinfo/grelmicro/issues/476))
-* ✨ Add first-class HTTP Basic auth to `Trace`. Pass `basic_auth=(username, password)` or set `GREL_TRACE_BASIC_AUTH_USERNAME` and `GREL_TRACE_BASIC_AUTH_PASSWORD`, and the `Authorization: Basic` header is built and attached to the exporter directly, bypassing the fragile `OTEL_EXPORTER_OTLP_HEADERS` encoding. ([#476](https://github.com/grelinfo/grelmicro/issues/476))
-
-## 1.0.0b3 - 2026-06-26
-
-### Features
-
-* ✨ Add native auto-instrumentation to `Trace`. `Trace(instrument=...)` traces incoming FastAPI requests and Redis and Postgres calls against the app's tracer provider, no per-handler decoration. On by default, a no-op until the new `instrumentation` extra is installed. Pass `False`, a name or list to select, or a `{name: False}` map to exclude. Redis attaches per-client, asyncpg is patched process-wide, and Valkey and SQLite stay on `@instrument`.
-
-## 1.0.0b1 - 2026-06-25
+## 0.28.0
 
 ### Breaking
 
@@ -40,9 +23,23 @@
 * 💥 Rename the concrete leader election adapters to the `*Adapter` suffix every other pattern already uses. `MemoryLeaderElectionBackend`, `RedisLeaderElectionBackend`, `PostgresLeaderElectionBackend`, and `KubernetesLeaderElectionBackend` become `MemoryLeaderElectionAdapter`, `RedisLeaderElectionAdapter`, `PostgresLeaderElectionAdapter`, and `KubernetesLeaderElectionAdapter`. The `LeaderElectionBackend` protocol keeps its name (protocol stays `*Backend`, concrete stays `*Adapter`). Update direct imports and constructions.
 * 💥 Rename the resilience component wrappers to the singular `*Registry` form, matching their singular `kind` and the `Coordination` and `Cache` siblings. `RateLimiters` becomes `RateLimiterRegistry` and `CircuitBreakers` becomes `CircuitBreakerRegistry`. Update `uses=[...]` and imports.
 * 💥 Drop the redundant `DEFAULT` segment from the default instance env prefix. A default instance (`Lock("default")`, `Retry.exponential("default")`, and the like) now reads the bare `GREL_{COMPONENT}_{FIELD}` instead of `GREL_{COMPONENT}_DEFAULT_{FIELD}`. Rename env vars like `GREL_LOCK_DEFAULT_LEASE_DURATION` to `GREL_LOCK_LEASE_DURATION`. Named instances are unchanged. The default instance now owns the bare `GREL_{COMPONENT}_` namespace, so name your other instances to avoid clashing with a field name (a `Lock("lease")` would share `GREL_LOCK_LEASE_DURATION` with the default instance).
+* 💥 Raise `OutOfContextError` with an actionable message on every ambient backend miss: `Lock`, `TaskLock`, `LeaderElection`, `TTLCache`, `@cached`, the cron schedule resolution, and `Idempotency` now match `CircuitBreaker` and `RateLimiter`. `NoActiveAppError` stays the low-level error raised by `Grelmicro.current()` itself.
+* 💥 Remove the implicit memory fallback on `CircuitBreaker` and `RateLimiter`. Backend resolution is now one rule on every pattern: explicit `backend=` wins, else the active app's component, else `OutOfContextError`. For a per-process limiter or breaker without an app, pass `backend=MemoryRateLimiterAdapter()` or `backend=MemoryCircuitBreakerAdapter()` (both import from `grelmicro.resilience`). Inside FastAPI handlers, add `GrelmicroMiddleware` so ambient resolution works there. `RateLimiter.reconfigure` now publishes the config and rebinds the strategy lazily on the next call, matching `CircuitBreaker`.
+* 💥 Add positional argument capture to `grelmicro.testing`: `Call` is now `Call(method, args=..., kwargs=...)` and `CallLog.count` matches positional arguments too. Update direct `Call(...)` constructions.
+* 💥 Align the leader election and task lock env var prefixes with their single-token names: `GREL_LEADER_ELECTION_{NAME}_` becomes `GREL_LEADERELECTION_{NAME}_` and `GREL_TASK_LOCK_{NAME}_` becomes `GREL_TASKLOCK_{NAME}_`. Update any environment variables set for these components. PR [#346](https://github.com/grelinfo/grelmicro/pull/346).
+* 💥 Rename the pattern factory methods so each uses the pattern's single-token name: `Provider.breaker()` becomes `circuitbreaker()`, `leader_election()` becomes `leaderelection()` on both `Provider` and `Coordination`, and `Coordination.task_lock()` becomes `tasklock()`. This matches the module names (`grelmicro.coordination.leaderelection`, `grelmicro.coordination.tasklock`, `grelmicro.resilience.circuitbreaker`) and the `ratelimiter`/`circuitbreaker` kind strings. Update `provider.circuitbreaker()`, `micro.coordination.leaderelection(...)`, and `micro.coordination.tasklock(...)` call sites. PR [#343](https://github.com/grelinfo/grelmicro/pull/343), PR [#344](https://github.com/grelinfo/grelmicro/pull/344).
+* 💥 Make `Log`, `Trace`, and `Metrics` singletons. Each configures process-global state (the root logger, the OpenTelemetry tracer and meter providers), so registering a second one on the same app now raises `ComponentAlreadyRegisteredError` instead of silently clobbering the first. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+* 💥 Make the component `name` a read-only property everywhere (`Coordination`, `Cache`, `Log`, `Trace`, `Metrics`, `RateLimiters`, `CircuitBreakers`, `HealthChecks`, `RealClock`, `VirtualClock`), matching the resilience and coordination primitives. Pass `name=` at construction. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
 
 ### Features
 
+* ✨ Trace FastStream messages. `micro.install(faststream_app)` now wires the broker's OpenTelemetry telemetry middleware against the app's tracer, so consumed and published messages get spans with no per-handler decoration. Selected by the same `Trace(instrument=...)` directive under the `faststream` name, and a no-op when the broker's faststream telemetry support is not installed. ([#470](https://github.com/grelinfo/grelmicro/issues/470))
+* ✨ Trace Valkey commands. grelmicro ships a first-party `ValkeyInstrumentor` (valkey-py has no official OpenTelemetry package), registered as a standard `opentelemetry_instrumentor` entry point so `Trace(instrument=...)` discovers it like any other library, and `ValkeyProvider` uses it. It reuses the Redis span factories against the `valkey.*` classes, so Valkey spans match the Redis ones. ([#479](https://github.com/grelinfo/grelmicro/issues/479))
+* ✨ Trace any library the app uses, not just grelmicro-managed providers. `Trace(instrument=True)` now sweeps every installed `opentelemetry-instrumentation-*` package and attaches it to the app's tracer, so an app's own SQLAlchemy or asyncpg engine, httpx client, and the like are traced with no grelmicro provider. The set of installed instrumentors defines coverage (no new hard dependency), names follow the OpenTelemetry instrumentor names, and the asyncpg/SQLAlchemy pair is de-duplicated to avoid double spans. ([#479](https://github.com/grelinfo/grelmicro/issues/479))
+* ✨ Fail fast on a missing ambient binding. `micro.install(app, ambient=False)` now warns at startup when ambient-resolving components are registered (it raises `AmbientBindingError` under `Grelmicro(strict=True)`), and the new `micro.check_ambient_binding(app)` returns whether the binding middleware is wired so a test can catch a forgotten `micro.install(app)` before it 500s on the first request. ([#471](https://github.com/grelinfo/grelmicro/issues/471))
+* ✨ Auto-disable `Trace` until an endpoint is configured. The exporter now defaults to `TraceExporterType.AUTO`, which exports over OTLP HTTP when an endpoint is set (the `endpoint` argument, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and no-ops otherwise. Register `Trace()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`. ([#476](https://github.com/grelinfo/grelmicro/issues/476))
+* ✨ Add first-class HTTP Basic auth to `Trace`. Pass `basic_auth=(username, password)` or set `GREL_TRACE_BASIC_AUTH_USERNAME` and `GREL_TRACE_BASIC_AUTH_PASSWORD`, and the `Authorization: Basic` header is built and attached to the exporter directly, bypassing the fragile `OTEL_EXPORTER_OTLP_HEADERS` encoding. ([#476](https://github.com/grelinfo/grelmicro/issues/476))
+* ✨ Add native auto-instrumentation to `Trace`. `Trace(instrument=...)` traces incoming FastAPI requests and Redis and Postgres calls against the app's tracer provider, no per-handler decoration. On by default, a no-op until the new `instrumentation` extra is installed. Pass `False`, a name or list to select, or a `{name: False}` map to exclude. Redis attaches per-client, asyncpg is patched process-wide, and Valkey and SQLite stay on `@instrument`.
 * ✨ Add `RateLimiter.wait()`, a blocking admission verb that waits until tokens are available then consumes them. It polls on the clock seam (so `VirtualClock` drives it in tests), waits as long as needed by default, and raises `RateLimitExceededError` once an optional `max_wait` budget is exceeded. A `cost` larger than the limit raises `ValueError` instead of waiting forever.
 * ✨ Add `LeaderElection.lead(func, *, repeat=False)`, which runs a coroutine only while the worker holds leadership and cancels it the instant leadership is lost, so no stale work outlives the lease. It returns the body's result if it finishes while still leader, or `None` if cancelled. Pass `repeat=True` to re-run after re-acquiring leadership.
 * ✨ Add `micro.install(app)`, one call that wires the lifecycle and per-handler ambient binding for Starlette, FastAPI, and FastStream. Pass `ambient=False` to skip the binding.
@@ -54,37 +51,7 @@
 * ✨ Cache adapters (`MemoryCacheAdapter`, `RedisCacheAdapter`, `PostgresCacheAdapter`, `SQLiteCacheAdapter`) now declare the `CacheBackend` protocol explicitly, matching the lock, circuit breaker, and rate limiter adapters.
 * ✨ Add `Log.from_config`, `Trace.from_config`, and `Metrics.from_config` to build each component from a pre-built config, matching the declarative path on every other pattern. The `config=` kwarg still works.
 * ✨ Add `MemoryProvider` so Memory has the same provider-direct surface (`memory.lock()`, `memory.cache()`, ...) as Redis, Postgres, and SQLite.
-
-### Fixed
-
-* 🐛 Name the failing source in the `ExternalConfig` reload warning, so a broken config or secrets mount is no longer a generic warning. Each source loads under its own guard, so a config failure no longer hides a working secrets source. Source values are never logged.
-
-## 1.0.0a2 - 2026-06-21
-
-### Features
-
 * ✨ Add a built-in readiness check per provider. Every connection provider ships a cheap `check()` probe (Redis and Valkey `PING`, Postgres and SQLite `SELECT 1`). Register it with `health.add_provider(redis)` as a critical `provider:redis` check, or register one for every active provider at once with `HealthChecks(auto_health=True)`. `Grelmicro.providers` lists the active providers.
-
-## 1.0.0a1 - 2026-06-12
-
-### Breaking
-
-* 💥 Raise `OutOfContextError` with an actionable message on every ambient backend miss: `Lock`, `TaskLock`, `LeaderElection`, `TTLCache`, `@cached`, the cron schedule resolution, and `Idempotency` now match `CircuitBreaker` and `RateLimiter`. `NoActiveAppError` stays the low-level error raised by `Grelmicro.current()` itself.
-* 💥 Remove the implicit memory fallback on `CircuitBreaker` and `RateLimiter`. Backend resolution is now one rule on every pattern: explicit `backend=` wins, else the active app's component, else `OutOfContextError`. For a per-process limiter or breaker without an app, pass `backend=MemoryRateLimiterAdapter()` or `backend=MemoryCircuitBreakerAdapter()` (both import from `grelmicro.resilience`). Inside FastAPI handlers, add `GrelmicroMiddleware` so ambient resolution works there. `RateLimiter.reconfigure` now publishes the config and rebinds the strategy lazily on the next call, matching `CircuitBreaker`.
-* 💥 Add positional argument capture to `grelmicro.testing`: `Call` is now `Call(method, args=..., kwargs=...)` and `CallLog.count` matches positional arguments too. Update direct `Call(...)` constructions.
-* 💥 Align the leader election and task lock env var prefixes with their single-token names: `GREL_LEADER_ELECTION_{NAME}_` becomes `GREL_LEADERELECTION_{NAME}_` and `GREL_TASK_LOCK_{NAME}_` becomes `GREL_TASKLOCK_{NAME}_`. Update any environment variables set for these components. PR [#346](https://github.com/grelinfo/grelmicro/pull/346).
-* 💥 Rename the pattern factory methods so each uses the pattern's single-token name: `Provider.breaker()` becomes `circuitbreaker()`, `leader_election()` becomes `leaderelection()` on both `Provider` and `Coordination`, and `Coordination.task_lock()` becomes `tasklock()`. This matches the module names (`grelmicro.coordination.leaderelection`, `grelmicro.coordination.tasklock`, `grelmicro.resilience.circuitbreaker`) and the `ratelimiter`/`circuitbreaker` kind strings. Update `provider.circuitbreaker()`, `micro.coordination.leaderelection(...)`, and `micro.coordination.tasklock(...)` call sites. PR [#343](https://github.com/grelinfo/grelmicro/pull/343), PR [#344](https://github.com/grelinfo/grelmicro/pull/344).
-* 💥 Make `Log`, `Trace`, and `Metrics` singletons. Each configures process-global state (the root logger, the OpenTelemetry tracer and meter providers), so registering a second one on the same app now raises `ComponentAlreadyRegisteredError` instead of silently clobbering the first. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
-* 💥 Make the component `name` a read-only property everywhere (`Coordination`, `Cache`, `Log`, `Trace`, `Metrics`, `RateLimiters`, `CircuitBreakers`, `HealthChecks`, `RealClock`, `VirtualClock`), matching the resilience and coordination primitives. Pass `name=` at construction. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
-
-### Fixed
-
-* 🐛 Raise an actionable `RuntimeError` from a sync `@cached` call when the backend never captured a running loop, instead of an opaque `AttributeError`. The message says to open the backend with `async with micro:` first.
-* 🐛 Reconcile cache tags on every Redis `set` and `set_many`, even with no tags. Re-setting a previously tagged key without tags now drops its stale tag membership, so a later `delete_tags` no longer wrongly removes it. PR [#353](https://github.com/grelinfo/grelmicro/pull/353).
-* 🐛 Store the cache sidecar entries (the `early=` refresh metadata, and the new stale reserve) under a `\x1f` separator instead of `\x00`, so they are valid Postgres text keys. `@cached(early=...)` previously raised on a Postgres cache backend. PR [#350](https://github.com/grelinfo/grelmicro/pull/350).
-
-### Features
-
 * ✨ Default the rate limiter `key` to `"default"` on `acquire`, `acquire_or_raise`, `allow`, `peek`, and `reset`, so the single-bucket case is `await limiter.allow()`. The limiter `name` already namespaces the backend key.
 * ✨ Add the zero-object `@cached(ttl=30)` form for plain memoization: it binds a private process-local `TTLCache` at decoration, never resolves the active app, and never shares across replicas. Pass a `TTLCache` for shared state. Passing both `cache` and `ttl` raises `TypeError`.
 * ✨ Add the OpenSSF Scorecard workflow and badge.
@@ -108,6 +75,13 @@
 * ✨ Add a time-based stop to `Retry` with `max_seconds=`. Retrying stops as soon as either `attempts` is reached or the wall-clock budget elapses, whichever comes first (`attempts` still defaults to 3). Available on the `Retry.exponential`/`Retry.constant` factories, the constructor, and `RetryConfig` (env var `GREL_RETRY_{NAME}_MAX_SECONDS`). The budget reads the clock seam, so `VirtualClock` drives it in tests. PR [#347](https://github.com/grelinfo/grelmicro/pull/347).
 * ✨ Re-export `FunctionTypeError` and `TaskAddOperationError` from `grelmicro.task`, so the task errors users catch live next to `TaskError` instead of only in `grelmicro.task.errors`. PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
 * ✨ Export the catch-all base `GrelmicroError` and the cross-cutting `DependencyNotFoundError`, `OutOfContextError`, and `SettingsValidationError` from the top-level `grelmicro` package, so `except GrelmicroError` catches any library error from one import. Re-export `WouldBlockError` and `CoordinationBackendError` from `grelmicro.coordination` (the latter moved into `grelmicro.coordination.errors`). PR [#343](https://github.com/grelinfo/grelmicro/pull/343).
+
+### Fixed
+
+* 🐛 Name the failing source in the `ExternalConfig` reload warning, so a broken config or secrets mount is no longer a generic warning. Each source loads under its own guard, so a config failure no longer hides a working secrets source. Source values are never logged.
+* 🐛 Raise an actionable `RuntimeError` from a sync `@cached` call when the backend never captured a running loop, instead of an opaque `AttributeError`. The message says to open the backend with `async with micro:` first.
+* 🐛 Reconcile cache tags on every Redis `set` and `set_many`, even with no tags. Re-setting a previously tagged key without tags now drops its stale tag membership, so a later `delete_tags` no longer wrongly removes it. PR [#353](https://github.com/grelinfo/grelmicro/pull/353).
+* 🐛 Store the cache sidecar entries (the `early=` refresh metadata, and the new stale reserve) under a `\x1f` separator instead of `\x00`, so they are valid Postgres text keys. `@cached(early=...)` previously raised on a Postgres cache backend. PR [#350](https://github.com/grelinfo/grelmicro/pull/350).
 
 ### Docs
 
