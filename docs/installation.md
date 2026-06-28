@@ -31,20 +31,6 @@ CI runs the test matrix on every advertised classifier (3.12, 3.13,
     poetry add grelmicro
     ```
 
-## Prereleases
-
-The 1.0 line ships as alphas first. A plain install stays on the latest stable (the 0.x line). Opt into a prerelease explicitly:
-
-```bash
-pip install --pre grelmicro
-```
-
-`pip install --pre` relaxes the prerelease rule for every dependency it resolves, not just grelmicro, so it can pull an alpha of Pydantic or a release candidate of a client library. Pin the exact version to keep the rest on stable:
-
-```bash
-pip install "grelmicro==1.0.0a1"
-```
-
 ## Optional extras
 
 grelmicro is modular. Install only the extras you need.

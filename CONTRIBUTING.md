@@ -447,22 +447,25 @@ If you adapt code from another project, even a snippet:
 
 ### About grelmicro versions
 
-grelmicro follows [Semantic Versioning](https://semver.org).
+grelmicro follows [Semantic Versioning](https://semver.org) and is in
+its `0.x` phase.
 
-The 1.0 line is feature-complete and its public API is frozen behind a
-snapshot guard (`tests/test_public_api.py`), so an accidental change to
-the public surface fails CI. Prereleases install explicitly with
-`pip install --pre grelmicro`, while a plain install stays on the
-latest `0.x` until `1.0.0` is final.
-
-Breaking changes can still land between alpha releases when testing
-finds a flaw, because the prerelease line is where the 1.0 API is
-proven. Each one appears under **Breaking** in
+In `0.x`, the minor is the breaking position: a `0.x.0` release may
+change the public API, and a `0.x.y` release is a safe patch. The
+public API is feature-complete and guarded by a snapshot test
+(`tests/test_public_api.py`), so an accidental change to the public
+surface fails CI. Every intentional break appears under **Breaking** in
 [`docs/changelog.md`](docs/changelog.md) with a migration note.
 
-After `1.0.0`, standard semver applies: breaking changes wait for the
+`1.0` is reserved for the point where the public API is promised
+stable. It is a maturity milestone, not a calendar or launch event. We
+cross it when the API has held steady and we are ready to commit to it,
+not before.
+
+After `1.0`, standard semver applies: breaking changes wait for the
 next `MAJOR`, and a removal goes through a `DeprecationWarning` cycle
-first.
+first. There is no fixed schedule for major versions, and a major
+version is never bumped just because time has passed.
 
 ## Issues and releases
 
@@ -476,7 +479,7 @@ The full workflow uses **GitHub issue state plus two labels**:
 |---|---|
 | Open, no label | Backlog. Anyone can propose work here. |
 | `next` label | Picked for the next release. Short list. |
-| `v1.0` label | Targeted for the 1.0 line, not the next release. |
+| `v1.0` label | Targeted for the 1.0 milestone, not the next release. |
 | Assigned to someone | In progress. |
 | Closed | Done. |
 
