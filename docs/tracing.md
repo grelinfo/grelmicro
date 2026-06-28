@@ -201,4 +201,4 @@ What is covered:
 !!! note "asyncpg and SQLAlchemy together"
     If both the asyncpg and SQLAlchemy instrumentors are installed they would double-span the same queries (SQLAlchemy runs through asyncpg). `Trace` keeps asyncpg and drops SQLAlchemy with a warning. Pass `instrument={"asyncpg": False}` to trace at the SQLAlchemy layer instead.
 
-Under a FastStream app, the provider and library spans are produced, but FastStream message spans are not auto-instrumented yet. Use `@instrument` for handler spans.
+Under a FastStream app, `micro.install(app)` also wires the broker's OpenTelemetry telemetry middleware, so consumed and published messages get spans, on top of the provider and library spans. It is selected by the same directive (`faststream`) and is a no-op when the broker's faststream telemetry support is not installed.

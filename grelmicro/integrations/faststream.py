@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+import importlib
+import logging
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from faststream import BaseMiddleware
 from typing_extensions import Doc
@@ -14,10 +16,67 @@ if TYPE_CHECKING:
     from faststream.message import StreamMessage
 
     from grelmicro import Grelmicro
+    from grelmicro.trace._component import Trace
 
     AsyncFuncAny = Callable[[Any], Awaitable[Any]]
 
 __all__ = ["install"]
+
+_logger = logging.getLogger(__name__)
+
+
+def _instrument_broker(app: FastStream, micro: Grelmicro) -> None:
+    """Add the broker's OpenTelemetry telemetry middleware per `Trace(instrument=...)`.
+
+    Runs at install time, before the broker starts, so message spans are wired
+    before the first message is consumed. The middleware is created with no
+    explicit `TracerProvider`, so OTel's global resolves to the provider `Trace`
+    installs during the lifespan, exactly like the FastAPI request-span path. It
+    is a no-op without faststream's telemetry support for the broker, or when
+    `faststream` is not selected by the directive.
+    """
+    from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
+        explicit_names,
+        is_selected,
+    )
+
+    component = next(
+        (c for c in micro.components if getattr(c, "kind", None) == "trace"),
+        None,
+    )
+    if component is None:
+        return
+    trace = cast("Trace", component)
+    directive = trace.instrument
+    if not is_selected("faststream", directive):
+        return
+    broker = getattr(app, "broker", None)
+    if broker is None:  # pragma: no cover
+        return
+    # Broker family from the module path, e.g. faststream.redis.broker -> redis.
+    family = type(broker).__module__.split(".")[1]
+    try:
+        module = importlib.import_module(f"faststream.{family}.opentelemetry")
+    except ImportError:
+        names = explicit_names(directive)
+        if names is not None and "faststream" in names:
+            _logger.warning(
+                "Trace named 'faststream' for instrumentation but "
+                "faststream.%s.opentelemetry is not available.",
+                family,
+            )
+        return
+    middleware_cls = next(
+        (
+            getattr(module, name)
+            for name in dir(module)
+            if name.endswith("TelemetryMiddleware")
+        ),
+        None,
+    )
+    if middleware_cls is None:  # pragma: no cover
+        return
+    broker.add_middleware(middleware_cls(tracer_provider=None))
 
 
 class _GrelmicroBrokerMiddleware(BaseMiddleware):
@@ -87,3 +146,4 @@ def install(
         app.broker.add_middleware(middleware)  # ty: ignore[unresolved-attribute]
     else:
         micro._on_ambient_disabled()  # noqa: SLF001
+    _instrument_broker(app, micro)

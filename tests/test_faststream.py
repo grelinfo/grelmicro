@@ -12,15 +12,22 @@ faststream_redis = pytest.importorskip("faststream.redis")
 
 from faststream import FastStream  # noqa: E402
 from faststream.redis import RedisBroker, TestRedisBroker  # noqa: E402
+from faststream.redis.opentelemetry import (  # noqa: E402
+    RedisTelemetryMiddleware,
+)
 
 from grelmicro import AmbientBindingError, Grelmicro  # noqa: E402
+from grelmicro.integrations import faststream as integration  # noqa: E402
 from grelmicro.resilience import RateLimiter, RateLimiterRegistry  # noqa: E402
 from grelmicro.resilience.ratelimiter.memory import (  # noqa: E402
     MemoryRateLimiterAdapter,
 )
+from grelmicro.trace import Trace, TraceExporterType  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from grelmicro.trace._autoinstrument import InstrumentDirective
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -67,6 +74,85 @@ def test_install_registers_one_broker_middleware() -> None:
 
     assert len(tuple(on_broker.middlewares)) == 1
     assert len(tuple(off_broker.middlewares)) == 0
+
+
+def _has_telemetry_middleware(broker: RedisBroker) -> bool:
+    """Whether the broker carries the FastStream Redis telemetry middleware.
+
+    The telemetry middleware is added as a configured instance (it holds the
+    tracer), so match an instance or, defensively, a subclass type.
+    """
+    return any(
+        isinstance(mw, RedisTelemetryMiddleware)
+        or (isinstance(mw, type) and issubclass(mw, RedisTelemetryMiddleware))
+        for mw in broker.middlewares
+    )
+
+
+def test_install_wires_faststream_telemetry_with_trace() -> None:
+    """A registered `Trace` wires the broker's telemetry middleware by default."""
+    broker = RedisBroker()
+    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.NONE)])
+    micro.install(FastStream(broker))
+    assert _has_telemetry_middleware(broker)
+
+
+def test_install_no_faststream_telemetry_without_trace() -> None:
+    """Without a `Trace` component, no telemetry middleware is added."""
+    broker = RedisBroker()
+    Grelmicro().install(FastStream(broker))
+    assert not _has_telemetry_middleware(broker)
+
+
+@pytest.mark.parametrize("directive", [False, {"faststream": False}])
+def test_install_faststream_telemetry_respects_directive(
+    directive: InstrumentDirective,
+) -> None:
+    """`instrument=False` or a deny map skips the telemetry middleware."""
+    broker = RedisBroker()
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE, instrument=directive)]
+    )
+    micro.install(FastStream(broker))
+    assert not _has_telemetry_middleware(broker)
+
+
+def test_install_faststream_telemetry_missing_extra_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A named faststream target whose telemetry module is absent warns, not crashes."""
+
+    def _missing(name: str) -> object:
+        raise ImportError(name)
+
+    monkeypatch.setattr(integration.importlib, "import_module", _missing)
+    broker = RedisBroker()
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE, instrument=["faststream"])]
+    )
+    caplog.set_level("WARNING")
+    micro.install(FastStream(broker))
+    assert not _has_telemetry_middleware(broker)
+    assert "faststream" in caplog.text
+
+
+def test_install_faststream_telemetry_missing_extra_silent_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A missing telemetry module is a silent no-op under the default directive."""
+
+    def _missing(name: str) -> object:
+        raise ImportError(name)
+
+    monkeypatch.setattr(integration.importlib, "import_module", _missing)
+    broker = RedisBroker()
+    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.NONE)])
+    caplog.set_level("WARNING")
+    micro.install(FastStream(broker))
+    assert not _has_telemetry_middleware(broker)
+    assert caplog.text == ""
 
 
 async def test_install_ambient_false_still_opens_lifecycle() -> None:
