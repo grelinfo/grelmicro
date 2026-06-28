@@ -769,11 +769,15 @@ class Grelmicro:
         )
 
     def _instrument_providers(self) -> None:
-        """Auto-instrument active providers per the `Trace(instrument=...)` set.
+        """Auto-instrument active providers and used libraries per `Trace(instrument=...)`.
 
         Runs after every item is open, so provider clients exist and the
-        `TracerProvider` is installed. The framework integration instruments
-        itself separately in `micro.install(app)`.
+        `TracerProvider` is installed. Instruments grelmicro-managed providers
+        per client, then sweeps every installed OpenTelemetry library
+        instrumentor so a library the app uses through its own client (a
+        SQLAlchemy or asyncpg engine, an httpx client) is traced without a
+        grelmicro provider. The framework integration instruments itself
+        separately in `micro.install(app)`.
         """
         component = next(
             (
@@ -783,25 +787,45 @@ class Grelmicro:
             ),
             None,
         )
-        providers = self.providers
-        if component is None or not providers:
+        if component is None:
             return
         from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
             KNOWN_FRAMEWORKS,
+            installed_instrumentors,
+            instrument_libraries,
             instrument_providers,
+            provider_library_name,
+            uninstrument_libraries,
             uninstrument_providers,
             validate_directive,
         )
 
         trace = cast("Trace", component)
         directive = trace.instrument
-        known = {provider.short_name for provider in providers}
-        validate_directive(directive, known | KNOWN_FRAMEWORKS)
+        providers = self.providers
+        known = (
+            {provider.short_name for provider in providers}
+            | KNOWN_FRAMEWORKS
+            | installed_instrumentors()
+        )
+        validate_directive(directive, known)
+        # A managed provider owns its library (Redis per client, Postgres ->
+        # asyncpg), and the framework integration owns FastAPI. Exclude both
+        # from the sweep so the same calls are not instrumented twice.
+        exclude = KNOWN_FRAMEWORKS | {
+            provider_library_name(provider.short_name) for provider in providers
+        }
         instrumented = instrument_providers(
             providers, trace.provider, directive
         )
-        if instrumented and self._exit_stack is not None:  # pragma: no branch
-            self._exit_stack.callback(uninstrument_providers, instrumented)
+        libraries = instrument_libraries(
+            trace.provider, directive, exclude=exclude
+        )
+        if self._exit_stack is not None:  # pragma: no branch
+            if instrumented:
+                self._exit_stack.callback(uninstrument_providers, instrumented)
+            if libraries:
+                self._exit_stack.callback(uninstrument_libraries, libraries)
 
     async def __aenter__(self) -> Self:
         """Open every registered item in registration order.

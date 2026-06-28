@@ -27,10 +27,15 @@ from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.valkey import ValkeyProvider
 from grelmicro.trace import Trace, TraceExporterType
+from grelmicro.trace import _autoinstrument as ai
 from grelmicro.trace._autoinstrument import (
     InstrumentDirective,
+    installed_instrumentors,
+    instrument_libraries,
     instrument_providers,
     is_selected,
+    provider_library_name,
+    uninstrument_libraries,
     uninstrument_providers,
     validate_directive,
 )
@@ -190,6 +195,160 @@ def test_uninstrument_providers_swallows_errors(
     caplog.set_level("WARNING")
     uninstrument_providers([_Boom()])  # ty: ignore[invalid-argument-type]
     assert "Failed to un-instrument" in caplog.text
+
+
+# --- library sweep -----------------------------------------------------------
+
+
+class _FakeInstrumentor:
+    """Stand-in for an OTel instrumentor instance."""
+
+    def __init__(self) -> None:
+        self.tracer_provider: object | None = None
+        self.uninstrumented = False
+        self.raise_on_instrument = False
+
+    def instrument(self, *, tracer_provider: object | None = None) -> None:
+        if self.raise_on_instrument:
+            msg = "boom"
+            raise RuntimeError(msg)
+        self.tracer_provider = tracer_provider
+
+    def uninstrument(self) -> None:
+        self.uninstrumented = True
+
+
+class _FakeEntryPoint:
+    """Stand-in for an `opentelemetry_instrumentor` entry point."""
+
+    def __init__(self, name: str, instance: _FakeInstrumentor) -> None:
+        self.name = name
+        self._instance = instance
+
+    def load(self) -> object:
+        instance = self._instance
+        return lambda: instance
+
+
+def _fake_entries(
+    monkeypatch: pytest.MonkeyPatch, names: list[str]
+) -> dict[str, _FakeInstrumentor]:
+    """Patch the entry-point lookup with fakes; return them keyed by name."""
+    instances = {name: _FakeInstrumentor() for name in names}
+    entries = {
+        name: _FakeEntryPoint(name, instance)
+        for name, instance in instances.items()
+    }
+    monkeypatch.setattr(ai, "_instrumentor_entry_points", lambda: entries)
+    return instances
+
+
+def test_provider_library_name_maps_postgres_to_asyncpg() -> None:
+    """The Postgres provider covers the asyncpg instrumentor; others match."""
+    assert provider_library_name("postgres") == "asyncpg"
+    assert provider_library_name("redis") == "redis"
+    assert provider_library_name("valkey") == "valkey"
+
+
+def test_installed_instrumentors_includes_bundled_extras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The test env installs the instrumentation extra, so these are present."""
+    monkeypatch.undo()  # use real entry-point discovery, not the conftest stub
+    names = installed_instrumentors()
+    assert {"fastapi", "redis", "asyncpg"} <= names
+
+
+def test_instrument_libraries_sweeps_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every installed, selected instrumentor is attached and reversible."""
+    instances = _fake_entries(monkeypatch, ["asyncpg", "httpx"])
+    tracer_provider = object()
+    out = instrument_libraries(tracer_provider, directive=True, exclude=set())
+    assert instances["asyncpg"].tracer_provider is tracer_provider
+    assert instances["httpx"].tracer_provider is tracer_provider
+    assert len(out) == 2  # noqa: PLR2004
+
+    uninstrument_libraries(out)
+    assert all(inst.uninstrumented for inst in instances.values())
+
+
+def test_instrument_libraries_honors_exclude(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A library a provider already owns is skipped by the sweep."""
+    instances = _fake_entries(monkeypatch, ["redis", "httpx"])
+    instrument_libraries(object(), directive=True, exclude={"redis"})
+    assert instances["redis"].tracer_provider is None
+    assert instances["httpx"].tracer_provider is not None
+
+
+def test_instrument_libraries_honors_deny_directive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `{name: False}` directive deselects that library."""
+    instances = _fake_entries(monkeypatch, ["asyncpg", "httpx"])
+    instrument_libraries(object(), {"httpx": False}, exclude=set())
+    assert instances["asyncpg"].tracer_provider is not None
+    assert instances["httpx"].tracer_provider is None
+
+
+def test_instrument_libraries_drops_sqlalchemy_for_asyncpg(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SQLAlchemy is dropped when asyncpg is also active, to avoid double spans."""
+    instances = _fake_entries(monkeypatch, ["asyncpg", "sqlalchemy"])
+    caplog.set_level("WARNING")
+    instrument_libraries(object(), directive=True, exclude=set())
+    assert instances["asyncpg"].tracer_provider is not None
+    assert instances["sqlalchemy"].tracer_provider is None
+    assert "duplicate spans" in caplog.text
+
+
+def test_instrument_libraries_swallows_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A library whose instrument raises is logged and skipped."""
+    instances = _fake_entries(monkeypatch, ["asyncpg", "httpx"])
+    instances["asyncpg"].raise_on_instrument = True
+    caplog.set_level("WARNING")
+    out = instrument_libraries(object(), directive=True, exclude=set())
+    assert instances["httpx"].tracer_provider is not None
+    assert len(out) == 1
+    assert "Failed to auto-instrument library" in caplog.text
+
+
+def test_uninstrument_libraries_swallows_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A library whose uninstrument raises is logged, not propagated."""
+
+    class _Boom:
+        def uninstrument(self) -> None:
+            msg = "boom"
+            raise RuntimeError(msg)
+
+    caplog.set_level("WARNING")
+    uninstrument_libraries([_Boom()])
+    assert "Failed to un-instrument library" in caplog.text
+
+
+async def test_app_sweeps_libraries_without_providers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Trace app with no providers still sweeps used libraries, FastAPI aside."""
+    instances = _fake_entries(monkeypatch, ["asyncpg", "fastapi"])
+    micro = Grelmicro(uses=[_none_trace()])
+    async with micro:
+        # asyncpg (app-owned, no provider) is instrumented...
+        assert instances["asyncpg"].tracer_provider is micro.trace.provider
+        # ...but FastAPI is owned by the integration, excluded from the sweep.
+        assert instances["fastapi"].tracer_provider is None
+    # Reversed on exit.
+    assert instances["asyncpg"].uninstrumented is True
 
 
 # --- per-provider hooks ------------------------------------------------------

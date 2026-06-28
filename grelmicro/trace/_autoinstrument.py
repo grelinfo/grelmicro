@@ -11,7 +11,7 @@ no-op (silent under the default, a warning when the target was named).
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -142,5 +142,105 @@ def uninstrument_providers(providers: Sequence[Provider]) -> None:
             _logger.warning(
                 "Failed to un-instrument provider '%s'",
                 provider.short_name,
+                exc_info=True,
+            )
+
+
+_ENTRY_POINT_GROUP = "opentelemetry_instrumentor"
+"""Entry-point group every `opentelemetry-instrumentation-*` package registers."""
+
+_PROVIDER_LIBRARY = {"postgres": "asyncpg"}
+"""Map a provider `short_name` to the OTel instrumentor name it covers.
+
+A provider that instruments a library under a different name (the Postgres
+provider drives the `asyncpg` instrumentor) is listed here so the library
+sweep can skip it. Names that match (`redis`, `valkey`) need no entry.
+"""
+
+_CONFLICTS = {"sqlalchemy": "asyncpg"}
+"""Instrumentors that double-span the same calls, as `{drop: keep}`.
+
+SQLAlchemy on the asyncpg driver runs through asyncpg's wrapped connection
+methods, so both instrumentors emit a span per query. When both are active the
+key is dropped in favor of the value (asyncpg, the lower layer in the default
+extra). Exclude the kept one to switch.
+"""
+
+
+def provider_library_name(short_name: str) -> str:
+    """Return the OTel instrumentor name a provider `short_name` covers."""
+    return _PROVIDER_LIBRARY.get(short_name, short_name)
+
+
+def _instrumentor_entry_points() -> dict[str, Any]:
+    """Return installed OTel instrumentor entry points keyed by name."""
+    from importlib.metadata import entry_points  # noqa: PLC0415
+
+    return {ep.name: ep for ep in entry_points(group=_ENTRY_POINT_GROUP)}
+
+
+def installed_instrumentors() -> set[str]:
+    """Return the names of every installed OTel library instrumentor."""
+    return set(_instrumentor_entry_points())
+
+
+def instrument_libraries(
+    tracer_provider: Any,  # noqa: ANN401
+    directive: InstrumentDirective,
+    *,
+    exclude: Collection[str],
+) -> list[Any]:
+    """Instrument installed OTel library instrumentors against `tracer_provider`.
+
+    Sweeps the `opentelemetry_instrumentor` entry points so any library the app
+    uses through its own client (a SQLAlchemy or asyncpg engine, an httpx
+    client) is traced without a grelmicro-managed provider. `exclude` skips a
+    library a registered provider already instruments per client and the
+    framework integrations own (FastAPI). A conflicting pair (SQLAlchemy and
+    asyncpg) is reduced to one to avoid duplicate spans.
+
+    Returns the instrumentor instances attached, for later `uninstrument`.
+    """
+    entries = _instrumentor_entry_points()
+    selected = {
+        name
+        for name in entries
+        if name not in exclude and is_selected(name, directive)
+    }
+    for drop, keep in _CONFLICTS.items():
+        if drop in selected and keep in selected:
+            selected.discard(drop)
+            _logger.warning(
+                "Both '%s' and '%s' instrumentors are active; using '%s' to "
+                "avoid duplicate spans. Exclude '%s' from Trace(instrument=...) "
+                "to switch.",
+                drop,
+                keep,
+                keep,
+                keep,
+            )
+    instrumented: list[Any] = []
+    for name in sorted(selected):
+        try:
+            instrumentor = entries[name].load()()
+            instrumentor.instrument(tracer_provider=tracer_provider)
+        except Exception:  # noqa: BLE001
+            _logger.warning(
+                "Failed to auto-instrument library '%s'", name, exc_info=True
+            )
+            continue
+        instrumented.append(instrumentor)
+    return instrumented
+
+
+def uninstrument_libraries(instrumentors: Sequence[Any]) -> None:
+    """Reverse `instrument_libraries` for the given instrumentor instances."""
+    for instrumentor in instrumentors:
+        try:
+            instrumentor.uninstrument()
+        except Exception:  # noqa: BLE001
+            _logger.warning(
+                "Failed to un-instrument library '%s'",
+                type(instrumentor).__name__,
                 exc_info=True,
             )
