@@ -371,17 +371,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#prereleases" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prereleases
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#optional-extras" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2489,17 +2478,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#prereleases" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prereleases
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#optional-extras" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2558,13 +2536,6 @@ check a single typing dialect.</p>
 </div>
 </div>
 </div>
-<h2 id="prereleases">Prereleases</h2>
-<p>The 1.0 line ships as alphas first. A plain install stays on the latest stable (the 0.x line). Opt into a prerelease explicitly:</p>
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>grelmicro
-</code></pre></div>
-<p><code>pip install --pre</code> relaxes the prerelease rule for every dependency it resolves, not just grelmicro, so it can pull an alpha of Pydantic or a release candidate of a client library. Pin the exact version to keep the rest on stable:</p>
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro==1.0.0a1&quot;</span>
-</code></pre></div>
 <h2 id="optional-extras">Optional extras</h2>
 <p>grelmicro is modular. Install only the extras you need.</p>
 <table>
