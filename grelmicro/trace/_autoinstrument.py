@@ -22,8 +22,13 @@ _logger = logging.getLogger(__name__)
 InstrumentDirective = bool | str | Sequence[str] | Mapping[str, bool]
 """`True`/`False`, a single name, an allow-list, or an all-with-overrides map."""
 
-KNOWN_FRAMEWORKS = frozenset({"fastapi"})
-"""Framework integration names valid in an `instrument` directive."""
+KNOWN_FRAMEWORKS = frozenset({"fastapi", "faststream"})
+"""Framework integration names valid in an `instrument` directive.
+
+These are wired by `micro.install(app)` (not the library sweep): FastAPI request
+spans via `FastAPIInstrumentor`, FastStream message spans via the broker's
+OpenTelemetry telemetry middleware.
+"""
 
 
 def explicit_names(directive: InstrumentDirective) -> set[str] | None:
