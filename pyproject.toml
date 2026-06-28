@@ -116,6 +116,12 @@ redis = "grelmicro.resilience.circuitbreaker.redis:RedisCircuitBreakerAdapter"
 postgres = "grelmicro.resilience.circuitbreaker.postgres:PostgresCircuitBreakerAdapter"
 sqlite = "grelmicro.resilience.circuitbreaker.sqlite:SQLiteCircuitBreakerAdapter"
 
+# First-party OpenTelemetry instrumentor for valkey-py, which has no official
+# package. `Trace(instrument=...)` discovers it through the standard
+# `opentelemetry_instrumentor` sweep, like any other library instrumentor.
+[project.entry-points.opentelemetry_instrumentor]
+valkey = "grelmicro.trace._valkey:ValkeyInstrumentor"
+
 [project.optional-dependencies]
 standard = [
     "orjson>=3.10.11",
