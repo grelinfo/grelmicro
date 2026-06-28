@@ -27,8 +27,6 @@
   <img alt="A FastAPI route protected by a grelmicro rate limiter and health check" src="img/demo.gif" width="800">
 </p>
 
-> **Project status: 0.x.** The public API is feature-complete and guarded by a snapshot test, but it can still change between `0.x` minor releases while the toolkit settles. `pip install grelmicro` gets the latest release. A future `1.0` will mark the public API as stable. See the [versioning policy](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#about-grelmicro-versions).
-
 ______________________________________________________________________
 
 **Documentation**: [https://grelinfo.github.io/grelmicro/](https://grelinfo.github.io/grelmicro)
