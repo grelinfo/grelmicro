@@ -1945,6 +1945,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.trace.TraceConfig.basic_auth_username" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;basic_auth_username
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.trace.TraceConfig.basic_auth_password" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;basic_auth_password
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.trace.TraceConfig.processor" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1999,6 +2021,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#grelmicro.trace.TraceConfig.authorization_header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;authorization_header
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2026,6 +2059,17 @@
   
     <nav class="md-nav" aria-label=" TraceExporterType">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.trace.TraceExporterType.AUTO" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;AUTO
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#grelmicro.trace.TraceExporterType.OTLP_HTTP" class="md-nav__link">
@@ -3041,6 +3085,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.trace.TraceConfig.basic_auth_username" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;basic_auth_username
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.trace.TraceConfig.basic_auth_password" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;basic_auth_password
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.trace.TraceConfig.processor" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3095,6 +3161,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#grelmicro.trace.TraceConfig.authorization_header" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;authorization_header
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3122,6 +3199,17 @@
   
     <nav class="md-nav" aria-label=" TraceExporterType">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.trace.TraceExporterType.AUTO" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;AUTO
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#grelmicro.trace.TraceExporterType.OTLP_HTTP" class="md-nav__link">
@@ -3411,6 +3499,7 @@ with structured context through a single decorator.</p>
     <span class="n">exporter</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TraceExporterType&lt;/span&gt; (&lt;code&gt;grelmicro.trace.config.TraceExporterType&lt;/code&gt;)" href="#grelmicro.trace.TraceExporterType">TraceExporterType</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">endpoint</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">headers</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">basic_auth</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">processor</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TraceProcessorType&lt;/span&gt; (&lt;code&gt;grelmicro.trace.config.TraceProcessorType&lt;/code&gt;)" href="#grelmicro.trace.TraceProcessorType">TraceProcessorType</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">sampler</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TraceSamplerType&lt;/span&gt; (&lt;code&gt;grelmicro.trace.config.TraceSamplerType&lt;/code&gt;)" href="#grelmicro.trace.TraceSamplerType">TraceSamplerType</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">sample_ratio</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3577,6 +3666,31 @@ must be <code>None</code>. The env path is bypassed.</p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
                       <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="str">str</span>] | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>basic_auth</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>HTTP Basic auth credentials as a <code>(username, password)</code>
+pair. grelmicro builds the <code>Authorization: Basic</code> header and
+attaches it to the OTLP exporter directly, so it never goes
+through the fragile <code>OTEL_EXPORTER_OTLP_HEADERS</code> encoding.
+From the environment, set <code>GREL_TRACE_BASIC_AUTH_USERNAME</code>
+and <code>GREL_TRACE_BASIC_AUTH_PASSWORD</code> instead.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="tuple">tuple</span>[<span title="str">str</span>, <span title="str">str</span>] | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4112,18 +4226,18 @@ path is bypassed and the config is used as-is.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">exporter</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TraceExporterType&lt;/span&gt; (&lt;code&gt;grelmicro.trace.config.TraceExporterType&lt;/code&gt;)" href="#grelmicro.trace.TraceExporterType">TraceExporterType</a></span> <span class="o">=</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;OTLP_HTTP&lt;/span&gt;
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">exporter</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TraceExporterType&lt;/span&gt; (&lt;code&gt;grelmicro.trace.config.TraceExporterType&lt;/code&gt;)" href="#grelmicro.trace.TraceExporterType">TraceExporterType</a></span> <span class="o">=</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;AUTO&lt;/span&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
       &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
       &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;grelmicro.trace.config.TraceExporterType.OTLP_HTTP&lt;/code&gt;)" href="#grelmicro.trace.TraceExporterType.OTLP_HTTP">OTLP_HTTP</a></span>
+  &lt;/span&gt; (&lt;code&gt;grelmicro.trace.config.TraceExporterType.AUTO&lt;/code&gt;)" href="#grelmicro.trace.TraceExporterType.AUTO">AUTO</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Span exporter.</p>
+        <p>Span exporter. The default <code>auto</code> resolves to <code>otlp-http</code> when an endpoint is configured (the <code>endpoint</code> field, <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code>, or <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>) and to <code>none</code> otherwise, so an unconfigured <code>Trace()</code> exports nothing instead of falling back to <code>localhost:4318</code>.</p>
 
     </div>
 
@@ -4174,6 +4288,56 @@ path is bypassed and the config is used as-is.</p>
     <div class="doc doc-contents ">
 
         <p>Exporter headers. Falls back to <code>OTEL_EXPORTER_OTLP_HEADERS</code> when empty.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="grelmicro.trace.TraceConfig.basic_auth_username" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">basic_auth_username</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">basic_auth_username</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>HTTP Basic auth username for the OTLP exporter. Set together with <code>basic_auth_password</code> to send an <code>Authorization: Basic</code> header, built and attached on the exporter directly so it bypasses the fragile <code>OTEL_EXPORTER_OTLP_HEADERS</code> encoding.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="grelmicro.trace.TraceConfig.basic_auth_password" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">basic_auth_password</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">basic_auth_password</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>HTTP Basic auth password for the OTLP exporter. Set together with <code>basic_auth_username</code>.</p>
 
     </div>
 
@@ -4318,6 +4482,32 @@ path is bypassed and the config is used as-is.</p>
 
 </div>
 
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="grelmicro.trace.TraceConfig.authorization_header" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">authorization_header</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">authorization_header</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>Authorization: Basic</code> value from the credentials, or <code>None</code>.</p>
+<p>Encodes <code>username:password</code> as base64 per RFC 7617. Returns <code>None</code>
+when no Basic credentials are configured.</p>
+
+    </div>
+
+</div>
+
 
 
 
@@ -4396,6 +4586,29 @@ path is bypassed and the config is used as-is.</p>
 
 
 
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="grelmicro.trace.TraceExporterType.AUTO" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">AUTO</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">AUTO</span> <span class="o">=</span> <span class="s1">&#39;auto&#39;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-attribute">
 

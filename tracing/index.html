@@ -2785,10 +2785,21 @@
 
 <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
 </code></pre></div>
-<div class="admonition warning">
-<p class="admonition-title">The default exporter expects a collector</p>
-<p><code>Trace()</code> defaults to <code>TraceExporterType.OTLP_HTTP</code>, which sends spans to an OpenTelemetry collector or endpoint over OTLP HTTP. Without a reachable collector, spans are dropped. A bounded <code>shutdown_timeout</code> (default <code>5.0</code> seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.</p>
-<p>For local development with no collector, set <code>exporter=TraceExporterType.CONSOLE</code> to print spans to the console instead. Use <code>TraceExporterType.NONE</code> to disable export entirely.</p>
+<div class="admonition tip">
+<p class="admonition-title">Off until an endpoint is configured</p>
+<p><code>Trace()</code> defaults to <code>TraceExporterType.AUTO</code>. It exports over OTLP HTTP when an endpoint is configured (the <code>endpoint</code> argument, <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code>, or <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>) and otherwise no-ops. So you register <code>Trace()</code> unconditionally and it stays silent in dev, test, and CI instead of falling back to <code>localhost:4318</code>. A bounded <code>shutdown_timeout</code> (default <code>5.0</code> seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.</p>
+<p>For local development, set <code>exporter=TraceExporterType.CONSOLE</code> to print spans to the console. Use <code>TraceExporterType.NONE</code> to force export off even when an endpoint is set.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Basic auth in one line</p>
+<p>Backends like OpenObserve want an <code>Authorization: Basic</code> header. Pass <code>basic_auth=(username, password)</code> and <code>Trace</code> builds and attaches it to the exporter:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Trace</span><span class="p">(</span>
+    <span class="n">service_name</span><span class="o">=</span><span class="s2">&quot;orders&quot;</span><span class="p">,</span>
+    <span class="n">endpoint</span><span class="o">=</span><span class="s2">&quot;https://obs.example.com/api/default/v1/traces&quot;</span><span class="p">,</span>
+    <span class="n">basic_auth</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;me@example.com&quot;</span><span class="p">,</span> <span class="n">password</span><span class="p">),</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>From the environment, set <code>GREL_TRACE_BASIC_AUTH_USERNAME</code> and <code>GREL_TRACE_BASIC_AUTH_PASSWORD</code> instead. The header is attached on the exporter directly, so it bypasses the <code>OTEL_EXPORTER_OTLP_HEADERS</code> encoding where base64 padding (<code>=</code>) can be mangled or dropped.</p>
 </div>
 <details class="note">
 <summary>Provider lifecycle and exporters</summary>
@@ -2815,12 +2826,12 @@
 <p>All produce the same JSON output with tracing context included.</p>
 </details>
 <h2 id="automatic-instrumentation">Automatic instrumentation</h2>
-<p><code>@instrument</code> traces your own functions. To trace incoming HTTP requests and database or cache calls without touching every handler, <code>Trace</code> auto-instruments the providers and the FastAPI app it runs with.</p>
+<p><code>@instrument</code> traces your own functions. To trace incoming HTTP requests and database or cache calls without touching every handler, <code>Trace</code> auto-instruments the FastAPI app, the providers it manages, and <strong>every other library you use</strong> that ships an OpenTelemetry instrumentor.</p>
 <p>Install the instrumentor packages alongside the OpenTelemetry SDK:</p>
 <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[opentelemetry,instrumentation]&quot;</span>
 </code></pre></div>
-<p>You can instead install a single <code>opentelemetry-instrumentation-*</code> package (for example <code>opentelemetry-instrumentation-redis</code>) to trace only that backend.</p>
-<p>Then <code>Trace</code> does the rest. Request spans wrap each handler, and Redis and Postgres spans nest under them, all bound to the app's tracer provider:</p>
+<p>The <code>instrumentation</code> extra bundles the FastAPI, Redis, and asyncpg instrumentors. <strong>The set of installed <code>opentelemetry-instrumentation-*</code> packages defines what gets traced</strong> : add <code>opentelemetry-instrumentation-sqlalchemy</code> or <code>opentelemetry-instrumentation-httpx</code> and <code>Trace</code> wires them too, with no code change. This matters when your app uses its own database client (a SQLAlchemy or asyncpg engine) instead of a grelmicro <code>PostgresProvider</code> : the spans appear all the same.</p>
+<p>Then <code>Trace</code> does the rest. Request spans wrap each handler, and database, cache, and outbound HTTP spans nest under them, all bound to the app's tracer provider:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
@@ -2839,11 +2850,11 @@
 <span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
 <span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>  <span class="c1"># the FastAPI app is instrumented too</span>
 </code></pre></div>
-<p><code>instrument</code> is on by default and degrades to a no-op when an instrumentor package is absent, so it does nothing until you install the extras. Redis attaches to the exact client the provider owns. Postgres patches asyncpg for the whole process, because asyncpg has no per-pool hook, so every asyncpg connection is traced.</p>
-<p>Select what to instrument:</p>
-<div class="highlight"><pre><span></span><code><span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>                   <span class="c1"># nothing (the @instrument decorator still works)</span>
-<span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;redis&quot;</span><span class="p">,</span> <span class="s2">&quot;fastapi&quot;</span><span class="p">])</span>    <span class="c1"># only the named targets, an unknown name raises</span>
-<span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;redis&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">})</span>        <span class="c1"># every active target except the named ones</span>
+<p><code>instrument</code> is on by default and degrades to a no-op when an instrumentor package is absent, so it does nothing until you install the extras. A grelmicro-managed Redis client is traced precisely (per-client). Every other installed instrumentor is attached process-wide, so a library the app uses through its own client is traced without a grelmicro provider.</p>
+<p>Select what to instrument by OpenTelemetry instrumentor name (the same names as <code>OTEL_PYTHON_DISABLED_INSTRUMENTATIONS</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>                      <span class="c1"># nothing (the @instrument decorator still works)</span>
+<span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;fastapi&quot;</span><span class="p">,</span> <span class="s2">&quot;asyncpg&quot;</span><span class="p">])</span>     <span class="c1"># only the named targets, an unknown name raises</span>
+<span class="n">Trace</span><span class="p">(</span><span class="n">instrument</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;sqlalchemy&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">})</span>      <span class="c1"># every installed target except the named ones</span>
 </code></pre></div>
 <p>What is covered:</p>
 <table>
@@ -2863,21 +2874,35 @@
 <tr>
 <td>Redis</td>
 <td>Cache and lock commands</td>
-<td>per-client, cluster included</td>
+<td>per-client when grelmicro owns the client, cluster included</td>
 </tr>
 <tr>
-<td>Postgres (asyncpg)</td>
+<td>asyncpg</td>
 <td>Queries</td>
-<td>patches asyncpg process-wide</td>
+<td>covers a grelmicro <code>PostgresProvider</code> and any app-owned asyncpg or SQLAlchemy-on-asyncpg engine</td>
 </tr>
 <tr>
-<td>Valkey, SQLite</td>
+<td>Any other installed instrumentor</td>
+<td>Per that library</td>
+<td>e.g. <code>sqlalchemy</code>, <code>httpx</code>, <code>psycopg</code> : install the package and it is wired</td>
+</tr>
+<tr>
+<td>Valkey</td>
+<td>Commands</td>
+<td>grelmicro ships a first-party instrumentor (valkey-py has no OpenTelemetry package); spans match the Redis ones</td>
+</tr>
+<tr>
+<td>SQLite</td>
 <td>None</td>
-<td>Not auto-instrumented yet. Use <code>@instrument</code> for these.</td>
+<td>aiosqlite has no OpenTelemetry package. Use <code>@instrument</code>.</td>
 </tr>
 </tbody>
 </table>
-<p>Under a FastStream app, the provider spans (Redis, Postgres) are produced, but FastStream message spans are not auto-instrumented yet. Use <code>@instrument</code> for handler spans.</p>
+<div class="admonition note">
+<p class="admonition-title">asyncpg and SQLAlchemy together</p>
+<p>If both the asyncpg and SQLAlchemy instrumentors are installed they would double-span the same queries (SQLAlchemy runs through asyncpg). <code>Trace</code> keeps asyncpg and drops SQLAlchemy with a warning. Pass <code>instrument={"asyncpg": False}</code> to trace at the SQLAlchemy layer instead.</p>
+</div>
+<p>Under a FastStream app, <code>micro.install(app)</code> also wires the broker's OpenTelemetry telemetry middleware, so consumed and published messages get spans, on top of the provider and library spans. It is selected by the same directive (<code>faststream</code>) and is a no-op when the broker's faststream telemetry support is not installed.</p>
 
 
 

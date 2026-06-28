@@ -3149,6 +3149,14 @@
 <p class="admonition-title">Tip</p>
 <p>The rate limiter uses the same backend registry pattern as the synchronization primitives. See <a href="../../architecture/backends/">Backend Architecture</a> for details.</p>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Coming from 0.x: register a backend, then <code>install</code> the app</p>
+<p>In 0.x you opened a global backend in the lifespan (<code>async with RedisRateLimiterBackend(...)</code>). In 1.0 you register a <code>RateLimiterRegistry</code> on the app and wire the app with <code>micro.install(app)</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">RedisRateLimiterAdapter</span><span class="p">())])</span>
+<span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>  <span class="c1"># opens the registry AND binds it per request</span>
+</code></pre></div>
+<p><code>install</code> is the important part. A module-level <code>RateLimiter("auth")</code> resolves its backend from the active app per request, which only works when <code>install</code> adds its middleware. Open <code>async with micro:</code> in a hand-written lifespan without <code>install</code> and the app starts up healthy, then raises <code>OutOfContextError</code> on the first rate-limited request. See <a href="../../wiring/">Wiring an App</a> for the guard and the <code>micro.check_ambient_binding(app)</code> test helper.</p>
+</div>
 <h2 id="result-fields">Result fields</h2>
 <p><code>RateLimitResult</code> is the same across algorithms and carries everything needed for HTTP rate limit headers. The <code>HTTP header</code> column shows the <a href="https://www.rfc-editor.org/rfc/rfc9211.html">RFC 9211</a> name first and the legacy <code>X-RateLimit-*</code> name second. Pick whichever convention your API already uses.</p>
 <table>

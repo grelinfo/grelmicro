@@ -2686,6 +2686,19 @@ backends inside route handlers with no <code>backend=</code> argument. Pass <cod
 when your handlers always pass an explicit <code>backend=</code> and do not need it:</p>
 <div class="highlight"><pre><span></span><code><span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">ambient</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Always call <code>install</code>, never hand-wire the lifespan alone</p>
+<p>A request handler runs in its own task, so it only resolves ambient backends
+when <code>install</code> adds the middleware. If you open <code>async with micro:</code> in a
+hand-written lifespan but forget <code>install</code> (or pass <code>ambient=False</code>), the app
+starts up healthy and then every ambient call raises <code>OutOfContextError</code> on
+the first request that hits it. <code>install(ambient=False)</code> warns at startup when
+ambient components are registered (it raises under <code>Grelmicro(strict=True)</code>),
+and you can assert the wiring in a test before it ships:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">test_ambient_binding_is_wired</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">assert</span> <span class="n">micro</span><span class="o">.</span><span class="n">check_ambient_binding</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
+</code></pre></div>
+</div>
 <h2 id="faststream">FastStream</h2>
 <p>The same call wires a FastStream app:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">faststream</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastStream</span>
