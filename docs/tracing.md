@@ -195,7 +195,8 @@ What is covered:
 | Redis | Cache and lock commands | per-client when grelmicro owns the client, cluster included |
 | asyncpg | Queries | covers a grelmicro `PostgresProvider` and any app-owned asyncpg or SQLAlchemy-on-asyncpg engine |
 | Any other installed instrumentor | Per that library | e.g. `sqlalchemy`, `httpx`, `psycopg` : install the package and it is wired |
-| Valkey, SQLite | None | No OpenTelemetry package exists. Use `@instrument` for these. |
+| Valkey | Commands | grelmicro ships a first-party instrumentor (valkey-py has no OpenTelemetry package); spans match the Redis ones |
+| SQLite | None | aiosqlite has no OpenTelemetry package. Use `@instrument`. |
 
 !!! note "asyncpg and SQLAlchemy together"
     If both the asyncpg and SQLAlchemy instrumentors are installed they would double-span the same queries (SQLAlchemy runs through asyncpg). `Trace` keeps asyncpg and drops SQLAlchemy with a warning. Pass `instrument={"asyncpg": False}` to trace at the SQLAlchemy layer instead.

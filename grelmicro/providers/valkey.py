@@ -142,14 +142,27 @@ class ValkeyProvider(RedisProvider):
         """Whether the underlying client is a Valkey Cluster client."""
         return isinstance(self._client, self._cluster_class)
 
-    def instrument(self, tracer_provider: Any) -> bool:  # noqa: ANN401, ARG002
-        """Report that Valkey has no OpenTelemetry instrumentor.
+    def instrument(self, tracer_provider: Any) -> bool:  # noqa: ANN401
+        """Attach grelmicro's first-party Valkey instrumentor.
 
-        The Redis instrumentor patches `redis.*`, not `valkey.*`, so it does
-        not trace valkey-py. Returns `False` so a named valkey target warns.
-        Use the `@instrument` decorator for valkey spans.
+        valkey-py has no official OpenTelemetry package, so grelmicro ships
+        `ValkeyInstrumentor`, which reuses the Redis span factories against the
+        `valkey.*` classes. Patching is process-wide (every valkey client),
+        matching how the Postgres provider instruments asyncpg.
         """
-        return False
+        from grelmicro.trace._valkey import ValkeyInstrumentor  # noqa: PLC0415
+
+        instrumentor = ValkeyInstrumentor()
+        instrumentor.instrument(tracer_provider=tracer_provider)
+        self._valkey_instrumentor = instrumentor
+        return True
+
+    def uninstrument(self) -> None:
+        """Detach the Valkey instrumentor attached by `instrument`."""
+        instrumentor = getattr(self, "_valkey_instrumentor", None)
+        if instrumentor is not None:
+            instrumentor.uninstrument()
+            self._valkey_instrumentor = None
 
     @classmethod
     def from_config(

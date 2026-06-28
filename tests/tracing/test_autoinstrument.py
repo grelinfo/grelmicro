@@ -368,11 +368,20 @@ def test_redis_uninstrument_without_instrument_is_noop() -> None:
     RedisProvider(REDIS_URL).uninstrument()
 
 
-def test_valkey_provider_instrument_reports_unsupported() -> None:
-    """Valkey has no OTel instrumentor, so instrument returns False."""
-    valkey = ValkeyProvider(REDIS_URL)
-    assert valkey.instrument(TracerProvider()) is False
-    assert getattr(valkey, "_instrumentor", None) is None
+def test_valkey_provider_instrument_and_uninstrument() -> None:
+    """Valkey attaches grelmicro's first-party instrumentor and detaches it."""
+    import valkey  # noqa: PLC0415
+
+    valkey_provider = ValkeyProvider(REDIS_URL)
+    assert valkey_provider.instrument(TracerProvider()) is True
+    assert hasattr(valkey.Valkey.execute_command, "__wrapped__")
+    valkey_provider.uninstrument()
+    assert not hasattr(valkey.Valkey.execute_command, "__wrapped__")
+
+
+def test_valkey_uninstrument_without_instrument_is_noop() -> None:
+    """Un-instrumenting a never-instrumented Valkey provider is a no-op."""
+    ValkeyProvider(REDIS_URL).uninstrument()
 
 
 def test_memory_provider_instrument_is_noop_success() -> None:
