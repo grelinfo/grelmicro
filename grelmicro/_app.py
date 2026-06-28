@@ -57,6 +57,18 @@ shared global out of order, so the second is blocked. Apps without them
 overlap freely, matching how web frameworks treat multiple app objects.
 """
 
+
+_AMBIENT_KINDS = frozenset(
+    {"coordination", "cache", "ratelimiter", "circuitbreaker"}
+)
+"""Component kinds whose patterns resolve their backend through `current()`.
+
+A `Lock`, `@cached`, `RateLimiter`, or `CircuitBreaker` that omits `backend=`
+looks up the active app per call. Inside a request handler that only works
+when `GrelmicroMiddleware` binds the app per request (see
+`Grelmicro.check_ambient_binding`).
+"""
+
 _active_bulkhead: ContextVar[Mapping[tuple[str, str], Component]] = ContextVar(
     "grelmicro_active_bulkhead"
 )
@@ -643,6 +655,98 @@ class Grelmicro:
         )
         raise TypeError(msg)
 
+    def _ambient_component_labels(self) -> list[str]:
+        """Return sorted `kind:name` labels of registered ambient components."""
+        return sorted(
+            f"{component.kind}:{component.name}"
+            for component in self._by_key.values()
+            if component.kind in _AMBIENT_KINDS
+        )
+
+    def _on_ambient_disabled(self) -> None:
+        """Warn or raise when `install(ambient=False)` leaves patterns unbound.
+
+        Called by an integration's `install` when the per-request binding is
+        skipped. With ambient-resolving components registered, patterns that
+        omit `backend=` would raise `OutOfContextError` on every request.
+        Reported as a `UserWarning`, or as `AmbientBindingError` when the app
+        was built with `strict=True`, matching the warn-or-raise policy of the
+        provider-lifecycle check.
+        """
+        labels = self._ambient_component_labels()
+        if not labels:
+            return
+        import warnings  # noqa: PLC0415
+
+        msg = (
+            f"install(app, ambient=False) skips the per-request binding, but "
+            f"these components resolve their backend ambiently: "
+            f"{', '.join(labels)}. A pattern that omits backend= will raise "
+            f"OutOfContextError on every request. Keep ambient=True (the "
+            f"default) or pass backend= explicitly at each call site."
+        )
+        if self._strict:
+            raise AmbientBindingError(msg)
+        warnings.warn(msg, UserWarning, stacklevel=3)
+
+    def check_ambient_binding(
+        self,
+        app: Annotated[  # noqa: ANN401
+            Any,
+            Doc("A Starlette, FastAPI, or FastStream application."),
+        ],
+    ) -> bool:
+        """Return whether ambient pattern resolution is wired for `app`.
+
+        Returns `True` when this app registers no ambient-resolving components
+        (nothing needs binding) or when the binding middleware is installed on
+        `app` by `micro.install(app)`. Returns `False` when ambient components
+        are registered but the middleware is missing, so a `Lock(...)`,
+        `@cached`, `RateLimiter...`, or `CircuitBreaker(...)` that omits
+        `backend=` would raise `OutOfContextError` on every request.
+
+        Call it in a test to catch a forgotten `micro.install(app)` before it
+        reaches production, where the failure only surfaces on the first
+        affected request:
+
+        ```python
+        def test_ambient_binding_is_wired() -> None:
+            assert micro.check_ambient_binding(app)
+        ```
+
+        Raises:
+            TypeError: If `app` is not a recognized Starlette, FastAPI, or
+                FastStream application and ambient components are registered.
+        """
+        if not self._ambient_component_labels():
+            return True
+        if hasattr(app, "add_middleware") and hasattr(
+            getattr(app, "router", None), "lifespan_context"
+        ):
+            from grelmicro.integrations.fastapi import (  # noqa: PLC0415
+                GrelmicroMiddleware,
+            )
+
+            return any(
+                getattr(mw, "cls", None) is GrelmicroMiddleware
+                for mw in getattr(app, "user_middleware", ())
+            )
+        if hasattr(app, "broker") and hasattr(app, "after_shutdown"):
+            from grelmicro.integrations.faststream import (  # noqa: PLC0415
+                _GrelmicroBrokerMiddleware,
+            )
+
+            return any(
+                isinstance(mw, type)
+                and issubclass(mw, _GrelmicroBrokerMiddleware)
+                for mw in getattr(app.broker, "middlewares", ())
+            )
+        msg = (
+            f"check_ambient_binding does not support {type(app).__name__!r}. "
+            f"Supported frameworks are Starlette, FastAPI, and FastStream."
+        )
+        raise TypeError(msg)
+
     def _bind_current(self) -> Any:  # noqa: ANN401
         """Set this app as `current()` for the running task, return a reset token.
 
@@ -999,6 +1103,10 @@ class NoActiveAppError(GrelmicroError, LookupError):
 
 class LifecycleOrderError(GrelmicroError, ValueError):
     """Raised when `Grelmicro(strict=True)` detects misordered provider/component lifecycles."""
+
+
+class AmbientBindingError(GrelmicroError, RuntimeError):
+    """Raised when `strict=True` and `install(ambient=False)` leaves ambient patterns unbound."""
 
 
 class AmbiguousProviderError(GrelmicroError, ValueError):

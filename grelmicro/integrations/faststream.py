@@ -85,3 +85,5 @@ def install(
             {"micro": micro},
         )
         app.broker.add_middleware(middleware)  # ty: ignore[unresolved-attribute]
+    else:
+        micro._on_ambient_disabled()  # noqa: SLF001

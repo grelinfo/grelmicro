@@ -64,6 +64,20 @@ when your handlers always pass an explicit `backend=` and do not need it:
 micro.install(app, ambient=False)
 ```
 
+!!! warning "Always call `install`, never hand-wire the lifespan alone"
+    A request handler runs in its own task, so it only resolves ambient backends
+    when `install` adds the middleware. If you open `async with micro:` in a
+    hand-written lifespan but forget `install` (or pass `ambient=False`), the app
+    starts up healthy and then every ambient call raises `OutOfContextError` on
+    the first request that hits it. `install(ambient=False)` warns at startup when
+    ambient components are registered (it raises under `Grelmicro(strict=True)`),
+    and you can assert the wiring in a test before it ships:
+
+    ```python
+    def test_ambient_binding_is_wired() -> None:
+        assert micro.check_ambient_binding(app)
+    ```
+
 ## FastStream
 
 The same call wires a FastStream app:
