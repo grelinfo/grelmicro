@@ -2,7 +2,7 @@
 
 ## Context Stack
 
-The tracing module uses a `contextvars`-based context stack defined in `grelmicro/_context.py`. This low-level module is shared by both `logging` and `tracing` so that neither depends on the other.
+The tracing module uses a `contextvars`-based context stack defined in `grelmicro/_context.py`. This low-level module is shared by both `log` and `trace` so that neither depends on the other.
 
 Each `@instrument` call or `span()` block pushes a new frame with its fields. Logging backends merge all active frames into the JSON record.
 
@@ -28,8 +28,8 @@ This follows the same pattern used by OpenTelemetry Python for `Context` propaga
 
 ```
 grelmicro/_context.py    <- owns ContextVar (no dependencies)
-    ├── logging/         <- imports _context (merge into log records)
-    └── tracing/         <- imports _context (push/pop spans, add_context)
+    ├── log/             <- imports _context (merge into log records)
+    └── trace/           <- imports _context (push/pop spans, add_context)
 ```
 
-The `_context` module has no imports from `logging` or `tracing`, preventing circular dependencies and allowing users to configure logging without loading the tracing module.
+The `_context` module has no imports from `log` or `trace`, preventing circular dependencies and allowing users to configure logging without loading the tracing module.

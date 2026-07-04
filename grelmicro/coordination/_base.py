@@ -32,7 +32,7 @@ class BaseLockConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("""
             The worker identity.
 
-            By default, a UUIDv1 is generated.
+            By default, a random 16-character hex token is generated.
             """),
         Field(default_factory=generate_worker_id),
     ]

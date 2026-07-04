@@ -828,6 +828,20 @@ async def test_global_app_overlaps_plain_app() -> None:
         pass
 
 
+class _MetricsComponent(_RecordingComponent):
+    """Stands in for `Metrics`, which installs the process-global meter."""
+
+    kind: ClassVar[str] = "metrics"
+
+
+async def test_second_metrics_app_is_blocked() -> None:
+    """`Metrics` owns the process-global meter, so a second app is blocked."""
+    async with Grelmicro(uses=[_MetricsComponent()]):
+        with pytest.raises(MultipleActiveAppsError):
+            async with Grelmicro(uses=[_MetricsComponent()]):
+                pass
+
+
 async def test_sequential_global_apps_are_allowed() -> None:
     """Two global-state apps opened one after another are fine."""
     async with Grelmicro(uses=[_GlobalComponent()]):

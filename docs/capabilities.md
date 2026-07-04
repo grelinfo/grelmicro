@@ -6,7 +6,7 @@ The [roadmap](https://github.com/grelinfo/grelmicro/issues/124) carries the live
 
 ## Vocabulary
 
-- **Pattern**: user-facing class. `Lock`, `LeaderElection`, `TaskLock`, `TTLCache`, `RateLimiter`, `CircuitBreaker`, `Retry`, `Bulkhead`, `Fallback`, `Timeout`.
+- **Pattern**: user-facing class. `Lock`, `LeaderElection`, `TaskLock`, `TTLCache`, `RateLimiter`, `CircuitBreaker`, `Idempotency`, `Retry`, `Bulkhead`, `Fallback`, `Timeout`, `Shield`.
 - **Adapter**: concrete implementation of a Backend Protocol. `RedisLockAdapter`, `PostgresLockAdapter`, `MemoryCacheAdapter`, `SQLiteLockAdapter`, `KubernetesLockAdapter`, and so on.
 - **Backend**: the Protocol class an Adapter satisfies. `LockBackend`, `LeaderElectionBackend`, `CacheBackend`, `RateLimiterBackend`, `CircuitBreakerBackend`.
 - **Provider**: vendor configuration plus native client, shared by Adapters that talk to the same service. `RedisProvider`, `PostgresProvider`, `SQLiteProvider`. Memory and Kubernetes Adapters do not use a Provider.
@@ -15,19 +15,21 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 
 ## Matrix
 
-| Pattern             | Memory                                                         | Redis                                                          | Postgres                                                       | SQLite                                                         | Kubernetes |
-| ------------------- | :------------------------------------------------------------: | :------------------------------------------------------------: | :------------------------------------------------------------: | :------------------------------------------------------------: | :--------: |
-| `Lock`              | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
-| `TaskLock`          | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | ✅         |
-| `LeaderElection`    | ✅                                                             | ✅                                                             | ✅                                                             | N/A                                                            | ✅         |
-| `Schedule` (cron)   | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
-| `TTLCache`          | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
-| `RateLimiter`       | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
-| `CircuitBreaker`    | ✅                                                             | ✅                                                             | ✅                                                             | ✅                                                             | N/A        |
-| `Retry`             | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
-| `Bulkhead`          | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
-| `Fallback`          | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
-| `Timeout`           | ✅                                                             | N/A                                                            | N/A                                                            | N/A                                                            | N/A        |
+| Pattern | Memory | Redis | Postgres | SQLite | Kubernetes |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| `Lock` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `TaskLock` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `LeaderElection` | ✅ | ✅ | ✅ | N/A | ✅ |
+| `@tasks.cron` | ✅ | ✅ | ✅ | ✅ | N/A |
+| `TTLCache` | ✅ | ✅ | ✅ | ✅ | N/A |
+| `Idempotency` | ✅ | ✅ | ✅ | ✅ | N/A |
+| `RateLimiter` | ✅ | ✅ | ✅ | ✅ | N/A |
+| `CircuitBreaker` | ✅ | ✅ | ✅ | ✅ | N/A |
+| `Retry` | ✅ | N/A | N/A | N/A | N/A |
+| `Bulkhead` | ✅ | N/A | N/A | N/A | N/A |
+| `Fallback` | ✅ | N/A | N/A | N/A | N/A |
+| `Timeout` | ✅ | N/A | N/A | N/A | N/A |
+| `Shield` | ✅ | N/A | N/A | N/A | N/A |
 
 Legend:
 

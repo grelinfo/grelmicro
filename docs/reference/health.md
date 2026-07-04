@@ -15,4 +15,4 @@
         - HealthChecksConfig
         - HealthReport
         - HealthStatus
-        - get_health_checks
+        - HealthSettingsValidationError
