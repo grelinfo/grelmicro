@@ -2647,11 +2647,11 @@
 <h1 id="coordination-internals">Coordination Internals</h1>
 <p>This page documents the internal design of the <a href="../../coordination/">Coordination primitives</a>.</p>
 <h2 id="worker-identity">Worker Identity</h2>
-<p>By default, each coordination primitive (<code>Lock</code>, <code>TaskLock</code>, <code>LeaderElection</code>) generates a unique <strong>worker identity</strong> at instantiation using <code>token_hex(4)</code> (8 random hex characters, 32 bits of entropy) when no explicit <code>worker</code> parameter is provided.</p>
+<p>By default, each coordination primitive (<code>Lock</code>, <code>TaskLock</code>, <code>LeaderElection</code>) generates a unique <strong>worker identity</strong> at instantiation using <code>token_hex(8)</code> (16 random hex characters, 64 bits of entropy) when no explicit <code>worker</code> parameter is provided.</p>
 <p>This provides uniqueness across:</p>
 <ul>
-<li><strong>Multiple processes</strong> (e.g., <code>uvicorn --workers N</code>): Each worker process imports the application independently, so <code>token_hex(4)</code> is called separately per process with independent randomness.</li>
-<li><strong>Multiple instances</strong> within the same process: Each <code>Lock(...)</code> or <code>TaskLock(...)</code> call generates its own <code>token_hex(4)</code>, producing a different worker identity.</li>
+<li><strong>Multiple processes</strong> (e.g., <code>uvicorn --workers N</code>): Each worker process imports the application independently, so <code>token_hex(8)</code> is called separately per process with independent randomness.</li>
+<li><strong>Multiple instances</strong> within the same process: Each <code>Lock(...)</code> or <code>TaskLock(...)</code> call generates its own <code>token_hex(8)</code>, producing a different worker identity.</li>
 </ul>
 <div class="admonition warning">
 <p class="admonition-title">Pre-fork servers</p>

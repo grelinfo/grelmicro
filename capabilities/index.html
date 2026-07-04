@@ -2515,7 +2515,7 @@
 <p>The <a href="https://github.com/grelinfo/grelmicro/issues/124">roadmap</a> carries the live state. This page is the at-a-glance view.</p>
 <h2 id="vocabulary">Vocabulary</h2>
 <ul>
-<li><strong>Pattern</strong>: user-facing class. <code>Lock</code>, <code>LeaderElection</code>, <code>TaskLock</code>, <code>TTLCache</code>, <code>RateLimiter</code>, <code>CircuitBreaker</code>, <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>, <code>Timeout</code>.</li>
+<li><strong>Pattern</strong>: user-facing class. <code>Lock</code>, <code>LeaderElection</code>, <code>TaskLock</code>, <code>TTLCache</code>, <code>RateLimiter</code>, <code>CircuitBreaker</code>, <code>Idempotency</code>, <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>, <code>Timeout</code>, <code>Shield</code>.</li>
 <li><strong>Adapter</strong>: concrete implementation of a Backend Protocol. <code>RedisLockAdapter</code>, <code>PostgresLockAdapter</code>, <code>MemoryCacheAdapter</code>, <code>SQLiteLockAdapter</code>, <code>KubernetesLockAdapter</code>, and so on.</li>
 <li><strong>Backend</strong>: the Protocol class an Adapter satisfies. <code>LockBackend</code>, <code>LeaderElectionBackend</code>, <code>CacheBackend</code>, <code>RateLimiterBackend</code>, <code>CircuitBreakerBackend</code>.</li>
 <li><strong>Provider</strong>: vendor configuration plus native client, shared by Adapters that talk to the same service. <code>RedisProvider</code>, <code>PostgresProvider</code>, <code>SQLiteProvider</code>. Memory and Kubernetes Adapters do not use a Provider.</li>
@@ -2559,7 +2559,7 @@
 <td style="text-align: center;">✅</td>
 </tr>
 <tr>
-<td><code>Schedule</code> (cron)</td>
+<td><code>@tasks.cron</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
@@ -2568,6 +2568,14 @@
 </tr>
 <tr>
 <td><code>TTLCache</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">N/A</td>
+</tr>
+<tr>
+<td><code>Idempotency</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
@@ -2616,6 +2624,14 @@
 </tr>
 <tr>
 <td><code>Timeout</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">N/A</td>
+</tr>
+<tr>
+<td><code>Shield</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">N/A</td>
 <td style="text-align: center;">N/A</td>

@@ -2763,8 +2763,18 @@
 <td>Redis, Memory, Postgres, SQLite</td>
 </tr>
 <tr>
+<td>Idempotency</td>
+<td><code>Idempotency</code>, <code>@idempotent</code></td>
+<td>Redis, Memory, Postgres, SQLite</td>
+</tr>
+<tr>
 <td>Retry</td>
 <td><code>Retry</code>, <code>@retry</code></td>
+<td>n/a (in-process)</td>
+</tr>
+<tr>
+<td>In-process resilience</td>
+<td><code>Bulkhead</code>, <code>Fallback</code>, <code>Timeout</code>, <code>Shield</code></td>
 <td>n/a (in-process)</td>
 </tr>
 <tr>
@@ -2774,7 +2784,7 @@
 </tr>
 <tr>
 <td>Scheduled tasks</td>
-<td><code>Tasks</code>, <code>TaskRouter</code>, <code>@interval</code>, <code>@cron</code></td>
+<td><code>Tasks</code>, <code>TaskRouter</code>, <code>@every</code>, <code>@cron</code></td>
 <td>n/a</td>
 </tr>
 <tr>
@@ -2786,6 +2796,16 @@
 <td>Tracing</td>
 <td><code>grelmicro.trace</code> (<code>@instrument</code>, <code>span</code>, <code>add_context</code>)</td>
 <td>OpenTelemetry</td>
+</tr>
+<tr>
+<td>Metrics</td>
+<td><code>Metrics</code>, <code>@measure</code>, <code>metrics_router</code></td>
+<td>OpenTelemetry, Prometheus</td>
+</tr>
+<tr>
+<td>Externalized config</td>
+<td><code>ExternalConfig</code></td>
+<td>ConfigMap, Secret, .env, JSON, YAML, TOML</td>
 </tr>
 </tbody>
 </table>

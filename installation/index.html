@@ -2564,27 +2564,42 @@ check a single typing dialect.</p>
 </tr>
 <tr>
 <td><code>postgres</code></td>
-<td><code>asyncpg</code> for the PostgreSQL sync backend.</td>
+<td><code>asyncpg</code> for the PostgreSQL backends.</td>
 <td>All platforms.</td>
 </tr>
 <tr>
 <td><code>sqlite</code></td>
-<td><code>aiosqlite</code> for the SQLite sync backend.</td>
+<td><code>aiosqlite</code> for the SQLite backends.</td>
 <td>All platforms.</td>
 </tr>
 <tr>
 <td><code>kubernetes</code></td>
-<td><code>lightkube</code> for the Kubernetes Lease sync backend.</td>
+<td><code>lightkube</code> for the Kubernetes Lease backend.</td>
+<td>All platforms.</td>
+</tr>
+<tr>
+<td><code>faststream</code></td>
+<td><code>faststream</code> for the FastStream integration.</td>
 <td>All platforms.</td>
 </tr>
 <tr>
 <td><code>opentelemetry</code></td>
-<td>OpenTelemetry API and SDK for tracing integration.</td>
+<td>OpenTelemetry API and SDK for the <code>Trace</code> and <code>Metrics</code> components.</td>
+<td>All platforms.</td>
+</tr>
+<tr>
+<td><code>instrumentation</code></td>
+<td>OpenTelemetry instrumentation packages (FastAPI, Redis, asyncpg) for <code>Trace(instrument=...)</code>.</td>
 <td>All platforms.</td>
 </tr>
 <tr>
 <td><code>structlog</code></td>
 <td><code>structlog</code> as an alternative logging backend.</td>
+<td>All platforms.</td>
+</tr>
+<tr>
+<td><code>yaml</code></td>
+<td><code>pyyaml</code> for YAML sources in <code>ExternalConfig</code>.</td>
 <td>All platforms.</td>
 </tr>
 </tbody>
@@ -2598,8 +2613,11 @@ pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot
 pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[postgres]&quot;</span>
 pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[sqlite]&quot;</span>
 pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[kubernetes]&quot;</span>
+pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[faststream]&quot;</span>
 pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[opentelemetry]&quot;</span>
+pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[instrumentation]&quot;</span>
 pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[structlog]&quot;</span>
+pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;grelmicro[yaml]&quot;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -2609,8 +2627,11 @@ uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grel
 uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[postgres]&quot;</span>
 uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[sqlite]&quot;</span>
 uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[kubernetes]&quot;</span>
+uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[faststream]&quot;</span>
 uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[opentelemetry]&quot;</span>
+uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[instrumentation]&quot;</span>
 uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[structlog]&quot;</span>
+uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[yaml]&quot;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -2620,8 +2641,11 @@ poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;
 poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[postgres]&quot;</span>
 poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[sqlite]&quot;</span>
 poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[kubernetes]&quot;</span>
+poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[faststream]&quot;</span>
 poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[opentelemetry]&quot;</span>
+poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[instrumentation]&quot;</span>
 poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[structlog]&quot;</span>
+poetry<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;grelmicro[yaml]&quot;</span>
 </code></pre></div>
 </div>
 </div>

@@ -2512,7 +2512,7 @@
 
 <h1 id="tracing-architecture">Tracing Architecture</h1>
 <h2 id="context-stack">Context Stack</h2>
-<p>The tracing module uses a <code>contextvars</code>-based context stack defined in <code>grelmicro/_context.py</code>. This low-level module is shared by both <code>logging</code> and <code>tracing</code> so that neither depends on the other.</p>
+<p>The tracing module uses a <code>contextvars</code>-based context stack defined in <code>grelmicro/_context.py</code>. This low-level module is shared by both <code>log</code> and <code>trace</code> so that neither depends on the other.</p>
 <p>Each <code>@instrument</code> call or <code>span()</code> block pushes a new frame with its fields. Logging backends merge all active frames into the JSON record.</p>
 <div class="highlight"><pre><span></span><code>@instrument(order_id=&quot;ORD-1&quot;)     &lt;- frame 1: {order_id: &quot;ORD-1&quot;}
   add_context(status=&quot;pending&quot;)   &lt;- frame 1: {order_id: &quot;ORD-1&quot;, status: &quot;pending&quot;}
@@ -2530,10 +2530,10 @@
 <p>This follows the same pattern used by OpenTelemetry Python for <code>Context</code> propagation.</p>
 <h2 id="decoupled-layering">Decoupled Layering</h2>
 <div class="highlight"><pre><span></span><code>grelmicro/_context.py    &lt;- owns ContextVar (no dependencies)
-    ├── logging/         &lt;- imports _context (merge into log records)
-    └── tracing/         &lt;- imports _context (push/pop spans, add_context)
+    ├── log/             &lt;- imports _context (merge into log records)
+    └── trace/           &lt;- imports _context (push/pop spans, add_context)
 </code></pre></div>
-<p>The <code>_context</code> module has no imports from <code>logging</code> or <code>tracing</code>, preventing circular dependencies and allowing users to configure logging without loading the tracing module.</p>
+<p>The <code>_context</code> module has no imports from <code>log</code> or <code>trace</code>, preventing circular dependencies and allowing users to configure logging without loading the tracing module.</p>
 
 
 
