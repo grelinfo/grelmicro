@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* 🐛 Block a second app that installs `Metrics` while one is active, matching `Log` and `Trace`. `Metrics` owns the process-global meter provider, so two overlapping apps would clobber it.
+
+### Docs
+
+* 📝 Refresh stale docs: the optional-extras table, the capability matrix, the module lists, the `@cached` `lock` default, and the `DuplicateFilter` `ttl` field.
+
 ## 0.28.0 - 2026-06-28
 
 ### Breaking

@@ -43,11 +43,15 @@ What you get from a single import:
 | Cache decorator + TTL store | `Cache`, `TTLCache[T]`, `@cached` | Redis, Memory, Postgres, SQLite |
 | Rate limiter | `RateLimiter` (token bucket, sliding window) | Redis, Memory, Postgres, SQLite |
 | Circuit breaker | `CircuitBreaker` | Redis, Memory, Postgres, SQLite |
+| Idempotency | `Idempotency`, `@idempotent` | Redis, Memory, Postgres, SQLite |
 | Retry | `Retry`, `@retry` | n/a (in-process) |
+| In-process resilience | `Bulkhead`, `Fallback`, `Timeout`, `Shield` | n/a (in-process) |
 | Health checks | `HealthChecks` + `/livez` `/readyz` `/healthz` router | n/a |
-| Scheduled tasks | `Tasks`, `TaskRouter`, `@interval`, `@cron` | n/a |
+| Scheduled tasks | `Tasks`, `TaskRouter`, `@every`, `@cron` | n/a |
 | Structured logging | `grelmicro.log` (JSON, LOGFMT, PRETTY, AUTO) | n/a |
 | Tracing | `grelmicro.trace` (`@instrument`, `span`, `add_context`) | OpenTelemetry |
+| Metrics | `Metrics`, `@measure`, `metrics_router` | OpenTelemetry, Prometheus |
+| Externalized config | `ExternalConfig` | ConfigMap, Secret, .env, JSON, YAML, TOML |
 
 All of them share:
 

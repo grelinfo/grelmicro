@@ -156,7 +156,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 """
                 The worker identity.
 
-                By default, a UUIDv1 is generated.
+                By default, a random 16-character hex token is generated.
                 """,
             ),
         ] = None,

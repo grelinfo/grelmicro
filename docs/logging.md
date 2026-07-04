@@ -336,10 +336,10 @@ logger.addFilter(DuplicateFilter(key_mode="rendered"))
 logger.addFilter(DuplicateFilter(key=lambda r: (r.name, r.exc_info)))
 ```
 
-Set `ttl_seconds` to re-emit a burst of `allowed_repetitions` records every window during sustained floods, so operators continue to receive periodic reminders:
+Set `ttl` to re-emit a burst of `allowed_repetitions` records every window during sustained floods, so operators continue to receive periodic reminders:
 
 ```python
-logger.addFilter(DuplicateFilter(allowed_repetitions=5, ttl_seconds=300))
+logger.addFilter(DuplicateFilter(allowed_repetitions=5, ttl=300))
 ```
 
 State is in-process only. There is no cross-process sharing and no explicit reset API: construct a new filter if you need to wipe counters.

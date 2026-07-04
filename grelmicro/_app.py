@@ -49,8 +49,8 @@ whose `Log`/`Trace` would clobber the active app's global-state snapshots.
 """
 
 
-_GLOBAL_STATE_KINDS = frozenset({"log", "trace"})
-"""Component kinds that own process-global state (root logger, tracer).
+_GLOBAL_STATE_KINDS = frozenset({"log", "trace", "metrics"})
+"""Component kinds that own process-global state (root logger, tracer, meter).
 
 Two overlapping apps that each register one of these would restore the
 shared global out of order, so the second is blocked. Apps without them

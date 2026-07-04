@@ -356,7 +356,7 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. Mutually exclusive with `key`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
-| `lock` | `True`, `False`, or `"local"` | `False` | Concurrent-miss (stampede) protection. |
+| `lock` | `True`, `False`, or `"local"` | `"local"` | Concurrent-miss (stampede) protection. |
 | `early` | `float` in `[0, 1)` | `None` | Probabilistic early refresh in the late TTL window. |
 | `stale_ttl` | `float` | `None` | Serve-stale-on-error budget in seconds. Serve the last good value for this long past the TTL when a recompute fails. |
 | `tags` | `Sequence[str]` | `()` | Tags to attach to each result. Templates like `"user:{user_id}"` fill in from the arguments. Invalidate with `cache.delete_tags(...)`. |

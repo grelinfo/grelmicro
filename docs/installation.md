@@ -40,11 +40,14 @@ grelmicro is modular. Install only the extras you need.
 | `standard` | `orjson` for fast JSON serialization. `uvloop` for a faster event loop. Activate with `uvloop.run(main())`. | `orjson` everywhere. `uvloop` only on Linux/macOS CPython (skipped on Windows and PyPy). |
 | `redis` | `redis-py` for the Redis backends. | All platforms. |
 | `valkey` | `valkey-py` for the Valkey backends. | All platforms. |
-| `postgres` | `asyncpg` for the PostgreSQL sync backend. | All platforms. |
-| `sqlite` | `aiosqlite` for the SQLite sync backend. | All platforms. |
-| `kubernetes` | `lightkube` for the Kubernetes Lease sync backend. | All platforms. |
-| `opentelemetry` | OpenTelemetry API and SDK for tracing integration. | All platforms. |
+| `postgres` | `asyncpg` for the PostgreSQL backends. | All platforms. |
+| `sqlite` | `aiosqlite` for the SQLite backends. | All platforms. |
+| `kubernetes` | `lightkube` for the Kubernetes Lease backend. | All platforms. |
+| `faststream` | `faststream` for the FastStream integration. | All platforms. |
+| `opentelemetry` | OpenTelemetry API and SDK for the `Trace` and `Metrics` components. | All platforms. |
+| `instrumentation` | OpenTelemetry instrumentation packages (FastAPI, Redis, asyncpg) for `Trace(instrument=...)`. | All platforms. |
 | `structlog` | `structlog` as an alternative logging backend. | All platforms. |
+| `yaml` | `pyyaml` for YAML sources in `ExternalConfig`. | All platforms. |
 
 === "pip"
     ```bash
@@ -54,8 +57,11 @@ grelmicro is modular. Install only the extras you need.
     pip install "grelmicro[postgres]"
     pip install "grelmicro[sqlite]"
     pip install "grelmicro[kubernetes]"
+    pip install "grelmicro[faststream]"
     pip install "grelmicro[opentelemetry]"
+    pip install "grelmicro[instrumentation]"
     pip install "grelmicro[structlog]"
+    pip install "grelmicro[yaml]"
     ```
 
 === "uv"
@@ -66,8 +72,11 @@ grelmicro is modular. Install only the extras you need.
     uv add "grelmicro[postgres]"
     uv add "grelmicro[sqlite]"
     uv add "grelmicro[kubernetes]"
+    uv add "grelmicro[faststream]"
     uv add "grelmicro[opentelemetry]"
+    uv add "grelmicro[instrumentation]"
     uv add "grelmicro[structlog]"
+    uv add "grelmicro[yaml]"
     ```
 
 === "poetry"
@@ -78,8 +87,11 @@ grelmicro is modular. Install only the extras you need.
     poetry add "grelmicro[postgres]"
     poetry add "grelmicro[sqlite]"
     poetry add "grelmicro[kubernetes]"
+    poetry add "grelmicro[faststream]"
     poetry add "grelmicro[opentelemetry]"
+    poetry add "grelmicro[instrumentation]"
     poetry add "grelmicro[structlog]"
+    poetry add "grelmicro[yaml]"
     ```
 
 Combine multiple extras in one call, for example `pip install "grelmicro[redis,valkey,opentelemetry,structlog]"`.

@@ -62,7 +62,9 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | [**Resilience**](https://grelinfo.github.io/grelmicro/resilience/) | [Circuit Breaker](https://grelinfo.github.io/grelmicro/resilience/circuit-breaker/) and [Rate Limiter](https://grelinfo.github.io/grelmicro/resilience/rate-limiter/) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
 | [**Logging**](https://grelinfo.github.io/grelmicro/logging/) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
 | [**Tracing**](https://grelinfo.github.io/grelmicro/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
+| [**Metrics**](https://grelinfo.github.io/grelmicro/metrics/) | OpenTelemetry metrics with a `@measure` decorator, a Prometheus `/metrics` router, and built-in instrumentation across components. |
 | [**Health**](https://grelinfo.github.io/grelmicro/health/) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
+| [**Configuration**](https://grelinfo.github.io/grelmicro/config/) | `ExternalConfig` reconfigures live components from a mounted ConfigMap, Secret, or `.env` / JSON / YAML / TOML file. |
 
 ## Installation
 
