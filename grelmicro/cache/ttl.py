@@ -196,8 +196,8 @@ class TTLCache(Generic[T]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryCacheAdapter()` for a per-process
                 cache), register a `Cache` Component, or run the call
-                under the app context (for FastAPI, add
-                `GrelmicroMiddleware`).
+                inside `async with micro:` or after
+                `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend
@@ -213,8 +213,8 @@ class TTLCache(Generic[T]):
             msg = (
                 "TTLCache resolved no backend. Pass backend= "
                 "(MemoryCacheAdapter() for a per-process cache), register "
-                "a Cache component, or run the call under the app context "
-                "(for FastAPI add GrelmicroMiddleware)."
+                "a Cache component, or run the call inside `async with micro:` "
+                "or after `micro.install(app)`."
             )
             raise OutOfContextError(msg) from None
         return cache.backend

@@ -12,6 +12,14 @@ pip install grelmicro
 See the [installation guide](installation.md) for `uv`, `poetry`, and the
 backend extras.
 
+## Mental model
+
+- **Pattern**: the object your app calls, such as `Lock("cart")` or `RateLimiter.sliding_window("api", ...)`.
+- **Provider**: owns a connection, such as `RedisProvider`.
+- **Component or Registry**: registers a backend on the app.
+- **Adapter**: the concrete backend implementation. Providers usually hide it.
+- **Ambient binding**: `micro.install(app)` lets request and message handlers find the current `Grelmicro` app.
+
 ## Your first app
 
 Guard a shared resource with a distributed `Lock`. The memory backend keeps the
@@ -61,4 +69,4 @@ async def get_user(user_id: int) -> dict:
 ## Next
 
 You built a pattern and wired it into an app. Next, [wire a real app](wiring.md)
-with a Redis provider and the FastAPI middleware.
+with a Redis provider and `micro.install(app)`.

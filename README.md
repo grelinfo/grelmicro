@@ -118,17 +118,14 @@ async def ping() -> dict[str, str]:
 
 That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory adapter says per-process on purpose. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[RateLimiterRegistry(redis)])` as shown below.
 
-### Lifespan with one provider and one component
+### FastAPI with one provider and one component
 
-To make the rate limiter fleet-wide, wrap it in a `Grelmicro` container with one provider and one component, bind it to FastAPI's lifespan, and add the middleware so request handlers see the app.
+To make the rate limiter fleet-wide, wrap it in a `Grelmicro` container with one provider and one component, then install it into FastAPI.
 
 ```python
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.integrations.fastapi import GrelmicroMiddleware
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     RateLimitExceededError,
@@ -141,15 +138,8 @@ micro = Grelmicro(uses=[RateLimiterRegistry(redis)])
 
 api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with micro:
-        yield
-
-
-app = FastAPI(lifespan=lifespan)
-app.add_middleware(GrelmicroMiddleware, micro=micro)
+app = FastAPI()
+micro.install(app)
 
 
 @app.get("/ping")
@@ -161,7 +151,7 @@ async def ping() -> dict[str, str]:
     return {"status": "ok"}
 ```
 
-Adding more primitives is the same shape: one extra entry in `uses=[...]`. The full demo below shows what that looks like.
+Adding more primitives is the same shape: one extra entry in `uses=[...]`. `micro.install(app)` opens the app on startup, closes it on shutdown, and lets request handlers resolve backends without passing `backend=`.
 
 ### FastAPI integration
 
@@ -175,7 +165,6 @@ from fastapi import FastAPI, HTTPException, Request
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache, cached
-from grelmicro.integrations.fastapi import GrelmicroMiddleware
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider
@@ -217,16 +206,15 @@ cb = CircuitBreaker("my-service")
 api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
 
-# === FastAPI lifespan and middleware ===
+# === FastAPI ===
 @asynccontextmanager
 async def lifespan(app):
     configure_logging()
-    async with micro:
-        yield
+    yield
 
 
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(GrelmicroMiddleware, micro=micro)
+micro.install(app)
 
 
 # --- Cache: avoid redundant database queries ---

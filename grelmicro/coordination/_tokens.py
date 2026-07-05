@@ -24,12 +24,16 @@ def generate_task_token(worker: UUID | str, nonce: str = "") -> str:
 
 
 def generate_token_nonce() -> str:
-    """Generate a unique token nonce suffix (e.g., ':0', ':1').
+    """Generate a unique, unpredictable token nonce suffix.
+
+    Combines a process-local counter with random bytes (e.g. ':0.a1b2c3d4').
+    The counter is unique across handles in the same process and the random
+    part is unguessable.
 
     Thread-safe: ``next()`` on ``itertools.count`` is a single C-level
     operation protected by the GIL.
     """
-    return f":{next(_guard_counter)}"
+    return f":{next(_guard_counter)}.{token_hex(8)}"
 
 
 def generate_thread_token(

@@ -246,6 +246,9 @@ Literal tags with no `{...}` pass through unchanged. Tags work the same across M
 --8<-- "cache/tags.py"
 ```
 
+!!! warning "Keep keys and tags bounded"
+    Every distinct key and tag is stored. On the memory backend the tag-to-key map grows with cardinality and is not evicted until the tagged entries expire. Deriving keys or tags straight from untrusted input (a raw user id, a full URL, a free-text field) lets a caller inflate memory or backend storage without limit. Map untrusted values onto a bounded set first, such as a hash bucket or an allowlist, and prefer a short shared tag plus one per-entity tag over a fresh tag per request.
+
 ## @cached Decorator
 
 The `@cached` decorator automatically caches function results. It works with both sync and async functions.

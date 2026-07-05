@@ -436,8 +436,8 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryLeaderElectionAdapter()` for a
                 per-process election), register a `Coordination`
-                Component, or run the call under the app context (for
-                FastAPI, add `GrelmicroMiddleware`).
+                Component, or run the call inside `async with micro:` or
+                after `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend
@@ -456,8 +456,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 f"LeaderElection({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryLeaderElectionAdapter() for a per-process "
                 f"election), register a Coordination component, or run the "
-                f"call under the app context (for FastAPI add "
-                f"GrelmicroMiddleware)."
+                f"call inside `async with micro:` or after `micro.install(app)`."
             )
             raise OutOfContextError(msg) from None
         return coordination.election_backend

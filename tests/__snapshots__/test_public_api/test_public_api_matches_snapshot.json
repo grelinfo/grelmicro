@@ -460,6 +460,9 @@
     "RetryStrategy": {
       "()": "(*args, **kwargs)"
     },
+    "SQLiteCircuitBreakerAdapter": {
+      "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
+    },
     "SQLiteRateLimiterAdapter": {
       "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
     },

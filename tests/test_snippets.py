@@ -41,6 +41,9 @@ _ENV = {
     "resilience/timeout_environmental.py": {
         "GREL_TIMEOUT_DB_SECONDS": "2.0",
     },
+    "coordination/postgres.py": {
+        "POSTGRES_URL": "postgresql://user:password@localhost:5432/db",
+    },
 }
 
 _ALL = sorted(

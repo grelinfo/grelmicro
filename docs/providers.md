@@ -36,6 +36,16 @@ Components dispatch to the Provider's factory methods (`provider.lock()`,
 (`RedisLockAdapter`, `RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay
 public as escape hatches but rarely appear in user code.
 
+!!! note "Import policy: prefer Providers over concrete adapters"
+    App code should import a Provider and pass it to Components and Registries,
+    not import concrete adapter classes. The Provider owns the connection and
+    hands each Component the right adapter, so one URL change swaps every
+    backend at once. Import an adapter directly only for an escape hatch: a
+    bespoke client the factory does not build, or a per-process Memory backend
+    in a test. Adapters live in their backend submodule
+    (`grelmicro.resilience.circuitbreaker.sqlite`) and the top-level package
+    re-exports them (`from grelmicro.resilience import SQLiteCircuitBreakerAdapter`).
+
 !!! tip "Listing the Provider is optional"
     A Provider held by a Component is discovered and lifecycled for you, so
     you can drop the top-level entry and let the Components carry it:

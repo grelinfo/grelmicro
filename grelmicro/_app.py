@@ -8,6 +8,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from contextvars import ContextVar
+from threading import Lock as ThreadLock
 from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
 from typing_extensions import Doc
@@ -47,6 +48,9 @@ Unlike `_current_micro` (per asyncio task), this is a single process-global
 list so `Grelmicro.__aenter__` can refuse to open a second overlapping app
 whose `Log`/`Trace` would clobber the active app's global-state snapshots.
 """
+
+_active_apps_lock = ThreadLock()
+"""Serializes the process-global active app guard and reservation."""
 
 
 _GLOBAL_STATE_KINDS = frozenset({"log", "trace", "metrics"})
@@ -284,7 +288,7 @@ class Grelmicro:
         Raises:
             ComponentAlreadyRegisteredError: A different component is already
                 registered under the same `(kind, name)` key. Plain async
-                context managers do not raise; they are appended.
+                context managers do not raise. They are appended.
         """
         # A bare class (no parens) is instantiated with no arguments, in the
         # spirit of FastAPI's `Depends(dep)`: pass the reference, the framework
@@ -851,28 +855,36 @@ class Grelmicro:
         """
         if self._exit_stack is not None:
             raise OutOfContextError(self, "__aenter__")
-        if (
-            not self._allow_multiple
-            and self._owns_global_state()
-            and any(app._owns_global_state() for app in _active_apps)  # noqa: SLF001
-        ):
-            raise MultipleActiveAppsError
-        self._discover_shared_providers()
-        self._warn_unlifecycled_providers()
-        self._resolve_provider_sharing()
-        self._exit_stack = AsyncExitStack()
-        await self._exit_stack.__aenter__()
-        self._token = _current_micro.set(self)
-        _active_apps.append(self)
+        with _active_apps_lock:
+            if (
+                not self._allow_multiple
+                and self._owns_global_state()
+                and any(
+                    app._owns_global_state()  # noqa: SLF001
+                    for app in _active_apps
+                )
+            ):
+                raise MultipleActiveAppsError
+            _active_apps.append(self)
         try:
+            self._discover_shared_providers()
+            self._warn_unlifecycled_providers()
+            self._resolve_provider_sharing()
+            self._exit_stack = AsyncExitStack()
+            await self._exit_stack.__aenter__()
+            self._token = _current_micro.set(self)
             for item in self._items:
                 await self._exit_stack.enter_async_context(item)
             self._instrument_providers()
         except BaseException:
-            _active_apps.remove(self)
-            _current_micro.reset(self._token)
+            with _active_apps_lock:
+                if self in _active_apps:  # pragma: no branch
+                    _active_apps.remove(self)
+            if self._token is not None:
+                _current_micro.reset(self._token)
             self._token = None
-            await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
+            if self._exit_stack is not None:
+                await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
             self._exit_stack = None
             raise
         return self
@@ -894,8 +906,9 @@ class Grelmicro:
             if self._token is not None:  # pragma: no branch
                 _current_micro.reset(self._token)
                 self._token = None
-            if self in _active_apps:  # pragma: no branch
-                _active_apps.remove(self)
+            with _active_apps_lock:
+                if self in _active_apps:  # pragma: no branch
+                    _active_apps.remove(self)
             self._exit_stack = None
 
     def _discover_shared_providers(self) -> None:

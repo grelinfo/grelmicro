@@ -302,8 +302,8 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryLockAdapter()` for a per-process
                 lock), register a `Coordination` Component, or run the
-                call under the app context (for FastAPI, add
-                `GrelmicroMiddleware`).
+                call inside `async with micro:` or after
+                `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend
@@ -321,8 +321,8 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             msg = (
                 f"TaskLock({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryLockAdapter() for a per-process lock), "
-                f"register a Coordination component, or run the call under "
-                f"the app context (for FastAPI add GrelmicroMiddleware)."
+                f"register a Coordination component, or run the call inside "
+                f"`async with micro:` or after `micro.install(app)`."
             )
             raise OutOfContextError(msg) from None
         return coordination.lock_backend

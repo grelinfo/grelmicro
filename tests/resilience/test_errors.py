@@ -103,6 +103,7 @@ def test_resilience_module_exports() -> None:
         "RetryBackoffConfig",
         "RetryConfig",
         "RetryStrategy",
+        "SQLiteCircuitBreakerAdapter",
         "SQLiteRateLimiterAdapter",
         "Shield",
         "ShieldConfig",

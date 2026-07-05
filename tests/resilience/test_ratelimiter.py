@@ -376,7 +376,7 @@ async def test_acquire_raises_out_of_context_when_component_active() -> None:
             # visible here, mimicking a FastAPI handler.
             _ = rl.backend
 
-        with pytest.raises(OutOfContextError, match="add GrelmicroMiddleware"):
+        with pytest.raises(OutOfContextError, match=r"micro\.install"):
             contextvars.Context().run(resolve)
 
 

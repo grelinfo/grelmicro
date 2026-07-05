@@ -153,3 +153,40 @@ def test_every_exported_symbol_resolves(module_name: str) -> None:
         assert getattr(module, name, None) is not None, (
             f"{module_name}.{name} is listed in __all__ but does not resolve"
         )
+
+
+# Adapter families that must stay symmetric on the top-level package. Each
+# tuple is ``(package, base_name, [backend, ...])``. Every backend the package
+# ships must export a ``{Backend}{base_name}`` symbol from ``__all__``, so a
+# documented adapter can never silently drop off the public surface (as the
+# SQLite circuit breaker adapter once did).
+_ADAPTER_FAMILIES = [
+    (
+        "grelmicro.resilience",
+        "CircuitBreakerAdapter",
+        ["Memory", "Redis", "Postgres", "SQLite"],
+    ),
+    (
+        "grelmicro.resilience",
+        "RateLimiterAdapter",
+        ["Memory", "Redis", "Postgres", "SQLite"],
+    ),
+]
+
+
+@pytest.mark.parametrize(("package", "base", "backends"), _ADAPTER_FAMILIES)
+def test_adapter_family_export_parity(
+    package: str, base: str, backends: list[str]
+) -> None:
+    """Every backend in an adapter family is exported from the package."""
+    module = importlib.import_module(package)
+    exported = set(module.__all__)
+    for backend in backends:
+        symbol = f"{backend}{base}"
+        assert symbol in exported, (
+            f"{package} exports other {base} backends but is missing "
+            f"{symbol}. Add it to __all__ and the lazy import map."
+        )
+        assert getattr(module, symbol, None) is not None, (
+            f"{package}.{symbol} is listed in __all__ but does not resolve"
+        )

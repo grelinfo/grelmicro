@@ -5,9 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from time import monotonic
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 from grelmicro import Grelmicro
 from grelmicro._config import reconfigurable_instances, reconfigure_all
@@ -244,6 +248,44 @@ class TestSingleFlight:
 class TestFingerprint:
     """Test payload fingerprint match and conflict."""
 
+    async def test_fingerprint_write_failure_stores_no_response(
+        self,
+    ) -> None:
+        """A failed fingerprint write must not leave a replayable response."""
+
+        class FailingFingerprintBackend(MemoryCacheAdapter):
+            fail_fingerprint_writes = True
+
+            async def set(
+                self,
+                *,
+                key: str,
+                value: bytes,
+                ttl: float,
+                tags: Sequence[str] = (),
+            ) -> None:
+                if self.fail_fingerprint_writes and key.endswith("\x1ffp"):
+                    msg = "fingerprint write failed before storage"
+                    raise RuntimeError(msg)
+                await super().set(key=key, value=value, ttl=ttl, tags=tags)
+
+        backend = FailingFingerprintBackend()
+        cache = TTLCache(ttl=3600, backend=backend, serializer=JsonSerializer())
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        with pytest.raises(RuntimeError, match="fingerprint write failed"):
+            async with idem("key-1", fingerprint="abc") as op:
+                op.store({"status": "old"})
+
+        backend.fail_fingerprint_writes = False
+        async with idem("key-1", fingerprint="xyz") as op:
+            assert op.replayed is False
+            op.store({"status": "fresh"})
+
+        async with idem("key-1", fingerprint="xyz") as op:
+            assert op.replayed is True
+            assert op.response == {"status": "fresh"}
+
     async def test_fingerprint_match_replays(self, cache: TTLCache) -> None:
         """A replay with the same fingerprint returns the stored response."""
         idem = Idempotency("charge", ttl=3600, cache=cache)
@@ -451,7 +493,7 @@ class TestBackendResolution:
         """No explicit cache and no active app raises out of context."""
         idem = Idempotency("charge", ttl=3600)
 
-        with pytest.raises(OutOfContextError, match="GrelmicroMiddleware"):
+        with pytest.raises(OutOfContextError, match=r"micro\.install"):
             async with idem("key-1"):
                 pass
 
@@ -561,7 +603,7 @@ class TestCoverageGaps:
         micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
         idem = Idempotency("charge", ttl=3600, cache=idem_cache)
 
-        # Patch _replay to raise on the third call (first two return _SENTINEL;
+        # Patch _replay to raise on the third call. First two return _SENTINEL,
         # the third happens after the distributed lock is acquired).
         # Three calls: before try, inside try before distributed lock, after lock.
         _RAISE_AFTER = 3  # noqa: N806
@@ -581,7 +623,7 @@ class TestCoverageGaps:
         async with micro:
             with pytest.raises(RuntimeError, match="cache error after lock"):
                 async with idem("key-err"):
-                    pass  # never reached; enter raises
+                    pass  # never reached because enter raises
 
     async def test_reconfigure_all_type_error_is_logged_not_raised(
         self, cache: TTLCache, caplog: pytest.LogCaptureFixture

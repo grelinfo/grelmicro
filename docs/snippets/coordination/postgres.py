@@ -1,6 +1,8 @@
+import os
+
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
 from grelmicro.providers.postgres import PostgresProvider
 
-postgres = PostgresProvider("postgresql://user:password@localhost:5432/db")
+postgres = PostgresProvider(os.environ["POSTGRES_URL"])
 micro = Grelmicro(uses=[Coordination(postgres)])

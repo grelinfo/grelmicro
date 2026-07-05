@@ -423,8 +423,8 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryCircuitBreakerAdapter()` for a
                 per-replica breaker), register a `CircuitBreakerRegistry`
-                Component, or run the call under the app context (for
-                FastAPI, add `GrelmicroMiddleware`).
+                Component, or run the call inside `async with micro:` or
+                after `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend
@@ -443,8 +443,8 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                 f"CircuitBreaker({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryCircuitBreakerAdapter() for a per-replica "
                 f"breaker), register a CircuitBreakerRegistry component, or run "
-                f"the call under the app context (for FastAPI add "
-                f"GrelmicroMiddleware)."
+                f"the call inside `async with micro:` or after "
+                f"`micro.install(app)`."
             )
             raise OutOfContextError(msg) from None
         return component.backend
