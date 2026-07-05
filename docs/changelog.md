@@ -4,20 +4,20 @@
 
 ### Fixed
 
-* 🐛 Make idempotency storage atomic. The fingerprint guard is now written before the response and outlives it, so a failed guard write can never leave a response that a different payload could replay.
-* 🐛 Guard the process-global active-app registry with a lock so two apps starting concurrently cannot both enter and clobber each other's `Log`/`Trace`/`Metrics` state. The second raises `MultipleActiveAppsError`.
-* 🐛 Roll back an opened `Grelmicro` app when a later FastStream startup hook fails, so a failed startup no longer leaves the app open and registered.
-* 🐛 Export `SQLiteCircuitBreakerAdapter` from `grelmicro.resilience`, matching the other circuit breaker adapters.
+* 🐛 Make idempotency storage atomic. The fingerprint guard is now written before the response and outlives it, so a failed guard write can never leave a response that a different payload could replay. ([#494](https://github.com/grelinfo/grelmicro/issues/494))
+* 🐛 Guard the process-global active-app registry with a lock so two apps starting concurrently cannot both enter and clobber each other's `Log`/`Trace`/`Metrics` state. The second raises `MultipleActiveAppsError`. ([#494](https://github.com/grelinfo/grelmicro/issues/494))
+* 🐛 Roll back an opened `Grelmicro` app when a later FastStream startup hook fails, so a failed startup no longer leaves the app open and registered. ([#494](https://github.com/grelinfo/grelmicro/issues/494))
+* 🐛 Export `SQLiteCircuitBreakerAdapter` from `grelmicro.resilience`, matching the other circuit breaker adapters. ([#494](https://github.com/grelinfo/grelmicro/issues/494))
 
 ### Security
 
-* 🔒 Make the `TaskLock` token nonce unpredictable (a process-local counter joined with random bytes) so an untrusted in-process caller cannot forge another handle's ownership token.
+* 🔒 Make the `TaskLock` token nonce unpredictable (a process-local counter joined with random bytes) so an untrusted in-process caller cannot forge another handle's ownership token. ([#494](https://github.com/grelinfo/grelmicro/issues/494))
 
 ### Docs
 
-* 📝 Point every ambient-miss `OutOfContextError` at `micro.install(app)`, and switch the README and first-steps examples to the one-call `micro.install(app)` form.
-* 📝 Add a first-use mental model, an operator defaults reference, an API conventions page, an adapter import policy, and decision tables for rate limiter methods and task entry points.
-* 📝 Warn that `/healthz` always returns each check's `error` string, and that cache keys and tags derived from untrusted input must stay bounded.
+* 📝 Point every ambient-miss `OutOfContextError` at `micro.install(app)`, and switch the README and first-steps examples to the one-call `micro.install(app)` form. ([#494](https://github.com/grelinfo/grelmicro/issues/494))
+* 📝 Add a first-use mental model, an operator defaults reference, an API conventions page, an adapter import policy, and decision tables for rate limiter methods and task entry points. ([#494](https://github.com/grelinfo/grelmicro/issues/494))
+* 📝 Warn that `/healthz` always returns each check's `error` string, and that cache keys and tags derived from untrusted input must stay bounded. ([#494](https://github.com/grelinfo/grelmicro/issues/494))
 
 ## 0.28.1 - 2026-07-05
 
