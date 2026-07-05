@@ -1873,10 +1873,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.trace.Trace.active" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;active
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.trace.Trace.from_config" class="md-nav__link">
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.trace.Trace.owns_global_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;owns_global_state
       
     </span>
   </a>
@@ -3013,10 +3035,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.trace.Trace.active" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;active
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.trace.Trace.from_config" class="md-nav__link">
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;from_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.trace.Trace.owns_global_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;owns_global_state
       
     </span>
   </a>
@@ -4050,12 +4094,40 @@ installed.</p>
             </td>
             <td class="doc-raises-details">
               <div class="doc-md-description">
-                <p>If accessed before the component has been entered.</p>
+                <p>If accessed before the component has been entered,
+or when the exporter auto-disables so no provider is installed.</p>
               </div>
             </td>
           </tr>
       </tbody>
     </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="grelmicro.trace.Trace.active" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">active</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">active</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether entering installs a <code>TracerProvider</code> for this app.</p>
+<p><code>False</code> when the exporter auto-disables: the default <code>auto</code> exporter
+with no endpoint configured. An auto-disabled <code>Trace</code> is a no-op, so
+it can be registered unconditionally in dev, test, and CI.</p>
 
     </div>
 
@@ -4136,6 +4208,28 @@ path is bypassed and the config is used as-is.</p>
           </tr>
       </tbody>
     </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.trace.Trace.owns_global_state" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">owns_global_state</span>
+
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">owns_global_state</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether entering patches the process-global tracer provider.</p>
+<p>Consulted by the app's single-active-app guard. An auto-disabled
+<code>Trace</code> installs nothing, so overlapping apps may each carry one.</p>
 
 
     </div>

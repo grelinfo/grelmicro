@@ -2787,8 +2787,8 @@
 </code></pre></div>
 <div class="admonition tip">
 <p class="admonition-title">Off until an endpoint is configured</p>
-<p><code>Trace()</code> defaults to <code>TraceExporterType.AUTO</code>. It exports over OTLP HTTP when an endpoint is configured (the <code>endpoint</code> argument, <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code>, or <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>) and otherwise no-ops. So you register <code>Trace()</code> unconditionally and it stays silent in dev, test, and CI instead of falling back to <code>localhost:4318</code>. A bounded <code>shutdown_timeout</code> (default <code>5.0</code> seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.</p>
-<p>For local development, set <code>exporter=TraceExporterType.CONSOLE</code> to print spans to the console. Use <code>TraceExporterType.NONE</code> to force export off even when an endpoint is set.</p>
+<p><code>Trace()</code> defaults to <code>TraceExporterType.AUTO</code>. It exports over OTLP HTTP when an endpoint is configured (the <code>endpoint</code> argument, <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code>, or <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>) and otherwise auto-disables into a true no-op: it installs no tracer provider, leaves the global provider untouched, and runs no auto-instrumentation. So you register <code>Trace()</code> unconditionally and it stays silent in dev, test, and CI instead of falling back to <code>localhost:4318</code>, and it never conflicts with a second app. A bounded <code>shutdown_timeout</code> (default <code>5.0</code> seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.</p>
+<p>For local development, set <code>exporter=TraceExporterType.CONSOLE</code> to print spans to the console. An explicit <code>TraceExporterType.NONE</code> is different from the auto-disable above: it still installs the provider so spans are created (and auto-instrumentation runs), they are just not exported. Leave the exporter on <code>AUTO</code> for the unconditional no-op.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Basic auth in one line</p>
