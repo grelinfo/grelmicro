@@ -496,6 +496,17 @@ def test_install_without_trace_skips_fastapi() -> None:
     assert getattr(app, "_is_instrumented_by_opentelemetry", False) is False
 
 
+def test_install_skips_fastapi_when_trace_auto_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An auto-disabled `Trace` (no endpoint) skips FastAPI instrumentation."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    app = FastAPI()
+    Grelmicro(uses=[Trace()]).install(app)
+    assert getattr(app, "_is_instrumented_by_opentelemetry", False) is False
+
+
 # --- end-to-end span ---------------------------------------------------------
 
 

@@ -236,28 +236,72 @@ class Trace:
         """Return the installed OTel `TracerProvider`.
 
         Raises:
-            RuntimeError: If accessed before the component has been entered.
+            RuntimeError: If accessed before the component has been entered,
+                or when the exporter auto-disables so no provider is installed.
         """
         if self._provider is None:
-            msg = "Trace.provider is only available inside `async with micro:`"
+            msg = (
+                "Trace.provider is only available inside `async with micro:` "
+                "and only when the exporter is active. An auto-disabled Trace "
+                "(default exporter with no endpoint) installs no provider."
+            )
             raise RuntimeError(msg)
         return self._provider
 
+    @property
+    def active(self) -> bool:
+        """Whether entering installs a `TracerProvider` for this app.
+
+        `False` when the exporter auto-disables: the default `auto` exporter
+        with no endpoint configured. An auto-disabled `Trace` is a no-op, so
+        it can be registered unconditionally in dev, test, and CI.
+        """
+        return not self._auto_disabled()
+
+    def owns_global_state(self) -> bool:
+        """Whether entering patches the process-global tracer provider.
+
+        Consulted by the app's single-active-app guard. An auto-disabled
+        `Trace` installs nothing, so overlapping apps may each carry one.
+        """
+        return self.active
+
+    def _auto_disabled(self) -> bool:
+        """Return True when the exporter was left `auto` and resolves to `none`."""
+        config = self._resolve()
+        return (
+            config.exporter is TraceExporterType.AUTO
+            and _resolve_exporter_type(config) is TraceExporterType.NONE
+        )
+
+    def _resolve(self) -> TraceConfig:
+        """Resolve the config once per open cycle (cleared on exit)."""
+        if self._resolved is None:
+            self._resolved = resolve_config(
+                TraceConfig,
+                explicit=self._explicit_config,
+                kwargs=self._kwargs,
+                env_prefix="GREL_TRACE_",
+                env_load=self._env_load,
+                error_type=TraceSettingsValidationError,
+            )
+        return self._resolved
+
     async def __aenter__(self) -> Self:
-        """Build the `TracerProvider` and install it as the global provider."""
+        """Build the `TracerProvider` and install it as the global provider.
+
+        When the exporter auto-disables (default `auto` exporter, no endpoint),
+        this is a true no-op: no provider is built, the process-global tracer
+        provider is left untouched, and auto-instrumentation is skipped.
+        """
+        config = self._resolve()
+        if not self.active:
+            return self
         try:
             from opentelemetry import trace  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover
             raise DependencyNotFoundError(module="opentelemetry-api") from exc
 
-        self._resolved = resolve_config(
-            TraceConfig,
-            explicit=self._explicit_config,
-            kwargs=self._kwargs,
-            env_prefix="GREL_TRACE_",
-            env_load=self._env_load,
-            error_type=TraceSettingsValidationError,
-        )
         # `opentelemetry.trace.set_tracer_provider()` refuses to replace an
         # already-installed provider, so `Trace` patches the private
         # `trace._TRACER_PROVIDER` global directly. A future OTel release
@@ -272,7 +316,7 @@ class Trace:
             )
             raise TraceError(msg)
         self._prior_provider = trace._TRACER_PROVIDER  # type: ignore[attr-defined]  # noqa: SLF001
-        self._provider = _build_provider(self._resolved)
+        self._provider = _build_provider(config)
         trace._TRACER_PROVIDER = self._provider  # type: ignore[attr-defined]  # noqa: SLF001
         return self
 
@@ -293,6 +337,12 @@ class Trace:
         exit. On timeout a warning is logged and the global provider is
         restored regardless.
         """
+        if self._provider is None:
+            # Auto-disabled on enter: nothing was installed, nothing to undo.
+            self._resolved = None
+            self._prior_provider = None
+            return None
+
         from opentelemetry import trace  # noqa: PLC0415
 
         try:
@@ -313,6 +363,7 @@ class Trace:
             trace._TRACER_PROVIDER = self._prior_provider  # type: ignore[attr-defined]  # noqa: SLF001
             self._provider = None
             self._prior_provider = None
+            self._resolved = None
         return None
 
 

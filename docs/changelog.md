@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+* ✨ Make `Trace` a true no-op when the exporter auto-disables. With the default `auto` exporter and no endpoint, `Trace` installs no tracer provider, leaves the global untouched, runs no auto-instrumentation, and no longer counts against the single-active-app guard, so `Trace()` is safe to register unconditionally in dev, test, and CI. An explicit `exporter=none` still installs the provider. ([#487](https://github.com/grelinfo/grelmicro/issues/487))
+
 ### Fixed
 
 * 🐛 Block a second app that installs `Metrics` while one is active, matching `Log` and `Trace`. `Metrics` owns the process-global meter provider, so two overlapping apps would clobber it.
