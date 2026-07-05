@@ -116,9 +116,9 @@ configure()
 ```
 
 !!! tip "Off until an endpoint is configured"
-    `Trace()` defaults to `TraceExporterType.AUTO`. It exports over OTLP HTTP when an endpoint is configured (the `endpoint` argument, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and otherwise no-ops. So you register `Trace()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
+    `Trace()` defaults to `TraceExporterType.AUTO`. It exports over OTLP HTTP when an endpoint is configured (the `endpoint` argument, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and otherwise auto-disables into a true no-op: it installs no tracer provider, leaves the global provider untouched, and runs no auto-instrumentation. So you register `Trace()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`, and it never conflicts with a second app. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
 
-    For local development, set `exporter=TraceExporterType.CONSOLE` to print spans to the console. Use `TraceExporterType.NONE` to force export off even when an endpoint is set.
+    For local development, set `exporter=TraceExporterType.CONSOLE` to print spans to the console. An explicit `TraceExporterType.NONE` is different from the auto-disable above: it still installs the provider so spans are created (and auto-instrumentation runs), they are just not exported. Leave the exporter on `AUTO` for the unconditional no-op.
 
 !!! note "Basic auth in one line"
     Backends like OpenObserve want an `Authorization: Basic` header. Pass `basic_auth=(username, password)` and `Trace` builds and attaches it to the exporter:

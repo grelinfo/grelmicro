@@ -9,7 +9,7 @@ from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
 
 from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
-from grelmicro.errors import SettingsValidationError
+from grelmicro.errors import MultipleActiveAppsError, SettingsValidationError
 from grelmicro.trace import (
     Trace,
     TraceConfig,
@@ -315,12 +315,56 @@ def test_explicit_exporter_unchanged_without_endpoint() -> None:
 async def test_auto_exporter_enters_inert_without_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A default `Trace()` enters cleanly and exports nothing."""
+    """A default `Trace()` is a no-op: no provider installed, global untouched."""
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    prior = otel_trace.get_tracer_provider()
     micro = Grelmicro(uses=[Trace(service_name="orders")])
     async with micro:
         assert micro.trace.config.exporter == TraceExporterType.AUTO
+        assert micro.trace.active is False
+        assert otel_trace.get_tracer_provider() is prior
+    assert otel_trace.get_tracer_provider() is prior
+
+
+async def test_auto_disabled_provider_access_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`Trace.provider` reports the auto-disabled state clearly."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    micro = Grelmicro(uses=[Trace()])
+    async with micro:
+        with pytest.raises(RuntimeError, match="auto-disabled"):
+            _ = micro.trace.provider
+
+
+async def test_auto_disabled_traces_allow_overlapping_apps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auto-disabled `Trace` owns no global state, so two apps overlap freely."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    async with Grelmicro(uses=[Trace()]), Grelmicro(uses=[Trace()]):
+        pass  # no MultipleActiveAppsError
+
+
+async def test_active_trace_still_blocks_second_app() -> None:
+    """An active `Trace` (explicit exporter) still blocks an overlapping app."""
+    async with Grelmicro(uses=[Trace(exporter=TraceExporterType.CONSOLE)]):
+        with pytest.raises(MultipleActiveAppsError):
+            async with Grelmicro(
+                uses=[Trace(exporter=TraceExporterType.CONSOLE)]
+            ):
+                pass
+
+
+async def test_explicit_none_still_installs_provider() -> None:
+    """Explicit `exporter=none` keeps installing a provider (stays active)."""
+    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.NONE)])
+    async with micro:
+        assert micro.trace.active is True
+        assert isinstance(micro.trace.provider, TracerProvider)
 
 
 def test_basic_auth_header_is_base64_encoded() -> None:

@@ -58,6 +58,20 @@ overlap freely, matching how web frameworks treat multiple app objects.
 """
 
 
+def _item_owns_global_state(item: object) -> bool:
+    """Return True if a registered item configures process-global state.
+
+    A kind in `_GLOBAL_STATE_KINDS` owns global state by default. An item may
+    refine this with an `owns_global_state()` method: an auto-disabled `Trace`
+    (default exporter, no endpoint) installs nothing, so it opts out and lets
+    overlapping apps carry it.
+    """
+    if getattr(item, "kind", None) not in _GLOBAL_STATE_KINDS:
+        return False
+    refine = getattr(item, "owns_global_state", None)
+    return bool(refine()) if callable(refine) else True
+
+
 _AMBIENT_KINDS = frozenset(
     {"coordination", "cache", "ratelimiter", "circuitbreaker"}
 )
@@ -763,10 +777,7 @@ class Grelmicro:
 
     def _owns_global_state(self) -> bool:
         """Return True if any registered item configures process-global state."""
-        return any(
-            getattr(item, "kind", None) in _GLOBAL_STATE_KINDS
-            for item in self._items
-        )
+        return any(_item_owns_global_state(item) for item in self._items)
 
     def _instrument_providers(self) -> None:
         """Auto-instrument active providers and used libraries per `Trace(instrument=...)`.
@@ -788,6 +799,10 @@ class Grelmicro:
             None,
         )
         if component is None:
+            return
+        if not cast("Trace", component).active:
+            # Auto-disabled Trace installs no provider, so there is nothing to
+            # bind auto-instrumentation to.
             return
         from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
             KNOWN_FRAMEWORKS,

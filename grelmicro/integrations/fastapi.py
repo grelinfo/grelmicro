@@ -65,6 +65,10 @@ def _instrument_app(app: "Starlette", micro: "Grelmicro") -> None:
     if component is None:
         return
     trace = cast("Trace", component)
+    if not trace.active:
+        # Auto-disabled Trace installs no provider, so request spans would go
+        # nowhere. Skip instrumentation until an exporter endpoint is set.
+        return
     directive = trace.instrument
     if not is_selected("fastapi", directive):
         return
