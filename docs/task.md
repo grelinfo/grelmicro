@@ -39,6 +39,16 @@ The `Tasks` class is the main entry point to manage tasks. The recommended way t
 
 `Grelmicro.use(item)` (or the `uses=` constructor kwarg) accepts any async context manager and lifecycles it with the app. The caller keeps the reference and uses the manager directly.
 
+Choose the entry point by the job:
+
+| Need | Use |
+|---|---|
+| Simple recurring function | `@tasks.every(...)` |
+| Group tasks across modules | `TaskRouter` |
+| Add an object that already implements the task protocol | `tasks.add_task(...)` |
+| Run at most once across replicas | `@tasks.every(..., lock=TaskLock(...))` |
+| Run only on the leader | `@tasks.every(..., leader=leader_election)` |
+
 Start it standalone using the application lifespan:
 
 === "FastAPI"

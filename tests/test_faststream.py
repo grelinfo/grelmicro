@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 import pytest
 
@@ -30,6 +30,22 @@ if TYPE_CHECKING:
     from grelmicro.trace._autoinstrument import InstrumentDirective
 
 pytestmark = [pytest.mark.timeout(5)]
+
+
+class _RecordingComponent:
+    kind = "rec"
+    name = "default"
+
+    def __init__(self) -> None:
+        self.entered = 0
+        self.exited = 0
+
+    async def __aenter__(self) -> Self:
+        self.entered += 1
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        self.exited += 1
 
 
 @asynccontextmanager
@@ -174,6 +190,49 @@ async def test_install_ambient_false_still_opens_lifecycle() -> None:
         await broker.request("ping", "limited")
 
     assert opened == [True]
+
+
+async def test_install_closes_micro_when_later_startup_hook_fails() -> None:
+    """A later startup failure rolls back an opened micro app."""
+    component = _RecordingComponent()
+    broker = RedisBroker()
+    app = FastStream(broker)
+    micro = Grelmicro(uses=[component])
+    micro.install(app)
+
+    @app.on_startup
+    async def fail_after_micro_open() -> None:
+        msg = "later startup failed"
+        raise RuntimeError(msg)
+
+    with pytest.raises(RuntimeError, match="later startup failed"):
+        await app.start()
+
+    assert component.entered == 1
+    assert component.exited == 1
+
+
+async def test_install_leaves_micro_closed_when_startup_fails_before_open() -> (
+    None
+):
+    """A startup failure before micro opens leaves nothing to roll back."""
+    component = _RecordingComponent()
+    broker = RedisBroker()
+    app = FastStream(broker)
+    micro = Grelmicro(uses=[component])
+
+    @app.on_startup
+    async def fail_before_micro_open() -> None:
+        msg = "early startup failed"
+        raise RuntimeError(msg)
+
+    micro.install(app)
+
+    with pytest.raises(RuntimeError, match="early startup failed"):
+        await app.start()
+
+    assert component.entered == 0
+    assert component.exited == 0
 
 
 def test_install_ambient_false_strict_raises() -> None:

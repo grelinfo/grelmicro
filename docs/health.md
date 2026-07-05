@@ -220,6 +220,9 @@ With details enabled, each check entry includes a `details` field:
 }
 ```
 
+!!! warning "The `error` field is always returned"
+    `show_details` strips only the `details` field. Each failing check still reports its `error` string, even on a public `/healthz`. Keep check error messages safe for the endpoint audience: raise `HealthError` with a short, non-sensitive message and put diagnostics in `details`, which stays hidden by default. To hide error strings too, gate the whole endpoint with `healthz_dependencies`.
+
 #### `show_details` vs `healthz_dependencies`
 
 Two independent gates sit in front of `/healthz`:

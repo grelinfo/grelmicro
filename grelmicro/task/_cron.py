@@ -377,8 +377,8 @@ class CronTask(Task):
         Raises:
             OutOfContextError: An app is running but no `Coordination`
                 component is registered. Pass `backend=`, register a
-                `Coordination` Component, or run the call under the app
-                context (for FastAPI, add `GrelmicroMiddleware`).
+                `Coordination` Component, or run the call inside
+                `async with micro:` or after `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend
@@ -399,8 +399,8 @@ class CronTask(Task):
             msg = (
                 f"Cron task {self.name!r} resolved no schedule backend. "
                 f"Pass backend=, register a Coordination component, or run "
-                f"the call under the app context (for FastAPI add "
-                f"GrelmicroMiddleware)."
+                f"the call inside `async with micro:` or after "
+                f"`micro.install(app)`."
             )
             raise OutOfContextError(msg) from None
         return coordination.schedule_backend

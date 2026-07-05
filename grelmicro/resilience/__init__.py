@@ -123,6 +123,9 @@ if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker.redis import (
         RedisCircuitBreakerAdapter,
     )
+    from grelmicro.resilience.circuitbreaker.sqlite import (
+        SQLiteCircuitBreakerAdapter,
+    )
     from grelmicro.resilience.fallback import (
         Fallback,
         FallbackConfig,
@@ -213,6 +216,7 @@ __all__ = [
     "RetryBackoffConfig",
     "RetryConfig",
     "RetryStrategy",
+    "SQLiteCircuitBreakerAdapter",
     "SQLiteRateLimiterAdapter",
     "Shield",
     "ShieldConfig",
@@ -264,6 +268,10 @@ _LAZY: dict[str, tuple[str, str]] = {
     "RedisCircuitBreakerAdapter": (
         "grelmicro.resilience.circuitbreaker.redis",
         "RedisCircuitBreakerAdapter",
+    ),
+    "SQLiteCircuitBreakerAdapter": (
+        "grelmicro.resilience.circuitbreaker.sqlite",
+        "SQLiteCircuitBreakerAdapter",
     ),
     # Rate limiter
     "RateLimiter": ("grelmicro.resilience.ratelimiter", "RateLimiter"),

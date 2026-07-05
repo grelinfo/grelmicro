@@ -76,7 +76,7 @@ class _RaisingComponent(_RecordingComponent):
 class _RecordingLockAdapter:
     """A `LockBackend` that borrows a provider it does not own.
 
-    Only the lifecycle hooks run in these tests; the lock methods are
+    Only the lifecycle hooks run in these tests. The lock methods are
     stubs present to satisfy the `LockBackend` protocol.
     """
 
@@ -113,7 +113,7 @@ class _RecordingLockAdapter:
 class _RecordingElectionAdapter:
     """A `LeaderElectionBackend` that borrows a provider it does not own.
 
-    Only the lifecycle hooks run in these tests; the election methods are
+    Only the lifecycle hooks run in these tests. The election methods are
     stubs present to satisfy the `LeaderElectionBackend` protocol.
     """
 
@@ -444,7 +444,7 @@ class _RecordingContext:
 
 
 def test_use_plain_context_manager_returns_none() -> None:
-    """`.use()` on a plain async context manager returns None; caller keeps the reference."""
+    """`.use()` on a plain async context manager returns None. Caller keeps the reference."""
     micro = Grelmicro()
     item = _RecordingContext(log=[], label="x")
     assert micro.use(item) is None
@@ -515,7 +515,7 @@ def test_runtime_type_hints_resolve_without_loading_submodules() -> None:
 
     hints = get_type_hints(Grelmicro)
     # Property names show up via class-level resolution under
-    # `from __future__ import annotations`; the call must not raise.
+    # `from __future__ import annotations` is active. The call must not raise.
     assert isinstance(hints, dict)
 
 
@@ -802,12 +802,53 @@ class _GlobalComponent(_RecordingComponent):
     kind: ClassVar[str] = "log"
 
 
+class _BlockingGlobalComponent(_GlobalComponent):
+    """Global component that pauses startup after the app slot is reserved."""
+
+    def __init__(
+        self, *, entered: asyncio.Event, release: asyncio.Event
+    ) -> None:
+        super().__init__()
+        self._entered = entered
+        self._release = release
+
+    async def __aenter__(self) -> Self:
+        self._entered.set()
+        await self._release.wait()
+        return await super().__aenter__()
+
+
 async def test_second_global_app_is_blocked() -> None:
     """A second app owning global state, while one is active, is blocked."""
     async with Grelmicro(uses=[_GlobalComponent()]):
         with pytest.raises(MultipleActiveAppsError):
             async with Grelmicro(uses=[_GlobalComponent()]):
                 pass
+
+
+async def test_concurrent_global_app_startup_is_blocked() -> None:
+    """A global-state app is reserved before startup reaches its first await."""
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    started = asyncio.Event()
+    stop = asyncio.Event()
+    micro = Grelmicro(
+        uses=[_BlockingGlobalComponent(entered=entered, release=release)]
+    )
+
+    async def run_micro() -> None:
+        async with micro:
+            started.set()
+            await stop.wait()
+
+    task = asyncio.create_task(run_micro())
+    await entered.wait()
+    with pytest.raises(MultipleActiveAppsError):
+        await Grelmicro(uses=[_GlobalComponent()]).__aenter__()
+    release.set()
+    await started.wait()
+    stop.set()
+    await task
 
 
 async def test_apps_without_global_state_overlap_freely() -> None:

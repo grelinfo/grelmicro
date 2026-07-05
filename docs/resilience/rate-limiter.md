@@ -20,6 +20,15 @@ Load a backend, build a limiter with a factory classmethod, then call `acquire`:
 
 ### Checking the limit
 
+Pick the call by what you need:
+
+| Need | Method | Why |
+|---|---|---|
+| Just branch yes or no | `allow()` | Smallest code. |
+| Build HTTP 429 headers | `acquire()` | Keeps `retry_after`, `remaining`, and `reset_after`. |
+| Let a shared handler map rejections | `acquire_or_raise()` | Raises `RateLimitExceededError`, an `AdmissionError`. |
+| Smooth work instead of rejecting | `wait()` | Sleeps until admitted, with optional `max_wait`. |
+
 The simplest form is a boolean:
 
 ```python

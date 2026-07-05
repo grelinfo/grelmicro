@@ -10,6 +10,7 @@ This section documents the internal design decisions and guarantees of grelmicro
 - **[Plugins](plugins.md)**: Entry-point groups that let third-party packages register Providers and Adapters.
 - **[Multiple apps](multiple-apps.md)**: When two `Grelmicro` apps can run concurrently, and why `Log`, `Trace`, and `Metrics` are the exception.
 - **[Decorators](decorators.md)**: Which decorators take the bare `@deco` form, which require `@deco(...)`, and which wrap sync functions.
+- **[API Conventions](api-conventions.md)**: Constructor and factory rules: positional `name` on patterns, keyword-only `name` on components, factory classmethods for algorithms.
 - **[Coordination](coordination.md)**: Worker identity, token generation, lock design, and cleanup strategy.
 - **[Kubernetes Backend](kubernetes.md)**: Lease resources, optimistic concurrency, and name sanitization.
 - **[SQLite Backend](sqlite.md)**: WAL mode.

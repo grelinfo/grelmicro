@@ -114,8 +114,8 @@ class _Block(Generic[T]):
         Raises:
             OutOfContextError: No cache backend resolved in this scope.
                 Pass `cache=`, register a `Cache` Component, or run the
-                call under the app context (for FastAPI, add
-                `GrelmicroMiddleware`).
+                call inside `async with micro:` or after
+                `micro.install(app)`.
         """
         from grelmicro._app import (  # noqa: PLC0415
             ComponentNotRegisteredError,
@@ -135,8 +135,8 @@ class _Block(Generic[T]):
             msg = (
                 f"Idempotency({self._idempotency.name!r}) resolved no "
                 f"cache backend. Pass cache=, register a Cache "
-                f"component, or run the call under the app context (for "
-                f"FastAPI add GrelmicroMiddleware)."
+                f"component, or run the call inside `async with micro:` or "
+                f"after `micro.install(app)`."
             )
             raise OutOfContextError(msg) from None
         if replay is not _SENTINEL:
@@ -545,10 +545,11 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         """Store the response and the optional fingerprint under `ttl`."""
         scoped = self._scoped(key)
         ttl = self._config.ttl
-        await self._cache.set(scoped, response, ttl)
         if fingerprint is not None:
+            # Store the guard first so a response never outlives its check.
             await self._cache._get_backend().set(  # noqa: SLF001
                 key=f"{_CACHE_PREFIX}:{scoped}{_FINGERPRINT_SUFFIX}",
                 value=fingerprint.encode(),
-                ttl=ttl,
+                ttl=ttl + 1,
             )
+        await self._cache.set(scoped, response, ttl)

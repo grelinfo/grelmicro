@@ -73,6 +73,38 @@ a field out of the constructor to let the deployment set it.
 
 Each pattern page lists its own fields and the exact variable names.
 
+### Defaults reference
+
+The most important defaults for operators. All times are in seconds. Override
+any of them with the pattern prefix above plus the field name, uppercased.
+
+| Pattern | Field | Default |
+|---|---|---|
+| `Lock` | `lease_duration` | `60` |
+| `Lock` | `retry_interval` | `0.1` |
+| `TaskLock` | `lease_duration` | `60` |
+| `TaskLock` | `min_hold_duration` | `1` |
+| `LeaderElection` | `lease_duration` | `15` |
+| `LeaderElection` | `renew_deadline` | `10` |
+| `LeaderElection` | `retry_interval` | `2` |
+| `LeaderElection` | `backend_timeout` | `5` |
+| `TTLCache` | `ttl` | `60` |
+| `RateLimiter` | `fail_open` | `False` |
+| `CircuitBreaker` | `error_threshold` | `5` |
+| `CircuitBreaker` | `success_threshold` | `2` |
+| `CircuitBreaker` | `reset_timeout` | `30` |
+| `Retry` | `attempts` | `3` |
+| `Retry` | `backoff.base_delay` | `0.1` |
+| `Retry` | `backoff.max_delay` | `30` |
+| `Bulkhead` | `max_concurrent` | `None` (unbounded) |
+| `HealthChecks` | `timeout` | `5` |
+| `HealthChecks` | `cache_ttl` | `1` |
+| `Idempotency` | `ttl` | `86400` (1 day) |
+
+`TTLCache` and `Idempotency` set their `ttl` in code, not from the environment.
+`Timeout.seconds`, `Fallback.when`, and `Fallback.default` are required and have
+no default.
+
 ## Advanced
 
 The kwargs-and-env path covers most apps. When you need more, the

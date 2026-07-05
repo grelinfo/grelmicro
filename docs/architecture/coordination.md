@@ -32,6 +32,8 @@ This design provides the following guarantees:
 - **Idempotent**: The same async task (or thread) always produces the same deterministic token, so the backend accepts a re-acquire and extends the lease.
 - **Isolation**: Different lock instances have different worker identities, so their tokens never collide even when used from the same task or thread.
 
+`TaskLock` appends a per-handle nonce to its token (for example `{worker}:task:{task_id}:0.a1b2c3d4`). The nonce joins a process-local counter with random bytes, so it is unique across handles and unguessable. This keeps an untrusted in-process caller from forging another handle's ownership token, which matters when the same process loads untrusted plugins.
+
 ## Lock Name and Backend Key
 
 Each coordination primitive automatically prefixes the user-provided `name` with a type-specific namespace to form the backend key:

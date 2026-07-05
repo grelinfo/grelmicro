@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import sys
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from faststream import BaseMiddleware
@@ -136,6 +137,20 @@ def install(
     @app.after_shutdown
     async def _close_micro() -> None:
         await micro.__aexit__(None, None, None)
+
+    original_start = app.start
+
+    async def _start_with_micro_rollback(
+        **run_extra_options: Any,  # noqa: ANN401
+    ) -> None:
+        try:
+            await original_start(**run_extra_options)
+        except BaseException:
+            if micro._exit_stack is not None:  # noqa: SLF001
+                await micro.__aexit__(*sys.exc_info())
+            raise
+
+    app.start = _start_with_micro_rollback  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
     if ambient:
         middleware = type(

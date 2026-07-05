@@ -221,7 +221,7 @@ def test_circuit_raises_out_of_context_on_ambient_miss_with_active_component() -
     # `Context.run` executes `resolve` in a context where `_current_micro`
     # is unset, so `Grelmicro.current()` raises and the ambient-miss guard
     # fires even though the autouse app is active in the process.
-    with pytest.raises(OutOfContextError, match="add GrelmicroMiddleware"):
+    with pytest.raises(OutOfContextError, match=r"micro\.install"):
         contextvars.Context().run(resolve)
 
 
