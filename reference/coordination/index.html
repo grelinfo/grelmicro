@@ -2753,6 +2753,8 @@
       
         
       
+        
+      
     
     
     
@@ -3013,6 +3015,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -5179,8 +5209,8 @@ consulted via <code>Grelmicro.current()</code> on every access so that
                 <p>No backend resolved in this scope. Pass
 <code>backend=</code> (a <code>MemoryLockAdapter()</code> for a per-process
 lock), register a <code>Coordination</code> Component, or run the
-call under the app context (for FastAPI, add
-<code>GrelmicroMiddleware</code>).</p>
+call inside <code>async with micro:</code> or after
+<code>micro.install(app)</code>.</p>
               </div>
             </td>
           </tr>
@@ -6618,8 +6648,8 @@ consulted via <code>Grelmicro.current()</code> on every access so that
                 <p>No backend resolved in this scope. Pass
 <code>backend=</code> (a <code>MemoryLockAdapter()</code> for a per-process
 lock), register a <code>Coordination</code> Component, or run the
-call under the app context (for FastAPI, add
-<code>GrelmicroMiddleware</code>).</p>
+call inside <code>async with micro:</code> or after
+<code>micro.install(app)</code>.</p>
               </div>
             </td>
           </tr>
@@ -7804,8 +7834,8 @@ backend can point at a different vendor than its lock backend.</p>
                 <p>No backend resolved in this scope. Pass
 <code>backend=</code> (a <code>MemoryLeaderElectionAdapter()</code> for a
 per-process election), register a <code>Coordination</code>
-Component, or run the call under the app context (for
-FastAPI, add <code>GrelmicroMiddleware</code>).</p>
+Component, or run the call inside <code>async with micro:</code> or
+after <code>micro.install(app)</code>.</p>
               </div>
             </td>
           </tr>

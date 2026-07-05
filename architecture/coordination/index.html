@@ -1794,6 +1794,8 @@
       
         
       
+        
+      
     
     
     
@@ -2054,6 +2056,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -2701,6 +2731,7 @@
 <li><strong>Idempotent</strong>: The same async task (or thread) always produces the same deterministic token, so the backend accepts a re-acquire and extends the lease.</li>
 <li><strong>Isolation</strong>: Different lock instances have different worker identities, so their tokens never collide even when used from the same task or thread.</li>
 </ul>
+<p><code>TaskLock</code> appends a per-handle nonce to its token (for example <code>{worker}:task:{task_id}:0.a1b2c3d4</code>). The nonce joins a process-local counter with random bytes, so it is unique across handles and unguessable. This keeps an untrusted in-process caller from forging another handle's ownership token, which matters when the same process loads untrusted plugins.</p>
 <h2 id="lock-name-and-backend-key">Lock Name and Backend Key</h2>
 <p>Each coordination primitive automatically prefixes the user-provided <code>name</code> with a type-specific namespace to form the backend key:</p>
 <table>

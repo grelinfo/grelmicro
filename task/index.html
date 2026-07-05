@@ -1996,6 +1996,8 @@
       
         
       
+        
+      
     
     
     
@@ -2256,6 +2258,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -2789,6 +2819,37 @@
 <h2 id="tasks">Tasks</h2>
 <p>The <code>Tasks</code> class is the main entry point to manage tasks. The recommended way to lifecycle it is to register it with a <code>Grelmicro</code> app, as shown in the quick start above.</p>
 <p><code>Grelmicro.use(item)</code> (or the <code>uses=</code> constructor kwarg) accepts any async context manager and lifecycles it with the app. The caller keeps the reference and uses the manager directly.</p>
+<p>Choose the entry point by the job:</p>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Simple recurring function</td>
+<td><code>@tasks.every(...)</code></td>
+</tr>
+<tr>
+<td>Group tasks across modules</td>
+<td><code>TaskRouter</code></td>
+</tr>
+<tr>
+<td>Add an object that already implements the task protocol</td>
+<td><code>tasks.add_task(...)</code></td>
+</tr>
+<tr>
+<td>Run at most once across replicas</td>
+<td><code>@tasks.every(..., lock=TaskLock(...))</code></td>
+</tr>
+<tr>
+<td>Run only on the leader</td>
+<td><code>@tasks.every(..., leader=leader_election)</code></td>
+</tr>
+</tbody>
+</table>
 <p>Start it standalone using the application lifespan:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">FastAPI</label><label for="__tabbed_1_2">FastStream</label></div>
 <div class="tabbed-content">

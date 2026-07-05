@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/metrics/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/api-conventions/">
       
       
-        <link rel="prev" href="../tracing/">
+        <link rel="prev" href="../decorators/">
       
       
-        <link rel="next" href="../config/">
+        <link rel="next" href="../sync-from-thread/">
       
       
         
       
       
-      <link rel="icon" href="../img/logo/favicon-192.png">
+      <link rel="icon" href="../../img/logo/favicon-192.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Metrics - grelmicro</title>
+        <title>API Conventions - grelmicro</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,11 +53,11 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../css/overrides.css">
+      <link rel="stylesheet" href="../../css/overrides.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#metrics" class="md-skip">
+        <a href="#api-conventions" class="md-skip">
           Skip to content
         </a>
       
@@ -98,9 +98,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
+    <a href="../.." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  <img src="../img/logo/favicon-48.png" alt="logo">
+  <img src="../../img/logo/favicon-48.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Metrics
+              API Conventions
             
           </span>
         </div>
@@ -233,9 +233,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
+    <a href="../.." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  <img src="../img/logo/favicon-48.png" alt="logo">
+  <img src="../../img/logo/favicon-48.png" alt="logo">
 
     </a>
     grelmicro
@@ -262,7 +262,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -289,7 +289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/" class="md-nav__link">
+      <a href="../../installation/" class="md-nav__link">
         
   
   
@@ -313,10 +313,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -350,11 +348,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -375,7 +373,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -393,7 +391,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../first-steps/" class="md-nav__link">
+      <a href="../../first-steps/" class="md-nav__link">
         
   
   
@@ -421,7 +419,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../wiring/" class="md-nav__link">
+      <a href="../../wiring/" class="md-nav__link">
         
   
   
@@ -449,7 +447,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../cache/" class="md-nav__link">
+      <a href="../../cache/" class="md-nav__link">
         
   
   
@@ -477,7 +475,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../idempotency/" class="md-nav__link">
+      <a href="../../idempotency/" class="md-nav__link">
         
   
   
@@ -505,7 +503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../coordination/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
@@ -533,7 +531,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../task/" class="md-nav__link">
+      <a href="../../task/" class="md-nav__link">
         
   
   
@@ -595,7 +593,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../resilience/" class="md-nav__link ">
+            <a href="../../resilience/" class="md-nav__link ">
               
   
   
@@ -639,7 +637,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/shield/" class="md-nav__link">
+      <a href="../../resilience/shield/" class="md-nav__link">
         
   
   
@@ -667,7 +665,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/bulkhead/" class="md-nav__link">
+      <a href="../../resilience/bulkhead/" class="md-nav__link">
         
   
   
@@ -695,7 +693,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/circuit-breaker/" class="md-nav__link">
+      <a href="../../resilience/circuit-breaker/" class="md-nav__link">
         
   
   
@@ -723,7 +721,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/fallback/" class="md-nav__link">
+      <a href="../../resilience/fallback/" class="md-nav__link">
         
   
   
@@ -751,7 +749,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/rate-limiter/" class="md-nav__link">
+      <a href="../../resilience/rate-limiter/" class="md-nav__link">
         
   
   
@@ -779,7 +777,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/retry/" class="md-nav__link">
+      <a href="../../resilience/retry/" class="md-nav__link">
         
   
   
@@ -807,7 +805,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/timeout/" class="md-nav__link">
+      <a href="../../resilience/timeout/" class="md-nav__link">
         
   
   
@@ -835,7 +833,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/composition/" class="md-nav__link">
+      <a href="../../resilience/composition/" class="md-nav__link">
         
   
   
@@ -871,7 +869,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../health/" class="md-nav__link">
+      <a href="../../health/" class="md-nav__link">
         
   
   
@@ -899,7 +897,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../logging/" class="md-nav__link">
+      <a href="../../logging/" class="md-nav__link">
         
   
   
@@ -927,7 +925,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracing/" class="md-nav__link">
+      <a href="../../tracing/" class="md-nav__link">
         
   
   
@@ -952,37 +950,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Metrics
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../metrics/" class="md-nav__link">
         
   
   
@@ -998,92 +969,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#quick-start" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick Start
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#exporters" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Exporters
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#measure-your-own-functions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Measure your own functions
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-instruments" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom instruments
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#prometheus-endpoint" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prometheus endpoint
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#built-in-metrics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built-in metrics
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1096,7 +981,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/" class="md-nav__link">
+      <a href="../../config/" class="md-nav__link">
         
   
   
@@ -1124,7 +1009,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/" class="md-nav__link">
+      <a href="../../testing/" class="md-nav__link">
         
   
   
@@ -1220,7 +1105,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../advanced/config/" class="md-nav__link">
+      <a href="../../advanced/config/" class="md-nav__link">
         
   
   
@@ -1248,7 +1133,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/reconfigure-from-configmap/" class="md-nav__link">
+      <a href="../../configuration/reconfigure-from-configmap/" class="md-nav__link">
         
   
   
@@ -1276,7 +1161,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../providers/" class="md-nav__link">
+      <a href="../../providers/" class="md-nav__link">
         
   
   
@@ -1304,7 +1189,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../capabilities/" class="md-nav__link">
+      <a href="../../capabilities/" class="md-nav__link">
         
   
   
@@ -1332,7 +1217,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../comparison/" class="md-nav__link">
+      <a href="../../comparison/" class="md-nav__link">
         
   
   
@@ -1360,7 +1245,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../benchmarks/" class="md-nav__link">
+      <a href="../../benchmarks/" class="md-nav__link">
         
   
   
@@ -1472,7 +1357,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/cache/" class="md-nav__link">
+      <a href="../../reference/cache/" class="md-nav__link">
         
   
   
@@ -1500,7 +1385,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/clock/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
@@ -1528,7 +1413,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/config/" class="md-nav__link">
+      <a href="../../reference/config/" class="md-nav__link">
         
   
   
@@ -1556,7 +1441,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/fastapi/" class="md-nav__link">
+      <a href="../../reference/fastapi/" class="md-nav__link">
         
   
   
@@ -1584,7 +1469,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/faststream/" class="md-nav__link">
+      <a href="../../reference/faststream/" class="md-nav__link">
         
   
   
@@ -1612,7 +1497,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
@@ -1640,7 +1525,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/idempotency/" class="md-nav__link">
+      <a href="../../reference/idempotency/" class="md-nav__link">
         
   
   
@@ -1668,7 +1553,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/logging/" class="md-nav__link">
+      <a href="../../reference/logging/" class="md-nav__link">
         
   
   
@@ -1696,7 +1581,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/metrics/" class="md-nav__link">
+      <a href="../../reference/metrics/" class="md-nav__link">
         
   
   
@@ -1724,7 +1609,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/resilience/" class="md-nav__link">
+      <a href="../../reference/resilience/" class="md-nav__link">
         
   
   
@@ -1752,7 +1637,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/coordination/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
@@ -1780,7 +1665,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/task/" class="md-nav__link">
+      <a href="../../reference/task/" class="md-nav__link">
         
   
   
@@ -1808,7 +1693,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/testing/" class="md-nav__link">
+      <a href="../../reference/testing/" class="md-nav__link">
         
   
   
@@ -1836,7 +1721,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/trace/" class="md-nav__link">
+      <a href="../../reference/trace/" class="md-nav__link">
         
   
   
@@ -1868,6 +1753,8 @@
       
   
   
+    
+  
   
   
     
@@ -1913,15 +1800,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../architecture/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -1945,7 +1832,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1965,7 +1852,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/asyncio/" class="md-nav__link">
+      <a href="../asyncio/" class="md-nav__link">
         
   
   
@@ -1993,7 +1880,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/backends/" class="md-nav__link">
+      <a href="../backends/" class="md-nav__link">
         
   
   
@@ -2021,7 +1908,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/config/" class="md-nav__link">
+      <a href="../config/" class="md-nav__link">
         
   
   
@@ -2049,7 +1936,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/reconfigure/" class="md-nav__link">
+      <a href="../reconfigure/" class="md-nav__link">
         
   
   
@@ -2077,7 +1964,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/imports/" class="md-nav__link">
+      <a href="../imports/" class="md-nav__link">
         
   
   
@@ -2105,7 +1992,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/plugins/" class="md-nav__link">
+      <a href="../plugins/" class="md-nav__link">
         
   
   
@@ -2133,7 +2020,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/multiple-apps/" class="md-nav__link">
+      <a href="../multiple-apps/" class="md-nav__link">
         
   
   
@@ -2161,7 +2048,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/decorators/" class="md-nav__link">
+      <a href="../decorators/" class="md-nav__link">
         
   
   
@@ -2186,10 +2073,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../architecture/api-conventions/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2205,6 +2119,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#patterns-take-a-positional-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Patterns take a positional name
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#components-take-the-provider-first-name-keyword-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Components take the provider first, name keyword-only
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#algorithms-use-factory-classmethods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Algorithms use factory classmethods
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2217,7 +2184,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sync-from-thread/" class="md-nav__link">
+      <a href="../sync-from-thread/" class="md-nav__link">
         
   
   
@@ -2245,7 +2212,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/coordination/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
@@ -2273,7 +2240,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/graceful-shutdown/" class="md-nav__link">
+      <a href="../graceful-shutdown/" class="md-nav__link">
         
   
   
@@ -2301,7 +2268,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/kubernetes/" class="md-nav__link">
+      <a href="../kubernetes/" class="md-nav__link">
         
   
   
@@ -2329,7 +2296,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sqlite/" class="md-nav__link">
+      <a href="../sqlite/" class="md-nav__link">
         
   
   
@@ -2357,7 +2324,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/tracing/" class="md-nav__link">
+      <a href="../tracing/" class="md-nav__link">
         
   
   
@@ -2385,7 +2352,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/testing/" class="md-nav__link">
+      <a href="../testing/" class="md-nav__link">
         
   
   
@@ -2420,7 +2387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../roadmap/" class="md-nav__link">
+      <a href="../../roadmap/" class="md-nav__link">
         
   
   
@@ -2447,7 +2414,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -2474,7 +2441,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../third_party_notices/" class="md-nav__link">
+      <a href="../../third_party_notices/" class="md-nav__link">
         
   
   
@@ -2521,10 +2488,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#quick-start" class="md-nav__link">
+  <a href="#patterns-take-a-positional-name" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Quick Start
+        Patterns take a positional name
       
     </span>
   </a>
@@ -2532,10 +2499,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#exporters" class="md-nav__link">
+  <a href="#components-take-the-provider-first-name-keyword-only" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Exporters
+        Components take the provider first, name keyword-only
       
     </span>
   </a>
@@ -2543,43 +2510,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#measure-your-own-functions" class="md-nav__link">
+  <a href="#algorithms-use-factory-classmethods" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Measure your own functions
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-instruments" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom instruments
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#prometheus-endpoint" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prometheus endpoint
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#built-in-metrics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built-in metrics
+        Algorithms use factory classmethods
       
     </span>
   </a>
@@ -2606,249 +2540,41 @@
   
 
 
-<h1 id="metrics">Metrics</h1>
-<p>The <code>metrics</code> module records OpenTelemetry metrics for your app. Add one <code>Metrics()</code> component and grelmicro emits metrics from every built-in component. Add <code>@measure</code> to time your own functions. Add <code>metrics_router()</code> to expose a Prometheus endpoint.</p>
-<h2 id="quick-start">Quick Start</h2>
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">Metrics</span><span class="p">,</span> <span class="n">MetricsExporterType</span><span class="p">,</span> <span class="n">measure</span>
-
-
-<span class="nd">@measure</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;orders.process&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="n">order_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="k">pass</span>
-
-
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span>
-    <span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">Metrics</span><span class="p">(</span>
-            <span class="n">service_name</span><span class="o">=</span><span class="s2">&quot;orders&quot;</span><span class="p">,</span>
-            <span class="n">exporter</span><span class="o">=</span><span class="n">MetricsExporterType</span><span class="o">.</span><span class="n">CONSOLE</span><span class="p">,</span>
-            <span class="n">export_interval</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
-        <span class="p">),</span>
-    <span class="p">]</span>
-<span class="p">)</span>
-
-
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-        <span class="k">await</span> <span class="n">process</span><span class="p">(</span><span class="n">order_id</span><span class="o">=</span><span class="s2">&quot;ORD-1&quot;</span><span class="p">)</span>
-        <span class="n">micro</span><span class="o">.</span><span class="n">metrics</span><span class="o">.</span><span class="n">counter</span><span class="p">(</span><span class="s2">&quot;orders.placed&quot;</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;1&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-
-
-<span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+<h1 id="api-conventions">API Conventions</h1>
+<p>The public API follows a few constructor and factory rules so a new primitive
+feels like the existing ones. Follow them when you add a pattern or component.</p>
+<h2 id="patterns-take-a-positional-name">Patterns take a positional <code>name</code></h2>
+<p>A pattern is the object user code calls directly, such as <code>Lock</code>,
+<code>CircuitBreaker</code>, or a <code>RateLimiter</code> built from a factory. Its first argument is
+a positional <code>name</code> that identifies the instance and drives its config prefix:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>
+<span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;payments&quot;</span><span class="p">)</span>
+<span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 </code></pre></div>
-<p><code>Metrics()</code> installs an OpenTelemetry <code>MeterProvider</code> for the app's lifetime. The provider is installed on enter and restored to the prior global on exit, so sequential apps in tests do not stack providers.</p>
-<div class="admonition tip">
-<p class="admonition-title">Install</p>
-<p>Metrics need the <code>opentelemetry</code> extra: <code>pip install "grelmicro[opentelemetry]"</code>. See the <a href="../installation/">installation guide</a> for <code>uv</code> and <code>poetry</code>. Without the extra, the metric calls built into every component are no-ops, so an app that does not register <code>Metrics()</code> runs normally. Registering a <code>Metrics()</code> component does require the extra: it raises <code>DependencyNotFoundError</code> at startup when OpenTelemetry is missing.</p>
-</div>
-<h2 id="exporters">Exporters</h2>
-<p>Pick an exporter with the <code>exporter</code> field or the <code>GREL_METRICS_EXPORTER</code> environment variable.</p>
-<table>
-<thead>
-<tr>
-<th>Exporter</th>
-<th>Use it for</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>otlp-http</code></td>
-<td>Sending metrics to an OpenTelemetry collector (default).</td>
-</tr>
-<tr>
-<td><code>otlp-grpc</code></td>
-<td>The same, over gRPC.</td>
-</tr>
-<tr>
-<td><code>prometheus</code></td>
-<td>Serving a <code>/metrics</code> endpoint that Prometheus scrapes.</td>
-</tr>
-<tr>
-<td><code>console</code></td>
-<td>Printing metrics to the console in development.</td>
-</tr>
-<tr>
-<td><code>none</code></td>
-<td>Installing the provider without exporting.</td>
-</tr>
-</tbody>
-</table>
-<div class="admonition warning">
-<p class="admonition-title">The default exporter expects a collector</p>
-<p><code>Metrics()</code> defaults to <code>otlp-http</code>, which sends metrics to an OpenTelemetry collector over OTLP HTTP. Without a reachable collector, metrics are dropped. A bounded <code>shutdown_timeout</code> (default <code>5.0</code> seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.</p>
-<p>For local development, set <code>exporter="console"</code> to print metrics, or <code>exporter="prometheus"</code> to expose them on a <code>/metrics</code> route.</p>
-</div>
-<p><code>Metrics()</code> reads <code>GREL_METRICS_*</code> environment variables (see <code>MetricsConfig</code> for the full field set) or accepts the same fields as keyword arguments. The OTLP and Prometheus exporters require their own packages and are imported only when selected.</p>
-<h2 id="measure-your-own-functions">Measure your own functions</h2>
-<p><code>@measure</code> times a function and counts its calls. It works on sync and async functions.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">measure</span>
-
-
-<span class="nd">@measure</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">charge_card</span><span class="p">(</span><span class="n">amount</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="o">...</span>
-
-
-<span class="nd">@measure</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;orders.checkout&quot;</span><span class="p">,</span> <span class="n">record_in_flight</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">checkout</span><span class="p">(</span><span class="n">cart_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="o">...</span>
+<p>The name comes first because it is the one argument every call sets. Everything
+else (<code>backend=</code>, tuning fields) is keyword-only with a default.</p>
+<h2 id="components-take-the-provider-first-name-keyword-only">Components take the provider first, <code>name</code> keyword-only</h2>
+<p>A component or registry is app-level wiring passed to <code>uses=</code>, such as
+<code>Coordination</code>, <code>Cache</code>, or <code>RateLimiterRegistry</code>. Its first positional is the
+provider or backend it wraps. The registration <code>name</code> is keyword-only and
+defaults to <code>"default"</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Coordination</span><span class="p">(</span><span class="n">redis</span><span class="p">)</span>
+<span class="n">Cache</span><span class="p">(</span><span class="n">redis</span><span class="p">)</span>
+<span class="n">RateLimiterRegistry</span><span class="p">(</span><span class="n">redis</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;api&quot;</span><span class="p">)</span>
 </code></pre></div>
-<p><code>@measure</code> emits three metrics, named from the function or the <code>name</code> you pass:</p>
-<ul>
-<li><code>&lt;name&gt;.duration</code>: a histogram of seconds.</li>
-<li><code>&lt;name&gt;.calls</code>: a counter with an <code>outcome</code> attribute set to <code>success</code> or <code>error</code>. On failure an <code>error.type</code> attribute carries the exception class name.</li>
-<li><code>&lt;name&gt;.active</code>: an up_down_counter that rises while the function runs and falls when it returns. Only when <code>record_in_flight=True</code>.</li>
-</ul>
-<p>Every metric is a no-op when no <code>Metrics</code> component is active, so a decorated function is safe to ship even when metrics are off.</p>
-<h2 id="custom-instruments">Custom instruments</h2>
-<p>The component builds OpenTelemetry instruments for you. Each accessor takes a <code>unit</code> and a <code>description</code>.</p>
-<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-    <span class="n">orders</span> <span class="o">=</span> <span class="n">micro</span><span class="o">.</span><span class="n">metrics</span><span class="o">.</span><span class="n">counter</span><span class="p">(</span><span class="s2">&quot;orders.placed&quot;</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>
-    <span class="n">orders</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="s2">&quot;web&quot;</span><span class="p">})</span>
-
-    <span class="n">latency</span> <span class="o">=</span> <span class="n">micro</span><span class="o">.</span><span class="n">metrics</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="s2">&quot;checkout.latency&quot;</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;s&quot;</span><span class="p">)</span>
-    <span class="n">latency</span><span class="o">.</span><span class="n">record</span><span class="p">(</span><span class="mf">0.42</span><span class="p">)</span>
-
-    <span class="n">in_flight</span> <span class="o">=</span> <span class="n">micro</span><span class="o">.</span><span class="n">metrics</span><span class="o">.</span><span class="n">up_down_counter</span><span class="p">(</span><span class="s2">&quot;checkout.active&quot;</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>
-    <span class="n">in_flight</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<p>Most apps register one component per kind, so the default name keeps the common
+case silent. Name a second instance only when two of the same kind coexist.</p>
+<h2 id="algorithms-use-factory-classmethods">Algorithms use factory classmethods</h2>
+<p>When a pattern has more than one algorithm, expose each as an explicit factory
+classmethod rather than a <code>kind=</code> argument. The classmethod names the algorithm
+and takes only the fields that algorithm needs:</p>
+<div class="highlight"><pre><span></span><code><span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+<span class="n">RateLimiter</span><span class="o">.</span><span class="n">token_bucket</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">rate</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">capacity</span><span class="o">=</span><span class="mi">20</span><span class="p">)</span>
+<span class="n">CircuitBreaker</span><span class="o">.</span><span class="n">consecutive_count</span><span class="p">(</span><span class="s2">&quot;payments&quot;</span><span class="p">,</span> <span class="n">error_threshold</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </code></pre></div>
-<p>Use <code>counter</code> for values that only increase, <code>up_down_counter</code> for values that rise and fall, <code>gauge</code> for a last-known value, and <code>histogram</code> for distributions. Keep attribute keys bounded: a small fixed set like <code>channel</code> is fine, but never use unbounded values like user ids or cache keys.</p>
-<h2 id="prometheus-endpoint">Prometheus endpoint</h2>
-<p>With the <code>prometheus</code> exporter, <code>metrics_router()</code> adds a <code>GET /metrics</code> route that returns the Prometheus exposition format.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">Metrics</span><span class="p">,</span> <span class="n">MetricsExporterType</span><span class="p">,</span> <span class="n">metrics_router</span>
-
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Metrics</span><span class="p">(</span><span class="n">exporter</span><span class="o">=</span><span class="n">MetricsExporterType</span><span class="o">.</span><span class="n">PROMETHEUS</span><span class="p">)])</span>
-
-
-<span class="nd">@asynccontextmanager</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lifespan</span><span class="p">(</span><span class="n">app</span><span class="p">:</span> <span class="n">FastAPI</span><span class="p">):</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-        <span class="k">yield</span>
-
-
-<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">(</span><span class="n">lifespan</span><span class="o">=</span><span class="n">lifespan</span><span class="p">)</span>
-<span class="n">app</span><span class="o">.</span><span class="n">include_router</span><span class="p">(</span><span class="n">metrics_router</span><span class="p">())</span>
-</code></pre></div>
-<p>Pass <code>prefix</code>, <code>path</code>, and <code>dependencies</code> to mount the route elsewhere or gate it behind authentication. The router resolves the default <code>Metrics</code> component from the running app, or you can pass one explicitly with <code>metrics_router(component)</code>.</p>
-<h2 id="built-in-metrics">Built-in metrics</h2>
-<p>When a <code>Metrics</code> component is active, grelmicro emits these metrics from its own components. All durations are histograms in seconds. All attributes are bounded: component names are fixed at construction, never per-call keys or ids.</p>
-<table>
-<thead>
-<tr>
-<th>Metric</th>
-<th>Type</th>
-<th>Unit</th>
-<th>Attributes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>grelmicro.health.check.up</code></td>
-<td>gauge</td>
-<td>1</td>
-<td><code>check.name</code>, <code>critical</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.health.check.duration</code></td>
-<td>histogram</td>
-<td>s</td>
-<td><code>check.name</code>, <code>outcome</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.circuit_breaker.calls</code></td>
-<td>counter</td>
-<td>1</td>
-<td><code>circuit_breaker.name</code>, <code>result</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.circuit_breaker.transitions</code></td>
-<td>counter</td>
-<td>1</td>
-<td><code>circuit_breaker.name</code>, <code>from</code>, <code>to</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.circuit_breaker.state</code></td>
-<td>gauge</td>
-<td>1</td>
-<td><code>circuit_breaker.name</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.retry.attempts</code></td>
-<td>counter</td>
-<td>1</td>
-<td><code>retry.name</code>, <code>outcome</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.retry.duration</code></td>
-<td>histogram</td>
-<td>s</td>
-<td><code>retry.name</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.rate_limiter.decisions</code></td>
-<td>counter</td>
-<td>1</td>
-<td><code>rate_limiter.name</code>, <code>decision</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.bulkhead.active</code></td>
-<td>up_down_counter</td>
-<td>1</td>
-<td><code>bulkhead.name</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.bulkhead.rejections</code></td>
-<td>counter</td>
-<td>1</td>
-<td><code>bulkhead.name</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.timeout.exceeded</code></td>
-<td>counter</td>
-<td>1</td>
-<td><code>timeout.name</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.cache.operations</code></td>
-<td>counter</td>
-<td>1</td>
-<td><code>result</code> (<code>hit</code> or <code>miss</code>)</td>
-</tr>
-<tr>
-<td><code>grelmicro.cache.stale_serves</code></td>
-<td>counter</td>
-<td>1</td>
-<td>none</td>
-</tr>
-<tr>
-<td><code>grelmicro.task.runs</code></td>
-<td>counter</td>
-<td>1</td>
-<td><code>task.name</code>, <code>outcome</code>, <code>error.type</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.task.duration</code></td>
-<td>histogram</td>
-<td>s</td>
-<td><code>task.name</code></td>
-</tr>
-<tr>
-<td><code>grelmicro.task.active</code></td>
-<td>up_down_counter</td>
-<td>1</td>
-<td><code>task.name</code></td>
-</tr>
-</tbody>
-</table>
-<p>The <code>grelmicro.circuit_breaker.state</code> gauge maps states to codes: <code>CLOSED</code> is 0, <code>OPEN</code> is 1, <code>HALF_OPEN</code> is 2, <code>FORCED_OPEN</code> is 3, <code>FORCED_CLOSED</code> is 4.</p>
+<p>The bare constructor stays available for a pre-assembled config object (from
+YAML or a <code>pydantic-settings</code> tree), but the factory is the path most callers
+take.</p>
 
 
 
@@ -2929,10 +2655,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

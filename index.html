@@ -383,10 +383,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#lifespan-with-one-provider-and-one-component" class="md-nav__link">
+  <a href="#fastapi-with-one-provider-and-one-component" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lifespan with one provider and one component
+        FastAPI with one provider and one component
       
     </span>
   </a>
@@ -1938,6 +1938,8 @@
       
         
       
+        
+      
     
     
     
@@ -2198,6 +2200,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -2587,10 +2617,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#lifespan-with-one-provider-and-one-component" class="md-nav__link">
+  <a href="#fastapi-with-one-provider-and-one-component" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lifespan with one provider and one component
+        FastAPI with one provider and one component
       
     </span>
   </a>
@@ -2779,14 +2809,11 @@ open<span class="w"> </span>http://localhost:8000/docs
     <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;ok&quot;</span><span class="p">}</span>
 </code></pre></div>
 <p>That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory adapter says per-process on purpose. Swap to a fleet-wide backend later by composing it inside <code>Grelmicro(uses=[RateLimiterRegistry(redis)])</code> as shown below.</p>
-<h3 id="lifespan-with-one-provider-and-one-component">Lifespan with one provider and one component</h3>
-<p>To make the rate limiter fleet-wide, wrap it in a <code>Grelmicro</code> container with one provider and one component, bind it to FastAPI's lifespan, and add the middleware so request handlers see the app.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
+<h3 id="fastapi-with-one-provider-and-one-component">FastAPI with one provider and one component</h3>
+<p>To make the rate limiter fleet-wide, wrap it in a <code>Grelmicro</code> container with one provider and one component, then install it into FastAPI.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.integrations.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">RateLimitExceededError</span><span class="p">,</span>
@@ -2799,15 +2826,8 @@ open<span class="w"> </span>http://localhost:8000/docs
 
 <span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
-
-<span class="nd">@asynccontextmanager</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lifespan</span><span class="p">(</span><span class="n">app</span><span class="p">:</span> <span class="n">FastAPI</span><span class="p">):</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-        <span class="k">yield</span>
-
-
-<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">(</span><span class="n">lifespan</span><span class="o">=</span><span class="n">lifespan</span><span class="p">)</span>
-<span class="n">app</span><span class="o">.</span><span class="n">add_middleware</span><span class="p">(</span><span class="n">GrelmicroMiddleware</span><span class="p">,</span> <span class="n">micro</span><span class="o">=</span><span class="n">micro</span><span class="p">)</span>
+<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
+<span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
 
 
 <span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/ping&quot;</span><span class="p">)</span>
@@ -2818,7 +2838,7 @@ open<span class="w"> </span>http://localhost:8000/docs
         <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;throttled&quot;</span><span class="p">}</span>
     <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;ok&quot;</span><span class="p">}</span>
 </code></pre></div>
-<p>Adding more primitives is the same shape: one extra entry in <code>uses=[...]</code>. The full demo below shows what that looks like.</p>
+<p>Adding more primitives is the same shape: one extra entry in <code>uses=[...]</code>. <code>micro.install(app)</code> opens the app on startup, closes it on shutdown, and lets request handlers resolve backends without passing <code>backend=</code>.</p>
 <h3 id="fastapi-integration">FastAPI integration</h3>
 <p>Create a file <code>main.py</code> with:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
@@ -2828,7 +2848,6 @@ open<span class="w"> </span>http://localhost:8000/docs
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">Cache</span><span class="p">,</span> <span class="n">JsonSerializer</span><span class="p">,</span> <span class="n">TTLCache</span><span class="p">,</span> <span class="n">cached</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.integrations.fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">GrelmicroMiddleware</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.health</span><span class="w"> </span><span class="kn">import</span> <span class="n">HealthChecks</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span> <span class="k">as</span> <span class="n">configure_logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
@@ -2870,16 +2889,15 @@ open<span class="w"> </span>http://localhost:8000/docs
 <span class="n">api_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="o">.</span><span class="n">sliding_window</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
 
 
-<span class="c1"># === FastAPI lifespan and middleware ===</span>
+<span class="c1"># === FastAPI ===</span>
 <span class="nd">@asynccontextmanager</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lifespan</span><span class="p">(</span><span class="n">app</span><span class="p">):</span>
     <span class="n">configure_logging</span><span class="p">()</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-        <span class="k">yield</span>
+    <span class="k">yield</span>
 
 
 <span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">(</span><span class="n">lifespan</span><span class="o">=</span><span class="n">lifespan</span><span class="p">)</span>
-<span class="n">app</span><span class="o">.</span><span class="n">add_middleware</span><span class="p">(</span><span class="n">GrelmicroMiddleware</span><span class="p">,</span> <span class="n">micro</span><span class="o">=</span><span class="n">micro</span><span class="p">)</span>
+<span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
 
 
 <span class="c1"># --- Cache: avoid redundant database queries ---</span>

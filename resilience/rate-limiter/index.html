@@ -2071,6 +2071,8 @@
       
         
       
+        
+      
     
     
     
@@ -2331,6 +2333,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -2936,6 +2966,38 @@
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;API call allowed&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="checking-the-limit">Checking the limit</h3>
+<p>Pick the call by what you need:</p>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>Method</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Just branch yes or no</td>
+<td><code>allow()</code></td>
+<td>Smallest code.</td>
+</tr>
+<tr>
+<td>Build HTTP 429 headers</td>
+<td><code>acquire()</code></td>
+<td>Keeps <code>retry_after</code>, <code>remaining</code>, and <code>reset_after</code>.</td>
+</tr>
+<tr>
+<td>Let a shared handler map rejections</td>
+<td><code>acquire_or_raise()</code></td>
+<td>Raises <code>RateLimitExceededError</code>, an <code>AdmissionError</code>.</td>
+</tr>
+<tr>
+<td>Smooth work instead of rejecting</td>
+<td><code>wait()</code></td>
+<td>Sleeps until admitted, with optional <code>max_wait</code>.</td>
+</tr>
+</tbody>
+</table>
 <p>The simplest form is a boolean:</p>
 <div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="k">await</span> <span class="n">limiter</span><span class="o">.</span><span class="n">allow</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="s2">&quot;user-1&quot;</span><span class="p">):</span>
     <span class="o">...</span>  <span class="c1"># served</span>

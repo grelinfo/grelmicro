@@ -2090,6 +2090,8 @@
       
         
       
+        
+      
     
     
     
@@ -2350,6 +2352,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -3011,11 +3041,13 @@ backends and resolves them for you.</p>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.postgres</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresProvider</span>
 
-<span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="s2">&quot;postgresql://user:password@localhost:5432/db&quot;</span><span class="p">)</span>
+<span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;POSTGRES_URL&quot;</span><span class="p">])</span>
 <span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Coordination</span><span class="p">(</span><span class="n">postgres</span><span class="p">)])</span>
 </code></pre></div>
 </div>

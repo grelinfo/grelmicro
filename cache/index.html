@@ -2024,6 +2024,8 @@
       
         
       
+        
+      
     
     
     
@@ -2284,6 +2286,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -3103,6 +3133,10 @@ Redis or Memcached.</p>
         <span class="k">await</span> <span class="n">update_user</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
         <span class="k">await</span> <span class="n">reset_all_users</span><span class="p">()</span>
 </code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Keep keys and tags bounded</p>
+<p>Every distinct key and tag is stored. On the memory backend the tag-to-key map grows with cardinality and is not evicted until the tagged entries expire. Deriving keys or tags straight from untrusted input (a raw user id, a full URL, a free-text field) lets a caller inflate memory or backend storage without limit. Map untrusted values onto a bounded set first, such as a hash bucket or an allowlist, and prefer a short shared tag plus one per-entity tag over a fresh tag per request.</p>
+</div>
 <h2 id="cached-decorator">@cached Decorator</h2>
 <p>The <code>@cached</code> decorator automatically caches function results. It works with both sync and async functions.</p>
 <p>For the plain "memoize this function for N seconds" case, pass <code>ttl=</code> and nothing else. The decorator builds a private process-local cache for this function alone:</p>

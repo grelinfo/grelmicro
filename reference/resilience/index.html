@@ -6058,6 +6058,8 @@
       
         
       
+        
+      
     
     
     
@@ -6318,6 +6320,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -12120,8 +12150,8 @@ back to the registered <code>"default"</code> Component.</p>
                 <p>No backend resolved in this scope. Pass
 <code>backend=</code> (a <code>MemoryCircuitBreakerAdapter()</code> for a
 per-replica breaker), register a <code>CircuitBreakerRegistry</code>
-Component, or run the call under the app context (for
-FastAPI, add <code>GrelmicroMiddleware</code>).</p>
+Component, or run the call inside <code>async with micro:</code> or
+after <code>micro.install(app)</code>.</p>
               </div>
             </td>
           </tr>
@@ -17537,8 +17567,8 @@ same time.</p>
                 <p>No backend resolved in this scope. Pass
 <code>backend=</code> (a <code>MemoryRateLimiterAdapter()</code> for a
 per-process limiter), register a <code>RateLimiterRegistry</code>
-Component, or run the call under the app context (for
-FastAPI, add <code>GrelmicroMiddleware</code>).</p>
+Component, or run the call inside <code>async with micro:</code> or
+after <code>micro.install(app)</code>.</p>
               </div>
             </td>
           </tr>

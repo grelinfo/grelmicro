@@ -1076,6 +1076,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#defaults-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Defaults reference
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1891,6 +1902,8 @@
       
         
       
+        
+      
     
     
     
@@ -2151,6 +2164,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -2508,6 +2549,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#defaults-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Defaults reference
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2633,6 +2685,123 @@ a field out of the constructor to let the deployment set it.</p>
 </tbody>
 </table>
 <p>Each pattern page lists its own fields and the exact variable names.</p>
+<h3 id="defaults-reference">Defaults reference</h3>
+<p>The most important defaults for operators. All times are in seconds. Override
+any of them with the pattern prefix above plus the field name, uppercased.</p>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Field</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Lock</code></td>
+<td><code>lease_duration</code></td>
+<td><code>60</code></td>
+</tr>
+<tr>
+<td><code>Lock</code></td>
+<td><code>retry_interval</code></td>
+<td><code>0.1</code></td>
+</tr>
+<tr>
+<td><code>TaskLock</code></td>
+<td><code>lease_duration</code></td>
+<td><code>60</code></td>
+</tr>
+<tr>
+<td><code>TaskLock</code></td>
+<td><code>min_hold_duration</code></td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>LeaderElection</code></td>
+<td><code>lease_duration</code></td>
+<td><code>15</code></td>
+</tr>
+<tr>
+<td><code>LeaderElection</code></td>
+<td><code>renew_deadline</code></td>
+<td><code>10</code></td>
+</tr>
+<tr>
+<td><code>LeaderElection</code></td>
+<td><code>retry_interval</code></td>
+<td><code>2</code></td>
+</tr>
+<tr>
+<td><code>LeaderElection</code></td>
+<td><code>backend_timeout</code></td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>TTLCache</code></td>
+<td><code>ttl</code></td>
+<td><code>60</code></td>
+</tr>
+<tr>
+<td><code>RateLimiter</code></td>
+<td><code>fail_open</code></td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>CircuitBreaker</code></td>
+<td><code>error_threshold</code></td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>CircuitBreaker</code></td>
+<td><code>success_threshold</code></td>
+<td><code>2</code></td>
+</tr>
+<tr>
+<td><code>CircuitBreaker</code></td>
+<td><code>reset_timeout</code></td>
+<td><code>30</code></td>
+</tr>
+<tr>
+<td><code>Retry</code></td>
+<td><code>attempts</code></td>
+<td><code>3</code></td>
+</tr>
+<tr>
+<td><code>Retry</code></td>
+<td><code>backoff.base_delay</code></td>
+<td><code>0.1</code></td>
+</tr>
+<tr>
+<td><code>Retry</code></td>
+<td><code>backoff.max_delay</code></td>
+<td><code>30</code></td>
+</tr>
+<tr>
+<td><code>Bulkhead</code></td>
+<td><code>max_concurrent</code></td>
+<td><code>None</code> (unbounded)</td>
+</tr>
+<tr>
+<td><code>HealthChecks</code></td>
+<td><code>timeout</code></td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>HealthChecks</code></td>
+<td><code>cache_ttl</code></td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>Idempotency</code></td>
+<td><code>ttl</code></td>
+<td><code>86400</code> (1 day)</td>
+</tr>
+</tbody>
+</table>
+<p><code>TTLCache</code> and <code>Idempotency</code> set their <code>ttl</code> in code, not from the environment.
+<code>Timeout.seconds</code>, <code>Fallback.when</code>, and <code>Fallback.default</code> are required and have
+no default.</p>
 <h2 id="advanced">Advanced</h2>
 <p>The kwargs-and-env path covers most apps. When you need more, the
 <a href="../advanced/config/">Advanced configuration</a> page covers:</p>

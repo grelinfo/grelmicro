@@ -464,6 +464,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mental-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mental model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#your-first-app" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1885,6 +1896,8 @@
       
         
       
+        
+      
     
     
     
@@ -2145,6 +2158,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -2480,6 +2521,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mental-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mental model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#your-first-app" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2540,6 +2592,14 @@ service, no configuration. It runs as written.</p>
 </code></pre></div>
 <p>See the <a href="../installation/">installation guide</a> for <code>uv</code>, <code>poetry</code>, and the
 backend extras.</p>
+<h2 id="mental-model">Mental model</h2>
+<ul>
+<li><strong>Pattern</strong>: the object your app calls, such as <code>Lock("cart")</code> or <code>RateLimiter.sliding_window("api", ...)</code>.</li>
+<li><strong>Provider</strong>: owns a connection, such as <code>RedisProvider</code>.</li>
+<li><strong>Component or Registry</strong>: registers a backend on the app.</li>
+<li><strong>Adapter</strong>: the concrete backend implementation. Providers usually hide it.</li>
+<li><strong>Ambient binding</strong>: <code>micro.install(app)</code> lets request and message handlers find the current <code>Grelmicro</code> app.</li>
+</ul>
 <h2 id="your-first-app">Your first app</h2>
 <p>Guard a shared resource with a distributed <code>Lock</code>. The memory backend keeps the
 lock state in the process, so this runs with nothing else installed.</p>
@@ -2584,7 +2644,7 @@ arguments:</p>
 </code></pre></div>
 <h2 id="next">Next</h2>
 <p>You built a pattern and wired it into an app. Next, <a href="../wiring/">wire a real app</a>
-with a Redis provider and the FastAPI middleware.</p>
+with a Redis provider and <code>micro.install(app)</code>.</p>
 
 
 

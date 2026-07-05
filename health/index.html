@@ -2074,6 +2074,8 @@
       
         
       
+        
+      
     
     
     
@@ -2334,6 +2336,34 @@
     
   
     Decorator forms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/api-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Conventions
   
 
     
@@ -3310,6 +3340,10 @@ GET /healthz?exclude=analytics
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">The <code>error</code> field is always returned</p>
+<p><code>show_details</code> strips only the <code>details</code> field. Each failing check still reports its <code>error</code> string, even on a public <code>/healthz</code>. Keep check error messages safe for the endpoint audience: raise <code>HealthError</code> with a short, non-sensitive message and put diagnostics in <code>details</code>, which stays hidden by default. To hide error strings too, gate the whole endpoint with <code>healthz_dependencies</code>.</p>
+</div>
 <h4 id="show_details-vs-healthz_dependencies"><code>show_details</code> vs <code>healthz_dependencies</code></h4>
 <p>Two independent gates sit in front of <code>/healthz</code>:</p>
 <table>
