@@ -3216,7 +3216,10 @@ provider wraps an <code>asyncpg.Pool</code> and opens it lazily on <code>__aente
 <span class="p">])</span>
 </code></pre></div>
 <p>Set <code>POSTGRES_URL</code> (or <code>POSTGRES_HOST</code> + <code>POSTGRES_PORT</code> + <code>POSTGRES_DB</code>
-+ <code>POSTGRES_USER</code> + <code>POSTGRES_PASSWORD</code>) for env-driven construction.</p>
++ <code>POSTGRES_USER</code> + <code>POSTGRES_PASSWORD</code>) for env-driven construction. The
+database name also reads from <code>POSTGRES_DATABASE</code> when <code>POSTGRES_DB</code> is
+unset, so both the <code>postgres</code> Docker image convention and the longer
+spelling work.</p>
 <p>Pass <code>command_timeout</code> (or set <code>POSTGRES_COMMAND_TIMEOUT</code>) to bound every operation. A query that hangs on a frozen or unreachable server then raises <code>TimeoutError</code> after that many seconds, instead of blocking until the OS TCP timeout. It defaults to <code>None</code> (no timeout).</p>
 <div class="highlight"><pre><span></span><code><span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="s2">&quot;postgresql://localhost/app&quot;</span><span class="p">,</span> <span class="n">command_timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </code></pre></div>
