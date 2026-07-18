@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+* ✅ Treat warnings as errors in the test suite and close the FastAPI health test client cleanly. ([#526](https://github.com/grelinfo/grelmicro/pull/526))
+
 ## 0.29.5 - 2026-07-18
 
 ### Security
