@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add `command_timeout` to `PostgresProvider` (kwarg or `POSTGRES_COMMAND_TIMEOUT`) so a query against a frozen or unreachable Postgres raises `TimeoutError` in bounded time instead of hanging until the OS TCP timeout.
+* ✨ Add the `outbox` module: a PostgreSQL transactional outbox that runs any async handler exactly after your transaction commits, at least once. `publish` stages a message in your own asyncpg, SQLAlchemy, or SQLModel transaction, and a relay delivers it with `FOR UPDATE SKIP LOCKED`, `NOTIFY` wakeups, a visibility lease, retries with backoff, and dead-lettering. Trace context and delivery metrics ride the [trace](tracing.md) and [metrics](metrics.md) components, and `purge` trims delivered and dead rows. Backend-first, so SQLite and MySQL can follow.
+
 ## 0.28.2 - 2026-07-05
 
 ### Fixed
