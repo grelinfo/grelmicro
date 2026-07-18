@@ -13,6 +13,15 @@ class IdempotencySettingsValidationError(
     """Idempotency Settings Validation Error."""
 
 
+class IdempotencyStateError(IdempotencyError, RuntimeError):
+    """Raised when an `Operation` value is read in the wrong state.
+
+    `Operation.result()` returns the stored response and is valid only
+    on a replay. Calling it on a first execution, before a response is
+    stored, raises this error. Guard the call with `if op.replayed:`.
+    """
+
+
 class IdempotencyConflictError(IdempotencyError):
     """Raised when a key is replayed with a different payload fingerprint.
 

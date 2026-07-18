@@ -26,6 +26,7 @@ from grelmicro.idempotency import (
     IdempotencyConfig,
     IdempotencyConflictError,
     IdempotencySettingsValidationError,
+    IdempotencyStateError,
     idempotent,
 )
 
@@ -61,7 +62,10 @@ class TestFirstExecutionAndReplay:
 
         async with idem("key-1") as op:
             assert op.replayed is False
-            assert op.response is None
+            with pytest.raises(
+                IdempotencyStateError, match="only available on a replay"
+            ):
+                op.result()
             calls += 1
             op.store({"status": "ok"})
 
@@ -78,7 +82,7 @@ class TestFirstExecutionAndReplay:
 
         async with idem("key-1") as op:
             assert op.replayed is True
-            assert op.response == {"status": "ok"}
+            assert op.result() == {"status": "ok"}
 
         assert calls == 1
 
@@ -163,7 +167,7 @@ class TestFailure:
 
         async with idem("key-1") as op:
             assert op.replayed is True
-            assert op.response == {"n": 1}
+            assert op.result() == {"n": 1}
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +189,7 @@ class TestSingleFlight:
         async def run() -> dict:
             async with idem("key-1") as op:
                 if op.replayed:
-                    assert op.response is not None
-                    return op.response
+                    return op.result()
                 nonlocal calls
                 calls += 1
                 await barrier.wait()
@@ -220,8 +223,7 @@ class TestSingleFlight:
         async def run(idem: Idempotency) -> dict:
             async with idem("key-1") as op:
                 if op.replayed:
-                    assert op.response is not None
-                    return op.response
+                    return op.result()
                 nonlocal calls
                 calls += 1
                 await barrier.wait()
@@ -284,7 +286,7 @@ class TestFingerprint:
 
         async with idem("key-1", fingerprint="xyz") as op:
             assert op.replayed is True
-            assert op.response == {"status": "fresh"}
+            assert op.result() == {"status": "fresh"}
 
     async def test_fingerprint_match_replays(self, cache: TTLCache) -> None:
         """A replay with the same fingerprint returns the stored response."""
@@ -295,7 +297,7 @@ class TestFingerprint:
 
         async with idem("key-1", fingerprint="abc") as op:
             assert op.replayed is True
-            assert op.response == {"status": "ok"}
+            assert op.result() == {"status": "ok"}
 
     async def test_fingerprint_conflict_raises(self, cache: TTLCache) -> None:
         """A replay with a different fingerprint raises a conflict."""
@@ -590,7 +592,7 @@ class TestCoverageGaps:
 
         async with idem("key-1") as op:
             assert op.replayed is True
-            assert op.response == {"status": "ok"}
+            assert op.result() == {"status": "ok"}
 
     async def test_exception_inside_try_releases_locks(self) -> None:
         """An exception inside the try block releases both the in-process and distributed locks."""

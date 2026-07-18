@@ -22,6 +22,7 @@ from grelmicro.idempotency.config import IdempotencyConfig
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencySettingsValidationError,
+    IdempotencyStateError,
 )
 from grelmicro.metrics import _emit
 
@@ -43,7 +44,7 @@ _FINGERPRINT_SUFFIX = "\x1ffp"
 class Operation(Generic[T]):
     """Handle for a single idempotent operation, yielded by `Idempotency.__call__`.
 
-    On a replay, `replayed` is True and `response` carries the stored
+    On a replay, `replayed` is True and `result()` returns the stored
     value. On a first execution, `replayed` is False and the body runs
     the work and calls `store(response)` to persist it.
     """
@@ -60,10 +61,23 @@ class Operation(Generic[T]):
         """Whether the key was already stored and the response replayed."""
         return self._replayed
 
-    @property
-    def response(self) -> T | None:
-        """The stored response when `replayed` is True, else None."""
-        return self._response
+    def result(self) -> T:
+        """Return the stored response. Valid only on a replay.
+
+        On a replay (`replayed` is True) this returns the stored value,
+        so a replay branch can return it directly without a cast. On a
+        first execution (`replayed` is False) no response is stored yet,
+        so calling it raises `IdempotencyStateError`. Guard with
+        `if op.replayed:`.
+        """
+        if not self._replayed:
+            msg = (
+                "Operation.result() is only available on a replay "
+                "(replayed is True). On a first execution, run the work "
+                "and call store(response)."
+            )
+            raise IdempotencyStateError(msg)
+        return cast("T", self._response)
 
     def store(
         self,
@@ -463,7 +477,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         """Open an idempotent block for `key`.
 
         Use as an async context manager. The yielded `Operation` carries
-        `replayed`, `response`, and `store(...)`.
+        `replayed`, `result()`, and `store(...)`.
         """
         return _Block(
             self,
@@ -510,7 +524,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
 
         async with self(key, fingerprint=fingerprint) as operation:
             if operation.replayed:
-                return cast("T", operation.response)
+                return operation.result()
             response = factory()
             if asyncio.iscoroutine(response):
                 response = await response

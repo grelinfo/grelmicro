@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Replace the idempotency `Operation.response` attribute with an `Operation.result()` method typed as the stored type, so the replay branch returns it without a cast. It is valid only on a replay: calling it on a first execution raises the new `IdempotencyStateError`. ([#504](https://github.com/grelinfo/grelmicro/issues/504))
+
 ### Fixed
 
 * 🏷️ Preserve the decorated function's type through `@health.check`, so awaiting an async check directly type-checks without `# type: ignore`. ([#499](https://github.com/grelinfo/grelmicro/issues/499))
