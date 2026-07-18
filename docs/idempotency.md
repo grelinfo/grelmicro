@@ -33,7 +33,7 @@ async def charge(
 ) -> dict:
     async with idem(key) as op:
         if op.replayed:
-            return op.response
+            return op.result()
         response = await do_charge(amount)
         op.store(response)
         return response
@@ -56,18 +56,18 @@ Responses serialize through the cache serializers. The default is `JsonSerialize
 
 ## The block form
 
-`idem(key)` opens an async context manager. The yielded operation carries `replayed`, `response`, and `store(...)`.
+`idem(key)` opens an async context manager. The yielded operation carries `replayed`, `result()`, and `store(...)`.
 
 ```python
 async with idem(key) as op:
     if op.replayed:
-        return op.response
+        return op.result()
     response = await do_work()
     op.store(response)
     return response
 ```
 
-On a first execution, `replayed` is `False`. Call `op.store(response)` to persist the response. On a replay, `replayed` is `True` and `op.response` carries the stored value.
+On a first execution, `replayed` is `False`. Call `op.store(response)` to persist the response. On a replay, `replayed` is `True` and `op.result()` returns the stored value, typed as the stored type so the replay branch returns it without a cast. Calling `op.result()` on a first execution raises `IdempotencyStateError`, so guard it with `if op.replayed:`.
 
 Exiting the block without calling `op.store(...)` on a first execution stores nothing. The operation opted out and a later call with the same key executes fresh.
 

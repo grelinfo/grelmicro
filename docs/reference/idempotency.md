@@ -12,5 +12,6 @@
         - IdempotencyConfig
         - IdempotencyConflictError
         - IdempotencyError
+        - IdempotencyStateError
         - Operation
         - idempotent
