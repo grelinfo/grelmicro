@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.4 - 2026-07-18
+
+### Internal
+
+* ⬆️ Bump the Python dependency group (including `redis` 8.0.1, `pytest`, `ruff`, and `ty` 0.0.58), the GitHub Actions, and the pre-commit hooks. ([#514](https://github.com/grelinfo/grelmicro/pull/514), [#510](https://github.com/grelinfo/grelmicro/pull/510), [#488](https://github.com/grelinfo/grelmicro/pull/488))
+* 🚨 Adapt to `ty` 0.0.58: type the `Component` protocol's `name` as a read-only property and trim stale `ty: ignore` directives.
+
 ## 0.29.3 - 2026-07-18
 
 ### Features
