@@ -7,13 +7,15 @@ attempt count, and a stored `dedup_key` blocks a re-publish in any state.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._registry import OutboxRegistry
 from grelmicro.outbox._uuid import uuid7
 from grelmicro.outbox.errors import HandlerNotFoundError
-from grelmicro.outbox.memory import MemoryOutboxAdapter
+from grelmicro.outbox.memory import MemoryOutboxAdapter, _now
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -154,3 +156,48 @@ async def test_purge_removes_terminal_rows_only() -> None:
     removed = await backend.purge()
     assert removed == 2  # noqa: PLR2004
     assert set(backend._rows) == {pending.id}
+
+
+async def test_purge_states_filter_targets_delivered_only() -> None:
+    """Purging with `states=("delivered",)` leaves dead rows in place."""
+    backend = MemoryOutboxAdapter()
+
+    delivered = _record()
+    await backend.enqueue(None, delivered)
+    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    await backend.complete(
+        message_id=claimed.id, attempts=claimed.attempts, keep=True
+    )
+
+    dead = _record()
+    await backend.enqueue(None, dead)
+    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    await backend.reschedule(
+        message_id=claimed.id,
+        attempts=claimed.attempts,
+        delay=0,
+        error="boom",
+        dead=True,
+    )
+
+    removed = await backend.purge(states=("delivered",))
+    assert removed == 1
+    assert set(backend._rows) == {dead.id}
+
+
+async def test_purge_measures_delivered_age_from_delivery_time() -> None:
+    """A delivered row ages from delivery, not from when it was staged."""
+    backend = MemoryOutboxAdapter()
+    record = _record()
+    await backend.enqueue(None, record)
+    # Backdate creation far into the past.
+    backend._rows[record.id].created_at = _now() - timedelta(days=365)
+    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    await backend.complete(
+        message_id=claimed.id, attempts=claimed.attempts, keep=True
+    )
+
+    # Freshly delivered, so a one-hour window keeps it, even though a
+    # creation-based purge would have deleted the year-old row.
+    assert await backend.purge(before_seconds=3600, states=("delivered",)) == 0
+    assert record.id in backend._rows

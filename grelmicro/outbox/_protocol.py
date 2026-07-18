@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     Annotated,
+    Literal,
     Protocol,
     Self,
     runtime_checkable,
@@ -122,8 +123,12 @@ class OutboxBackend(Protocol):
             float | None,
             Doc("Only purge terminal rows older than this many seconds."),
         ] = None,
+        states: Annotated[
+            tuple[Literal["delivered", "dead"], ...],
+            Doc("Terminal states to purge."),
+        ] = ("delivered", "dead"),
     ) -> int:
-        """Delete delivered and dead rows. Returns the count removed."""
+        """Delete terminal rows in the given states. Returns the count removed."""
         ...
 
     async def redrive(
