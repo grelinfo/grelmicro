@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -30,6 +30,7 @@ class _Row:
     available_at: datetime
     created_at: datetime
     last_error: str | None = None
+    delivered_at: datetime | None = None
 
 
 class MemoryOutboxAdapter:
@@ -107,6 +108,7 @@ class MemoryOutboxAdapter:
         if keep:
             row.state = "delivered"
             row.last_error = None
+            row.delivered_at = _now()
         else:
             self._rows.pop(message_id, None)
 
@@ -146,8 +148,16 @@ class MemoryOutboxAdapter:
             self._wake.set()
         return moved
 
-    async def purge(self, *, before_seconds: float | None = None) -> int:
-        """Delete delivered and dead rows. Returns the count removed."""
+    async def purge(
+        self,
+        *,
+        before_seconds: float | None = None,
+        states: tuple[Literal["delivered", "dead"], ...] = (
+            "delivered",
+            "dead",
+        ),
+    ) -> int:
+        """Delete terminal rows in the given states. Returns the count removed."""
         cutoff = (
             _now() - timedelta(seconds=before_seconds)
             if before_seconds is not None
@@ -156,8 +166,10 @@ class MemoryOutboxAdapter:
         doomed = [
             message_id
             for message_id, row in self._rows.items()
-            if row.state in {"delivered", "dead"}
-            and (cutoff is None or row.created_at < cutoff)
+            if row.state in states
+            and (
+                cutoff is None or (row.delivered_at or row.created_at) < cutoff
+            )
         ]
         for message_id in doomed:
             del self._rows[message_id]

@@ -76,6 +76,30 @@ def test_invalid_table_name() -> None:
         PostgresOutboxAdapter(provider=PostgresProvider(URL), table="bad name")
 
 
+def test_create_table_sql_renders_ddl() -> None:
+    """`create_table_sql` renders the create statements for the table name."""
+    sql = PostgresOutboxAdapter.create_table_sql()
+    assert "CREATE TABLE IF NOT EXISTS grelmicro_outbox" in sql
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS grelmicro_outbox_dedup_idx" in sql
+    custom = PostgresOutboxAdapter.create_table_sql("orders_outbox")
+    assert "CREATE TABLE IF NOT EXISTS orders_outbox" in custom
+
+
+def test_drop_table_sql_renders_ddl() -> None:
+    """`drop_table_sql` renders the drop statement for the table name."""
+    assert (
+        PostgresOutboxAdapter.drop_table_sql()
+        == "DROP TABLE IF EXISTS grelmicro_outbox;"
+    )
+
+
+@pytest.mark.parametrize("accessor", ["create_table_sql", "drop_table_sql"])
+def test_ddl_accessors_reject_bad_table_name(accessor: str) -> None:
+    """The DDL accessors validate the table name like the constructor."""
+    with pytest.raises(ValueError, match="not a valid SQL identifier"):
+        getattr(PostgresOutboxAdapter, accessor)("bad name")
+
+
 async def test_enqueue_rejects_pool() -> None:
     """A pool is refused because it breaks atomicity."""
     pool = MagicMock(spec=asyncpg.Pool)
@@ -562,6 +586,53 @@ async def test_postgres_lease_reclaim() -> None:
             )
             assert await backend.purge() == 1
             assert await backend.claim(topics=["job"], limit=10, lease=1) == []
+
+
+@pytest.mark.integration
+async def test_postgres_purge_states_filter() -> None:
+    """`purge(states=("delivered",))` removes delivered rows, keeps dead ones."""
+    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+
+    with PostgresContainer() as container:
+        port = container.get_exposed_port(5432)
+        provider = PostgresProvider(
+            f"postgresql://test:test@localhost:{port}/test"
+        )
+        async with (
+            provider,
+            PostgresOutboxAdapter(provider=provider, notify=False) as backend,
+        ):
+
+            async def _stage() -> OutboxRecord:
+                record = OutboxRecord(id=uuid7(), topic="job", payload={})
+                async with (
+                    provider.client.acquire() as conn,
+                    conn.transaction(),
+                ):
+                    await backend.enqueue(conn, record)
+                return record
+
+            await _stage()
+            (delivered,) = await backend.claim(
+                topics=["job"], limit=10, lease=30
+            )
+            await backend.complete(
+                message_id=delivered.id, attempts=delivered.attempts, keep=True
+            )
+
+            await _stage()
+            (dead,) = await backend.claim(topics=["job"], limit=10, lease=30)
+            await backend.reschedule(
+                message_id=dead.id,
+                attempts=dead.attempts,
+                delay=0,
+                error="boom",
+                dead=True,
+            )
+
+            # Delivered-only purge leaves the dead row for inspection.
+            assert await backend.purge(states=("delivered",)) == 1
+            assert await backend.purge(states=("dead",)) == 1
 
 
 @pytest.mark.integration

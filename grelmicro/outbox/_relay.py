@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import secrets
 import time
+from datetime import timedelta
 from logging import getLogger
 from typing import TYPE_CHECKING, Self
 
@@ -51,15 +52,28 @@ class Relay:
         self._registry = registry
         self._config = config
         self._shutdown_timeout = shutdown_timeout
+        # A literal False deletes delivered rows on success. True or a
+        # retention timedelta keeps them (the janitor trims the timedelta).
+        self._keep = config.keep_delivered is not False
+        self._retention_seconds = (
+            config.keep_delivered.total_seconds()
+            if isinstance(config.keep_delivered, timedelta)
+            else None
+        )
         self._stop = asyncio.Event()
         self._slot_freed = asyncio.Event()
         self._inflight: set[asyncio.Task[None]] = set()
         self._loop_task: asyncio.Task[None] | None = None
+        self._purge_task: asyncio.Task[None] | None = None
 
     async def __aenter__(self) -> Self:
-        """Start the relay loop."""
+        """Start the relay loop and, when set, the retention janitor."""
         self._stop = asyncio.Event()
         self._loop_task = asyncio.create_task(self._run(), name="outbox-relay")
+        if self._retention_seconds is not None:
+            self._purge_task = asyncio.create_task(
+                self._purge_loop(self._retention_seconds), name="outbox-purge"
+            )
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -72,6 +86,9 @@ class Relay:
             # this await still propagates, as it should.
             await asyncio.wait({self._loop_task})
             self._loop_task = None
+        if self._purge_task is not None:
+            await asyncio.wait({self._purge_task})
+            self._purge_task = None
         await self._drain()
 
     async def _drain(self) -> None:
@@ -120,6 +137,27 @@ class Relay:
                 continue
             for record in claimed:
                 self._dispatch(record)
+
+    async def _purge_loop(self, retention: float) -> None:
+        """Purge delivered rows past the retention window on an interval.
+
+        Runs only when `keep_delivered` is a timedelta. Dead rows are never
+        touched, since a dead-letter is a failure to inspect and redrive.
+        The delete is idempotent, so every replica running it is safe.
+        """
+        interval = max(60.0, min(retention / 10, 3600.0))
+        while not self._stop.is_set():
+            try:
+                removed = await self._backend.purge(
+                    before_seconds=retention, states=("delivered",)
+                )
+            except Exception:
+                logger.exception("Outbox purge failed, backing off")
+            else:
+                logger.debug(
+                    "Outbox purged %d delivered rows past retention", removed
+                )
+            await self._race_stop(asyncio.sleep(interval))
 
     def _dispatch(self, record: OutboxRecord) -> None:
         """Start a handler task for a claimed record."""
@@ -181,7 +219,7 @@ class Relay:
                 self._backend.complete(
                     message_id=record.id,
                     attempts=record.attempts,
-                    keep=self._config.keep_delivered,
+                    keep=self._keep,
                 ),
                 record,
                 "mark delivered",

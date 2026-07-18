@@ -7,6 +7,8 @@ from datetime import timedelta
 import pytest
 from pydantic import BaseModel
 
+from grelmicro import Grelmicro
+from grelmicro.errors import OutOfContextError
 from grelmicro.outbox import Message, Outbox
 from grelmicro.outbox.errors import (
     HandlerAlreadyRegisteredError,
@@ -146,3 +148,26 @@ async def test_relay_start_failure_closes_backend(
     with pytest.raises(RuntimeError, match="relay boom"):
         await outbox.__aenter__()
     assert closed is True
+
+
+async def test_current_returns_registered_instance() -> None:
+    """`Outbox.current()` resolves the app-registered instance."""
+    outbox = Outbox(MemoryOutboxAdapter())
+    micro = Grelmicro(uses=[outbox])
+    async with micro:
+        assert Outbox.current() is outbox
+
+
+async def test_current_out_of_context_raises() -> None:
+    """`Outbox.current()` raises when no app is active."""
+    with pytest.raises(OutOfContextError):
+        Outbox.current()
+
+
+async def test_current_unknown_name_raises() -> None:
+    """`Outbox.current(name)` raises when no outbox is registered under it."""
+    outbox = Outbox(MemoryOutboxAdapter())
+    micro = Grelmicro(uses=[outbox])
+    async with micro:
+        with pytest.raises(OutOfContextError):
+            Outbox.current("orders")

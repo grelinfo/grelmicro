@@ -2,11 +2,11 @@
 
 The `outbox` module runs an async handler exactly after your database transaction commits, at least once. Use it to turn a side effect into a durable part of your write: send an email, call an external API, or publish an event without ever losing it and without ever running it for a transaction that rolled back.
 
+This is the transactional outbox pattern. It removes the dual-write problem: the moment you write to the database and "also send an email" as two separate steps, a crash between them either loses the email or sends it for a change that never committed. Staging the message in the same transaction makes that impossible.
+
 - **[publish](#producer)**: stage a message inside your own transaction, so the business row and the message commit together or not at all.
 - **[@handler](#consumer)**: register an async function that the relay runs for each staged message.
-- **relay**: a background worker, started with the app, that delivers staged messages with retries and dead-lettering.
-
-This is the transactional outbox pattern. It removes the dual-write problem: the moment you write to the database and "also send an email" as two separate steps, a crash between them either loses the email or sends it for a change that never committed. Staging the message in the same transaction makes that impossible.
+- **[relay](#relay)**: a background worker, started with the app, that delivers staged messages with retries and dead-lettering.
 
 ## Quick start
 
@@ -71,7 +71,7 @@ The outbox is technology-agnostic and delegates storage to a backend. Wire the b
 
 The outbox is built backend-first. Adding SQLite or MySQL later is one adapter file plus a `provider.outbox()` factory, the same shape the [cache](cache.md) and [coordination](coordination.md) components already use for their backends. The producer and consumer API never changes when you switch backends.
 
-The Postgres adapter stores messages in a single `grelmicro_outbox` table. The relay claims a batch with `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)`, so every replica claims a disjoint set with no leader and no coordination. The table is created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema.
+The Postgres adapter stores messages in a single `grelmicro_outbox` table. The relay claims a batch with `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)`, so every replica claims a disjoint set with no leader and no coordination. The table is created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema, and run the DDL yourself (see [Managing the schema with Alembic](#managing-the-schema-with-alembic)).
 
 ## Producer
 
@@ -180,6 +180,22 @@ Use a per-request session or connection dependency and hand it to `publish`. The
 
 The session dependency opens one transaction per request, so the `User` row and the `WelcomeEmail` message commit together or roll back together.
 
+### Resolving the outbox
+
+A producer that only publishes does not need to hold the constructed instance or a config-bound module singleton. `Outbox.current()` returns the app-registered outbox, so a request handler in another module publishes without importing it:
+
+```python
+from grelmicro.outbox import Outbox
+
+
+@app.post("/signup")
+async def signup(body: SignUp, session: AsyncSession = Depends(get_session)) -> None:
+    session.add(User(email=body.email))
+    await Outbox.current().publish(session, WelcomeEmail(to=body.email))
+```
+
+`Outbox.current(name=...)` selects a named instance. It resolves inside `async with micro:` or after `micro.install(app)`, and raises `OutOfContextError` otherwise. Handlers still register on the instance at wiring time.
+
 ### Delay and deduplication
 
 `delay` holds a message back until a future time. `dedup_key` drops a duplicate before it is stored, using an insert that does nothing on conflict, so a producer retry is safe and never raises:
@@ -190,7 +206,7 @@ await outbox.publish(conn, ReminderDue(...), delay=timedelta(hours=1))
 await outbox.publish(conn, OrderPlaced(...), dedup_key=f"order:{order_id}")
 ```
 
-When delivered messages are deleted (the default), the deduplication window lasts only until delivery. Keep delivered messages with `keep_delivered=True` to extend it.
+When delivered messages are deleted (the default), the deduplication window lasts only until delivery. Keep delivered messages with `keep_delivered=True` to extend it, or `keep_delivered=timedelta(days=30)` to extend it for a fixed window. A retention window caps it: once a delivered row is purged its `dedup_key` frees up.
 
 ## Consumer
 
@@ -300,9 +316,21 @@ await outbox.redrive(topic="email.welcome")
 
 Alert on the oldest pending age and on any message entering the dead state.
 
-### Cleanup
+## Retention and cleanup
 
-Delivered rows are deleted on success by default, so the table stays small on its own. Dead rows, and delivered rows kept with `keep_delivered=True`, accumulate until you trim them. Use `purge` to delete terminal rows, optionally only those past a retention window:
+Delivered rows are deleted on success by default (`keep_delivered=False`), so the table stays small on its own.
+
+Set `keep_delivered` to a `timedelta` to keep delivered rows for a window and let the relay purge them once they age out:
+
+```python
+from datetime import timedelta
+
+micro = Grelmicro(uses=[Outbox(postgres, keep_delivered=timedelta(days=30))])
+```
+
+The window is measured from delivery time, not publish time, so a delayed or heavily retried message still gets its full retention. The relay purges expired delivered rows in the background, so retention needs no scheduled job. The purge runs on the relay, so a `relay=False` replica never purges. Set `keep_delivered=True` to keep delivered rows for good with no auto-purge.
+
+Auto-purge only removes delivered rows. A dead-letter is a failure to inspect and redrive, so dead rows are never deleted automatically. Trim them yourself with `purge`, which deletes both delivered and dead rows, optionally only those past a window:
 
 ```python
 from datetime import timedelta
@@ -311,7 +339,7 @@ await outbox.purge()                              # all delivered and dead rows
 await outbox.purge(older_than=timedelta(days=7))  # only those older than 7 days
 ```
 
-Pending and in-flight messages are never touched. Run it from a scheduled [task](task.md) for hands-off retention.
+Pending and in-flight messages are never touched. Run `purge` from a scheduled [task](task.md) when you keep delivered rows for good and still want dead rows trimmed.
 
 ## Observability
 
@@ -359,9 +387,28 @@ The Postgres adapter uses one table. Column names follow the common outbox conve
 | `available_at` | `timestamptz` | when the message is next actionable, for delay, retry, and lease |
 | `state` | `text` | `pending`, `processing`, `delivered`, or `dead` |
 | `last_error` | `text` null | the last handler error, for dead messages |
+| `delivered_at` | `timestamptz` null | delivery time, set on success, anchors the retention window |
 | `created_at` | `timestamptz` | staged time |
 
 Ids are time-ordered UUIDv7, so the claim orders by `(available_at, id)` for stable, index-friendly delivery. A partial index on `available_at` for non-terminal rows serves the claim query, and a unique partial index on `dedup_key` (where it is set) backs deduplication. The table is created on first connect unless `auto_migrate=False`, guarded so replicas booting together do not race the DDL.
+
+### Managing the schema with Alembic
+
+Set `auto_migrate=False` and run the DDL from your own migration. `PostgresOutboxAdapter` returns the exact statements the outbox runs, so your migration never drifts from the library:
+
+```python
+from grelmicro.outbox.postgres import PostgresOutboxAdapter
+
+
+def upgrade() -> None:
+    op.execute(PostgresOutboxAdapter.create_table_sql())
+
+
+def downgrade() -> None:
+    op.execute(PostgresOutboxAdapter.drop_table_sql())
+```
+
+Pass a table name to either method to match a custom `table`. If you prefer autogenerate, model the table from this DDL in your own metadata.
 
 ## Configuration
 
@@ -380,6 +427,6 @@ Ids are time-ordered UUIDv7, so the claim orders by `(available_at, id)` for sta
 | `retry_jitter` | `1` | jitter fraction applied to backoff |
 | `concurrency` | `50` | maximum handlers running at once |
 | `dead_letter` | `True` | move exhausted messages to the dead state |
-| `keep_delivered` | `False` | keep delivered rows instead of deleting them |
+| `keep_delivered` | `False` | keep delivered rows instead of deleting them, or a `timedelta` to keep and auto-purge them after that window |
 | `auto_migrate` | `True` | create the table on first connect |
 | `notify` | `True` | use `LISTEN`/`NOTIFY` for low-latency wakeups |

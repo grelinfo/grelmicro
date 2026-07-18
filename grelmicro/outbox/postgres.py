@@ -7,7 +7,7 @@ import contextlib
 import re
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
 
 import asyncpg
 from typing_extensions import Doc
@@ -50,6 +50,7 @@ class PostgresOutboxAdapter(OutboxBackend):
             available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             state TEXT NOT NULL DEFAULT 'pending',
             last_error TEXT,
+            delivered_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS {table}_claim_idx
@@ -101,8 +102,8 @@ class PostgresOutboxAdapter(OutboxBackend):
     _SQL_DELETE = "DELETE FROM {table} WHERE id = $1 AND attempts = $2;"
 
     _SQL_MARK_DELIVERED = (
-        "UPDATE {table} SET state = 'delivered', last_error = NULL "
-        "WHERE id = $1 AND attempts = $2;"
+        "UPDATE {table} SET state = 'delivered', last_error = NULL, "
+        "delivered_at = NOW() WHERE id = $1 AND attempts = $2;"
     )
 
     _SQL_RETRY = (
@@ -123,9 +124,10 @@ class PostgresOutboxAdapter(OutboxBackend):
 
     _SQL_PURGE = (
         "DELETE FROM {table} "
-        "WHERE (state = 'delivered' OR state = 'dead') "
+        "WHERE state = ANY($2) "
         "AND ($1::float8 IS NULL "
-        "OR created_at < NOW() - make_interval(secs => $1));"
+        "OR COALESCE(delivered_at, created_at) "
+        "< NOW() - make_interval(secs => $1));"
     )
 
     def __init__(
@@ -159,9 +161,7 @@ class PostgresOutboxAdapter(OutboxBackend):
         ] = True,
     ) -> None:
         """Initialize the Postgres outbox backend."""
-        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table):
-            msg = f"Table name '{table}' is not a valid SQL identifier"
-            raise ValueError(msg)
+        _validate_table(table)
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
             self._owns_provider = True
@@ -195,6 +195,40 @@ class PostgresOutboxAdapter(OutboxBackend):
         """Swap the underlying provider (used by `Grelmicro` for sharing)."""
         self._provider = provider
         self._owns_provider = False
+
+    @classmethod
+    def create_table_sql(
+        cls,
+        table: Annotated[
+            str, Doc("Table name to render the DDL for.")
+        ] = "grelmicro_outbox",
+    ) -> str:
+        """Return the DDL that creates the outbox table and its indexes.
+
+        These are the exact statements `auto_migrate` runs, so a migration
+        that runs them stays in step with the library. They are idempotent
+        (`CREATE ... IF NOT EXISTS`). Run them from your own migration when
+        `auto_migrate=False`, for example in an Alembic revision:
+
+        ```python
+        op.execute(PostgresOutboxAdapter.create_table_sql())
+        ```
+        """
+        return cls._SQL_MIGRATE.format(table=_validate_table(table))
+
+    @classmethod
+    def drop_table_sql(
+        cls,
+        table: Annotated[
+            str, Doc("Table name to render the DDL for.")
+        ] = "grelmicro_outbox",
+    ) -> str:
+        """Return `DROP TABLE IF EXISTS` for the outbox table.
+
+        The pairing downgrade for `create_table_sql`. The indexes drop with
+        the table.
+        """
+        return f"DROP TABLE IF EXISTS {_validate_table(table)};"
 
     async def __aenter__(self) -> Self:
         """Open the provider, install the schema, hold the listener."""
@@ -230,7 +264,7 @@ class PostgresOutboxAdapter(OutboxBackend):
             await conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext($1))", self._table
             )
-            await conn.execute(self._SQL_MIGRATE.format(table=self._table))
+            await conn.execute(self.create_table_sql(self._table))
 
     async def _open_listener(self) -> None:
         """Hold a connection that listens for wake notifications."""
@@ -444,10 +478,18 @@ class PostgresOutboxAdapter(OutboxBackend):
             )
         return _rows_affected(status)
 
-    async def purge(self, *, before_seconds: float | None = None) -> int:
-        """Delete delivered and dead rows. Returns the count removed."""
+    async def purge(
+        self,
+        *,
+        before_seconds: float | None = None,
+        states: tuple[Literal["delivered", "dead"], ...] = (
+            "delivered",
+            "dead",
+        ),
+    ) -> int:
+        """Delete terminal rows in the given states. Returns the count removed."""
         status = await self._provider.client.execute(
-            self._purge_sql, before_seconds
+            self._purge_sql, before_seconds, list(states)
         )
         return _rows_affected(status)
 
@@ -469,6 +511,14 @@ _TXN_MESSAGE = (
     "conn.transaction() or session.begin() so the message commits with your "
     "write."
 )
+
+
+def _validate_table(table: str) -> str:
+    """Return the table name, rejecting anything not a SQL identifier."""
+    if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table):
+        msg = f"Table name '{table}' is not a valid SQL identifier"
+        raise ValueError(msg)
+    return table
 
 
 def _available_in_seconds(record: OutboxRecord) -> float:
