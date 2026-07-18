@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.3 - 2026-07-18
+
+### Features
+
+* ✨ Read the Postgres database name from `POSTGRES_DATABASE` too, not only `POSTGRES_DB`, so the longer spelling works from the environment. `DB` still wins when both are set. ([#518](https://github.com/grelinfo/grelmicro/issues/518))
+
 ## 0.29.2 - 2026-07-18
 
 ### Features
