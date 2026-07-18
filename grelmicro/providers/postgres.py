@@ -52,9 +52,9 @@ class PostgresConfig(BaseModel):
 class _PostgresEnvSettings(BaseSettings):
     """Read Postgres settings from the environment (env_prefix-driven).
 
-    The `db` field maps to `{env_prefix}DB`, matching the Postgres
-    convention (the `postgres` Docker image, libpq, ...). It is
-    surfaced as `database` everywhere else in the public API.
+    The database name reads from `{env_prefix}DB` (the `postgres` Docker
+    image and libpq convention) or `{env_prefix}DATABASE` (the field name
+    used elsewhere in the public API). `DB` wins when both are set.
     """
 
     model_config = SettingsConfigDict(extra="ignore")
@@ -63,6 +63,7 @@ class _PostgresEnvSettings(BaseSettings):
     host: str | None = None
     port: int = 5432
     db: str | None = None
+    database: str | None = None
     user: str | None = None
     password: str | None = None
 
@@ -479,7 +480,7 @@ def _resolve_url(
         return _compose_url(
             host=settings.host,
             port=settings.port,
-            database=settings.db,
+            database=settings.db or settings.database,
             user=settings.user,
             password=settings.password,
         )
