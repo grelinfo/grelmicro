@@ -1827,6 +1827,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.outbox.Outbox.current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;current
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.outbox.Outbox.handler" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3205,6 +3216,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.outbox.Outbox.current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;current
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.outbox.Outbox.handler" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3819,7 +3841,7 @@ a background relay delivers it to a registered <code>@handler</code>.</p>
     <span class="n">retry_jitter</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">concurrency</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">dead_letter</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">keep_delivered</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">keep_delivered</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="n"><span title="datetime.timedelta">timedelta</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">auto_migrate</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">notify</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">env_load</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -4151,12 +4173,12 @@ When a Provider is given, the component calls
             </td>
             <td class="doc-param-details">
               <div class="doc-md-description">
-                <p>Keep delivered rows instead of deleting them.</p>
+                <p>Keep delivered rows instead of deleting them. A <code>timedelta</code> keeps them for that long, then the relay purges them.</p>
               </div>
               <p>
                   <span class="doc-param-annotation">
                     <b>TYPE:</b>
-                      <code><span title="bool">bool</span> | None</code>
+                      <code><span title="bool">bool</span> | <span title="datetime.timedelta">timedelta</span> | None</code>
                   </span>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
@@ -4362,6 +4384,92 @@ When a Provider is given, the component calls
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.outbox.Outbox.current" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">current</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">current</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;Outbox&lt;/span&gt; (&lt;code&gt;grelmicro.outbox._component.Outbox&lt;/code&gt;)" href="#grelmicro.outbox.Outbox">Outbox</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the registered <code>Outbox</code> from the active <code>Grelmicro</code> app.</p>
+<p>Lets a producer publish without holding the constructed instance or
+a config-bound module singleton:</p>
+<div class="highlight"><pre><span></span><code><span class="k">await</span> <span class="n">Outbox</span><span class="o">.</span><span class="n">current</span><span class="p">()</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">WelcomeEmail</span><span class="p">(</span><span class="n">to</span><span class="o">=</span><span class="n">email</span><span class="p">))</span>
+</code></pre></div>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>name</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Registration name.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>&#39;default&#39;</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">RAISES</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+              <span class="doc-raises-annotation">
+                  <code><span title="grelmicro.errors.OutOfContextError">OutOfContextError</span></code>
+              </span>
+            </td>
+            <td class="doc-raises-details">
+              <div class="doc-md-description">
+                <p>No active app, or no <code>Outbox</code> registered under
+<code>name</code>. Run inside <code>async with micro:</code> or after
+<code>micro.install(app)</code>, with an <code>Outbox</code> in <code>uses=[...]</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 
@@ -5134,12 +5242,19 @@ True when the row is inserted.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">purge</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">before_seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">purge</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">before_seconds</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">states</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;delivered&quot;</span><span class="p">,</span> <span class="s2">&quot;dead&quot;</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;delivered&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;dead&quot;</span><span class="p">,</span>
+    <span class="p">),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Delete delivered and dead rows. Returns the count removed.</p>
+        <p>Delete terminal rows in the given states. Returns the count removed.</p>
 
 
 <table>
@@ -5166,6 +5281,26 @@ True when the row is inserted.</p>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
                       <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>states</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Terminal states to purge.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="tuple">tuple</span>[<span title="typing.Literal">Literal</span>[&#39;delivered&#39;, &#39;dead&#39;], ...]</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>(&#39;delivered&#39;, &#39;dead&#39;)</code>
                   </span>
               </p>
             </td>
@@ -5622,12 +5757,12 @@ environment under <code>GREL_OUTBOX_</code> unless fields are set directly.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">keep_delivered</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">keep_delivered</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">|</span> <span class="n"><span title="datetime.timedelta">timedelta</span></span> <span class="o">=</span> <span class="kc">False</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Keep delivered rows instead of deleting them.</p>
+        <p>Keep delivered rows instead of deleting them. Pass a <code>timedelta</code> to keep them for that long, then the relay purges them.</p>
 
     </div>
 

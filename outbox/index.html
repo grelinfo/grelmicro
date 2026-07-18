@@ -673,6 +673,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#resolving-the-outbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolving the outbox
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#delay-and-deduplication" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -778,19 +789,19 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#cleanup" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention-and-cleanup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cleanup
+        Retention and cleanup
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -824,6 +835,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#managing-the-schema-with-alembic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing the schema with Alembic
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2867,6 +2895,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#resolving-the-outbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolving the outbox
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#delay-and-deduplication" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2972,19 +3011,19 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#cleanup" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention-and-cleanup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cleanup
+        Retention and cleanup
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -3018,6 +3057,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#managing-the-schema-with-alembic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing the schema with Alembic
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3054,12 +3110,12 @@
 
 <h1 id="outbox">Outbox</h1>
 <p>The <code>outbox</code> module runs an async handler exactly after your database transaction commits, at least once. Use it to turn a side effect into a durable part of your write: send an email, call an external API, or publish an event without ever losing it and without ever running it for a transaction that rolled back.</p>
+<p>This is the transactional outbox pattern. It removes the dual-write problem: the moment you write to the database and "also send an email" as two separate steps, a crash between them either loses the email or sends it for a change that never committed. Staging the message in the same transaction makes that impossible.</p>
 <ul>
 <li><strong><a href="#producer">publish</a></strong>: stage a message inside your own transaction, so the business row and the message commit together or not at all.</li>
 <li><strong><a href="#consumer">@handler</a></strong>: register an async function that the relay runs for each staged message.</li>
-<li><strong>relay</strong>: a background worker, started with the app, that delivers staged messages with retries and dead-lettering.</li>
+<li><strong><a href="#relay">relay</a></strong>: a background worker, started with the app, that delivers staged messages with retries and dead-lettering.</li>
 </ul>
-<p>This is the transactional outbox pattern. It removes the dual-write problem: the moment you write to the database and "also send an email" as two separate steps, a crash between them either loses the email or sends it for a change that never committed. Staging the message in the same transaction makes that impossible.</p>
 <h2 id="quick-start">Quick start</h2>
 <p>Define a payload, stage it inside your transaction, and register a handler. The relay does the rest:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">EmailStr</span>
@@ -3142,7 +3198,7 @@
 </tbody>
 </table>
 <p>The outbox is built backend-first. Adding SQLite or MySQL later is one adapter file plus a <code>provider.outbox()</code> factory, the same shape the <a href="../cache/">cache</a> and <a href="../coordination/">coordination</a> components already use for their backends. The producer and consumer API never changes when you switch backends.</p>
-<p>The Postgres adapter stores messages in a single <code>grelmicro_outbox</code> table. The relay claims a batch with <code>UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)</code>, so every replica claims a disjoint set with no leader and no coordination. The table is created on first connect: pass <code>auto_migrate=False</code> when your own migration tool owns the schema.</p>
+<p>The Postgres adapter stores messages in a single <code>grelmicro_outbox</code> table. The relay claims a batch with <code>UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)</code>, so every replica claims a disjoint set with no leader and no coordination. The table is created on first connect: pass <code>auto_migrate=False</code> when your own migration tool owns the schema, and run the DDL yourself (see <a href="#managing-the-schema-with-alembic">Managing the schema with Alembic</a>).</p>
 <h2 id="producer">Producer</h2>
 <p><code>publish</code> stages a message. It takes the connection or session you are already writing on, so the message joins your open transaction. It never opens or commits a transaction of its own. That is the whole guarantee: your write and your message share one commit.</p>
 <h3 id="typed-payloads">Typed payloads</h3>
@@ -3231,13 +3287,24 @@
 </div>
 </div>
 <p>The session dependency opens one transaction per request, so the <code>User</code> row and the <code>WelcomeEmail</code> message commit together or roll back together.</p>
+<h3 id="resolving-the-outbox">Resolving the outbox</h3>
+<p>A producer that only publishes does not need to hold the constructed instance or a config-bound module singleton. <code>Outbox.current()</code> returns the app-registered outbox, so a request handler in another module publishes without importing it:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.outbox</span><span class="w"> </span><span class="kn">import</span> <span class="n">Outbox</span>
+
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/signup&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">signup</span><span class="p">(</span><span class="n">body</span><span class="p">:</span> <span class="n">SignUp</span><span class="p">,</span> <span class="n">session</span><span class="p">:</span> <span class="n">AsyncSession</span> <span class="o">=</span> <span class="n">Depends</span><span class="p">(</span><span class="n">get_session</span><span class="p">))</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">User</span><span class="p">(</span><span class="n">email</span><span class="o">=</span><span class="n">body</span><span class="o">.</span><span class="n">email</span><span class="p">))</span>
+    <span class="k">await</span> <span class="n">Outbox</span><span class="o">.</span><span class="n">current</span><span class="p">()</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">WelcomeEmail</span><span class="p">(</span><span class="n">to</span><span class="o">=</span><span class="n">body</span><span class="o">.</span><span class="n">email</span><span class="p">))</span>
+</code></pre></div>
+<p><code>Outbox.current(name=...)</code> selects a named instance. It resolves inside <code>async with micro:</code> or after <code>micro.install(app)</code>, and raises <code>OutOfContextError</code> otherwise. Handlers still register on the instance at wiring time.</p>
 <h3 id="delay-and-deduplication">Delay and deduplication</h3>
 <p><code>delay</code> holds a message back until a future time. <code>dedup_key</code> drops a duplicate before it is stored, using an insert that does nothing on conflict, so a producer retry is safe and never raises:</p>
 <div class="highlight"><pre><span></span><code><span class="k">await</span> <span class="n">outbox</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">ReminderDue</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">delay</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
 
 <span class="k">await</span> <span class="n">outbox</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">OrderPlaced</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">dedup_key</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;order:</span><span class="si">{</span><span class="n">order_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
-<p>When delivered messages are deleted (the default), the deduplication window lasts only until delivery. Keep delivered messages with <code>keep_delivered=True</code> to extend it.</p>
+<p>When delivered messages are deleted (the default), the deduplication window lasts only until delivery. Keep delivered messages with <code>keep_delivered=True</code> to extend it, or <code>keep_delivered=timedelta(days=30)</code> to extend it for a fixed window. A retention window caps it: once a delivered row is purged its <code>dedup_key</code> frees up.</p>
 <h2 id="consumer">Consumer</h2>
 <p>A handler is an async function bound to a payload model or a topic string. Register as many as you like:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@outbox</span><span class="o">.</span><span class="n">handler</span><span class="p">(</span><span class="n">WelcomeEmail</span><span class="p">)</span>
@@ -3346,14 +3413,21 @@
 <div class="highlight"><pre><span></span><code><span class="k">await</span> <span class="n">outbox</span><span class="o">.</span><span class="n">redrive</span><span class="p">(</span><span class="n">topic</span><span class="o">=</span><span class="s2">&quot;email.welcome&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Alert on the oldest pending age and on any message entering the dead state.</p>
-<h3 id="cleanup">Cleanup</h3>
-<p>Delivered rows are deleted on success by default, so the table stays small on its own. Dead rows, and delivered rows kept with <code>keep_delivered=True</code>, accumulate until you trim them. Use <code>purge</code> to delete terminal rows, optionally only those past a retention window:</p>
+<h2 id="retention-and-cleanup">Retention and cleanup</h2>
+<p>Delivered rows are deleted on success by default (<code>keep_delivered=False</code>), so the table stays small on its own.</p>
+<p>Set <code>keep_delivered</code> to a <code>timedelta</code> to keep delivered rows for a window and let the relay purge them once they age out:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">timedelta</span>
+
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Outbox</span><span class="p">(</span><span class="n">postgres</span><span class="p">,</span> <span class="n">keep_delivered</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">30</span><span class="p">))])</span>
+</code></pre></div>
+<p>The window is measured from delivery time, not publish time, so a delayed or heavily retried message still gets its full retention. The relay purges expired delivered rows in the background, so retention needs no scheduled job. The purge runs on the relay, so a <code>relay=False</code> replica never purges. Set <code>keep_delivered=True</code> to keep delivered rows for good with no auto-purge.</p>
+<p>Auto-purge only removes delivered rows. A dead-letter is a failure to inspect and redrive, so dead rows are never deleted automatically. Trim them yourself with <code>purge</code>, which deletes both delivered and dead rows, optionally only those past a window:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">timedelta</span>
 
 <span class="k">await</span> <span class="n">outbox</span><span class="o">.</span><span class="n">purge</span><span class="p">()</span>                              <span class="c1"># all delivered and dead rows</span>
 <span class="k">await</span> <span class="n">outbox</span><span class="o">.</span><span class="n">purge</span><span class="p">(</span><span class="n">older_than</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">7</span><span class="p">))</span>  <span class="c1"># only those older than 7 days</span>
 </code></pre></div>
-<p>Pending and in-flight messages are never touched. Run it from a scheduled <a href="../task/">task</a> for hands-off retention.</p>
+<p>Pending and in-flight messages are never touched. Run <code>purge</code> from a scheduled <a href="../task/">task</a> when you keep delivered rows for good and still want dead rows trimmed.</p>
 <h2 id="observability">Observability</h2>
 <p>With the <a href="../tracing/">trace</a> component configured, <code>publish</code> writes the current trace context into the message <code>headers</code>, and the relay opens a consumer span for each delivery parented on it. A request that stages a message links to the delivery that runs later, even across replicas. The span follows the messaging semantic conventions (<code>messaging.system</code>, <code>messaging.destination.name</code>, <code>messaging.operation</code>, <code>messaging.message.id</code>).</p>
 <p>With the <a href="../metrics/">metrics</a> component configured, the relay emits:</p>
@@ -3477,6 +3551,11 @@
 <td>the last handler error, for dead messages</td>
 </tr>
 <tr>
+<td><code>delivered_at</code></td>
+<td><code>timestamptz</code> null</td>
+<td>delivery time, set on success, anchors the retention window</td>
+</tr>
+<tr>
 <td><code>created_at</code></td>
 <td><code>timestamptz</code></td>
 <td>staged time</td>
@@ -3484,6 +3563,19 @@
 </tbody>
 </table>
 <p>Ids are time-ordered UUIDv7, so the claim orders by <code>(available_at, id)</code> for stable, index-friendly delivery. A partial index on <code>available_at</code> for non-terminal rows serves the claim query, and a unique partial index on <code>dedup_key</code> (where it is set) backs deduplication. The table is created on first connect unless <code>auto_migrate=False</code>, guarded so replicas booting together do not race the DDL.</p>
+<h3 id="managing-the-schema-with-alembic">Managing the schema with Alembic</h3>
+<p>Set <code>auto_migrate=False</code> and run the DDL from your own migration. <code>PostgresOutboxAdapter</code> returns the exact statements the outbox runs, so your migration never drifts from the library:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.outbox.postgres</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresOutboxAdapter</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">upgrade</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">op</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">PostgresOutboxAdapter</span><span class="o">.</span><span class="n">create_table_sql</span><span class="p">())</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">downgrade</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">op</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">PostgresOutboxAdapter</span><span class="o">.</span><span class="n">drop_table_sql</span><span class="p">())</span>
+</code></pre></div>
+<p>Pass a table name to either method to match a custom <code>table</code>. If you prefer autogenerate, model the table from this DDL in your own metadata.</p>
 <h2 id="configuration">Configuration</h2>
 <p><code>OutboxConfig</code> is a plain Pydantic model. Component defaults read from the environment under <code>GREL_OUTBOX_</code> unless you set fields directly.</p>
 <table>
@@ -3553,7 +3645,7 @@
 <tr>
 <td><code>keep_delivered</code></td>
 <td><code>False</code></td>
-<td>keep delivered rows instead of deleting them</td>
+<td>keep delivered rows instead of deleting them, or a <code>timedelta</code> to keep and auto-purge them after that window</td>
 </tr>
 <tr>
 <td><code>auto_migrate</code></td>
