@@ -242,7 +242,7 @@ def test_frozen_is_preserved() -> None:
         env_load=True,
     )
     with pytest.raises(ValidationError):
-        cfg.timeout = ENV_TIMEOUT  # type: ignore[misc]
+        cfg.timeout = ENV_TIMEOUT  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
 
 def test_returns_correct_instance_type() -> None:

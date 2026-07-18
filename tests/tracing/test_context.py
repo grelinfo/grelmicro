@@ -275,7 +275,7 @@ class TestSpanExceptionRecording:
         mock_status = MagicMock()
         mocker.patch(
             "grelmicro.trace._span._get_otel",
-            return_value=OTel(mock_trace, mock_status),  # ty: ignore[invalid-argument-type]
+            return_value=OTel(mock_trace, mock_status),
         )
 
         def _raise_in_span() -> None:

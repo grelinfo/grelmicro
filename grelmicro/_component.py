@@ -72,7 +72,9 @@ class Component(
     """
 
     kind: ClassVar[str]
-    name: str
+
+    @property
+    def name(self) -> str: ...
 
     async def __aenter__(self) -> Self: ...
 
