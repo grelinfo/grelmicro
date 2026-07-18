@@ -13,6 +13,7 @@ if TYPE_CHECKING:
         ScheduleBackend,
     )
     from grelmicro.health._types import HealthDetails
+    from grelmicro.outbox._protocol import OutboxBackend
     from grelmicro.resilience._protocol import (
         CircuitBreakerBackend,
         RateLimiterBackend,
@@ -96,6 +97,19 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         msg = (
             f"{type(self).__name__} has no cache adapter. "
             f"Pass a CacheBackend instance to Cache(...) directly."
+        )
+        raise NotImplementedError(msg)
+
+    def outbox(self, **kwargs: Any) -> OutboxBackend:  # noqa: ANN401
+        """Return the matching `OutboxBackend` adapter for this Provider.
+
+        Raises:
+            NotImplementedError: If this Provider does not ship an outbox
+                adapter.
+        """
+        msg = (
+            f"{type(self).__name__} has no outbox adapter. "
+            f"Pass an OutboxBackend instance to Outbox(...) directly."
         )
         raise NotImplementedError(msg)
 

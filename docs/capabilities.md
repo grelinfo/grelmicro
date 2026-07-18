@@ -6,9 +6,9 @@ The [roadmap](https://github.com/grelinfo/grelmicro/issues/124) carries the live
 
 ## Vocabulary
 
-- **Pattern**: user-facing class. `Lock`, `LeaderElection`, `TaskLock`, `TTLCache`, `RateLimiter`, `CircuitBreaker`, `Idempotency`, `Retry`, `Bulkhead`, `Fallback`, `Timeout`, `Shield`.
-- **Adapter**: concrete implementation of a Backend Protocol. `RedisLockAdapter`, `PostgresLockAdapter`, `MemoryCacheAdapter`, `SQLiteLockAdapter`, `KubernetesLockAdapter`, and so on.
-- **Backend**: the Protocol class an Adapter satisfies. `LockBackend`, `LeaderElectionBackend`, `CacheBackend`, `RateLimiterBackend`, `CircuitBreakerBackend`.
+- **Pattern**: user-facing class. `Lock`, `LeaderElection`, `TaskLock`, `TTLCache`, `RateLimiter`, `CircuitBreaker`, `Idempotency`, `Outbox`, `Retry`, `Bulkhead`, `Fallback`, `Timeout`, `Shield`.
+- **Adapter**: concrete implementation of a Backend Protocol. `RedisLockAdapter`, `PostgresLockAdapter`, `MemoryCacheAdapter`, `PostgresOutboxAdapter`, `SQLiteLockAdapter`, `KubernetesLockAdapter`, and so on.
+- **Backend**: the Protocol class an Adapter satisfies. `LockBackend`, `LeaderElectionBackend`, `CacheBackend`, `RateLimiterBackend`, `CircuitBreakerBackend`, `OutboxBackend`.
 - **Provider**: vendor configuration plus native client, shared by Adapters that talk to the same service. `RedisProvider`, `PostgresProvider`, `SQLiteProvider`. Memory and Kubernetes Adapters do not use a Provider.
 
 See [Backends and Adapters](architecture/backends.md) for the full model.
@@ -23,6 +23,7 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 | `@tasks.cron` | ✅ | ✅ | ✅ | ✅ | N/A |
 | `TTLCache` | ✅ | ✅ | ✅ | ✅ | N/A |
 | `Idempotency` | ✅ | ✅ | ✅ | ✅ | N/A |
+| `Outbox` | ✅ | N/A | ✅ | 🚧 | N/A |
 | `RateLimiter` | ✅ | ✅ | ✅ | ✅ | N/A |
 | `CircuitBreaker` | ✅ | ✅ | ✅ | ✅ | N/A |
 | `Retry` | ✅ | N/A | N/A | N/A | N/A |
@@ -34,7 +35,8 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 Legend:
 
 - ✅ ships today.
-- `N/A` does not apply. `Retry`, `Bulkhead`, `Fallback`, and `Timeout` are in-process Patterns with no remote state to share. For `Schedule` (cron), Kubernetes has no Adapter on purpose: run a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) instead. For `LeaderElection`, SQLite has no adapter: leader election is meaningful only across multiple nodes, and SQLite does not coordinate across nodes. `Schedule` (cron) on SQLite does ship, because durable cron across processes on a single host is still useful.
+- 🚧 planned (see the [roadmap](https://github.com/grelinfo/grelmicro/issues/124)).
+- `N/A` does not apply. `Retry`, `Bulkhead`, `Fallback`, and `Timeout` are in-process Patterns with no remote state to share. For `Schedule` (cron), Kubernetes has no Adapter on purpose: run a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) instead. For `LeaderElection`, SQLite has no adapter: leader election is meaningful only across multiple nodes, and SQLite does not coordinate across nodes. `Schedule` (cron) on SQLite does ship, because durable cron across processes on a single host is still useful. For `Outbox`, Redis and Kubernetes are `N/A`: the outbox stages a message in the same transaction as your business write, which needs a transactional SQL store (Memory ships for tests and single-process apps). The Postgres adapter ships today, SQLite is planned, and MySQL is on the roadmap.
 
 ## Picking an Adapter
 

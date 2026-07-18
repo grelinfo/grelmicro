@@ -47,6 +47,45 @@ class TestConstruction:
         )
         assert provider.url == URL
 
+    def test_command_timeout_defaults_to_none(self) -> None:
+        """No command timeout is set by default."""
+        assert PostgresProvider(URL).command_timeout is None
+
+    def test_command_timeout_kwarg(self) -> None:
+        """The `command_timeout` kwarg is stored."""
+        assert PostgresProvider(URL, command_timeout=5).command_timeout == 5  # noqa: PLR2004
+
+    def test_command_timeout_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`command_timeout` resolves from `POSTGRES_COMMAND_TIMEOUT`."""
+        monkeypatch.setenv("POSTGRES_COMMAND_TIMEOUT", "3")
+        assert PostgresProvider(URL).command_timeout == 3  # noqa: PLR2004
+
+    def test_command_timeout_kwarg_wins_over_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The kwarg overrides the environment."""
+        monkeypatch.setenv("POSTGRES_COMMAND_TIMEOUT", "3")
+        assert PostgresProvider(URL, command_timeout=1).command_timeout == 1
+
+    def test_explicit_url_ignores_unrelated_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit URL is not broken by a stray unrelated env URL."""
+        monkeypatch.setenv("POSTGRES_URL", "not-a-postgres-url")
+        provider = PostgresProvider(URL)
+        assert provider.url == URL
+        assert provider.command_timeout is None
+
+    def test_invalid_command_timeout_env_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-numeric `POSTGRES_COMMAND_TIMEOUT` raises."""
+        monkeypatch.setenv("POSTGRES_COMMAND_TIMEOUT", "abc")
+        with pytest.raises(PostgresProviderConfigError):
+            PostgresProvider(URL)
+
     def test_url_and_host_mutually_exclusive(self) -> None:
         """Passing both `url` and `host` raises."""
         with pytest.raises(PostgresProviderConfigError, match="not both"):

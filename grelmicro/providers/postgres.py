@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         PostgresLockAdapter,
         PostgresScheduleAdapter,
     )
+    from grelmicro.outbox.postgres import PostgresOutboxAdapter
     from grelmicro.resilience.circuitbreaker.postgres import (
         PostgresCircuitBreakerAdapter,
     )
@@ -45,6 +46,7 @@ class PostgresConfig(BaseModel):
     database: str | None = None
     user: str | None = None
     password: str | None = None
+    command_timeout: float | None = None
 
 
 class _PostgresEnvSettings(BaseSettings):
@@ -63,6 +65,19 @@ class _PostgresEnvSettings(BaseSettings):
     db: str | None = None
     user: str | None = None
     password: str | None = None
+
+
+class _PostgresTimeoutEnvSettings(BaseSettings):
+    """Read only the command timeout from the environment.
+
+    Kept separate from `_PostgresEnvSettings` so resolving the timeout never
+    validates the connection fields. An explicit-URL provider must not fail
+    because an unrelated `{env_prefix}URL` is set in the environment.
+    """
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+    command_timeout: float | None = None
 
 
 class PostgresProvider(Provider):
@@ -117,6 +132,19 @@ class PostgresProvider(Provider):
         database: Annotated[str | None, Doc("Postgres database name.")] = None,
         user: Annotated[str | None, Doc("Postgres user.")] = None,
         password: Annotated[str | None, Doc("Postgres password.")] = None,
+        command_timeout: Annotated[
+            float | None,
+            Doc(
+                """
+                Per-operation timeout in seconds for pooled connections. A
+                query that runs longer, or that hangs on an unresponsive
+                server, raises `TimeoutError` instead of blocking until the
+                OS TCP timeout. Defaults to None (no timeout). Reads
+                `{env_prefix}COMMAND_TIMEOUT` when unset and `env_load` is
+                True.
+                """,
+            ),
+        ] = None,
         env_prefix: Annotated[
             str,
             Doc(
@@ -150,6 +178,9 @@ class PostgresProvider(Provider):
             env_prefix=env_prefix,
             env_load=env_load,
         )
+        self._command_timeout = _resolve_command_timeout(
+            command_timeout, env_prefix=env_prefix, env_load=env_load
+        )
         self._pool: Pool | None = None
         self._own = True
 
@@ -174,6 +205,7 @@ class PostgresProvider(Provider):
             database=config.database,
             user=config.user,
             password=config.password,
+            command_timeout=config.command_timeout,
             env_prefix=env_prefix,
             env_load=False,
         )
@@ -206,6 +238,7 @@ class PostgresProvider(Provider):
         self = cls.__new__(cls)
         self._env_prefix = "POSTGRES_"
         self._url = ""
+        self._command_timeout = None
         self._pool = client
         self._own = own
         return self
@@ -240,6 +273,15 @@ class PostgresProvider(Provider):
     def env_prefix(self) -> str:
         """Environment variable prefix used to resolve missing kwargs."""
         return self._env_prefix
+
+    @property
+    def command_timeout(self) -> float | None:
+        """Per-operation timeout in seconds for pooled connections.
+
+        Always None for a `from_client` provider: the caller's pool carries
+        its own timeout, which this provider does not read.
+        """
+        return self._command_timeout
 
     @property
     def client(self) -> Pool:
@@ -286,6 +328,14 @@ class PostgresProvider(Provider):
         )
 
         return PostgresCacheAdapter(provider=self, **kwargs)
+
+    def outbox(self, **kwargs: Any) -> PostgresOutboxAdapter:  # noqa: ANN401
+        """Build a `PostgresOutboxAdapter` bound to this provider."""
+        from grelmicro.outbox.postgres import (  # noqa: PLC0415
+            PostgresOutboxAdapter,
+        )
+
+        return PostgresOutboxAdapter(provider=self, **kwargs)
 
     def ratelimiter(self, **kwargs: Any) -> PostgresRateLimiterAdapter:  # noqa: ANN401
         """Build a `PostgresRateLimiterAdapter` bound to this provider."""
@@ -341,7 +391,9 @@ class PostgresProvider(Provider):
     async def __aenter__(self) -> Self:
         """Open the asyncpg pool when the provider owns it."""
         if self._pool is None:
-            self._pool = await create_pool(self._url)
+            self._pool = await create_pool(
+                self._url, command_timeout=self._command_timeout
+            )
         return self
 
     async def __aexit__(
@@ -354,6 +406,28 @@ class PostgresProvider(Provider):
         if self._own and self._pool is not None:
             await self._pool.close()
             self._pool = None
+
+
+def _resolve_command_timeout(
+    command_timeout: float | None,
+    *,
+    env_prefix: str,
+    env_load: bool,
+) -> float | None:
+    """Resolve the command timeout from the kwarg or the environment.
+
+    The kwarg wins. When it is None and `env_load` is True, read
+    `{env_prefix}COMMAND_TIMEOUT`. Returns None when neither is set.
+    """
+    if command_timeout is not None:
+        return command_timeout
+    if not env_load:
+        return None
+    try:
+        settings = _PostgresTimeoutEnvSettings(_env_prefix=env_prefix)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+    except ValidationError as error:
+        raise PostgresProviderConfigError(error) from None
+    return settings.command_timeout
 
 
 def _resolve_url(

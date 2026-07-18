@@ -305,7 +305,7 @@ same way.
 
 ## Postgres
 
-`PostgresProvider` ships all factory methods: `.lock()`, `.leaderelection()`, `.cache()`, `.ratelimiter()`, `.circuitbreaker()`, and `.schedule()`. The
+`PostgresProvider` ships all factory methods: `.lock()`, `.leaderelection()`, `.cache()`, `.outbox()`, `.ratelimiter()`, `.circuitbreaker()`, and `.schedule()`. The
 provider wraps an `asyncpg.Pool` and opens it lazily on `__aenter__`.
 
 ```python
@@ -322,6 +322,12 @@ micro = Grelmicro(uses=[
 
 Set `POSTGRES_URL` (or `POSTGRES_HOST` + `POSTGRES_PORT` + `POSTGRES_DB`
 + `POSTGRES_USER` + `POSTGRES_PASSWORD`) for env-driven construction.
+
+Pass `command_timeout` (or set `POSTGRES_COMMAND_TIMEOUT`) to bound every operation. A query that hangs on a frozen or unreachable server then raises `TimeoutError` after that many seconds, instead of blocking until the OS TCP timeout. It defaults to `None` (no timeout).
+
+```python
+postgres = PostgresProvider("postgresql://localhost/app", command_timeout=5)
+```
 
 For two pools (writer + reader), split by env prefix:
 
