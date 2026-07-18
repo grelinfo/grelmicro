@@ -108,7 +108,11 @@ class Outbox:
             bool | None, Doc("Move exhausted messages to the dead state.")
         ] = None,
         keep_delivered: Annotated[
-            bool | None, Doc("Keep delivered rows instead of deleting them.")
+            bool | timedelta | None,
+            Doc(
+                "Keep delivered rows instead of deleting them. A `timedelta` "
+                "keeps them for that long, then the relay purges them."
+            ),
         ] = None,
         auto_migrate: Annotated[
             bool | None, Doc("Create the table on first connect.")
@@ -175,6 +179,43 @@ class Outbox:
     def backend(self) -> OutboxBackend:
         """The underlying `OutboxBackend`."""
         return self._backend
+
+    @classmethod
+    def current(
+        cls,
+        name: Annotated[str, Doc("Registration name.")] = "default",
+    ) -> Outbox:
+        """Return the registered `Outbox` from the active `Grelmicro` app.
+
+        Lets a producer publish without holding the constructed instance or
+        a config-bound module singleton:
+
+        ```python
+        await Outbox.current().publish(conn, WelcomeEmail(to=email))
+        ```
+
+        Raises:
+            OutOfContextError: No active app, or no `Outbox` registered under
+                `name`. Run inside `async with micro:` or after
+                `micro.install(app)`, with an `Outbox` in `uses=[...]`.
+        """
+        from grelmicro._app import (  # noqa: PLC0415
+            ComponentNotRegisteredError,
+            Grelmicro,
+            NoActiveAppError,
+        )
+        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+
+        try:
+            return Grelmicro.current().get(cls.kind, name)
+        except (NoActiveAppError, ComponentNotRegisteredError):
+            msg = (
+                f"Outbox({name!r}) is not available: no active app, or no "
+                f"Outbox registered under {name!r}. Run inside "
+                f"`async with micro:` or after `micro.install(app)`, with an "
+                f"Outbox registered in uses=[...]."
+            )
+            raise OutOfContextError(msg) from None
 
     def handler(
         self,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 from pydantic import BaseModel
@@ -401,6 +401,128 @@ async def test_relay_survives_claim_error() -> None:
         await _wait(lambda: seen)
 
     assert len(seen) == 1
+
+
+async def test_keep_delivered_timedelta_keeps_row() -> None:
+    """A retention window keeps the delivered row instead of deleting it."""
+    backend = MemoryOutboxAdapter()
+    outbox = Outbox(
+        backend, poll_interval=0.05, keep_delivered=timedelta(days=1)
+    )
+    seen = 0
+
+    @outbox.handler("job")
+    async def handle(message: Message[object]) -> None:  # noqa: ARG001
+        nonlocal seen
+        seen += 1
+
+    async with outbox:
+        await outbox.publish(None, "job", {})
+        await _wait(lambda: seen >= 1)
+        await asyncio.sleep(0.1)
+
+    (row,) = backend._rows.values()
+    assert row.state == "delivered"
+
+
+async def test_retention_janitor_purges_delivered_only() -> None:
+    """A retention window starts a janitor that purges delivered rows."""
+    calls: list[tuple[float | None, tuple[str, ...]]] = []
+    done = asyncio.Event()
+
+    class _RecordingBackend(MemoryOutboxAdapter):
+        async def purge(
+            self,
+            *,
+            before_seconds: float | None = None,
+            states: tuple[Literal["delivered", "dead"], ...] = (
+                "delivered",
+                "dead",
+            ),
+        ) -> int:
+            calls.append((before_seconds, states))
+            done.set()
+            return await super().purge(
+                before_seconds=before_seconds, states=states
+            )
+
+    outbox = Outbox(
+        _RecordingBackend(),
+        poll_interval=0.05,
+        keep_delivered=timedelta(seconds=30),
+    )
+
+    async with outbox:
+        await asyncio.wait_for(done.wait(), 2)
+
+    assert calls[0] == (30, ("delivered",))
+
+
+async def test_retention_janitor_skipped_without_relay() -> None:
+    """With `relay=False` no janitor runs, so nothing is purged."""
+
+    class _RecordingBackend(MemoryOutboxAdapter):
+        purged = False
+
+        async def purge(
+            self,
+            *,
+            before_seconds: float | None = None,
+            states: tuple[Literal["delivered", "dead"], ...] = (
+                "delivered",
+                "dead",
+            ),
+        ) -> int:
+            self.purged = True
+            return await super().purge(
+                before_seconds=before_seconds, states=states
+            )
+
+    backend = _RecordingBackend()
+    outbox = Outbox(backend, relay=False, keep_delivered=timedelta(seconds=30))
+
+    async with outbox:
+        await asyncio.sleep(0.1)
+
+    assert backend.purged is False
+
+
+async def test_retention_janitor_survives_purge_error() -> None:
+    """A failing purge is logged and does not crash the relay."""
+    done = asyncio.Event()
+
+    class _FlakyPurge(MemoryOutboxAdapter):
+        async def purge(
+            self,
+            *,
+            before_seconds: float | None = None,  # noqa: ARG002
+            states: tuple[Literal["delivered", "dead"], ...] = (  # noqa: ARG002
+                "delivered",
+                "dead",
+            ),
+        ) -> int:
+            done.set()
+            msg = "purge boom"
+            raise RuntimeError(msg)
+
+    outbox = Outbox(
+        _FlakyPurge(),
+        poll_interval=0.05,
+        keep_delivered=timedelta(seconds=30),
+    )
+    seen: list[object] = []
+
+    @outbox.handler("job")
+    async def handle(message: Message[object]) -> None:
+        seen.append(message)
+
+    async with outbox:
+        await asyncio.wait_for(done.wait(), 2)
+        # The relay keeps delivering after the janitor's purge failed.
+        await outbox.publish(None, "job", {})
+        await _wait(lambda: seen)
+
+    assert seen
 
 
 async def test_dedup_key_skips_duplicate() -> None:

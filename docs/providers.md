@@ -321,7 +321,10 @@ micro = Grelmicro(uses=[
 ```
 
 Set `POSTGRES_URL` (or `POSTGRES_HOST` + `POSTGRES_PORT` + `POSTGRES_DB`
-+ `POSTGRES_USER` + `POSTGRES_PASSWORD`) for env-driven construction.
++ `POSTGRES_USER` + `POSTGRES_PASSWORD`) for env-driven construction. The
+database name also reads from `POSTGRES_DATABASE` when `POSTGRES_DB` is
+unset, so both the `postgres` Docker image convention and the longer
+spelling work.
 
 Pass `command_timeout` (or set `POSTGRES_COMMAND_TIMEOUT`) to bound every operation. A query that hangs on a frozen or unreachable server then raises `TimeoutError` after that many seconds, instead of blocking until the OS TCP timeout. It defaults to `None` (no timeout).
 

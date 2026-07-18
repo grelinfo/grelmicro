@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from datetime import timedelta
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Doc
 
 
@@ -75,8 +76,12 @@ class OutboxConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = True
     keep_delivered: Annotated[
-        bool,
-        Doc("Keep delivered rows instead of deleting them."),
+        bool | timedelta,
+        Doc(
+            "Keep delivered rows instead of deleting them. Pass a `timedelta` "
+            "to keep them for that long, then the relay purges them."
+        ),
+        Field(union_mode="left_to_right"),
     ] = False
     auto_migrate: Annotated[
         bool,
@@ -88,3 +93,29 @@ class OutboxConfig(BaseModel, frozen=True, extra="forbid"):
             "Use LISTEN/NOTIFY for low-latency wakeups. Disable behind PgBouncer."
         ),
     ] = True
+
+    @field_validator("keep_delivered", mode="before")
+    @classmethod
+    def _coerce_keep_delivered(cls, value: Any) -> Any:  # noqa: ANN401
+        """Read a plain seconds count (from the environment) as a duration.
+
+        A numeric string other than 0 or 1 is a seconds count, so it becomes
+        a `timedelta`. 0, 1, and the usual bool spellings stay booleans.
+        """
+        if isinstance(value, str):
+            try:
+                seconds = float(value.strip())
+            except ValueError:
+                return value
+            if seconds not in (0.0, 1.0):
+                return timedelta(seconds=seconds)
+        return value
+
+    @field_validator("keep_delivered")
+    @classmethod
+    def _check_keep_delivered(cls, value: Any) -> bool | timedelta:  # noqa: ANN401
+        """Reject a non-positive retention window."""
+        if isinstance(value, timedelta) and value <= timedelta(0):
+            msg = "keep_delivered duration must be positive"
+            raise ValueError(msg)
+        return value

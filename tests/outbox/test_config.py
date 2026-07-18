@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from pydantic import ValidationError
 
@@ -95,3 +97,45 @@ def test_config_is_frozen() -> None:
     config = OutboxConfig()
     with pytest.raises(ValidationError):
         config.max_attempts = KWARG_ATTEMPTS  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+
+
+def test_keep_delivered_accepts_bool_and_timedelta() -> None:
+    """`keep_delivered` is a bool by default and accepts a retention window."""
+    assert OutboxConfig().keep_delivered is False
+    assert OutboxConfig(keep_delivered=True).keep_delivered is True
+    assert OutboxConfig(keep_delivered=timedelta(days=30)).keep_delivered == (
+        timedelta(days=30)
+    )
+
+
+def test_keep_delivered_parses_seconds_over_bool() -> None:
+    """A numeric value that is not 0/1 resolves to a duration, not a bool."""
+    config = OutboxConfig.model_validate({"keep_delivered": 2_592_000})
+    assert config.keep_delivered == timedelta(days=30)
+
+
+def test_keep_delivered_env_plain_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A plain seconds count in the environment resolves to a duration."""
+    monkeypatch.setenv("GREL_OUTBOX_KEEP_DELIVERED", "2592000")
+    outbox = Outbox(MemoryOutboxAdapter())
+    assert outbox.config.keep_delivered == timedelta(days=30)
+
+
+@pytest.mark.parametrize("value", ["true", "1"])
+def test_keep_delivered_env_bool(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """A boolean spelling, including the numeric `1`, stays a bool."""
+    monkeypatch.setenv("GREL_OUTBOX_KEEP_DELIVERED", value)
+    assert Outbox(MemoryOutboxAdapter()).config.keep_delivered is True
+
+
+@pytest.mark.parametrize("window", [timedelta(0), timedelta(seconds=-1)])
+def test_keep_delivered_rejects_non_positive_window(
+    window: timedelta,
+) -> None:
+    """A zero or negative retention window is rejected."""
+    with pytest.raises(ValidationError):
+        OutboxConfig(keep_delivered=window)

@@ -136,6 +136,35 @@ class TestConstruction:
         assert provider.url == expected_url
 
     @pytest.mark.parametrize(
+        ("environs", "expected_db"),
+        [
+            ({"POSTGRES_DB": "from_db"}, "from_db"),
+            ({"POSTGRES_DATABASE": "from_database"}, "from_database"),
+            ({"POSTGRES_DB": "wins", "POSTGRES_DATABASE": "loses"}, "wins"),
+        ],
+    )
+    def test_env_database_name_aliases(
+        self,
+        environs: dict[str, str],
+        expected_db: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The database name reads from `POSTGRES_DB` or `POSTGRES_DATABASE`.
+
+        `DB` matches the `postgres` Docker image convention and wins when
+        both are set.
+        """
+        monkeypatch.delenv("POSTGRES_DB", raising=False)
+        monkeypatch.delenv("POSTGRES_DATABASE", raising=False)
+        monkeypatch.setenv("POSTGRES_HOST", "test_host")
+        for key, value in environs.items():
+            monkeypatch.setenv(key, value)
+
+        provider = PostgresProvider()
+
+        assert str(provider.url).endswith(f"/{expected_db}")
+
+    @pytest.mark.parametrize(
         "environs",
         [
             {},

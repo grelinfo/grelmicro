@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.29.3 - 2026-07-18
+
+### Features
+
+* ✨ Read the Postgres database name from `POSTGRES_DATABASE` too, not only `POSTGRES_DB`, so the longer spelling works from the environment. `DB` still wins when both are set. ([#518](https://github.com/grelinfo/grelmicro/issues/518))
+
+## 0.29.2 - 2026-07-18
+
+### Features
+
+* ✨ Let the outbox auto-purge delivered rows. `keep_delivered` now accepts a `timedelta`: the relay keeps delivered rows for that window and purges them in the background, so retention needs no scheduled job. `True` still keeps them for good and `False` still deletes on delivery.
+* ✨ Add `Outbox.current()` to resolve the app-registered outbox, so a producer can `publish` without holding the instance or a config-bound singleton. ([#517](https://github.com/grelinfo/grelmicro/issues/517))
+* ✨ Add `PostgresOutboxAdapter.create_table_sql()` and `drop_table_sql()`, the exact DDL `auto_migrate` runs, so Alembic and other migration tools own the outbox schema with `auto_migrate=False`.
+
+### Docs
+
+* 📝 List the outbox in the README module table and align the outbox guide with the other module docs.
+
+## 0.29.1 - 2026-07-18
 
 ### Features
 
