@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+* 🏷️ Preserve the decorated function's type through `@health.check`, so awaiting an async check directly type-checks without `# type: ignore`. ([#499](https://github.com/grelinfo/grelmicro/issues/499))
+
 ### Internal
 
 * ✅ Treat warnings as errors in the test suite and close the FastAPI health test client cleanly. ([#526](https://github.com/grelinfo/grelmicro/pull/526))
