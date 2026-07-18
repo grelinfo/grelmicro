@@ -12,6 +12,7 @@
 
 ### Internal
 
+* ♻️ Use the standard library `uuid.uuid7()` on Python 3.14+, so outbox ids stay monotonic within a millisecond. The vendored generator stays as the fallback for 3.12 and 3.13. ([#522](https://github.com/grelinfo/grelmicro/issues/522))
 * ✅ Treat warnings as errors in the test suite and close the FastAPI health test client cleanly. ([#526](https://github.com/grelinfo/grelmicro/pull/526))
 * ⬆️ Adopt `httpx2` in the test suite so Starlette's `TestClient` stops warning about httpx v1. ([#527](https://github.com/grelinfo/grelmicro/pull/527))
 
