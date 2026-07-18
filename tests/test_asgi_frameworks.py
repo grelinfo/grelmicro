@@ -6,7 +6,7 @@ import json
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
-import httpx
+import httpx2
 import pytest
 from litestar import Litestar, get
 from litestar.middleware import DefineMiddleware
@@ -71,8 +71,8 @@ async def test_starlette_middleware_binds_app_inside_request_handler() -> None:
     """A Starlette handler resolves the ambient backend when the middleware is present."""
     app, micro = _build_starlette_app(with_middleware=True)
     async with micro:
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as client:
             response = await client.get("/limited")
@@ -85,8 +85,8 @@ async def test_starlette_without_middleware_handler_misses_ambient_backend() -> 
 ):
     """Without the middleware, the Starlette handler hits the ambient-miss guard."""
     app, _micro = _build_starlette_app(with_middleware=False)
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(
         transport=transport, base_url="http://testserver"
     ) as client:
         with pytest.raises(OutOfContextError):

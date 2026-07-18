@@ -5,6 +5,7 @@
 ### Internal
 
 * ✅ Treat warnings as errors in the test suite and close the FastAPI health test client cleanly. ([#526](https://github.com/grelinfo/grelmicro/pull/526))
+* ⬆️ Adopt `httpx2` in the test suite so Starlette's `TestClient` stops warning about httpx v1. ([#527](https://github.com/grelinfo/grelmicro/pull/527))
 
 ## 0.29.5 - 2026-07-18
 

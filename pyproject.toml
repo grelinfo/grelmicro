@@ -180,6 +180,7 @@ dev = [
     "pre-commit>=4.0.1",
     "fastapi>=0.115.5",
     "fastapi-cli>=0.0.5",
+    "httpx2>=2.7.0",
     "faststream>=0.7.0",
     "freezegun>=1.5.2",
     "ty>=0.0.13",
@@ -351,9 +352,6 @@ markers = """
 """
 filterwarnings = [
     "error",
-    # Starlette's TestClient warns that httpx v1 is deprecated in favour of
-    # httpx2. Import-time and third-party, not driven by our code.
-    "ignore:Using .httpx. with .starlette.testclient. is deprecated:Warning",
     # testcontainers' own deprecation banners, not driven by our code.
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers",
     "ignore:The wait_for_logs function with string or callable predicates is deprecated:DeprecationWarning",
