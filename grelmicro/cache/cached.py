@@ -340,7 +340,7 @@ def cached(  # noqa: PLR0913, C901
     def decorator(
         func: Callable[P, R],
     ) -> Callable[P, R]:
-        is_async_func = asyncio.iscoroutinefunction(func)
+        is_async_func = inspect.iscoroutinefunction(func)
         if is_private_cache and not is_async_func:
             msg = (
                 "@cached(ttl=...) supports async functions only: the "
