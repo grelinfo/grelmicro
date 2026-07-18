@@ -2792,7 +2792,7 @@
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
     <span class="k">async</span> <span class="k">with</span> <span class="n">idem</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="k">as</span> <span class="n">op</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">op</span><span class="o">.</span><span class="n">replayed</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">op</span><span class="o">.</span><span class="n">response</span>
+            <span class="k">return</span> <span class="n">op</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
         <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">do_charge</span><span class="p">(</span><span class="n">amount</span><span class="p">)</span>
         <span class="n">op</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">response</span>
@@ -2807,15 +2807,15 @@
 </code></pre></div>
 <p>Responses serialize through the cache serializers. The default is <code>JsonSerializer</code>. Pass <code>serializer=PydanticSerializer(Model)</code> or <code>serializer=PickleSerializer()</code> to store richer types.</p>
 <h2 id="the-block-form">The block form</h2>
-<p><code>idem(key)</code> opens an async context manager. The yielded operation carries <code>replayed</code>, <code>response</code>, and <code>store(...)</code>.</p>
+<p><code>idem(key)</code> opens an async context manager. The yielded operation carries <code>replayed</code>, <code>result()</code>, and <code>store(...)</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">with</span> <span class="n">idem</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="k">as</span> <span class="n">op</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">op</span><span class="o">.</span><span class="n">replayed</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">op</span><span class="o">.</span><span class="n">response</span>
+        <span class="k">return</span> <span class="n">op</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
     <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">do_work</span><span class="p">()</span>
     <span class="n">op</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">response</span>
 </code></pre></div>
-<p>On a first execution, <code>replayed</code> is <code>False</code>. Call <code>op.store(response)</code> to persist the response. On a replay, <code>replayed</code> is <code>True</code> and <code>op.response</code> carries the stored value.</p>
+<p>On a first execution, <code>replayed</code> is <code>False</code>. Call <code>op.store(response)</code> to persist the response. On a replay, <code>replayed</code> is <code>True</code> and <code>op.result()</code> returns the stored value, typed as the stored type so the replay branch returns it without a cast. Calling <code>op.result()</code> on a first execution raises <code>IdempotencyStateError</code>, so guard it with <code>if op.replayed:</code>.</p>
 <p>Exiting the block without calling <code>op.store(...)</code> on a first execution stores nothing. The operation opted out and a later call with the same key executes fresh.</p>
 <h2 id="one-call-form">One-call form</h2>
 <p><code>idem.run(key, factory)</code> owns the block. It runs the factory once, stores the response, and replays it on a repeated key. The factory can be sync or async. It mirrors <code>TTLCache.get_or_set</code>.</p>

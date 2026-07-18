@@ -1759,6 +1759,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.idempotency.IdempotencyStateError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;IdempotencyStateError
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.idempotency.Operation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1782,10 +1793,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.idempotency.Operation.response" class="md-nav__link">
+  <a href="#grelmicro.idempotency.Operation.result" class="md-nav__link">
     <span class="md-ellipsis">
       
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;response
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;result
       
     </span>
   </a>
@@ -2891,6 +2902,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.idempotency.IdempotencyStateError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;IdempotencyStateError
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.idempotency.Operation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2914,10 +2936,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#grelmicro.idempotency.Operation.response" class="md-nav__link">
+  <a href="#grelmicro.idempotency.Operation.result" class="md-nav__link">
     <span class="md-ellipsis">
       
-        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;response
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;result
       
     </span>
   </a>
@@ -3746,6 +3768,40 @@ instead of returning a response computed for a different request.</p>
 
 
 
+<h3 id="grelmicro.idempotency.IdempotencyStateError" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">IdempotencyStateError</span>
+
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;IdempotencyError&lt;/span&gt; (&lt;code&gt;grelmicro.idempotency.errors.IdempotencyError&lt;/code&gt;)" href="#grelmicro.idempotency.IdempotencyError">IdempotencyError</a></code>, <code><span title="RuntimeError">RuntimeError</span></code></p>
+
+
+
+        <p>Raised when an <code>Operation</code> value is read in the wrong state.</p>
+<p><code>Operation.result()</code> returns the stored response and is valid only
+on a replay. Calling it on a first execution, before a response is
+stored, raises this error. Guard the call with <code>if op.replayed:</code>.</p>
+
+
+
+
+
+
+
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
 <h3 id="grelmicro.idempotency.Operation" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">Operation</span>
 
@@ -3761,7 +3817,7 @@ instead of returning a response computed for a different request.</p>
 
 
         <p>Handle for a single idempotent operation, yielded by <code>Idempotency.__call__</code>.</p>
-<p>On a replay, <code>replayed</code> is True and <code>response</code> carries the stored
+<p>On a replay, <code>replayed</code> is True and <code>result()</code> returns the stored
 value. On a first execution, <code>replayed</code> is False and the body runs
 the work and calls <code>store(response)</code> to persist it.</p>
 
@@ -3809,32 +3865,33 @@ the work and calls <code>store(response)</code> to persist it.</p>
 
 </div>
 
-<div class="doc doc-object doc-attribute">
 
 
 
-<h4 id="grelmicro.idempotency.Operation.response" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">response</span>
+<div class="doc doc-object doc-function">
 
 
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-property"><code>property</code></small>
-  </span>
+<h4 id="grelmicro.idempotency.Operation.result" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">result</span>
+
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">response</span><span class="p">:</span> <span class="n"><span title="grelmicro.idempotency._idempotency.T">T</span></span> <span class="o">|</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">result</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="grelmicro.idempotency._idempotency.T">T</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>The stored response when <code>replayed</code> is True, else None.</p>
+        <p>Return the stored response. Valid only on a replay.</p>
+<p>On a replay (<code>replayed</code> is True) this returns the stored value,
+so a replay branch can return it directly without a cast. On a
+first execution (<code>replayed</code> is False) no response is stored yet,
+so calling it raises <code>IdempotencyStateError</code>. Guard with
+<code>if op.replayed:</code>.</p>
+
 
     </div>
 
 </div>
-
-
-
 
 <div class="doc doc-object doc-function">
 

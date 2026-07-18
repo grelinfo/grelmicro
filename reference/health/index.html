@@ -4115,12 +4115,15 @@ Colon is allowed for namespacing, e.g.
     <span class="o">*</span><span class="p">,</span>
     <span class="n">critical</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">timeout</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveFloat">PositiveFloat</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-type_alias&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-type_alias-name&quot;&gt;HealthCheckFunc&lt;/span&gt; (&lt;code&gt;grelmicro.health._types.HealthCheckFunc&lt;/code&gt;)" href="#grelmicro.health.HealthCheckFunc">HealthCheckFunc</a></span><span class="p">],</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-type_alias&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-type_alias-name&quot;&gt;HealthCheckFunc&lt;/span&gt; (&lt;code&gt;grelmicro.health._types.HealthCheckFunc&lt;/code&gt;)" href="#grelmicro.health.HealthCheckFunc">HealthCheckFunc</a></span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.Callable">Callable</span></span><span class="p">[[</span><span class="n"><span title="grelmicro.health._checks.HealthChecks.check[FuncT]">FuncT</span></span><span class="p">],</span> <span class="n"><span title="grelmicro.health._checks.HealthChecks.check[FuncT]">FuncT</span></span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>Decorate an async function to register it as a health check.</p>
+<p>Registration is a side effect: the function is returned unchanged
+with its original signature, so <code>await</code>-ing it directly (for
+example in a unit test) type-checks as usual.</p>
 
 
 <table>
