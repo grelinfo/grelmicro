@@ -62,7 +62,7 @@ def _validate_lock_name(name: str) -> None:
         raise ValueError(msg)
 
 
-class LockConfig(BaseLockConfig):  # ty: ignore[invalid-frozen-dataclass-subclass]
+class LockConfig(BaseLockConfig):
     """Lock Config."""
 
     lease_duration: Annotated[

@@ -504,7 +504,10 @@ class Grelmicro:
                     self._items.append(component)
                 if component.name == "default":  # pragma: no branch
                     self._by_kind[component.kind] = component
-                await stack.enter_async_context(component)
+                # `Component` is an async context manager; ty misreads the
+                # protocol's `Self`-returning `__aenter__` as incompatible
+                # with its own AbstractAsyncContextManager base.
+                await stack.enter_async_context(component)  # ty: ignore[invalid-argument-type]
             try:
                 yield
             finally:

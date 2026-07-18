@@ -66,7 +66,7 @@ def test_config_default_attempts_and_backoff() -> None:
     so this guards the safe default for both: exponential with full jitter,
     never fixed or no backoff.
     """
-    config = RetryConfig(when=(ValueError,))  # ty: ignore[missing-argument,invalid-argument-type]
+    config = RetryConfig(when=(ValueError,))  # ty: ignore[missing-argument]
     assert config.attempts == _DEFAULT_ATTEMPTS
     assert isinstance(config.backoff, ExponentialBackoff)
     assert config.backoff.jitter == "full"
@@ -74,7 +74,7 @@ def test_config_default_attempts_and_backoff() -> None:
 
 def test_config_frozen() -> None:
     """`RetryConfig` is frozen."""
-    config = RetryConfig(when=(ValueError,))  # ty: ignore[missing-argument,invalid-argument-type]
+    config = RetryConfig(when=(ValueError,))  # ty: ignore[missing-argument]
     with pytest.raises(ValidationError):
         config.attempts = _FIVE  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
@@ -581,7 +581,7 @@ async def test_from_config_bypasses_env(
 ) -> None:
     """`Retry.from_config()` ignores env even when set."""
     monkeypatch.setenv("GREL_RETRY_BAZ_ATTEMPTS", "9")
-    cfg = RetryConfig(attempts=_TWO, when=(ValueError,))  # ty: ignore[missing-argument,invalid-argument-type]
+    cfg = RetryConfig(attempts=_TWO, when=(ValueError,))  # ty: ignore[missing-argument]
     policy = Retry.from_config("baz", cfg)
     assert policy.config.attempts == _TWO
 

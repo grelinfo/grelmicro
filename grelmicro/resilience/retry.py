@@ -820,7 +820,7 @@ def _decorator(
     """Build a decorator from anonymous Retry kwargs."""
     config = RetryConfig(
         attempts=attempts,
-        when=when,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        when=when,  # type: ignore[arg-type]
         backoff=backoff or ExponentialBackoff(),
     )
     matcher: Matcher = config.when
@@ -933,7 +933,7 @@ class _RetryingFactory:
         """Yield successive attempts for the block form."""
         config = RetryConfig(
             attempts=attempts,
-            when=when,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            when=when,  # type: ignore[arg-type]
             backoff=backoff or ExponentialBackoff(),
         )
         return _async_iter(config, config.when)
