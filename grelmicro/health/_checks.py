@@ -346,7 +346,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         )
         self._entries = dict(sorted(self._entries.items()))
 
-    def check(
+    def check[FuncT: HealthCheckFunc](
         self,
         name: Annotated[str, Doc("Unique name identifying this check.")],
         *,
@@ -358,8 +358,12 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             PositiveFloat | None,
             Doc("Per-check timeout override."),
         ] = None,
-    ) -> Callable[[HealthCheckFunc], HealthCheckFunc]:
+    ) -> Callable[[FuncT], FuncT]:
         """Decorate an async function to register it as a health check.
+
+        Registration is a side effect: the function is returned unchanged
+        with its original signature, so ``await``-ing it directly (for
+        example in a unit test) type-checks as usual.
 
         Example:
             >>> @registry.check("database")
@@ -367,7 +371,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             ...     return None
         """
 
-        def decorator(func: HealthCheckFunc) -> HealthCheckFunc:
+        def decorator(func: FuncT) -> FuncT:
             self.add(name, func, critical=critical, timeout=timeout)
             return func
 
