@@ -350,8 +350,19 @@ markers = """
     stress: mark a test as a stress or endurance test (heavy load, opt-in via -m stress)
 """
 filterwarnings = [
-    # testcontainers' own deprecation banner, not driven by our code.
+    "error",
+    # Starlette's TestClient warns that httpx v1 is deprecated in favour of
+    # httpx2. Import-time and third-party, not driven by our code.
+    "ignore:Using .httpx. with .starlette.testclient. is deprecated:Warning",
+    # testcontainers' own deprecation banners, not driven by our code.
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers",
+    "ignore:The wait_for_logs function with string or callable predicates is deprecated:DeprecationWarning",
+    # Sockets and event loops from TestClient and `asyncio.run` are torn down at
+    # garbage-collection time, so the interpreter reports them non-deterministically
+    # after the owning test ends. This is test-harness noise: grelmicro creates no
+    # event loops of its own and drives every backend through async context managers.
+    "ignore::ResourceWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
 
 testpaths = "tests"
