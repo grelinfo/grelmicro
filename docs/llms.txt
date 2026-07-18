@@ -1,0 +1,42 @@
+# grelmicro
+
+> grelmicro is a lightweight, async-first Python toolkit that ships microservice patterns as small composable modules with pluggable backends. It provides distributed locks, leader election, rate limiting, circuit breakers, cache, a transactional outbox, task scheduling, logging, tracing, metrics, and health checks. The same primitives serve microservices, a modular monolith, or a self-contained system.
+
+Each primitive is a protocol, so you can swap Redis for PostgreSQL, SQLite, Kubernetes, or in-memory without changing application code. grelmicro is async-first, type-safe, and fully tested, and it drops into FastAPI, FastStream, and any asyncio stack. It is pre-1.0 and follows semantic versioning.
+
+## Getting started
+
+- [Introduction](https://grelinfo.github.io/grelmicro/): what grelmicro is and the problem it solves.
+- [Installation](https://grelinfo.github.io/grelmicro/installation/): install with pip, uv, or poetry, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, and structlog.
+- [First steps](https://grelinfo.github.io/grelmicro/first-steps/): wire an app and use your first primitive.
+- [Wiring](https://grelinfo.github.io/grelmicro/wiring/): providers, components, and the application lifespan.
+
+## User guide
+
+- [Cache](https://grelinfo.github.io/grelmicro/cache/): the `@cached` decorator with local and distributed stampede protection.
+- [Idempotency](https://grelinfo.github.io/grelmicro/idempotency/): idempotency keys that make a retried operation safe.
+- [Coordination](https://grelinfo.github.io/grelmicro/coordination/): distributed `Lock`, `TaskLock`, and `LeaderElection`.
+- [Outbox](https://grelinfo.github.io/grelmicro/outbox/): a transactional outbox that delivers messages at least once after your database transaction commits.
+- [Task Scheduler](https://grelinfo.github.io/grelmicro/task/): interval and cron tasks with durable, distributed at-most-once execution.
+- [Resilience](https://grelinfo.github.io/grelmicro/resilience/): circuit breaker and rate limiter with pluggable algorithms.
+- [Health](https://grelinfo.github.io/grelmicro/health/): a health check registry with FastAPI liveness and readiness integration.
+- [Logging](https://grelinfo.github.io/grelmicro/logging/): 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output.
+- [Tracing](https://grelinfo.github.io/grelmicro/tracing/): OpenTelemetry spans and structured log context through `@instrument`.
+- [Metrics](https://grelinfo.github.io/grelmicro/metrics/): OpenTelemetry metrics with a `@measure` decorator and a Prometheus router.
+- [Configuration](https://grelinfo.github.io/grelmicro/config/): reconfigure live components from a ConfigMap, Secret, or file.
+- [Testing](https://grelinfo.github.io/grelmicro/testing/): test grelmicro apps with the in-memory backends.
+
+## API reference
+
+- [API reference](https://grelinfo.github.io/grelmicro/reference/cache/): reference for every public module, generated from the source docstrings.
+
+## Architecture
+
+- [Architecture](https://grelinfo.github.io/grelmicro/architecture/): design decisions, backends, asyncio model, and internals.
+
+## Optional
+
+- [Comparison](https://grelinfo.github.io/grelmicro/comparison/): grelmicro next to aiocache, slowapi, pybreaker, tenacity, and aioredlock.
+- [Benchmarks](https://grelinfo.github.io/grelmicro/benchmarks/): performance measurements for the primitives.
+- [Changelog](https://grelinfo.github.io/grelmicro/changelog/): release notes for every version.
+- [Contributing](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md): how to report bugs, request features, and contribute code.
