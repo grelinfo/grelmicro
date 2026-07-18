@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/wiring/">
+        <link rel="canonical" href="https://grelinfo.github.io/grelmicro/architecture/outbox/">
       
       
-        <link rel="prev" href="../first-steps/">
+        <link rel="prev" href="../coordination/">
       
       
-        <link rel="next" href="../cache/">
+        <link rel="next" href="../graceful-shutdown/">
       
       
         
       
       
-      <link rel="icon" href="../img/logo/favicon-192.png">
+      <link rel="icon" href="../../img/logo/favicon-192.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Wiring an App - grelmicro</title>
+        <title>Outbox Internals - grelmicro</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,11 +53,11 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../css/overrides.css">
+      <link rel="stylesheet" href="../../css/overrides.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#wiring-an-app" class="md-skip">
+        <a href="#outbox-internals" class="md-skip">
           Skip to content
         </a>
       
@@ -98,9 +98,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
+    <a href="../.." title="grelmicro" class="md-header__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  <img src="../img/logo/favicon-48.png" alt="logo">
+  <img src="../../img/logo/favicon-48.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Wiring an App
+              Outbox Internals
             
           </span>
         </div>
@@ -233,9 +233,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
+    <a href="../.." title="grelmicro" class="md-nav__button md-logo" aria-label="grelmicro" data-md-component="logo">
       
-  <img src="../img/logo/favicon-48.png" alt="logo">
+  <img src="../../img/logo/favicon-48.png" alt="logo">
 
     </a>
     grelmicro
@@ -262,7 +262,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -289,7 +289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/" class="md-nav__link">
+      <a href="../../installation/" class="md-nav__link">
         
   
   
@@ -313,10 +313,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -352,11 +350,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -377,7 +375,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -395,7 +393,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../first-steps/" class="md-nav__link">
+      <a href="../../first-steps/" class="md-nav__link">
         
   
   
@@ -420,37 +418,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Wiring an App
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../wiring/" class="md-nav__link">
         
   
   
@@ -466,81 +437,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#one-provider-one-line" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        One provider, one line
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#add-patterns" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Add patterns
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#fastapi" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        FastAPI
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#faststream" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        FastStream
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Next
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -553,7 +449,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../cache/" class="md-nav__link">
+      <a href="../../cache/" class="md-nav__link">
         
   
   
@@ -581,7 +477,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../idempotency/" class="md-nav__link">
+      <a href="../../idempotency/" class="md-nav__link">
         
   
   
@@ -609,7 +505,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../coordination/" class="md-nav__link">
+      <a href="../../coordination/" class="md-nav__link">
         
   
   
@@ -637,7 +533,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../outbox/" class="md-nav__link">
+      <a href="../../outbox/" class="md-nav__link">
         
   
   
@@ -665,7 +561,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../task/" class="md-nav__link">
+      <a href="../../task/" class="md-nav__link">
         
   
   
@@ -727,7 +623,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../resilience/" class="md-nav__link ">
+            <a href="../../resilience/" class="md-nav__link ">
               
   
   
@@ -771,7 +667,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/shield/" class="md-nav__link">
+      <a href="../../resilience/shield/" class="md-nav__link">
         
   
   
@@ -799,7 +695,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/bulkhead/" class="md-nav__link">
+      <a href="../../resilience/bulkhead/" class="md-nav__link">
         
   
   
@@ -827,7 +723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/circuit-breaker/" class="md-nav__link">
+      <a href="../../resilience/circuit-breaker/" class="md-nav__link">
         
   
   
@@ -855,7 +751,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/fallback/" class="md-nav__link">
+      <a href="../../resilience/fallback/" class="md-nav__link">
         
   
   
@@ -883,7 +779,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/rate-limiter/" class="md-nav__link">
+      <a href="../../resilience/rate-limiter/" class="md-nav__link">
         
   
   
@@ -911,7 +807,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/retry/" class="md-nav__link">
+      <a href="../../resilience/retry/" class="md-nav__link">
         
   
   
@@ -939,7 +835,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/timeout/" class="md-nav__link">
+      <a href="../../resilience/timeout/" class="md-nav__link">
         
   
   
@@ -967,7 +863,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resilience/composition/" class="md-nav__link">
+      <a href="../../resilience/composition/" class="md-nav__link">
         
   
   
@@ -1003,7 +899,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../health/" class="md-nav__link">
+      <a href="../../health/" class="md-nav__link">
         
   
   
@@ -1031,7 +927,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../logging/" class="md-nav__link">
+      <a href="../../logging/" class="md-nav__link">
         
   
   
@@ -1059,7 +955,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracing/" class="md-nav__link">
+      <a href="../../tracing/" class="md-nav__link">
         
   
   
@@ -1087,7 +983,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../metrics/" class="md-nav__link">
+      <a href="../../metrics/" class="md-nav__link">
         
   
   
@@ -1115,7 +1011,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/" class="md-nav__link">
+      <a href="../../config/" class="md-nav__link">
         
   
   
@@ -1143,7 +1039,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/" class="md-nav__link">
+      <a href="../../testing/" class="md-nav__link">
         
   
   
@@ -1239,7 +1135,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../advanced/config/" class="md-nav__link">
+      <a href="../../advanced/config/" class="md-nav__link">
         
   
   
@@ -1267,7 +1163,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/reconfigure-from-configmap/" class="md-nav__link">
+      <a href="../../configuration/reconfigure-from-configmap/" class="md-nav__link">
         
   
   
@@ -1295,7 +1191,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../providers/" class="md-nav__link">
+      <a href="../../providers/" class="md-nav__link">
         
   
   
@@ -1323,7 +1219,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../capabilities/" class="md-nav__link">
+      <a href="../../capabilities/" class="md-nav__link">
         
   
   
@@ -1351,7 +1247,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../comparison/" class="md-nav__link">
+      <a href="../../comparison/" class="md-nav__link">
         
   
   
@@ -1379,7 +1275,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../benchmarks/" class="md-nav__link">
+      <a href="../../benchmarks/" class="md-nav__link">
         
   
   
@@ -1493,7 +1389,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/cache/" class="md-nav__link">
+      <a href="../../reference/cache/" class="md-nav__link">
         
   
   
@@ -1521,7 +1417,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/clock/" class="md-nav__link">
+      <a href="../../reference/clock/" class="md-nav__link">
         
   
   
@@ -1549,7 +1445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/config/" class="md-nav__link">
+      <a href="../../reference/config/" class="md-nav__link">
         
   
   
@@ -1577,7 +1473,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/fastapi/" class="md-nav__link">
+      <a href="../../reference/fastapi/" class="md-nav__link">
         
   
   
@@ -1605,7 +1501,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/faststream/" class="md-nav__link">
+      <a href="../../reference/faststream/" class="md-nav__link">
         
   
   
@@ -1633,7 +1529,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/health/" class="md-nav__link">
+      <a href="../../reference/health/" class="md-nav__link">
         
   
   
@@ -1661,7 +1557,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/idempotency/" class="md-nav__link">
+      <a href="../../reference/idempotency/" class="md-nav__link">
         
   
   
@@ -1689,7 +1585,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/logging/" class="md-nav__link">
+      <a href="../../reference/logging/" class="md-nav__link">
         
   
   
@@ -1717,7 +1613,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/metrics/" class="md-nav__link">
+      <a href="../../reference/metrics/" class="md-nav__link">
         
   
   
@@ -1745,7 +1641,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/resilience/" class="md-nav__link">
+      <a href="../../reference/resilience/" class="md-nav__link">
         
   
   
@@ -1773,7 +1669,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/coordination/" class="md-nav__link">
+      <a href="../../reference/coordination/" class="md-nav__link">
         
   
   
@@ -1801,7 +1697,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/outbox/" class="md-nav__link">
+      <a href="../../reference/outbox/" class="md-nav__link">
         
   
   
@@ -1829,7 +1725,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/task/" class="md-nav__link">
+      <a href="../../reference/task/" class="md-nav__link">
         
   
   
@@ -1857,7 +1753,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/testing/" class="md-nav__link">
+      <a href="../../reference/testing/" class="md-nav__link">
         
   
   
@@ -1885,7 +1781,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/trace/" class="md-nav__link">
+      <a href="../../reference/trace/" class="md-nav__link">
         
   
   
@@ -1917,6 +1813,8 @@
       
   
   
+    
+  
   
   
     
@@ -1964,15 +1862,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../architecture/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -1996,7 +1894,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2016,7 +1914,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/asyncio/" class="md-nav__link">
+      <a href="../asyncio/" class="md-nav__link">
         
   
   
@@ -2044,7 +1942,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/backends/" class="md-nav__link">
+      <a href="../backends/" class="md-nav__link">
         
   
   
@@ -2072,7 +1970,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/config/" class="md-nav__link">
+      <a href="../config/" class="md-nav__link">
         
   
   
@@ -2100,7 +1998,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/reconfigure/" class="md-nav__link">
+      <a href="../reconfigure/" class="md-nav__link">
         
   
   
@@ -2128,7 +2026,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/imports/" class="md-nav__link">
+      <a href="../imports/" class="md-nav__link">
         
   
   
@@ -2156,7 +2054,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/plugins/" class="md-nav__link">
+      <a href="../plugins/" class="md-nav__link">
         
   
   
@@ -2184,7 +2082,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/multiple-apps/" class="md-nav__link">
+      <a href="../multiple-apps/" class="md-nav__link">
         
   
   
@@ -2212,7 +2110,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/decorators/" class="md-nav__link">
+      <a href="../decorators/" class="md-nav__link">
         
   
   
@@ -2240,7 +2138,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/api-conventions/" class="md-nav__link">
+      <a href="../api-conventions/" class="md-nav__link">
         
   
   
@@ -2268,7 +2166,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sync-from-thread/" class="md-nav__link">
+      <a href="../sync-from-thread/" class="md-nav__link">
         
   
   
@@ -2296,7 +2194,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/coordination/" class="md-nav__link">
+      <a href="../coordination/" class="md-nav__link">
         
   
   
@@ -2321,10 +2219,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../architecture/outbox/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outbox Internals
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2340,6 +2265,125 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-dual-write-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dual-write problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enlisting-in-the-callers-transaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enlisting in the caller's transaction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#claiming-skip-locked-plus-a-lease" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Claiming: SKIP LOCKED plus a lease
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#delivery-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delivery semantics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relay-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relay topology
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ordering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ordering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure and recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schema-and-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema and cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend-extensibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend extensibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2352,7 +2396,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/graceful-shutdown/" class="md-nav__link">
+      <a href="../graceful-shutdown/" class="md-nav__link">
         
   
   
@@ -2380,7 +2424,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/kubernetes/" class="md-nav__link">
+      <a href="../kubernetes/" class="md-nav__link">
         
   
   
@@ -2408,7 +2452,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sqlite/" class="md-nav__link">
+      <a href="../sqlite/" class="md-nav__link">
         
   
   
@@ -2436,7 +2480,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/tracing/" class="md-nav__link">
+      <a href="../tracing/" class="md-nav__link">
         
   
   
@@ -2464,7 +2508,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/testing/" class="md-nav__link">
+      <a href="../testing/" class="md-nav__link">
         
   
   
@@ -2499,7 +2543,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../roadmap/" class="md-nav__link">
+      <a href="../../roadmap/" class="md-nav__link">
         
   
   
@@ -2526,7 +2570,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -2553,7 +2597,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../third_party_notices/" class="md-nav__link">
+      <a href="../../third_party_notices/" class="md-nav__link">
         
   
   
@@ -2600,10 +2644,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#one-provider-one-line" class="md-nav__link">
+  <a href="#the-dual-write-problem" class="md-nav__link">
     <span class="md-ellipsis">
       
-        One provider, one line
+        The dual-write problem
       
     </span>
   </a>
@@ -2611,10 +2655,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#add-patterns" class="md-nav__link">
+  <a href="#enlisting-in-the-callers-transaction" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Add patterns
+        Enlisting in the caller's transaction
       
     </span>
   </a>
@@ -2622,10 +2666,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#fastapi" class="md-nav__link">
+  <a href="#claiming-skip-locked-plus-a-lease" class="md-nav__link">
     <span class="md-ellipsis">
       
-        FastAPI
+        Claiming: SKIP LOCKED plus a lease
       
     </span>
   </a>
@@ -2633,10 +2677,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#faststream" class="md-nav__link">
+  <a href="#delivery-semantics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        FastStream
+        Delivery semantics
       
     </span>
   </a>
@@ -2644,10 +2688,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#next" class="md-nav__link">
+  <a href="#relay-topology" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next
+        Relay topology
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ordering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ordering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure and recovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schema-and-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema and cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend-extensibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend extensibility
       
     </span>
   </a>
@@ -2674,179 +2762,60 @@
   
 
 
-<h1 id="wiring-an-app">Wiring an App</h1>
-<p>A real app swaps the memory backend for a shared service and runs the patterns
-behind a web framework. This page wires one provider, then installs the app into
-FastAPI and FastStream with one call.</p>
-<h2 id="one-provider-one-line">One provider, one line</h2>
-<p>A provider owns the connection. Pass it to <code>uses=</code> and grelmicro registers a
-default component for every kind the provider serves:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-
-<span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
-
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">redis</span><span class="p">])</span>
-</code></pre></div>
-<p>Now <code>Lock</code>, <code>Cache</code>, and <code>RateLimiter</code> all resolve the Redis backend with no
-extra wiring.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>Keep connection URLs in environment variables, not inline like the example
-above. The <a href="../config/">Configuration</a> page shows the deployment story.</p>
-</div>
-<h2 id="add-patterns">Add patterns</h2>
-<p>Build the patterns you need and use them inside the app scope:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
-
-<span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>
-
-<span class="k">async</span> <span class="k">with</span> <span class="n">micro</span><span class="p">:</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
-        <span class="o">...</span>
-</code></pre></div>
-<p>The lock finds the registered Redis backend through the active app. No <code>backend=</code>
-argument needed.</p>
-<h2 id="fastapi">FastAPI</h2>
-<p>Call <code>micro.install(app)</code>. One call wires both pieces:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">Coordination</span><span class="p">,</span>
-    <span class="n">LeaderElection</span><span class="p">,</span>
-    <span class="n">Lock</span><span class="p">,</span>
-    <span class="n">TaskLock</span><span class="p">,</span>
+<h1 id="outbox-internals">Outbox Internals</h1>
+<p>This page documents the internal design of the <a href="../../outbox/">Outbox</a>. The user guide covers the API. This page covers the why.</p>
+<h2 id="the-dual-write-problem">The dual-write problem</h2>
+<p>Writing to the database and then "also send an email" as two steps has no atomicity. A crash between them either loses the side effect or runs it for a change that rolled back. The outbox removes the second write to an external system from the critical path: it writes the business row and a message row in one local transaction, and a background relay performs the side effect afterwards. One commit decides both.</p>
+<p>This is the transactional outbox pattern. It trades synchronous delivery for atomicity plus eventual delivery.</p>
+<h2 id="enlisting-in-the-callers-transaction">Enlisting in the caller's transaction</h2>
+<p><code>publish</code> never opens or commits a transaction. It runs the message INSERT on the connection or session the caller is already writing on, so the message joins whatever transaction is open there. This is the only shape that composes with an existing unit of work.</p>
+<ul>
+<li><strong>asyncpg</strong>: the INSERT runs on the passed <code>Connection</code>, which is bound to its own transaction. <code>publish</code> checks <code>conn.is_in_transaction()</code> and refuses a connection in autocommit, because that would commit the message alone.</li>
+<li><strong>SQLAlchemy and SQLModel</strong>: the INSERT is a Core statement executed on the <code>AsyncSession</code>, so it commits with the session's unit of work and never depends on flush ordering. Recognition is an <code>isinstance</code> check against SQLAlchemy's async <code>AsyncSession</code> and <code>AsyncConnection</code>, so a subclass such as SQLModel's <code>AsyncSession</code> is accepted while a sync <code>Session</code> is refused.</li>
+<li>A <strong>pool or engine</strong> is refused. It hands out a fresh connection, so the message would land in a separate transaction, which is the exact bug the pattern exists to remove.</li>
+</ul>
+<p>Owning the transaction instead (a <code>begin()</code> that yields a connection) was rejected: it cannot enlist in a transaction the framework does not control, which is the whole point.</p>
+<h2 id="claiming-skip-locked-plus-a-lease">Claiming: SKIP LOCKED plus a lease</h2>
+<p>The relay claims due messages in one statement:</p>
+<div class="highlight"><pre><span></span><code><span class="k">UPDATE</span><span class="w"> </span><span class="n">outbox</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="k">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;processing&#39;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">available_at</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">NOW</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">make_interval</span><span class="p">(</span><span class="n">secs</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="err">$</span><span class="n">lease</span><span class="p">),</span>
+<span class="w">    </span><span class="n">attempts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">attempts</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="k">SELECT</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">outbox</span>
+<span class="w">    </span><span class="k">WHERE</span><span class="w"> </span><span class="n">topic</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">ANY</span><span class="p">(</span><span class="err">$</span><span class="n">topics</span><span class="p">)</span>
+<span class="w">      </span><span class="k">AND</span><span class="w"> </span><span class="p">(</span><span class="k">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;pending&#39;</span><span class="w"> </span><span class="k">OR</span><span class="w"> </span><span class="k">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;processing&#39;</span><span class="p">)</span>
+<span class="w">      </span><span class="k">AND</span><span class="w"> </span><span class="n">available_at</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">NOW</span><span class="p">()</span>
+<span class="w">    </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">available_at</span><span class="p">,</span><span class="w"> </span><span class="n">id</span>
+<span class="w">    </span><span class="k">FOR</span><span class="w"> </span><span class="k">UPDATE</span><span class="w"> </span><span class="n">SKIP</span><span class="w"> </span><span class="n">LOCKED</span>
+<span class="w">    </span><span class="k">LIMIT</span><span class="w"> </span><span class="err">$</span><span class="k">limit</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryLeaderElectionAdapter</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.log</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisProvider</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span><span class="p">,</span> <span class="n">CircuitBreakerRegistry</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience.circuitbreaker.memory</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">MemoryCircuitBreakerAdapter</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.task</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tasks</span>
-
-<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
-
-<span class="c1"># === grelmicro ===</span>
-<span class="n">tasks</span> <span class="o">=</span> <span class="n">Tasks</span><span class="p">()</span>
-<span class="n">leader_election</span> <span class="o">=</span> <span class="n">LeaderElection</span><span class="p">(</span><span class="s2">&quot;leader-election&quot;</span><span class="p">)</span>
-<span class="n">tasks</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span><span class="n">leader_election</span><span class="p">)</span>
-
-<span class="n">redis</span> <span class="o">=</span> <span class="n">RedisProvider</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
-
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span>
-    <span class="n">uses</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">redis</span><span class="o">.</span><span class="n">lock</span><span class="p">(),</span> <span class="n">election</span><span class="o">=</span><span class="n">MemoryLeaderElectionAdapter</span><span class="p">()),</span>
-        <span class="n">CircuitBreakerRegistry</span><span class="p">(</span><span class="n">MemoryCircuitBreakerAdapter</span><span class="p">()),</span>
-        <span class="n">tasks</span><span class="p">,</span>
-    <span class="p">]</span>
-<span class="p">)</span>
-
-
-<span class="c1"># === FastAPI ===</span>
-<span class="nd">@asynccontextmanager</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lifespan</span><span class="p">(</span><span class="n">app</span><span class="p">):</span>
-    <span class="n">configure</span><span class="p">()</span>
-    <span class="k">yield</span>
-
-
-<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">(</span><span class="n">lifespan</span><span class="o">=</span><span class="n">lifespan</span><span class="p">)</span>
-<span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
-
-
-<span class="c1"># --- Circuit Breaker: protect calls to an unreliable service ---</span>
-<span class="n">cb</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="p">(</span><span class="s2">&quot;my-service&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">read_root</span><span class="p">():</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">cb</span><span class="p">:</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;Hello&quot;</span><span class="p">:</span> <span class="s2">&quot;World&quot;</span><span class="p">}</span>
-
-
-<span class="c1"># --- Distributed Lock: synchronize access to a shared resource ---</span>
-<span class="n">lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;shared-resource&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/protected&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">protected</span><span class="p">():</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">lock</span><span class="p">:</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;ok&quot;</span><span class="p">}</span>
-
-
-<span class="c1"># --- Interval Task: run locally on every worker ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">heartbeat</span><span class="p">():</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;heartbeat&quot;</span><span class="p">)</span>
-
-
-<span class="c1"># --- Distributed Task: run once per interval across all workers ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="n">TaskLock</span><span class="p">(</span><span class="n">lease_duration</span><span class="o">=</span><span class="mi">300</span><span class="p">))</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">():</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;cleanup&quot;</span><span class="p">)</span>
-
-
-<span class="c1"># --- Leader-gated Task: only the leader executes ---</span>
-<span class="nd">@tasks</span><span class="o">.</span><span class="n">every</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">leader</span><span class="o">=</span><span class="n">leader_election</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">leader_only_task</span><span class="p">():</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;leader task&quot;</span><span class="p">)</span>
+<span class="n">RETURNING</span><span class="w"> </span><span class="p">...;</span>
 </code></pre></div>
-<p>The lifecycle is always required. <code>install</code> always wires it: it opens <code>micro</code>
-once at startup and closes it at shutdown, so every component is ready before
-the first request. A lifespan you already pass to <code>FastAPI(lifespan=...)</code> keeps
-running, chained around <code>micro</code>.</p>
-<p>The per-handler ambient binding is optional. <code>install</code> wires it by default, so
-patterns like <code>Lock("cart")</code> and <code>RateLimiter.sliding_window(...)</code> resolve their
-backends inside route handlers with no <code>backend=</code> argument. Pass <code>ambient=False</code>
-when your handlers always pass an explicit <code>backend=</code> and do not need it:</p>
-<div class="highlight"><pre><span></span><code><span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">ambient</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</code></pre></div>
-<div class="admonition warning">
-<p class="admonition-title">Always call <code>install</code>, never hand-wire the lifespan alone</p>
-<p>A request handler runs in its own task, so it only resolves ambient backends
-when <code>install</code> adds the middleware. If you open <code>async with micro:</code> in a
-hand-written lifespan but forget <code>install</code> (or pass <code>ambient=False</code>), the app
-starts up healthy and then every ambient call raises <code>OutOfContextError</code> on
-the first request that hits it. <code>install(ambient=False)</code> warns at startup when
-ambient components are registered (it raises under <code>Grelmicro(strict=True)</code>),
-and you can assert the wiring in a test before it ships:</p>
-<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">test_ambient_binding_is_wired</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="k">assert</span> <span class="n">micro</span><span class="o">.</span><span class="n">check_ambient_binding</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
-</code></pre></div>
-</div>
-<h2 id="faststream">FastStream</h2>
-<p>The same call wires a FastStream app:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">faststream</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastStream</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">faststream.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisBroker</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Lock</span>
-
-<span class="n">broker</span> <span class="o">=</span> <span class="n">RedisBroker</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
-
-<span class="n">app</span> <span class="o">=</span> <span class="n">FastStream</span><span class="p">(</span><span class="n">broker</span><span class="p">)</span>
-<span class="n">micro</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
-
-
-<span class="nd">@broker</span><span class="o">.</span><span class="n">subscriber</span><span class="p">(</span><span class="s2">&quot;orders&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">order</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="k">async</span> <span class="k">with</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;orders&quot;</span><span class="p">):</span>
-        <span class="o">...</span>
-</code></pre></div>
-<p><code>install</code> opens <code>micro</code> on startup, closes it after shutdown, and binds the app
-around each consumed message so patterns resolve inside subscribers. Pass
-<code>ambient=False</code> to skip the per-message binding.</p>
-<h2 id="next">Next</h2>
-<p>Read the per-pattern pages for <a href="../cache/">cache</a>, <a href="../coordination/">coordination</a>,
-<a href="../task/">scheduling</a>, and <a href="../resilience/">resilience</a>. When you deploy,
-the <a href="../config/">Configuration</a> page shows how to tune every pattern with <code>GREL_*</code>
-environment variables.</p>
+<p>Three decisions matter here.</p>
+<ul>
+<li><strong><code>FOR UPDATE SKIP LOCKED</code></strong> lets many relays claim disjoint batches with no coordination. The <code>LIMIT</code> inside the subquery keeps it from flattening, so the lock is taken once per claimed row. Two relays can never claim the same row.</li>
+<li><strong>A lease, not the row lock</strong>, gates redelivery. A <code>FOR UPDATE</code> row lock lasts only for the claiming transaction, but the handler does external I/O and must not run inside an open transaction. So the claim commits immediately and the <code>available_at</code> column carries a visibility deadline. A relay that crashes mid-handler leaves the row invisible only until its lease lapses, then <code>state = 'processing' AND available_at &lt;= NOW()</code> re-qualifies it for another relay.</li>
+<li><strong><code>attempts</code> increments at claim</strong>, not at failure. A crash after claim still counts, and a message whose <code>attempts</code> exceed <code>max_attempts</code> is dead-lettered at claim before the handler runs again, so a handler that reliably kills its process cannot loop forever.</li>
+</ul>
+<h2 id="delivery-semantics">Delivery semantics</h2>
+<p>Delivery is <strong>at least once</strong>. The relay runs the handler, then marks the message done. A crash in between reruns the handler.</p>
+<p>Exactly-once <em>delivery</em> is impossible: the relay must either mark-then-do (can lose the side effect) or do-then-mark (can repeat it), and no third option exists across a process boundary. The outbox chooses do-then-mark, so the honest guarantee is at-least-once and <strong>handlers must be idempotent</strong>. Every message carries a stable <code>id</code> to use as the idempotency key, which composes with the <a href="../../idempotency/">idempotency</a> primitive.</p>
+<p>A stale relay that settles a message another relay has since reclaimed is fenced by <code>WHERE attempts = $claimed_attempts</code> on the settle statements, so a late write from a slow relay cannot clobber the reclaiming relay's state. This does not make delivery exactly-once. It only trims duplicate amplification.</p>
+<h2 id="relay-topology">Relay topology</h2>
+<p>Every replica runs a relay by default. SKIP LOCKED makes that safe at any count, so the outbox scales out with the app and needs no leader election. Leader election would add a dependency, idle replicas, and failover downtime while giving no ordering guarantee (a deposed leader's in-flight handler keeps running during the handover). Run the relay only on some replicas with <code>relay=False</code>.</p>
+<p><strong>Polling is the source of truth.</strong> A short poll claims due messages. <code>LISTEN</code>/<code>NOTIFY</code> is a latency optimization layered on top: <code>publish</code> sends a wake inside the caller's transaction, so the relay reacts within milliseconds of a commit. NOTIFY alone is unsafe (a notification is lost on a listener reconnect and does not survive a connection pooler in transaction mode), and a matured <code>available_at</code> or a lapsed lease produces no NOTIFY at all, so the poll must remain authoritative. A dropped listener degrades latency to the poll interval, never correctness.</p>
+<h2 id="ordering">Ordering</h2>
+<p>There is no ordering guarantee in this version. Messages are claimed in <code>(available_at, id)</code> order but delivered concurrently, and a failed message is rescheduled behind later ones, so even same-<code>key</code> messages can be delivered out of order. Ids are time-ordered UUIDv7 so the claim scan and its index stay local, but the id is not a delivery-order promise. Strict per-key ordering is a planned feature with explicit head-of-line-blocking semantics.</p>
+<h2 id="failure-and-recovery">Failure and recovery</h2>
+<ul>
+<li><strong>Handler failure</strong> reschedules with capped exponential backoff and, by default, full jitter (the configurable <code>retry_jitter</code> fraction) into <code>available_at</code>, or dead-letters after <code>max_attempts</code>. <code>Cancel</code> and a payload that fails validation dead-letter at once, since retrying cannot help.</li>
+<li><strong>A crashed relay</strong> strands nothing: the lease lapses and another relay reclaims. A clean shutdown drains in-flight handlers within a grace window, then cancels stragglers, whose leases also lapse.</li>
+<li><strong>A frozen or unreachable Postgres</strong> surfaces as a bounded <code>TimeoutError</code> when the <code>PostgresProvider</code> is built with <code>command_timeout</code>, so <code>publish</code> fails loudly and the business transaction rolls back rather than hanging until the OS TCP timeout. Without it, a claim or publish blocks until the kernel gives up.</li>
+</ul>
+<h2 id="schema-and-cleanup">Schema and cleanup</h2>
+<p>One table holds every message. Column names follow the common outbox convention so change-data-capture tooling can read it. A partial index on <code>(available_at, id)</code> for non-terminal rows serves the claim, and a partial unique index on <code>dedup_key</code> backs producer-side deduplication. Delivered rows are deleted on success by default, so the working set stays small. Dead rows and (with <code>keep_delivered=True</code>) delivered rows are trimmed by <code>purge</code>.</p>
+<h2 id="backend-extensibility">Backend extensibility</h2>
+<p>The relay talks to an <code>OutboxBackend</code> protocol, so a backend is one adapter plus a <code>provider.outbox()</code> factory, the same shape <a href="../../cache/">cache</a> and <a href="../../coordination/">coordination</a> use. Postgres ships today. SQLite (single-writer, no NOTIFY) is planned, and MySQL (also <code>FOR UPDATE SKIP LOCKED</code>) is on the roadmap. The producer and consumer API never changes across backends.</p>
 
 
 
@@ -2927,10 +2896,10 @@ environment variables.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

@@ -344,6 +344,8 @@
       
         
       
+        
+      
     
     
     
@@ -531,6 +533,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../outbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../task/" class="md-nav__link">
         
   
@@ -589,7 +619,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -611,14 +641,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_7">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1530,6 +1560,8 @@
       
         
       
+        
+      
     
     
     
@@ -1885,6 +1917,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/outbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/task/" class="md-nav__link">
         
   
@@ -1980,6 +2040,8 @@
       
         
           
+        
+      
         
       
         
@@ -2358,6 +2420,34 @@
     
   
     Coordination Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/outbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outbox Internals
   
 
     
@@ -3113,7 +3203,7 @@ clients. The factory methods <code>ValkeyProvider.sentinel(...)</code> and
 <code>ValkeyProvider.cluster(...)</code> and the Cluster hash-tag rule apply the
 same way.</p>
 <h2 id="postgres">Postgres</h2>
-<p><code>PostgresProvider</code> ships all factory methods: <code>.lock()</code>, <code>.leaderelection()</code>, <code>.cache()</code>, <code>.ratelimiter()</code>, <code>.circuitbreaker()</code>, and <code>.schedule()</code>. The
+<p><code>PostgresProvider</code> ships all factory methods: <code>.lock()</code>, <code>.leaderelection()</code>, <code>.cache()</code>, <code>.outbox()</code>, <code>.ratelimiter()</code>, <code>.circuitbreaker()</code>, and <code>.schedule()</code>. The
 provider wraps an <code>asyncpg.Pool</code> and opens it lazily on <code>__aenter__</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro</span><span class="w"> </span><span class="kn">import</span> <span class="n">Grelmicro</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.coordination</span><span class="w"> </span><span class="kn">import</span> <span class="n">Coordination</span>
@@ -3127,6 +3217,9 @@ provider wraps an <code>asyncpg.Pool</code> and opens it lazily on <code>__aente
 </code></pre></div>
 <p>Set <code>POSTGRES_URL</code> (or <code>POSTGRES_HOST</code> + <code>POSTGRES_PORT</code> + <code>POSTGRES_DB</code>
 + <code>POSTGRES_USER</code> + <code>POSTGRES_PASSWORD</code>) for env-driven construction.</p>
+<p>Pass <code>command_timeout</code> (or set <code>POSTGRES_COMMAND_TIMEOUT</code>) to bound every operation. A query that hangs on a frozen or unreachable server then raises <code>TimeoutError</code> after that many seconds, instead of blocking until the OS TCP timeout. It defaults to <code>None</code> (no timeout).</p>
+<div class="highlight"><pre><span></span><code><span class="n">postgres</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="s2">&quot;postgresql://localhost/app&quot;</span><span class="p">,</span> <span class="n">command_timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+</code></pre></div>
 <p>For two pools (writer + reader), split by env prefix:</p>
 <div class="highlight"><pre><span></span><code><span class="n">write</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="n">env_prefix</span><span class="o">=</span><span class="s2">&quot;WRITE_POSTGRES_&quot;</span><span class="p">)</span>
 <span class="n">read</span> <span class="o">=</span> <span class="n">PostgresProvider</span><span class="p">(</span><span class="n">env_prefix</span><span class="o">=</span><span class="s2">&quot;READ_POSTGRES_&quot;</span><span class="p">)</span>

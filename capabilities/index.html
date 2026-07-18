@@ -344,6 +344,8 @@
       
         
       
+        
+      
     
     
     
@@ -531,6 +533,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../outbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../task/" class="md-nav__link">
         
   
@@ -589,7 +619,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -611,14 +641,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_7">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1392,6 +1422,8 @@
       
         
       
+        
+      
     
     
     
@@ -1747,6 +1779,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/outbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/task/" class="md-nav__link">
         
   
@@ -1842,6 +1902,8 @@
       
         
           
+        
+      
         
       
         
@@ -2240,6 +2302,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../architecture/outbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outbox Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../architecture/graceful-shutdown/" class="md-nav__link">
         
   
@@ -2545,9 +2635,9 @@
 <p>The <a href="https://github.com/grelinfo/grelmicro/issues/124">roadmap</a> carries the live state. This page is the at-a-glance view.</p>
 <h2 id="vocabulary">Vocabulary</h2>
 <ul>
-<li><strong>Pattern</strong>: user-facing class. <code>Lock</code>, <code>LeaderElection</code>, <code>TaskLock</code>, <code>TTLCache</code>, <code>RateLimiter</code>, <code>CircuitBreaker</code>, <code>Idempotency</code>, <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>, <code>Timeout</code>, <code>Shield</code>.</li>
-<li><strong>Adapter</strong>: concrete implementation of a Backend Protocol. <code>RedisLockAdapter</code>, <code>PostgresLockAdapter</code>, <code>MemoryCacheAdapter</code>, <code>SQLiteLockAdapter</code>, <code>KubernetesLockAdapter</code>, and so on.</li>
-<li><strong>Backend</strong>: the Protocol class an Adapter satisfies. <code>LockBackend</code>, <code>LeaderElectionBackend</code>, <code>CacheBackend</code>, <code>RateLimiterBackend</code>, <code>CircuitBreakerBackend</code>.</li>
+<li><strong>Pattern</strong>: user-facing class. <code>Lock</code>, <code>LeaderElection</code>, <code>TaskLock</code>, <code>TTLCache</code>, <code>RateLimiter</code>, <code>CircuitBreaker</code>, <code>Idempotency</code>, <code>Outbox</code>, <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>, <code>Timeout</code>, <code>Shield</code>.</li>
+<li><strong>Adapter</strong>: concrete implementation of a Backend Protocol. <code>RedisLockAdapter</code>, <code>PostgresLockAdapter</code>, <code>MemoryCacheAdapter</code>, <code>PostgresOutboxAdapter</code>, <code>SQLiteLockAdapter</code>, <code>KubernetesLockAdapter</code>, and so on.</li>
+<li><strong>Backend</strong>: the Protocol class an Adapter satisfies. <code>LockBackend</code>, <code>LeaderElectionBackend</code>, <code>CacheBackend</code>, <code>RateLimiterBackend</code>, <code>CircuitBreakerBackend</code>, <code>OutboxBackend</code>.</li>
 <li><strong>Provider</strong>: vendor configuration plus native client, shared by Adapters that talk to the same service. <code>RedisProvider</code>, <code>PostgresProvider</code>, <code>SQLiteProvider</code>. Memory and Kubernetes Adapters do not use a Provider.</li>
 </ul>
 <p>See <a href="../architecture/backends/">Backends and Adapters</a> for the full model.</p>
@@ -2613,6 +2703,14 @@
 <td style="text-align: center;">N/A</td>
 </tr>
 <tr>
+<td><code>Outbox</code></td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;">✅</td>
+<td style="text-align: center;">🚧</td>
+<td style="text-align: center;">N/A</td>
+</tr>
+<tr>
 <td><code>RateLimiter</code></td>
 <td style="text-align: center;">✅</td>
 <td style="text-align: center;">✅</td>
@@ -2673,7 +2771,8 @@
 <p>Legend:</p>
 <ul>
 <li>✅ ships today.</li>
-<li><code>N/A</code> does not apply. <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>, and <code>Timeout</code> are in-process Patterns with no remote state to share. For <code>Schedule</code> (cron), Kubernetes has no Adapter on purpose: run a native <a href="https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/">Kubernetes CronJob</a> instead. For <code>LeaderElection</code>, SQLite has no adapter: leader election is meaningful only across multiple nodes, and SQLite does not coordinate across nodes. <code>Schedule</code> (cron) on SQLite does ship, because durable cron across processes on a single host is still useful.</li>
+<li>🚧 planned (see the <a href="https://github.com/grelinfo/grelmicro/issues/124">roadmap</a>).</li>
+<li><code>N/A</code> does not apply. <code>Retry</code>, <code>Bulkhead</code>, <code>Fallback</code>, and <code>Timeout</code> are in-process Patterns with no remote state to share. For <code>Schedule</code> (cron), Kubernetes has no Adapter on purpose: run a native <a href="https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/">Kubernetes CronJob</a> instead. For <code>LeaderElection</code>, SQLite has no adapter: leader election is meaningful only across multiple nodes, and SQLite does not coordinate across nodes. <code>Schedule</code> (cron) on SQLite does ship, because durable cron across processes on a single host is still useful. For <code>Outbox</code>, Redis and Kubernetes are <code>N/A</code>: the outbox stages a message in the same transaction as your business write, which needs a transactional SQL store (Memory ships for tests and single-process apps). The Postgres adapter ships today, SQLite is planned, and MySQL is on the roadmap.</li>
 </ul>
 <h2 id="picking-an-adapter">Picking an Adapter</h2>
 <ul>
