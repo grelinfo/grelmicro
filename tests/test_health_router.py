@@ -2,6 +2,7 @@
 
 import importlib
 import sys
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -38,9 +39,10 @@ def app(registry: HealthChecks) -> FastAPI:
 
 
 @pytest.fixture
-def client(app: FastAPI) -> TestClient:
+def client(app: FastAPI) -> Iterator[TestClient]:
     """Test client for the FastAPI app."""
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 # ---------- /livez ----------
