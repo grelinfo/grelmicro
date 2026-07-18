@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.29.5 - 2026-07-18
+
+### Security
+
+* 🔒 Add a security policy with private vulnerability reporting. ([#523](https://github.com/grelinfo/grelmicro/pull/523))
+
+### Docs
+
+* 📝 Add a Contributing section to the README linking issues and the contributing guide. ([#523](https://github.com/grelinfo/grelmicro/pull/523))
+
+### Internal
+
+* 👷 Pin the demo Docker image by digest and track it with Dependabot. ([#523](https://github.com/grelinfo/grelmicro/pull/523))
+
 ## 0.29.4 - 2026-07-18
 
 ### Internal
