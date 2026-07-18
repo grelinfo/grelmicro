@@ -284,6 +284,14 @@ The key shape:
 
 For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelinfo.github.io/grelmicro/).
 
+## Contributing
+
+Report bugs and request features in [GitHub issues](https://github.com/grelinfo/grelmicro/issues). Search the open issues first, then include the grelmicro version and the steps to reproduce.
+
+To contribute code or docs, read the [contributing guide](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md). It explains the pull request process and the requirements for acceptable contributions: the development setup, the code style, and the pre-merge checklist.
+
+Report security issues privately through the [security policy](https://github.com/grelinfo/grelmicro/security/policy), not a public issue.
+
 ## License
 
 This project is licensed under the terms of the [MIT license](https://github.com/grelinfo/grelmicro/blob/main/LICENSE).
