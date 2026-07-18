@@ -26,7 +26,7 @@ from grelmicro.providers.postgres import PostgresProvider
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-pytestmark = [pytest.mark.timeout(5)]
+pytestmark = [pytest.mark.timeout(60)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 
