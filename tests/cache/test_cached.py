@@ -1,6 +1,7 @@
 """Test Cached Decorator."""
 
 import asyncio
+import inspect
 import threading
 import time
 from contextlib import suppress
@@ -246,7 +247,7 @@ class TestAsyncCachedCacheControl:
             return x
 
         # Assert
-        assert asyncio.iscoroutinefunction(fetch.cache_clear)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        assert inspect.iscoroutinefunction(fetch.cache_clear)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
     async def test_cache_clear_empties_the_cache(self) -> None:
         """Awaiting cache_clear() causes subsequent calls to recompute."""

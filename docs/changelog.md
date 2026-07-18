@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.1 - 2026-07-18
+
+### Fixed
+
+* 🐛 Use `inspect.iscoroutinefunction` in `@cached`, so grelmicro runs clean on Python 3.14, where `asyncio.iscoroutinefunction` is deprecated. ([#532](https://github.com/grelinfo/grelmicro/pull/532))
+
 ## 0.30.0 - 2026-07-18
 
 ### Breaking
