@@ -37,7 +37,7 @@ ______________________________________________________________________
 
 ## Why grelmicro
 
-grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, logging, health checks, and task scheduling. Async-first, type-safe, and fully tested.
+grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, the transactional outbox, logging, health checks, and task scheduling. Async-first, type-safe, and fully tested.
 
 It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve microservices, a modular monolith, or a self-contained system, and fit naturally into containerized and Kubernetes deployments.
 
