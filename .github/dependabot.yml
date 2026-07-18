@@ -42,3 +42,11 @@ updates:
           - "patch"
     commit-message:
       prefix: "⬆️ ci: "
+
+  - package-ecosystem: "docker"
+    directory: "/examples/fastapi-demo"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "⬆️ "
