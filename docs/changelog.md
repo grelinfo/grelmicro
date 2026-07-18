@@ -9,6 +9,7 @@
 ### Docs
 
 * 📝 Add a Contributing section to the README linking issues and the contributing guide. ([#523](https://github.com/grelinfo/grelmicro/pull/523))
+* 📝 Add an `llms.txt` documentation index for LLM-friendly discovery. ([#524](https://github.com/grelinfo/grelmicro/pull/524))
 
 ### Internal
 
