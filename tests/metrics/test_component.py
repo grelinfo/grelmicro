@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from base64 import b64encode
+
 import pytest
 from opentelemetry import metrics as otel_metrics
 from opentelemetry.sdk.metrics import MeterProvider
 
 from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
-from grelmicro.errors import SettingsValidationError
+from grelmicro.errors import MultipleActiveAppsError, SettingsValidationError
 from grelmicro.health import HealthChecks
 from grelmicro.metrics import (
     Metrics,
@@ -15,6 +17,10 @@ from grelmicro.metrics import (
     MetricsExporterType,
 )
 from grelmicro.metrics import _hub as hub
+from grelmicro.metrics._component import (
+    _exporter_kwargs,
+    _resolve_exporter_type,
+)
 from grelmicro.metrics.errors import (
     MetricsError,
     MetricsSettingsValidationError,
@@ -288,3 +294,185 @@ async def test_metrics_invalid_env_config_raises_settings_error(
 def test_metrics_settings_error_is_settings_validation_error() -> None:
     """`MetricsSettingsValidationError` is a `SettingsValidationError`."""
     assert issubclass(MetricsSettingsValidationError, SettingsValidationError)
+
+
+def test_auto_exporter_resolves_to_none_without_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`auto` collapses to `none` when no endpoint is configured."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
+    assert _resolve_exporter_type(MetricsConfig()) == MetricsExporterType.NONE
+
+
+@pytest.mark.parametrize(
+    "env_var",
+    ["OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"],
+)
+def test_auto_exporter_resolves_to_otlp_http_with_endpoint_env(
+    monkeypatch: pytest.MonkeyPatch, env_var: str
+) -> None:
+    """`auto` resolves to `otlp-http` when an endpoint env var is set."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
+    monkeypatch.setenv(env_var, "https://obs.example.com")
+    assert (
+        _resolve_exporter_type(MetricsConfig()) == MetricsExporterType.OTLP_HTTP
+    )
+
+
+def test_explicit_exporter_unchanged_without_endpoint() -> None:
+    """An explicit exporter is never downgraded by auto-resolution."""
+    config = MetricsConfig(exporter=MetricsExporterType.CONSOLE)
+    assert _resolve_exporter_type(config) == MetricsExporterType.CONSOLE
+
+
+async def test_auto_exporter_enters_inert_without_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A default `Metrics()` is a no-op: no provider installed, global untouched."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
+    prior = otel_metrics.get_meter_provider()
+    micro = Grelmicro(uses=[Metrics(service_name="orders")])
+    async with micro:
+        assert micro.metrics.config.exporter == MetricsExporterType.AUTO
+        assert micro.metrics.active is False
+        assert otel_metrics.get_meter_provider() is prior
+        assert hub.active() is None
+    assert otel_metrics.get_meter_provider() is prior
+
+
+async def test_auto_disabled_provider_access_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`Metrics.provider` reports the auto-disabled state clearly."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
+    micro = Grelmicro(uses=[Metrics()])
+    async with micro:
+        with pytest.raises(RuntimeError, match="auto-disabled"):
+            _ = micro.metrics.provider
+
+
+async def test_auto_disabled_instruments_are_noops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auto-disabled instruments are safe no-ops via the OTel global."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
+    micro = Grelmicro(uses=[Metrics()])
+    async with micro:
+        # No provider, but custom instruments neither raise nor record.
+        micro.metrics.counter("orders.placed").add(1)
+        micro.metrics.histogram("request.duration", unit="s").record(0.5)
+
+
+async def test_auto_disabled_metrics_allow_overlapping_apps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auto-disabled `Metrics` owns no global state, so two apps overlap freely."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
+    async with Grelmicro(uses=[Metrics()]), Grelmicro(uses=[Metrics()]):
+        pass  # no MultipleActiveAppsError
+
+
+async def test_active_metrics_still_blocks_second_app() -> None:
+    """An active `Metrics` (explicit exporter) still blocks an overlapping app."""
+    async with Grelmicro(uses=[Metrics(exporter=MetricsExporterType.CONSOLE)]):
+        with pytest.raises(MultipleActiveAppsError):
+            async with Grelmicro(
+                uses=[Metrics(exporter=MetricsExporterType.CONSOLE)]
+            ):
+                pass
+
+
+async def test_explicit_none_still_installs_provider() -> None:
+    """Explicit `exporter=none` keeps installing a provider (stays active)."""
+    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])
+    async with micro:
+        assert micro.metrics.active is True
+        assert isinstance(micro.metrics.provider, MeterProvider)
+
+
+def test_basic_auth_header_is_base64_encoded() -> None:
+    """`authorization_header` encodes `username:password` per RFC 7617."""
+    config = MetricsConfig(
+        basic_auth_username="me@example.com", basic_auth_password="s3cret"
+    )
+    expected = b64encode(b"me@example.com:s3cret").decode("ascii")
+    assert config.authorization_header == f"Basic {expected}"
+
+
+def test_basic_auth_header_none_when_unset() -> None:
+    """`authorization_header` is `None` without credentials."""
+    assert MetricsConfig().authorization_header is None
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["basic_auth_username", "basic_auth_password"],
+)
+def test_basic_auth_requires_both_fields(field: str) -> None:
+    """Username and password must be set together."""
+    with pytest.raises(ValueError, match="must be set together"):
+        MetricsConfig.model_validate({field: "value"})
+
+
+def test_basic_auth_conflicts_with_authorization_header() -> None:
+    """`basic_auth` plus an explicit Authorization header is rejected."""
+    with pytest.raises(ValueError, match="Authorization header"):
+        MetricsConfig(
+            basic_auth_username="me",
+            basic_auth_password="secret",
+            headers={"authorization": "Bearer abc"},
+        )
+
+
+def test_exporter_kwargs_injects_authorization() -> None:
+    """`_exporter_kwargs` attaches the Basic header alongside other headers."""
+    config = MetricsConfig(
+        endpoint="https://obs.example.com/v1/metrics",
+        headers={"X-Org": "default"},
+        basic_auth_username="me",
+        basic_auth_password="secret",
+    )
+    kwargs = _exporter_kwargs(config)
+    assert kwargs["endpoint"] == "https://obs.example.com/v1/metrics"
+    assert kwargs["headers"]["X-Org"] == "default"
+    assert kwargs["headers"]["Authorization"].startswith("Basic ")
+
+
+def test_exporter_kwargs_empty_without_endpoint_or_headers() -> None:
+    """`_exporter_kwargs` is empty when nothing is configured."""
+    assert _exporter_kwargs(MetricsConfig()) == {}
+
+
+def test_metrics_basic_auth_kwarg_splits_into_fields() -> None:
+    """`Metrics(basic_auth=(u, p))` maps onto the two config fields."""
+    metrics = Metrics(
+        exporter=MetricsExporterType.NONE, basic_auth=("me", "secret")
+    )
+    assert metrics._kwargs["basic_auth_username"] == "me"
+    assert metrics._kwargs["basic_auth_password"] == "secret"
+
+
+def test_metrics_basic_auth_rejects_non_pair() -> None:
+    """`Metrics(basic_auth=...)` requires a 2-tuple."""
+    with pytest.raises(TypeError, match="username, password"):
+        Metrics(basic_auth=("only",))  # ty: ignore[invalid-argument-type]
+
+
+async def test_metrics_basic_auth_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Credentials resolve from `GREL_METRICS_BASIC_AUTH_*`."""
+    monkeypatch.setenv("GREL_METRICS_BASIC_AUTH_USERNAME", "me@example.com")
+    monkeypatch.setenv("GREL_METRICS_BASIC_AUTH_PASSWORD", "s3cret")
+    micro = Grelmicro(
+        uses=[Metrics(exporter=MetricsExporterType.NONE, env_load=True)]
+    )
+    async with micro:
+        assert micro.metrics.config.basic_auth_username == "me@example.com"
+        assert micro.metrics.config.basic_auth_password == "s3cret"

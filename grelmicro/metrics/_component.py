@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
@@ -106,6 +107,19 @@ class Metrics:
         headers: Annotated[
             dict[str, str] | None, Doc("Exporter headers.")
         ] = None,
+        basic_auth: Annotated[
+            tuple[str, str] | None,
+            Doc(
+                """
+                HTTP Basic auth credentials as a `(username, password)`
+                pair. grelmicro builds the `Authorization: Basic` header and
+                attaches it to the OTLP exporter directly, so it never goes
+                through the fragile `OTEL_EXPORTER_OTLP_HEADERS` encoding.
+                From the environment, set `GREL_METRICS_BASIC_AUTH_USERNAME`
+                and `GREL_METRICS_BASIC_AUTH_PASSWORD` instead.
+                """
+            ),
+        ] = None,
         export_interval: Annotated[
             float | None, Doc("Seconds between periodic exports.")
         ] = None,
@@ -134,6 +148,9 @@ class Metrics:
         ] = None,
     ) -> None:
         """Initialize the component (defer provider build until `__aenter__`)."""
+        if basic_auth is not None and len(basic_auth) != 2:  # noqa: PLR2004
+            msg = "basic_auth must be a (username, password) tuple."
+            raise TypeError(msg)
         self._name = name
         self._explicit_config = config
         self._kwargs = {
@@ -141,6 +158,8 @@ class Metrics:
             "exporter": exporter,
             "endpoint": endpoint,
             "headers": headers,
+            "basic_auth_username": basic_auth[0] if basic_auth else None,
+            "basic_auth_password": basic_auth[1] if basic_auth else None,
             "export_interval": export_interval,
             "export_timeout": export_timeout,
             "resource_attributes": resource_attributes,
@@ -148,6 +167,7 @@ class Metrics:
         }
         self._env_load = env_load
         self._resolved: MetricsConfig | None = None
+        self._entered: bool = False
         self._provider: Any = None
         self._prior_provider: Any = None
         self._prometheus_registry: Any = None
@@ -200,14 +220,56 @@ class Metrics:
         """Return the installed OTel `MeterProvider`.
 
         Raises:
-            RuntimeError: If accessed before the component has been entered.
+            RuntimeError: If accessed before the component has been entered,
+                or when the exporter auto-disables so no provider is installed.
         """
         if self._provider is None:
             msg = (
-                "Metrics.provider is only available inside `async with micro:`"
+                "Metrics.provider is only available inside `async with micro:` "
+                "and only when the exporter is active. An auto-disabled Metrics "
+                "(default exporter with no endpoint) installs no provider."
             )
             raise RuntimeError(msg)
         return self._provider
+
+    @property
+    def active(self) -> bool:
+        """Whether entering installs a `MeterProvider` for this app.
+
+        `False` when the exporter auto-disables: the default `auto` exporter
+        with no endpoint configured. An auto-disabled `Metrics` is a no-op, so
+        it can be registered unconditionally in dev, test, and CI.
+        """
+        return not self._auto_disabled()
+
+    def owns_global_state(self) -> bool:
+        """Whether entering patches the process-global meter provider.
+
+        Consulted by the app's single-active-app guard. An auto-disabled
+        `Metrics` installs nothing, so overlapping apps may each carry one.
+        """
+        return self.active
+
+    def _auto_disabled(self) -> bool:
+        """Return True when the exporter was left `auto` and resolves to `none`."""
+        config = self._resolve()
+        return (
+            config.exporter is MetricsExporterType.AUTO
+            and _resolve_exporter_type(config) is MetricsExporterType.NONE
+        )
+
+    def _resolve(self) -> MetricsConfig:
+        """Resolve the config once per open cycle (cleared on exit)."""
+        if self._resolved is None:
+            self._resolved = resolve_config(
+                MetricsConfig,
+                explicit=self._explicit_config,
+                kwargs=self._kwargs,
+                env_prefix="GREL_METRICS_",
+                env_load=self._env_load,
+                error_type=MetricsSettingsValidationError,
+            )
+        return self._resolved
 
     @property
     def prometheus_registry(self) -> Any:  # noqa: ANN401
@@ -228,12 +290,20 @@ class Metrics:
     ) -> Meter:
         """Return an OTel `Meter` for `name`, cached per scope name.
 
+        When the exporter auto-disables (default `auto` exporter, no endpoint),
+        no provider is installed and this returns a no-op `Meter` from the OTel
+        global, so custom instruments stay safe to use unconditionally.
+
         Raises:
             RuntimeError: If accessed before the component has been entered.
         """
-        if self._provider is None:
+        if not self._entered:
             msg = "Metrics.meter is only available inside `async with micro:`"
             raise RuntimeError(msg)
+        if self._provider is None:
+            from opentelemetry import metrics  # noqa: PLC0415
+
+            return metrics.get_meter(name)
         meter = self._meters.get(name)
         if meter is None:
             meter = self._provider.get_meter(name)
@@ -305,20 +375,21 @@ class Metrics:
         )
 
     async def __aenter__(self) -> Self:
-        """Build the `MeterProvider` and install it as the global provider."""
+        """Build the `MeterProvider` and install it as the global provider.
+
+        When the exporter auto-disables (default `auto` exporter, no endpoint),
+        this is a true no-op: no provider is built, the process-global meter
+        provider is left untouched, and no instruments are emitted.
+        """
+        config = self._resolve()
+        self._entered = True
+        if not self.active:
+            return self
         try:
             import opentelemetry.metrics._internal as otel_internal  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover
             raise DependencyNotFoundError(module="opentelemetry-api") from exc
 
-        self._resolved = resolve_config(
-            MetricsConfig,
-            explicit=self._explicit_config,
-            kwargs=self._kwargs,
-            env_prefix="GREL_METRICS_",
-            env_load=self._env_load,
-            error_type=MetricsSettingsValidationError,
-        )
         # `opentelemetry.metrics.set_meter_provider()` refuses to replace an
         # already-installed provider, so `Metrics` patches the private
         # `_METER_PROVIDER` global directly. A future OTel release can rename
@@ -333,9 +404,7 @@ class Metrics:
             )
             raise MetricsError(msg)
         self._prior_provider = otel_internal._METER_PROVIDER  # noqa: SLF001
-        self._provider, self._prometheus_registry = _build_provider(
-            self._resolved
-        )
+        self._provider, self._prometheus_registry = _build_provider(config)
         otel_internal._METER_PROVIDER = self._provider  # noqa: SLF001
         _hub.activate(self)
         return self
@@ -353,6 +422,13 @@ class Metrics:
         call runs in a daemon thread bounded by `shutdown_timeout`. On timeout
         a warning is logged and the global provider is restored regardless.
         """
+        if self._provider is None:
+            # Auto-disabled on enter: nothing was installed, nothing to undo.
+            self._entered = False
+            self._resolved = None
+            self._prior_provider = None
+            return None
+
         import opentelemetry.metrics._internal as otel_internal  # noqa: PLC0415
 
         try:
@@ -372,6 +448,8 @@ class Metrics:
         finally:
             _hub.deactivate(self)
             otel_internal._METER_PROVIDER = self._prior_provider  # noqa: SLF001
+            self._entered = False
+            self._resolved = None
             self._provider = None
             self._prior_provider = None
             self._prometheus_registry = None
@@ -434,22 +512,44 @@ def _build_provider(config: MetricsConfig) -> tuple[Any, Any]:
         resource_attributes=config.resource_attributes,
     )
 
-    if config.exporter == MetricsExporterType.NONE:
+    exporter_type = _resolve_exporter_type(config)
+
+    if exporter_type == MetricsExporterType.NONE:
         return _make_provider(MeterProvider, resource, readers=[]), None
 
-    if config.exporter == MetricsExporterType.PROMETHEUS:
+    if exporter_type == MetricsExporterType.PROMETHEUS:
         reader, registry = _build_prometheus_reader()
         return _make_provider(MeterProvider, resource, readers=[reader]), (
             registry
         )
 
-    exporter = _build_exporter(config)
+    exporter = _build_exporter(config, exporter_type)
     reader = PeriodicExportingMetricReader(
         exporter,
         export_interval_millis=config.export_interval * 1000.0,
         export_timeout_millis=config.export_timeout * 1000.0,
     )
     return _make_provider(MeterProvider, resource, readers=[reader]), None
+
+
+def _resolve_exporter_type(config: MetricsConfig) -> MetricsExporterType:
+    """Resolve the `auto` exporter against the configured endpoint.
+
+    `auto` becomes `otlp-http` when an endpoint is resolvable (the
+    `endpoint` field, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, or
+    `OTEL_EXPORTER_OTLP_ENDPOINT`) and `none` otherwise. Any explicit
+    exporter is returned unchanged.
+    """
+    if config.exporter != MetricsExporterType.AUTO:
+        return config.exporter
+    endpoint_configured = (
+        config.endpoint is not None
+        or bool(os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"))
+        or bool(os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"))
+    )
+    if endpoint_configured:
+        return MetricsExporterType.OTLP_HTTP
+    return MetricsExporterType.NONE
 
 
 def _make_provider(
@@ -486,16 +586,19 @@ def _build_prometheus_reader() -> tuple[Any, Any]:
     return reader, registry
 
 
-def _build_exporter(config: MetricsConfig) -> Any:  # noqa: ANN401
-    """Build a metric exporter for the configured exporter type."""
-    if config.exporter == MetricsExporterType.CONSOLE:
+def _build_exporter(
+    config: MetricsConfig,
+    exporter_type: MetricsExporterType,
+) -> Any:  # noqa: ANN401
+    """Build a metric exporter for the resolved exporter type."""
+    if exporter_type == MetricsExporterType.CONSOLE:
         from opentelemetry.sdk.metrics.export import (  # noqa: PLC0415
             ConsoleMetricExporter,
         )
 
         return ConsoleMetricExporter()
 
-    if config.exporter == MetricsExporterType.OTLP_HTTP:  # pragma: no cover
+    if exporter_type == MetricsExporterType.OTLP_HTTP:  # pragma: no cover
         try:
             from opentelemetry.exporter.otlp.proto.http.metric_exporter import (  # noqa: PLC0415
                 OTLPMetricExporter,
@@ -504,12 +607,7 @@ def _build_exporter(config: MetricsConfig) -> Any:  # noqa: ANN401
             raise DependencyNotFoundError(
                 module="opentelemetry-exporter-otlp-proto-http"
             ) from exc
-        kwargs: dict[str, Any] = {}
-        if config.endpoint is not None:
-            kwargs["endpoint"] = config.endpoint
-        if config.headers:
-            kwargs["headers"] = config.headers
-        return OTLPMetricExporter(**kwargs)
+        return OTLPMetricExporter(**_exporter_kwargs(config))
 
     try:  # pragma: no cover
         from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # noqa: PLC0415
@@ -519,11 +617,25 @@ def _build_exporter(config: MetricsConfig) -> Any:  # noqa: ANN401
         raise DependencyNotFoundError(
             module="opentelemetry-exporter-otlp-proto-grpc"
         ) from exc
-    kwargs = {}  # pragma: no cover
-    if config.endpoint is not None:  # pragma: no cover
-        kwargs["endpoint"] = config.endpoint
-    if config.headers:  # pragma: no cover
-        kwargs["headers"] = config.headers
     return OTLPMetricExporter(  # pragma: no cover
-        **kwargs,  # ty: ignore[invalid-argument-type]
+        **_exporter_kwargs(config),
     )
+
+
+def _exporter_kwargs(config: MetricsConfig) -> dict[str, Any]:
+    """Build the shared `endpoint`/`headers` kwargs for the OTLP exporters.
+
+    Merges any configured Basic-auth credentials into the headers as an
+    `Authorization: Basic` value, so the credentials ride on the exporter
+    rather than the env-parsed `OTEL_EXPORTER_OTLP_HEADERS`.
+    """
+    kwargs: dict[str, Any] = {}
+    if config.endpoint is not None:
+        kwargs["endpoint"] = config.endpoint
+    headers = dict(config.headers)
+    authorization = config.authorization_header
+    if authorization is not None:
+        headers["Authorization"] = authorization
+    if headers:
+        kwargs["headers"] = headers
+    return kwargs

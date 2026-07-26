@@ -19,16 +19,30 @@ Pick an exporter with the `exporter` field or the `GREL_METRICS_EXPORTER` enviro
 
 | Exporter     | Use it for                                        |
 | ------------ | ------------------------------------------------- |
-| `otlp-http`  | Sending metrics to an OpenTelemetry collector (default). |
+| `auto`       | Exporting over OTLP HTTP when an endpoint is set, otherwise a no-op (default). |
+| `otlp-http`  | Sending metrics to an OpenTelemetry collector.    |
 | `otlp-grpc`  | The same, over gRPC.                              |
 | `prometheus` | Serving a `/metrics` endpoint that Prometheus scrapes. |
 | `console`    | Printing metrics to the console in development.   |
 | `none`       | Installing the provider without exporting.        |
 
-!!! warning "The default exporter expects a collector"
-    `Metrics()` defaults to `otlp-http`, which sends metrics to an OpenTelemetry collector over OTLP HTTP. Without a reachable collector, metrics are dropped. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
+!!! tip "Off until an endpoint is configured"
+    `Metrics()` defaults to `MetricsExporterType.AUTO`. It exports over OTLP HTTP when an endpoint is configured (the `endpoint` argument, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, or `OTEL_EXPORTER_OTLP_ENDPOINT`) and otherwise auto-disables into a true no-op: it installs no meter provider and leaves the global provider untouched. So you register `Metrics()` unconditionally and it stays silent in dev, test, and CI instead of falling back to `localhost:4318`, and it never conflicts with a second app. A bounded `shutdown_timeout` (default `5.0` seconds) caps the flush on exit, so a slow or unreachable collector cannot hang shutdown.
 
-    For local development, set `exporter="console"` to print metrics, or `exporter="prometheus"` to expose them on a `/metrics` route.
+    For local development, set `exporter="console"` to print metrics, or `exporter="prometheus"` to expose them on a `/metrics` route. An explicit `none` is different from the auto-disable above: it still installs the provider so custom instruments record, they are just not exported. Leave the exporter on `auto` for the unconditional no-op.
+
+!!! note "Basic auth in one line"
+    Backends like OpenObserve want an `Authorization: Basic` header. Pass `basic_auth=(username, password)` and `Metrics` builds and attaches it to the exporter:
+
+    ```python
+    Metrics(
+        service_name="orders",
+        endpoint="https://obs.example.com/api/default/v1/metrics",
+        basic_auth=("me@example.com", password),
+    )
+    ```
+
+    From the environment, set `GREL_METRICS_BASIC_AUTH_USERNAME` and `GREL_METRICS_BASIC_AUTH_PASSWORD` instead. The header is attached on the exporter directly, so it bypasses the `OTEL_EXPORTER_OTLP_HEADERS` encoding where base64 padding (`=`) can be mangled or dropped.
 
 `Metrics()` reads `GREL_METRICS_*` environment variables (see `MetricsConfig` for the full field set) or accepts the same fields as keyword arguments. The OTLP and Prometheus exporters require their own packages and are imported only when selected.
 
