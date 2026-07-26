@@ -11,7 +11,7 @@ from grelmicro.metrics import Metrics, MetricsConfig, MetricsExporterType
 def test_config_defaults() -> None:
     """Defaults match the documented values."""
     config = MetricsConfig()
-    assert config.exporter == MetricsExporterType.OTLP_HTTP
+    assert config.exporter == MetricsExporterType.AUTO
     assert config.export_interval == 60.0  # noqa: PLR2004
     assert config.export_timeout == 30.0  # noqa: PLR2004
     assert config.shutdown_timeout == 5.0  # noqa: PLR2004

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+* 💥 Default `Metrics()` to the `auto` exporter. It exports over OTLP HTTP when an endpoint is configured and otherwise auto-disables into a true no-op, so an unconfigured `Metrics()` no longer falls back to `localhost:4318`. Register it unconditionally: an auto-disabled `Metrics` installs no provider and never conflicts with a second app. ([#508](https://github.com/grelinfo/grelmicro/issues/508))
+
+### Features
+
+* ✨ Add `basic_auth=(username, password)` to `Metrics`, matching `Trace`. grelmicro builds the `Authorization: Basic` header and attaches it to the OTLP exporter directly, bypassing the fragile `OTEL_EXPORTER_OTLP_HEADERS` encoding. From the environment, set `GREL_METRICS_BASIC_AUTH_USERNAME` and `GREL_METRICS_BASIC_AUTH_PASSWORD`. ([#507](https://github.com/grelinfo/grelmicro/issues/507))
+
 ## 0.30.1 - 2026-07-18
 
 ### Fixed

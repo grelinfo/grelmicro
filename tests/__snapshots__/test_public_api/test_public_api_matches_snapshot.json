@@ -270,11 +270,11 @@
   },
   "grelmicro.metrics": {
     "Metrics": {
-      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=..., env_load=...)",
+      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., basic_auth=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=..., env_load=...)",
       ".from_config": "(config, *, name=...)"
     },
     "MetricsConfig": {
-      "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=...)"
+      "()": "(*, service_name=..., exporter=..., endpoint=..., headers=..., basic_auth_username=..., basic_auth_password=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=...)"
     },
     "MetricsError": null,
     "MetricsExporterType": {

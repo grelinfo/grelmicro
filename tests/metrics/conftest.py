@@ -72,6 +72,7 @@ async def metrics_reader() -> AsyncIterator[MetricsHarness]:
     component = Metrics()
     component._provider = provider
     component._resolved = component._explicit_config
+    component._entered = True
     _hub.activate(component)
     try:
         yield MetricsHarness(component, reader)
