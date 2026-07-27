@@ -610,7 +610,7 @@ class TestCoverageGaps:
         # Three calls: before try, inside try before distributed lock, after lock.
         _RAISE_AFTER = 3  # noqa: N806
         call_count = 0
-        original_replay = idem._replay  # type: ignore[attr-defined]
+        original_replay = idem._replay
 
         async def patched_replay(key: str, fp: str | None) -> object:
             nonlocal call_count
@@ -620,7 +620,7 @@ class TestCoverageGaps:
                 raise RuntimeError(msg)
             return await original_replay(key, fp)
 
-        idem._replay = patched_replay  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        idem._replay = patched_replay  # ty: ignore[invalid-assignment]
 
         async with micro:
             with pytest.raises(RuntimeError, match="cache error after lock"):

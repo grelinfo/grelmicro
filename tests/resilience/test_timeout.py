@@ -18,7 +18,7 @@ _ONE = 1.0
 def test_config_requires_seconds() -> None:
     """`TimeoutConfig` raises when `seconds` is missing."""
     with pytest.raises(ValidationError):
-        TimeoutConfig()  # type: ignore[call-arg]  # ty: ignore[missing-argument]
+        TimeoutConfig()  # ty: ignore[missing-argument]
 
 
 def test_config_rejects_zero_seconds() -> None:
@@ -37,13 +37,13 @@ def test_config_frozen() -> None:
     """`TimeoutConfig` is frozen."""
     cfg = TimeoutConfig(seconds=1.0)
     with pytest.raises(ValidationError):
-        cfg.seconds = 2.0  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        cfg.seconds = 2.0  # ty: ignore[invalid-assignment]
 
 
 def test_config_forbids_extra() -> None:
     """`TimeoutConfig` rejects unknown fields."""
     with pytest.raises(ValidationError):
-        TimeoutConfig(seconds=1.0, policy="raise")  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+        TimeoutConfig(seconds=1.0, policy="raise")  # ty: ignore[unknown-argument]
 
 
 # --- Class-form construction ----------------------------------------------
@@ -183,7 +183,7 @@ def test_decorator_rejects_sync_function() -> None:
     def sync_fn() -> None: ...
 
     with pytest.raises(TypeError):
-        policy(sync_fn)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        policy(sync_fn)  # ty: ignore[invalid-argument-type]
 
 
 # --- Live reconfiguration -------------------------------------------------
@@ -205,7 +205,7 @@ async def test_reconfigure_requires_same_type() -> None:
     """`reconfigure` rejects a different config type."""
     policy = Timeout("t", seconds=1.0)
     with pytest.raises(TypeError):
-        await policy.reconfigure("not a config")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        await policy.reconfigure("not a config")  # ty: ignore[invalid-argument-type]
 
 
 async def test_reconfigure_does_not_affect_in_flight_scope() -> None:

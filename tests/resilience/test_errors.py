@@ -124,19 +124,19 @@ def test_resilience_module_exports() -> None:
 def test_resilience_lazy_loader_unknown_attribute_raises() -> None:
     """The top-level lazy loader raises `AttributeError` for unknown names."""
     with pytest.raises(AttributeError, match=r"grelmicro\.resilience"):
-        _ = resilience_mod.NotAThing  # type: ignore[attr-defined]
+        _ = resilience_mod.NotAThing
 
 
 def test_circuitbreaker_lazy_loader_unknown_attribute_raises() -> None:
     """The circuit-breaker subpackage loader rejects unknown names."""
     with pytest.raises(AttributeError, match="circuitbreaker"):
-        _ = cb_mod.NotAThing  # type: ignore[attr-defined]
+        _ = cb_mod.NotAThing
 
 
 def test_ratelimiter_lazy_loader_unknown_attribute_raises() -> None:
     """The rate-limiter subpackage loader rejects unknown names."""
     with pytest.raises(AttributeError, match="ratelimiter"):
-        _ = rl_mod.NotAThing  # type: ignore[attr-defined]
+        _ = rl_mod.NotAThing
 
 
 def test_resilience_lazy_table_matches_all_and_is_loadable() -> None:

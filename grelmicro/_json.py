@@ -70,7 +70,7 @@ except ImportError:
 
     def json_loads(data: bytes | str) -> JSONDecodable:
         """Deserialize JSON bytes or string using stdlib json."""
-        return json.loads(data)  # type: ignore[return-value]
+        return json.loads(data)
 
     _HAS_ORJSON = False
 

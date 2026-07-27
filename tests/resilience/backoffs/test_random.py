@@ -46,4 +46,4 @@ def test_frozen_config() -> None:
     """`RandomBackoff` is frozen."""
     config = RandomBackoff()
     with pytest.raises(ValidationError):
-        config.min_delay = 1.0  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        config.min_delay = 1.0  # ty: ignore[invalid-assignment]

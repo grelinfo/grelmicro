@@ -48,4 +48,4 @@ def test_frozen_config() -> None:
     """`FibonacciBackoff` is frozen."""
     config = FibonacciBackoff()
     with pytest.raises(ValidationError):
-        config.base_delay = 2.0  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        config.base_delay = 2.0  # ty: ignore[invalid-assignment]

@@ -66,7 +66,7 @@ def _private_cache(wrapper: object) -> TTLCache:
     The wrapper's `cache_info` is the cache's bound method, so its
     `__self__` is the cache instance.
     """
-    cache = wrapper.cache_info.__self__  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    cache = wrapper.cache_info.__self__  # ty: ignore[unresolved-attribute]
     assert isinstance(cache, TTLCache)
     return cache
 

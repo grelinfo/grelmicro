@@ -89,9 +89,9 @@ def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
     The sync/async decision is made once at registration, not per call.
     """
     if is_async_callable(func):
-        return func  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+        return func  # ty: ignore[invalid-return-type]
 
-    sync_func: Callable[[], HealthDetails | None] = func  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    sync_func: Callable[[], HealthDetails | None] = func  # ty: ignore[invalid-assignment]
 
     async def _async_wrapper() -> HealthDetails | None:
         return await asyncio.to_thread(sync_func)

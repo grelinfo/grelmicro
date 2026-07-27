@@ -1072,4 +1072,4 @@ def test_env_when_rejects_non_exception_fqn(
     with pytest.raises(
         (ValueError, TypeError), match="not an Exception subclass"
     ):
-        Retry("notexc", env_load=True)  # type: ignore[call-arg]
+        Retry("notexc", env_load=True)

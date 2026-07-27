@@ -338,7 +338,7 @@ class TestOTelResolver:
 
         real_import = builtins.__import__
 
-        def fake_import(name, *args, **kwargs):  # type: ignore[no-untyped-def]  # noqa: ANN001, ANN002, ANN003, ANN202
+        def fake_import(name, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
             if name.startswith("opentelemetry"):
                 raise ImportError(name)
             return real_import(name, *args, **kwargs)

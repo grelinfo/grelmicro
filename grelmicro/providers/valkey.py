@@ -189,7 +189,7 @@ class ValkeyProvider(RedisProvider):
         )
 
     @classmethod
-    def from_client(  # type: ignore[override]
+    def from_client(
         cls,
         client: Annotated[  # noqa: ANN401
             Any,

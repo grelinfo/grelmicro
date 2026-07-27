@@ -31,4 +31,4 @@ def test_frozen_config() -> None:
     """`ConstantBackoff` is frozen."""
     config = ConstantBackoff()
     with pytest.raises(ValidationError):
-        config.delay = _NEW_DELAY  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        config.delay = _NEW_DELAY  # ty: ignore[invalid-assignment]

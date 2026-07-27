@@ -26,7 +26,7 @@ _NINETY_NINE = 99
 def test_config_requires_when() -> None:
     """`FallbackConfig` raises when `when` is missing."""
     with pytest.raises(ValidationError):
-        FallbackConfig(default=1)  # type: ignore[call-arg]  # ty: ignore[missing-argument]
+        FallbackConfig(default=1)  # ty: ignore[missing-argument]
 
 
 def test_config_requires_default_or_factory() -> None:
@@ -55,7 +55,7 @@ def test_config_frozen() -> None:
     """`FallbackConfig` is frozen."""
     cfg = FallbackConfig(when=Match.exception(ValueError), default=1)
     with pytest.raises(ValidationError):
-        cfg.default = 2  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        cfg.default = 2  # ty: ignore[invalid-assignment]
 
 
 # --- Class-form construction ----------------------------------------------
@@ -307,7 +307,7 @@ async def test_env_populates_when_and_default(
     """`GREL_FALLBACK_{NAME}_WHEN` and `_DEFAULT` populate unset fields."""
     monkeypatch.setenv("GREL_FALLBACK_RECS_WHEN", "builtins.ValueError")
     monkeypatch.setenv("GREL_FALLBACK_RECS_DEFAULT", "[]")
-    policy = Fallback("recs")  # type: ignore[call-arg]
+    policy = Fallback("recs")
     assert policy.config.default == []
     assert policy.config.when(Outcome.from_exception(ValueError()))
 
@@ -336,7 +336,7 @@ async def test_env_when_rejects_non_dotted_name(
     monkeypatch.setenv("GREL_FALLBACK_BAD_WHEN", "ValueError")
     monkeypatch.setenv("GREL_FALLBACK_BAD_DEFAULT", "0")
     with pytest.raises((ValidationError, ValueError)):
-        Fallback("bad")  # type: ignore[call-arg]
+        Fallback("bad")
 
 
 async def test_env_default_parses_null_as_none(
@@ -345,7 +345,7 @@ async def test_env_default_parses_null_as_none(
     """`GREL_FALLBACK_{NAME}_DEFAULT=null` becomes `None`."""
     monkeypatch.setenv("GREL_FALLBACK_NULLD_WHEN", "builtins.ValueError")
     monkeypatch.setenv("GREL_FALLBACK_NULLD_DEFAULT", "null")
-    policy = Fallback("nulld")  # type: ignore[call-arg]
+    policy = Fallback("nulld")
     assert policy.config.default is None
 
 
@@ -355,7 +355,7 @@ async def test_env_default_keeps_non_json_string(
     """A non-JSON env string is kept as a plain string."""
     monkeypatch.setenv("GREL_FALLBACK_RAW_WHEN", "builtins.ValueError")
     monkeypatch.setenv("GREL_FALLBACK_RAW_DEFAULT", "hello world")
-    policy = Fallback("raw")  # type: ignore[call-arg]
+    policy = Fallback("raw")
     assert policy.config.default == "hello world"
 
 
@@ -393,7 +393,7 @@ def test_config_string_default_is_not_json_parsed() -> None:
 def test_when_rejects_invalid_value() -> None:
     """Non-Match, non-class, non-tuple, non-callable raises."""
     with pytest.raises((ValidationError, TypeError)):
-        Fallback("api", when=42, default=0)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        Fallback("api", when=42, default=0)  # ty: ignore[invalid-argument-type]
 
 
 # --- Env: bad `when=` FQNs ------------------------------------------------
@@ -408,7 +408,7 @@ async def test_env_when_rejects_unknown_module(
     with pytest.raises(
         (ValidationError, ValueError), match="cannot import module"
     ):
-        Fallback("bad2")  # type: ignore[call-arg]
+        Fallback("bad2")
 
 
 async def test_env_when_rejects_unknown_attribute(
@@ -418,7 +418,7 @@ async def test_env_when_rejects_unknown_attribute(
     monkeypatch.setenv("GREL_FALLBACK_BAD3_WHEN", "builtins.NoSuchClass")
     monkeypatch.setenv("GREL_FALLBACK_BAD3_DEFAULT", "0")
     with pytest.raises((ValidationError, ValueError), match="has no attribute"):
-        Fallback("bad3")  # type: ignore[call-arg]
+        Fallback("bad3")
 
 
 async def test_env_when_rejects_non_exception_class(
@@ -428,7 +428,7 @@ async def test_env_when_rejects_non_exception_class(
     monkeypatch.setenv("GREL_FALLBACK_BAD4_WHEN", "builtins.int")
     monkeypatch.setenv("GREL_FALLBACK_BAD4_DEFAULT", "0")
     with pytest.raises((ValidationError, TypeError)):
-        Fallback("bad4")  # type: ignore[call-arg]
+        Fallback("bad4")
 
 
 # --- Env opt-out and factory-only paths -----------------------------------

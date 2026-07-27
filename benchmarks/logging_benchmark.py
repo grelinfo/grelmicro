@@ -90,7 +90,7 @@ def _run_benchmark(backend: str, serializer: str, iterations: int) -> float:
 
     null_sink = _NullWriter()
     old_stdout = sys.stdout
-    sys.stdout = null_sink  # type: ignore[assignment,misc]
+    sys.stdout = null_sink
 
     try:
         grelmicro_logging.configure()

@@ -820,7 +820,7 @@ def _decorator(
     """Build a decorator from anonymous Retry kwargs."""
     config = RetryConfig(
         attempts=attempts,
-        when=when,  # type: ignore[arg-type]
+        when=when,
         backoff=backoff or ExponentialBackoff(),
     )
     matcher: Matcher = config.when
@@ -832,13 +832,13 @@ def _decorator(
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
                 return await _run_async(fn, args, kwargs, config, matcher)
 
-            return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+            return async_wrapper  # ty: ignore[invalid-return-type]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _run_sync(fn, args, kwargs, config, matcher)
 
-        return sync_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+        return sync_wrapper  # ty: ignore[invalid-return-type]
 
     return wrap
 
@@ -933,7 +933,7 @@ class _RetryingFactory:
         """Yield successive attempts for the block form."""
         config = RetryConfig(
             attempts=attempts,
-            when=when,  # type: ignore[arg-type]
+            when=when,
             backoff=backoff or ExponentialBackoff(),
         )
         return _async_iter(config, config.when)

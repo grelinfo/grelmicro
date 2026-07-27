@@ -131,7 +131,7 @@ def test_config_accepts_single_exception_class() -> None:
     """A bare exception class is wrapped in a one-tuple."""
     from grelmicro.resilience import ApiShieldConfig  # noqa: PLC0415
 
-    cfg = ApiShieldConfig(timeout_errors=TimeoutError)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    cfg = ApiShieldConfig(timeout_errors=TimeoutError)  # ty: ignore[invalid-argument-type]
     assert TimeoutError in cfg.timeout_errors
 
 
@@ -155,4 +155,4 @@ def test_config_normalizer_passes_through_unknown_shapes() -> None:
     # raw dict to exercise the passthrough branch.
     cls = _BaseShieldConfig._normalize_timeout_errors
     raw: Any = {"not": "valid"}
-    assert cls(raw) == raw  # type: ignore[arg-type]
+    assert cls(raw) == raw

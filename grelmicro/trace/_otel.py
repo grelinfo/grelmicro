@@ -34,4 +34,4 @@ def get() -> OTel:
         from opentelemetry.trace import StatusCode  # noqa: PLC0415
     except ImportError:
         return OTel(None, None)
-    return OTel(trace, StatusCode)  # type: ignore[arg-type]
+    return OTel(trace, StatusCode)

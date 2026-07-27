@@ -56,7 +56,7 @@ def span(name: str, **fields: object) -> Generator[None, None, None]:
             ):
                 exc = sys.exc_info()[1]
                 if exc is not None:  # pragma: no branch
-                    otel_span.set_status(otel.status_code.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+                    otel_span.set_status(otel.status_code.ERROR, str(exc))  # ty: ignore[unresolved-attribute]
                     otel_span.record_exception(exc)
             raise
         finally:

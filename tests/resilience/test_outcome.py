@@ -28,7 +28,7 @@ def test_outcome_is_frozen() -> None:
     """``Outcome`` instances are immutable."""
     outcome = Outcome.from_result(1)
     with pytest.raises(AttributeError):
-        outcome.raised = True  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        outcome.raised = True  # ty: ignore[invalid-assignment]
 
 
 def test_outcome_with_none_result() -> None:

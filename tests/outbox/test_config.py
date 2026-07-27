@@ -89,14 +89,14 @@ def test_invalid_value_raises() -> None:
 def test_extra_field_forbidden() -> None:
     """Unknown fields are rejected."""
     with pytest.raises(ValidationError):
-        OutboxConfig(unknown=1)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+        OutboxConfig(unknown=1)  # ty: ignore[unknown-argument]
 
 
 def test_config_is_frozen() -> None:
     """The config is immutable."""
     config = OutboxConfig()
     with pytest.raises(ValidationError):
-        config.max_attempts = KWARG_ATTEMPTS  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        config.max_attempts = KWARG_ATTEMPTS  # ty: ignore[invalid-assignment]
 
 
 def test_keep_delivered_accepts_bool_and_timedelta() -> None:

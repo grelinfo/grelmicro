@@ -128,7 +128,7 @@ class Match:
                 exc = outcome.exception
                 if not outcome.raised or exc is None:
                     return False
-                return _coerce_bool(predicate(exc), predicate)  # type: ignore[arg-type]
+                return _coerce_bool(predicate(exc), predicate)
 
             return cls(
                 _check_predicate,
@@ -256,7 +256,7 @@ class Match:
                 exc = outcome.exception
                 if not outcome.raised or exc is None:
                     return False
-                return _coerce_bool(predicate(exc.__cause__), predicate)  # type: ignore[arg-type]
+                return _coerce_bool(predicate(exc.__cause__), predicate)
 
             return cls(
                 _check_predicate,

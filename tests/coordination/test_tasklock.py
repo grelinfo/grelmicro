@@ -794,7 +794,7 @@ async def test_tasklock_reconfigure_rejects_different_config_type(
     )
 
     with pytest.raises(TypeError, match="TaskLockConfig"):
-        await task_lock.reconfigure(LockConfig(worker=WORKER_1))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        await task_lock.reconfigure(LockConfig(worker=WORKER_1))  # ty: ignore[invalid-argument-type]
 
 
 # --- refresh ---

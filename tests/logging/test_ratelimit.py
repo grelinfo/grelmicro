@@ -64,7 +64,7 @@ def test_config_property_is_frozen() -> None:
     # Assert
     assert isinstance(flt.config, RateLimitFilterConfig)
     with pytest.raises(ValidationError):
-        flt.config.capacity = 99  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        flt.config.capacity = 99  # ty: ignore[invalid-assignment]
 
 
 @pytest.mark.parametrize(
