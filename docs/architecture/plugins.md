@@ -48,6 +48,23 @@ micro = Grelmicro(uses=[Coordination(mongo)])
 A worked skeleton lives in
 [`examples/third-party-adapter/`](https://github.com/grelinfo/grelmicro/tree/main/examples/third-party-adapter).
 
+### Capture the event loop
+
+Lock, schedule, cache, and circuit-breaker backends must capture the running
+loop on `__aenter__` and keep it in a `_loop` attribute:
+
+```python
+async def __aenter__(self) -> Self:
+    self._loop = asyncio.get_running_loop()
+    return self
+```
+
+The sync adapters (`Lock.from_thread`, `TaskLock.from_thread`, the sync
+`@cached` wrapper, `CircuitBreaker.from_thread`) dispatch coroutines back into
+that loop from a worker thread. The protocols declare `_loop`, so a type
+checker reports an adapter that omits it. Set it to `None` in `__init__` and
+assign the real loop in `__aenter__`.
+
 ## How resolution works
 
 Listing entry points never imports the target module. The module loads only

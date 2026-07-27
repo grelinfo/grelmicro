@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from asyncpg import Pool, create_pool
-from pydantic import BaseModel, PostgresDsn, ValidationError
+from pydantic import BaseModel, PostgresDsn, SecretStr, ValidationError
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Doc
@@ -45,7 +45,7 @@ class PostgresConfig(BaseModel):
     port: int = 5432
     database: str | None = None
     user: str | None = None
-    password: str | None = None
+    password: SecretStr | None = None
     command_timeout: float | None = None
 
 
@@ -65,7 +65,7 @@ class _PostgresEnvSettings(BaseSettings):
     db: str | None = None
     database: str | None = None
     user: str | None = None
-    password: str | None = None
+    password: SecretStr | None = None
 
 
 class _PostgresTimeoutEnvSettings(BaseSettings):
@@ -205,7 +205,9 @@ class PostgresProvider(Provider):
             port=config.port,
             database=config.database,
             user=config.user,
-            password=config.password,
+            password=(
+                config.password.get_secret_value() if config.password else None
+            ),
             command_timeout=config.command_timeout,
             env_prefix=env_prefix,
             env_load=False,
@@ -482,7 +484,11 @@ def _resolve_url(
             port=settings.port,
             database=settings.db or settings.database,
             user=settings.user,
-            password=settings.password,
+            password=(
+                settings.password.get_secret_value()
+                if settings.password
+                else None
+            ),
         )
     msg = f"either {env_prefix}URL or {env_prefix}HOST must be set"
     raise PostgresProviderConfigError(msg)

@@ -183,7 +183,9 @@ class ValkeyProvider(RedisProvider):
             host=config.host,
             port=config.port,
             db=config.db,
-            password=config.password,
+            password=(
+                config.password.get_secret_value() if config.password else None
+            ),
             env_prefix=env_prefix,
             env_load=False,
         )

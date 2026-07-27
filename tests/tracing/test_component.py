@@ -444,4 +444,6 @@ async def test_trace_basic_auth_from_env(
     )
     async with micro:
         assert micro.trace.config.basic_auth_username == "me@example.com"
-        assert micro.trace.config.basic_auth_password == "s3cret"
+        password = micro.trace.config.basic_auth_password
+        assert password is not None
+        assert password.get_secret_value() == "s3cret"

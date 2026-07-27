@@ -92,7 +92,7 @@ class Log:
             LogFormatType | str | None, Doc("Log format.")
         ] = None,
         timezone: Annotated[
-            LogTimeZoneType | None,  # ty: ignore[invalid-type-form]
+            LogTimeZoneType | None,
             Doc("IANA timezone for timestamps."),
         ] = None,
         json_serializer: Annotated[

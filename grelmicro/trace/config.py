@@ -4,7 +4,13 @@ from base64 import b64encode
 from enum import StrEnum
 from typing import Annotated, Self
 
-from pydantic import BaseModel, Field, PositiveFloat, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PositiveFloat,
+    SecretStr,
+    model_validator,
+)
 from typing_extensions import Doc
 
 
@@ -91,7 +97,7 @@ class TraceConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = None
     basic_auth_password: Annotated[
-        str | None,
+        SecretStr | None,
         Doc(
             "HTTP Basic auth password for the OTLP exporter. Set together "
             "with `basic_auth_username`."
@@ -153,6 +159,11 @@ class TraceConfig(BaseModel, frozen=True, extra="forbid"):
         """
         if self.basic_auth_username is None:
             return None
-        raw = f"{self.basic_auth_username}:{self.basic_auth_password}"
+        password = (
+            self.basic_auth_password.get_secret_value()
+            if self.basic_auth_password
+            else ""
+        )
+        raw = f"{self.basic_auth_username}:{password}"
         token = b64encode(raw.encode()).decode("ascii")
         return f"Basic {token}"
