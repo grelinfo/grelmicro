@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal, NamedTuple, ParamSpec, TypeVar
 
 from typing_extensions import Doc
 
+from grelmicro._async import raise_backend_not_open
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache._stampede import (
     AsyncStampedeGuard,
@@ -673,13 +674,9 @@ def _build_sync_wrapper(  # noqa: C901
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401, C901
         key = _make_key(func, args, kwargs, key_maker, typed=typed)
-        loop = cache._get_backend()._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        loop = cache._get_backend()._loop  # noqa: SLF001
         if loop is None:
-            msg = (
-                "The cache backend has no running event loop. "
-                "Open it first with 'async with backend:' or 'async with micro:'."
-            )
-            raise RuntimeError(msg)
+            raise_backend_not_open("The cache")
         result = _run(cache.get(key, _SENTINEL), loop)
         if result is not _SENTINEL:
             if early is not None:

@@ -10,9 +10,17 @@
 
 * ✨ Add `basic_auth=(username, password)` to `Metrics`, matching `Trace`. grelmicro builds the `Authorization: Basic` header and attaches it to the OTLP exporter directly, bypassing the fragile `OTEL_EXPORTER_OTLP_HEADERS` encoding. From the environment, set `GREL_METRICS_BASIC_AUTH_USERNAME` and `GREL_METRICS_BASIC_AUTH_PASSWORD`. ([#507](https://github.com/grelinfo/grelmicro/issues/507))
 
+### Fixed
+
+* 🐛 Declare `_loop` on `LockBackend`, `ScheduleBackend`, `CacheBackend`, and `CircuitBreakerBackend`. The attribute was already required in prose, so a third-party adapter that omitted it type-checked and then raised `AttributeError` on the first `from_thread` call. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
+* 🐛 Raise a clear error when `Lock.from_thread` or `TaskLock.from_thread` runs before the backend is opened, matching the cache and circuit-breaker behavior. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
+* 🐛 Point the circuit-breaker worker-thread error at `async with micro:` instead of `grelmicro.lifespan()`, which is not a public API. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
+* 🐛 Raise a clear error when installing the FastStream ambient middleware on an app with no broker, instead of an `AttributeError`. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
+
 ### Internal
 
 * 🔥 Drop the inert mypy `# type: ignore` comments. grelmicro type-checks with ty, which never read them, and `ty check` stays clean without them. ([#539](https://github.com/grelinfo/grelmicro/pull/539))
+* ♻️ Return `OTel | None` from the private trace resolver so the handles narrow together, rather than a tuple of independently optional fields. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
 
 ## 0.30.1 - 2026-07-18
 

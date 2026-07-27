@@ -16,6 +16,7 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
+from grelmicro._async import raise_backend_not_open
 from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
@@ -363,6 +364,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         config = self._config
         token = generate_task_token(config.worker, self._token_nonce)
         await self.do_exit(token, min_hold_duration=config.min_hold_duration)
+        return None
 
     @property
     def from_thread(self) -> "ThreadTaskLockAdapter":
@@ -552,6 +554,14 @@ class ThreadTaskLockAdapter:
         """Initialize the task lock adapter."""
         self._task_lock = task_lock
 
+    @property
+    def _backend_loop(self) -> asyncio.AbstractEventLoop:
+        """Return the event loop the backend captured on ``__aenter__``."""
+        loop = self._task_lock.backend._loop  # noqa: SLF001
+        if loop is None:
+            raise_backend_not_open(f"TaskLock {self._task_lock.name!r}")
+        return loop
+
     def __enter__(self) -> Self:
         """Acquire the task lock with the context manager.
 
@@ -562,7 +572,7 @@ class ThreadTaskLockAdapter:
         """
         asyncio.run_coroutine_threadsafe(
             self._task_lock.do_thread_enter(),
-            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()
         return self
 
@@ -579,12 +589,12 @@ class ThreadTaskLockAdapter:
         """
         asyncio.run_coroutine_threadsafe(
             self._task_lock.do_thread_exit(),
-            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()
 
     def locked(self) -> bool:
         """Return True if the lock is currently held."""
         return asyncio.run_coroutine_threadsafe(
             self._task_lock.locked(),
-            self._task_lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()

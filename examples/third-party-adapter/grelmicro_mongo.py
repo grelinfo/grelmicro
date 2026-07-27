@@ -8,6 +8,7 @@ working backend.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any, Self
 
 from grelmicro.providers import Provider
@@ -23,9 +24,15 @@ class MongoLockAdapter:
         """Bind the adapter to the provider it borrows."""
         self._provider = provider
         self._owns_provider = False
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
-        """Open the adapter."""
+        """Open the adapter.
+
+        Capture the running loop so `Lock.from_thread` can dispatch
+        coroutines back into it from a worker thread.
+        """
+        self._loop = asyncio.get_running_loop()
         return self
 
     async def __aexit__(

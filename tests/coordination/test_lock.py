@@ -1446,3 +1446,14 @@ async def test_owned_check_error_carries_name(
     with pytest.raises(LockOwnedCheckError) as exc:
         await lock.owned()
     assert f"name={LOCK_NAME}" in str(exc.value)
+
+
+async def test_lock_from_thread_unopened_backend_raises() -> None:
+    """Worker-thread use before the backend is opened raises a clear error."""
+    lock = Lock("unopened", backend=MemoryLockAdapter())
+
+    def acquire() -> None:
+        lock.from_thread.acquire()
+
+    with pytest.raises(RuntimeError, match="async with micro:"):
+        await asyncio.to_thread(acquire)

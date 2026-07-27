@@ -83,8 +83,10 @@ class _RecordingLockAdapter:
     def __init__(self, provider: _RecordingProvider) -> None:
         self._provider = provider
         self._owns_provider = False
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def __aenter__(self) -> Self:
+        self._loop = asyncio.get_running_loop()
         return self
 
     async def __aexit__(

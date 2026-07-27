@@ -59,8 +59,8 @@ def _record_exception(otel_span: object) -> None:
         and otel_span.is_recording()  # ty: ignore[call-non-callable]
     ):
         exc = sys.exc_info()[1]
-        if exc is not None:  # pragma: no branch
-            otel = _get_otel()
+        otel = _get_otel()
+        if exc is not None and otel is not None:  # pragma: no branch
             otel_span.set_status(otel.status_code.ERROR, str(exc))  # ty: ignore[unresolved-attribute]
             otel_span.record_exception(exc)  # ty: ignore[unresolved-attribute]
 
@@ -184,9 +184,7 @@ def instrument[**P, R](
         )
         otel = _get_otel()
         tracer = (
-            otel.trace.get_tracer(fn.__module__)
-            if otel.trace is not None
-            else None
+            otel.trace.get_tracer(fn.__module__) if otel is not None else None
         )
 
         if inspect.iscoroutinefunction(fn):

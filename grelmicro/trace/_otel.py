@@ -20,18 +20,25 @@ if TYPE_CHECKING:
 
 
 class OTel(NamedTuple):
-    """Resolved opentelemetry handles, or `None` when not installed."""
+    """Resolved opentelemetry handles.
 
-    trace: _OTelTrace | None
-    status_code: type[StatusCode] | None
+    Both handles come from the same import, so an instance always
+    carries both. Absence is `None` in place of the whole tuple.
+    """
+
+    trace: _OTelTrace
+    status_code: type[StatusCode]
 
 
 @cache
-def get() -> OTel:
-    """Return resolved opentelemetry handles. Cached after first call."""
+def get() -> OTel | None:
+    """Return resolved opentelemetry handles, or `None` when not installed.
+
+    Cached after first call.
+    """
     try:
         from opentelemetry import trace  # noqa: PLC0415
         from opentelemetry.trace import StatusCode  # noqa: PLC0415
     except ImportError:
-        return OTel(None, None)
+        return None
     return OTel(trace, StatusCode)

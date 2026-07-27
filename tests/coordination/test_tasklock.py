@@ -870,3 +870,14 @@ async def test_tasklock_backend_out_of_context() -> None:
         OutOfContextError, match="TaskLock\\('out-of-context'\\)"
     ):
         _ = task_lock.backend
+
+
+async def test_task_lock_from_thread_unopened_backend_raises() -> None:
+    """Worker-thread use before the backend is opened raises a clear error."""
+    task_lock = TaskLock("unopened", backend=MemoryLockAdapter())
+
+    def enter() -> None:
+        task_lock.from_thread.__enter__()
+
+    with pytest.raises(RuntimeError, match="async with micro:"):
+        await asyncio.to_thread(enter)

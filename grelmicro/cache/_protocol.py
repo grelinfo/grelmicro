@@ -6,6 +6,7 @@ implementation. Concrete backends (`RedisCacheAdapter`,
 `MemoryCacheAdapter`, `PostgresCacheAdapter`) provide the bodies.
 """
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import Annotated, Protocol, Self, runtime_checkable
@@ -25,6 +26,8 @@ class CacheBackend(Protocol):
     in a ``_loop`` attribute so the sync ``@cached`` wrapper can
     dispatch coroutines back into it.
     """
+
+    _loop: asyncio.AbstractEventLoop | None
 
     async def __aenter__(self) -> Self:
         """Open the backend connection."""

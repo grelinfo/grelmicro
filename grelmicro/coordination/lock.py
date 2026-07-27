@@ -12,6 +12,7 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
+from grelmicro._async import raise_backend_not_open
 from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
@@ -391,6 +392,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
         """
         await self.release()
+        return None
 
     @property
     def from_thread(self) -> "ThreadLockAdapter":
@@ -749,6 +751,14 @@ class ThreadLockAdapter:
         """Initialize the lock adapter."""
         self._lock = lock
 
+    @property
+    def _backend_loop(self) -> asyncio.AbstractEventLoop:
+        """Return the event loop the backend captured on ``__aenter__``."""
+        loop = self._lock.backend._loop  # noqa: SLF001
+        if loop is None:
+            raise_backend_not_open(f"Lock {self._lock.name!r}")
+        return loop
+
     def __enter__(self) -> LockHandle:
         """Acquire the lock with the context manager.
 
@@ -783,7 +793,7 @@ class ThreadLockAdapter:
         """
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_acquire(get_ident(), timeout=timeout),
-            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()
 
     def extend(self) -> LockHandle:
@@ -797,7 +807,7 @@ class ThreadLockAdapter:
         """
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_extend(get_ident()),
-            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()
 
     def acquire_nowait(self) -> LockHandle:
@@ -813,7 +823,7 @@ class ThreadLockAdapter:
         """
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_acquire_nowait(get_ident()),
-            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()
 
     def release(self) -> None:
@@ -825,14 +835,14 @@ class ThreadLockAdapter:
         """
         asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_release(get_ident()),
-            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()
 
     def locked(self) -> bool:
         """Return True if the lock is currently held."""
         return asyncio.run_coroutine_threadsafe(
             self._lock.locked(),
-            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()
 
     def owned(self) -> bool:
@@ -844,5 +854,5 @@ class ThreadLockAdapter:
                     thread_id=get_ident(),
                 ),
             ),
-            self._lock.backend._loop,  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            self._backend_loop,
         ).result()

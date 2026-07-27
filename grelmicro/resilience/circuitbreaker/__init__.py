@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
+from grelmicro._async import raise_backend_not_open
 from grelmicro._config import Reconfigurable, default_env_prefix
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import CircuitBreakerError
@@ -483,9 +484,9 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         ``cb.from_thread``.
         """
         backend = self.backend
-        loop: asyncio.AbstractEventLoop | None = backend._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        loop: asyncio.AbstractEventLoop | None = backend._loop  # noqa: SLF001
         if loop is None:  # pragma: no cover
-            backend._loop = asyncio.get_running_loop()  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+            backend._loop = asyncio.get_running_loop()  # noqa: SLF001
         state = self._state
         strategy = state.strategy or self._resolve_strategy(state)
         if not await strategy.try_acquire():
@@ -729,14 +730,9 @@ class _ThreadAdapter:
         """Enter the breaker context from a worker thread."""
         cb = self._cb
         backend = cb.backend
-        loop = backend._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        loop = backend._loop  # noqa: SLF001
         if loop is None:
-            msg = (
-                f"CircuitBreaker {cb.name!r} cannot be used from a worker "
-                "thread before its backend is opened. Wrap startup with "
-                "`async with grelmicro.lifespan():` or `async with backend:`."
-            )
-            raise RuntimeError(msg)
+            raise_backend_not_open(f"CircuitBreaker {cb.name!r}")
         config = cb._state.config  # noqa: SLF001
         if not asyncio.run_coroutine_threadsafe(
             _async_admit(cb), loop
@@ -762,7 +758,11 @@ class _ThreadAdapter:
         """Exit the breaker context from a worker thread."""
         cb = self._cb
         config = self._tls.stack.pop()
-        loop = cb.backend._loop  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+        loop = cb.backend._loop  # noqa: SLF001
+        if loop is None:  # pragma: no cover
+            # `__enter__` already resolved the loop, so this only guards
+            # against a backend closed mid-context.
+            raise_backend_not_open(f"CircuitBreaker {cb.name!r}")
         asyncio.run_coroutine_threadsafe(
             _async_handle_exit(cb, config, exc_type, exc_value), loop
         ).result()

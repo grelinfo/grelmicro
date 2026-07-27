@@ -163,13 +163,14 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         if not stack:
             del self._scopes[task]
         try:
-            return await scope.__aexit__(exc_type, exc, tb)
+            await scope.__aexit__(exc_type, exc, tb)
         finally:
             if scope.expired():
                 _emit.incr(
                     "grelmicro.timeout.exceeded",
                     **{"timeout.name": self._name},
                 )
+        return None
 
     def __call__(
         self, fn: Callable[..., Awaitable[Any]], /

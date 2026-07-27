@@ -5,7 +5,24 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
-from typing import Any
+from typing import Any, NoReturn
+
+
+def raise_backend_not_open(what: str) -> NoReturn:
+    """Raise for a sync adapter used before its backend captured a loop.
+
+    Call this only on the failure branch of ``if loop is None``. ``what``
+    names the caller, for example ``"Lock 'orders'"``.
+
+    Raises:
+        RuntimeError: Always.
+    """
+    msg = (
+        f"{what} cannot be used from a worker thread before its backend "
+        "is opened. Wrap startup with `async with micro:` or "
+        "`async with backend:`."
+    )
+    raise RuntimeError(msg)
 
 
 async def sleep_or_stop(seconds: float, stop: asyncio.Event | None) -> bool:
