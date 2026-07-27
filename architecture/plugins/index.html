@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../img/logo/favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -2133,6 +2133,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Publish a third-party adapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#capture-the-event-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capture the event loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2597,6 +2614,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Publish a third-party adapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#capture-the-event-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capture the event loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2683,6 +2717,18 @@ exactly like a first-party backend:</p>
 </code></pre></div>
 <p>A worked skeleton lives in
 <a href="https://github.com/grelinfo/grelmicro/tree/main/examples/third-party-adapter"><code>examples/third-party-adapter/</code></a>.</p>
+<h3 id="capture-the-event-loop">Capture the event loop</h3>
+<p>Lock, schedule, cache, and circuit-breaker backends must capture the running
+loop on <code>__aenter__</code> and keep it in a <code>_loop</code> attribute:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__aenter__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span>
+    <span class="k">return</span> <span class="bp">self</span>
+</code></pre></div>
+<p>The sync adapters (<code>Lock.from_thread</code>, <code>TaskLock.from_thread</code>, the sync
+<code>@cached</code> wrapper, <code>CircuitBreaker.from_thread</code>) dispatch coroutines back into
+that loop from a worker thread. The protocols declare <code>_loop</code>, so a type
+checker reports an adapter that omits it. Set it to <code>None</code> in <code>__init__</code> and
+assign the real loop in <code>__aenter__</code>.</p>
 <h2 id="how-resolution-works">How resolution works</h2>
 <p>Listing entry points never imports the target module. The module loads only
 when a name is resolved, so installing many vendor packages stays cheap. An
@@ -2776,7 +2822,7 @@ the name.
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.tabs.link", "content.code.copy", "content.code.select", "content.tooltips", "navigation.indexes", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.progress", "navigation.top", "navigation.tracking"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
