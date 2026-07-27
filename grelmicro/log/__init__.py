@@ -41,7 +41,7 @@ def configure(
         Doc("Log format. Default: `AUTO`."),
     ] = None,
     timezone: Annotated[
-        LogTimeZoneType | None,  # ty: ignore[invalid-type-form]
+        LogTimeZoneType | None,
         Doc("IANA timezone for timestamps. Default: `UTC`."),
     ] = None,
     json_serializer: Annotated[

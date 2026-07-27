@@ -4,10 +4,7 @@ from enum import StrEnum
 from typing import Annotated, Any, Self
 
 from pydantic import BaseModel, Field
-from pydantic_extra_types.timezone_name import (
-    TimeZoneName,
-    timezone_name_settings,
-)
+from pydantic_extra_types.timezone_name import TimeZoneName
 from typing_extensions import Doc
 
 try:
@@ -61,9 +58,10 @@ class LogSerializerType(_CaseInsensitiveEnum):
     ORJSON = "orjson"
 
 
-@timezone_name_settings(strict=False)
 class LogTimeZoneType(TimeZoneName):
     """Timezone name."""
+
+    strict = False
 
 
 class LogConfig(BaseModel, frozen=True, extra="forbid"):
@@ -83,7 +81,7 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         Field(union_mode="left_to_right"),
     ] = LogFormatType.AUTO
     timezone: Annotated[
-        LogTimeZoneType,  # ty: ignore[invalid-type-form]
+        LogTimeZoneType,
         Doc("IANA timezone for timestamps."),
     ] = LogTimeZoneType("UTC")
     json_serializer: Annotated[
