@@ -81,6 +81,11 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run Ty
+        # Single-threaded so cycle resolution is deterministic. ty resolves
+        # inference cycles in whichever order threads reach them, which can
+        # flip a diagnostic on unchanged code (astral-sh/ty#1670).
+        env:
+          TY_MAX_PARALLELISM: "1"
         run: uv run ty check
 
       - name: Run Mypy

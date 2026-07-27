@@ -21,11 +21,11 @@
 
 ### Security
 
-* 🔒 Stop leaking credentials through config objects. `basic_auth_password` on `TraceConfig` and `MetricsConfig`, and `password` on `PostgresConfig` and `RedisConfig`, were plain `str`, so they appeared in `repr()`, `model_dump()`, and `model_dump_json()`, and therefore in any log line or validation error carrying the config. All four are now `SecretStr`, which masks every path. The `Authorization` header and the connection URLs are unchanged. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
+* 🔒 Mask credentials in config objects. `basic_auth_password` on `TraceConfig` and `MetricsConfig`, and `password` on `PostgresConfig` and `RedisConfig`, were plain `str` and so appeared in `repr()`, `model_dump()`, and `model_dump_json()`. All four are now `SecretStr`. Nothing changes on the wire. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
 
 ### Internal
 
-* 🐛 Set `strict` directly on `LogTimeZoneType` instead of applying `@timezone_name_settings`. The decorator's return type references `TimeZoneName`, which is itself decorated, so resolving the subclass entered a type inference cycle that `ty` resolved differently between parallel runs. `ty check` was failing roughly 9 times in 10 on the `grelmicro/log` subset. Runtime behavior is identical: the decorator only assigns `cls.strict`. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
+* 🐛 Set `strict` directly on `LogTimeZoneType` instead of using `@timezone_name_settings`. The decorator's return type references the class it decorates, so `ty` resolved the subclass differently between parallel runs and failed about 9 runs in 10. Runtime behavior is unchanged. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
 * 📝 Document the `_loop` capture contract in the third-party adapter guide. The protocols require it, but the guide did not mention it, so a new adapter could follow the docs and still fail on the first `from_thread` call. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
 * ✅ Widen the circuit-breaker cool-down margins in the SQLite, Postgres, and Redis backend tests. The rejection assert now uses a 60s cool-down so a stalled runner cannot let the window elapse between two adjacent calls, and the elapse asserts wait 5x the cool-down instead of racing a 0.05s gap. ([#548](https://github.com/grelinfo/grelmicro/pull/548))
 * 👷 Enable the Pydantic mypy plugin and shrink the mypy override ladder from 29 modules to 19. Ten modules now type-check under both checkers. ([#547](https://github.com/grelinfo/grelmicro/pull/547))
