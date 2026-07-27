@@ -61,6 +61,15 @@ repos:
     pass_filenames: false
     files: '(\.py$|uv\.lock$|pyproject\.toml$)'
 
+  - id: mypy-check
+    name: mypy-check
+    description: "Run 'mypy' as a second type checker (grelmicro ships py.typed)"
+    entry: uv run mypy
+    language: system
+    require_serial: true
+    pass_filenames: false
+    files: '(\.py$|uv\.lock$|pyproject\.toml$)'
+
   - id: pytest-unit
     name: pytest-unit
     description: "Run 'pytest' for unit testing"
@@ -94,4 +103,4 @@ repos:
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
   autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
-  skip: [uv-lock, ty-check, pytest-unit, pytest-integration, coverage-report, mkdocs-build]
+  skip: [uv-lock, ty-check, mypy-check, pytest-unit, pytest-integration, coverage-report, mkdocs-build]

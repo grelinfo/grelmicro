@@ -184,6 +184,7 @@ dev = [
     "faststream>=0.7.0",
     "freezegun>=1.5.2",
     "ty>=0.0.13",
+    "mypy>=1.14.1",
     "loguru>=0.7.2",
     "orjson>=3.10.11",
     "asyncpg>=0.30.0",
@@ -260,6 +261,9 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
 [tool.ruff.lint.extend-per-file-ignores]
 "tools/*" = [
     "INP001",  # standalone dev scripts, not an importable package
+]
+"tests/typechecking/*" = [
+    "INP001",  # static type assertions, never imported or collected
 ]
 "examples/*" = [
     "ARG001",  # FastAPI lifespan signature requires the `app` argument
@@ -364,6 +368,53 @@ filterwarnings = [
 ]
 
 testpaths = "tests"
+
+[tool.mypy]
+files = ["grelmicro", "tests/typechecking"]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# grelmicro type-checks with `ty`. mypy runs as a second opinion because the
+# package ships `py.typed`, so downstream mypy users see these annotations.
+# The modules below do not pass yet: they are dynamic-Pydantic, optional-import
+# rebinding, or third-party stub variance. Tracked in #541. Clear one, delete
+# its entry. Never add an entry to silence a new error.
+[[tool.mypy.overrides]]
+module = [
+    "grelmicro._app",
+    "grelmicro._config",
+    "grelmicro.cache._component",
+    "grelmicro.cache.ttl",
+    "grelmicro.coordination._component",
+    "grelmicro.coordination.leaderelection",
+    "grelmicro.coordination.lock",
+    "grelmicro.coordination.tasklock",
+    "grelmicro.health._checks",
+    "grelmicro.idempotency._decorator",
+    "grelmicro.integrations.faststream",
+    "grelmicro.log._shared",
+    "grelmicro.log._structlog",
+    "grelmicro.log.config",
+    "grelmicro.log.uvicorn",
+    "grelmicro.metrics._component",
+    "grelmicro.metrics._measure",
+    "grelmicro.outbox._codec",
+    "grelmicro.outbox._component",
+    "grelmicro.providers.postgres",
+    "grelmicro.providers.redis",
+    "grelmicro.providers.sqlite",
+    "grelmicro.providers.valkey",
+    "grelmicro.resilience._components",
+    "grelmicro.resilience.bulkhead",
+    "grelmicro.resilience.fallback",
+    "grelmicro.resilience.retry",
+    "grelmicro.trace._component",
+    "grelmicro.trace._instrument",
+    "grelmicro.trace._valkey",
+]
+ignore_errors = true
 
 [tool.coverage.run]
 source = ["grelmicro"]
