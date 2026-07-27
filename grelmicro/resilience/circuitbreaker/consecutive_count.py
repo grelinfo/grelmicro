@@ -14,7 +14,7 @@ from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
 from grelmicro._config import parse_csv_or_json
-from grelmicro._types import LogLevel
+from grelmicro.types import LogLevel
 
 
 class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):

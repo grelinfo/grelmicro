@@ -226,6 +226,47 @@ that names the fix. Standalone and Sentinel need no hash tag, since every
 key lives on one server. The rate limiter, circuit breaker, schedule, and
 leader-election adapters touch one key per call and work on Cluster as is.
 
+## Credentials in a config object
+
+A connection URL carries its password inside itself, so a config object
+holding one would print it. The `url` field on `PostgresConfig` and
+`RedisConfig` is a
+[`SecretUrl`][grelmicro.types.SecretUrl]: it displays the URL with every
+credential replaced by `***`, and hands back the real value only through
+`get_secret_value()`.
+
+```python
+from grelmicro.providers.redis import RedisConfig
+
+config = RedisConfig(url="redis://app:hunter2@cache:6379/0")
+
+print(repr(config))
+# RedisConfig(url=SecretUrl('redis://app:***@cache:6379/0'), host=None, ...)
+
+print(config.url.get_secret_value())
+# redis://app:hunter2@cache:6379/0
+```
+
+Building the config is unchanged: pass a plain string and grelmicro
+wraps it. The scheme, host, port, and database stay readable, so a log
+line still tells an operator which server the app is talking to.
+
+The same masking covers `repr()`, `model_dump()`, and
+`model_dump_json()`. Passing the config to `from_config()` uses the real
+URL, and so does every connection grelmicro opens.
+
+A rejected value is never quoted back either. A mistyped URL would carry
+its password into the `ValidationError` text, so these configs report the
+failing field without the input.
+
+!!! warning "Do not persist a config through JSON"
+    `model_dump_json()` writes the masked form. Reloading that output
+    gives you a config whose password is the literal `***`, and the
+    connection then fails to authenticate. Persist the value from
+    `get_secret_value()` instead, or keep the credential in the
+    environment and let the provider read it. This matches how `SecretStr`
+    already behaves for the `password` field.
+
 ## Factory methods
 
 Each Provider exposes factory methods that return its matching adapter:

@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from asyncpg import Pool, create_pool
-from pydantic import BaseModel, PostgresDsn, SecretStr, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    PostgresDsn,
+    SecretStr,
+    ValidationError,
+)
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Doc
 
+from grelmicro._redact import redact_url
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
+from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -38,9 +45,14 @@ class PostgresConfig(BaseModel):
     Plain `BaseModel` (env-free). Pass to `PostgresProvider.from_config(cfg)`
     or build a `PostgresProvider` directly from kwargs. The env path lives
     on the provider, not the config.
+
+    A rejected value is never echoed back: a mistyped URL would carry the
+    password into the `ValidationError` text.
     """
 
-    url: PostgresDsn | None = None
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    url: SecretUrl[PostgresDsn] | None = None
     host: str | None = None
     port: int = 5432
     database: str | None = None
@@ -57,9 +69,9 @@ class _PostgresEnvSettings(BaseSettings):
     used elsewhere in the public API). `DB` wins when both are set.
     """
 
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
-    url: PostgresDsn | None = None
+    url: SecretUrl[PostgresDsn] | None = None
     host: str | None = None
     port: int = 5432
     db: str | None = None
@@ -76,7 +88,7 @@ class _PostgresTimeoutEnvSettings(BaseSettings):
     because an unrelated `{env_prefix}URL` is set in the environment.
     """
 
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
     command_timeout: float | None = None
 
@@ -200,7 +212,11 @@ class PostgresProvider(Provider):
         The config is treated as authoritative: no environment reads.
         """
         return cls(
-            url=config.url.unicode_string() if config.url else None,
+            url=(
+                config.url.get_secret_value().unicode_string()
+                if config.url
+                else None
+            ),
             host=config.host,
             port=config.port,
             database=config.database,
@@ -265,7 +281,7 @@ class PostgresProvider(Provider):
         Safe to log or include in operator-facing diagnostics. The
         password is replaced with `***` whenever present.
         """
-        return _redact_url(self._url)
+        return redact_url(self._url, multi_host=True)
 
     def __repr__(self) -> str:
         """Return a safe representation that never exposes the password."""
@@ -477,7 +493,7 @@ def _resolve_url(
         msg = f"set either {env_prefix}URL or {env_prefix}HOST, not both"
         raise PostgresProviderConfigError(msg)
     if settings.url is not None:
-        return settings.url.unicode_string()
+        return settings.url.get_secret_value().unicode_string()
     if settings.host is not None:
         return _compose_url(
             host=settings.host,
@@ -510,89 +526,6 @@ def _compose_url(
         host=host,
         port=port,
         path=database,
-    ).unicode_string()
-
-
-_USERINFO_RE = re.compile(r"(://|,)([^:@/?#,]*:)([^@/?#,]+)(@)")
-_CREDENTIAL_QUERY_KEYS = frozenset(
-    {
-        "password",
-        "passwd",
-        "pwd",
-        "token",
-        "access_token",
-        "auth",
-        "secret",
-        "client_secret",
-        "api_key",
-        "apikey",
-        "key",
-    }
-)
-
-
-def _redact_query(query: str | None) -> str | None:
-    """Return `query` with credential-like values replaced by `***`.
-
-    Matches keys case-insensitively against `_CREDENTIAL_QUERY_KEYS`.
-    Returns the input unchanged when no key matches.
-    """
-    if not query:
-        return query
-    from urllib.parse import parse_qsl, urlencode  # noqa: PLC0415
-
-    pairs = parse_qsl(query, keep_blank_values=True)
-    if not any(k.lower() in _CREDENTIAL_QUERY_KEYS for k, _ in pairs):
-        return query
-    redacted = "***"
-    redacted_pairs = [
-        (k, redacted if k.lower() in _CREDENTIAL_QUERY_KEYS else v)
-        for k, v in pairs
-    ]
-    # `safe="*"` keeps the `***` marker readable; other values are
-    # properly escaped by `urlencode`.
-    return urlencode(redacted_pairs, safe="*")
-
-
-def _redact_url(url: str) -> str:
-    """Redact userinfo password and credential-like query values with `***`.
-
-    Tries structured parsing first. Falls back to a conservative regex
-    on any parse failure so a malformed DSN still cannot leak the
-    password through `safe_url` / `repr()`. Handles both single-host
-    and multi-host Postgres DSNs.
-    """
-    if not url:
-        return url
-    try:
-        parsed = MultiHostUrl(url)
-    except ValueError:
-        return _USERINFO_RE.sub(r"\1\2***\4", url)
-    hosts = parsed.hosts()
-    redacted_query = _redact_query(parsed.query)
-    if (
-        not any(h.get("password") for h in hosts)
-        and redacted_query == parsed.query
-    ):
-        return url
-    redacted = "***"
-    redacted_hosts: list[Any] = []
-    for h in hosts:
-        entry: dict[str, Any] = {"host": h.get("host") or ""}
-        if h.get("username"):
-            entry["username"] = h["username"]
-        if h.get("password"):
-            entry["password"] = redacted
-        port = h.get("port")
-        if port is not None:
-            entry["port"] = port
-        redacted_hosts.append(entry)
-    return MultiHostUrl.build(
-        scheme=parsed.scheme,
-        hosts=redacted_hosts,
-        path=parsed.path.lstrip("/") if parsed.path else None,
-        query=redacted_query,
-        fragment=parsed.fragment,
     ).unicode_string()
 
 

@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from grelmicro import Grelmicro
 from grelmicro.cache.postgres import PostgresCacheAdapter
@@ -290,58 +291,65 @@ class TestSafeUrl:
 
     def test_safe_url_empty_string_returned_as_is(self) -> None:
         """An empty URL (e.g. `from_client` providers) is returned unchanged."""
-        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
-        assert _redact_url("") == ""
+        assert redact_url("", multi_host=True) == ""
 
     def test_safe_url_invalid_url_returned_as_is(self) -> None:
         """A non-URL string with no userinfo falls back to the input."""
-        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
-        assert _redact_url("not-a-valid-url") == "not-a-valid-url"
+        assert (
+            redact_url("not-a-valid-url", multi_host=True) == "not-a-valid-url"
+        )
 
     def test_safe_url_malformed_with_password_still_redacted(self) -> None:
         """A malformed DSN that still contains a password is redacted by regex."""
-        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
         assert (
-            _redact_url("postgresql://u:p@bad host/db")
+            redact_url("postgresql://u:p@bad host/db", multi_host=True)
             == "postgresql://u:***@bad host/db"
         )
 
     def test_safe_url_query_credentials_redacted(self) -> None:
         """Credential-like query params (password, token, ...) are redacted."""
-        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
         assert (
-            _redact_url("postgresql://host/db?password=secret&sslmode=require")
+            redact_url(
+                "postgresql://host/db?password=secret&sslmode=require",
+                multi_host=True,
+            )
             == "postgresql://host/db?password=***&sslmode=require"
         )
 
     def test_safe_url_query_without_credentials_passthrough(self) -> None:
         """A DSN with a query but no credential keys is returned unchanged."""
-        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
         assert (
-            _redact_url("postgresql://host/db?sslmode=require")
+            redact_url("postgresql://host/db?sslmode=require", multi_host=True)
             == "postgresql://host/db?sslmode=require"
         )
 
     def test_safe_url_malformed_multi_host_redacts_every_password(self) -> None:
         """Every userinfo password in a malformed multi-host DSN is redacted."""
-        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
         assert (
-            _redact_url("postgresql://u:p@bad host1,u2:p2@bad host2/db")
+            redact_url(
+                "postgresql://u:p@bad host1,u2:p2@bad host2/db", multi_host=True
+            )
             == "postgresql://u:***@bad host1,u2:***@bad host2/db"
         )
 
     def test_safe_url_multi_host_redacts_each(self) -> None:
         """Multi-host Postgres DSNs have each password redacted."""
-        from grelmicro.providers.postgres import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
         assert (
-            _redact_url("postgresql://u:p@h1,u:p@h2/db")
+            redact_url("postgresql://u:p@h1,u:p@h2/db", multi_host=True)
             == "postgresql://u:***@h1,u:***@h2/db"
         )
 
@@ -539,3 +547,51 @@ class TestSharingCache:
         )
         async with micro:
             assert write.provider is not read.provider
+
+
+class TestConfigRedaction:
+    """`PostgresConfig` must not expose the credential embedded in the URL."""
+
+    def test_repr_redacts_url_password(self) -> None:
+        """`repr()` shows the DSN with the password replaced."""
+        config = PostgresConfig(url=URL)
+
+        assert "test_password" not in repr(config)
+        assert "***" in repr(config)
+
+    def test_json_dump_redacts_url_password(self) -> None:
+        """`model_dump_json()` emits the redacted DSN."""
+        config = PostgresConfig(url=URL)
+
+        assert "test_password" not in config.model_dump_json()
+
+    def test_python_dump_does_not_leak(self) -> None:
+        """`model_dump()` keeps the wrapper, so printing it stays safe."""
+        config = PostgresConfig(url=URL)
+
+        assert "test_password" not in repr(config.model_dump())
+
+    def test_multi_host_url_redacts_every_password(self) -> None:
+        """Every host of a multi-host DSN is redacted."""
+        config = PostgresConfig(
+            url="postgresql://u:test_password@a:5432,b:5432/db"
+        )
+
+        assert "test_password" not in repr(config)
+
+    def test_provider_still_receives_the_real_url(self) -> None:
+        """The provider built from the config connects with the real DSN."""
+        provider = PostgresProvider.from_config(PostgresConfig(url=URL))
+
+        assert provider.url == URL
+
+
+class TestValidationErrors:
+    """A rejected value must never carry its credential into the error."""
+
+    def test_invalid_url_does_not_echo_the_password(self) -> None:
+        """A wrong scheme reports the failure without the input."""
+        with pytest.raises(ValidationError) as excinfo:
+            PostgresConfig(url="redis://usr:test_password@h/0")
+
+        assert "test_password" not in str(excinfo.value)

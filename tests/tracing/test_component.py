@@ -7,6 +7,7 @@ from base64 import b64encode
 import pytest
 from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
+from pydantic import ValidationError
 
 from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro.errors import MultipleActiveAppsError, SettingsValidationError
@@ -447,3 +448,60 @@ async def test_trace_basic_auth_from_env(
         password = micro.trace.config.basic_auth_password
         assert password is not None
         assert password.get_secret_value() == "s3cret"
+
+
+def test_endpoint_repr_redacts_embedded_credentials() -> None:
+    """An endpoint carrying userinfo credentials is displayed redacted."""
+    config = TraceConfig(endpoint="https://usr:s3cret@otlp.example.com/v1")
+
+    assert "s3cret" not in repr(config)
+    assert "s3cret" not in config.model_dump_json()
+    assert "s3cret" not in repr(config.model_dump())
+
+
+def test_endpoint_without_credentials_stays_readable() -> None:
+    """An ordinary endpoint is displayed in full."""
+    config = TraceConfig(endpoint="http://otel-collector:4318")
+
+    assert "otel-collector:4318" in repr(config)
+
+
+def test_endpoint_accepts_scheme_less_host_port() -> None:
+    """The OTLP gRPC `host:port` form is still accepted."""
+    config = TraceConfig(endpoint="otel-collector:4317")
+
+    assert config.endpoint is not None
+    assert config.endpoint.get_secret_value() == "otel-collector:4317"
+
+
+def test_headers_never_expose_their_values() -> None:
+    """Header values carry API keys, so they are masked everywhere."""
+    config = TraceConfig(headers={"api-key": "s3cret"})
+
+    assert "s3cret" not in repr(config)
+    assert "s3cret" not in config.model_dump_json()
+    assert "s3cret" not in repr(config.model_dump())
+    assert config.headers["api-key"].get_secret_value() == "s3cret"
+
+
+def test_endpoint_scheme_less_userinfo_is_redacted() -> None:
+    """A scheme-less endpoint carrying credentials is still redacted."""
+    config = TraceConfig(endpoint="usr:s3cret@collector:4317")
+
+    assert "s3cret" not in repr(config)
+    assert "s3cret" not in config.model_dump_json()
+
+
+def test_endpoint_is_not_normalized_for_display() -> None:
+    """An endpoint with nothing to redact is displayed exactly as given."""
+    config = TraceConfig(endpoint="http://otel-collector:4318")
+
+    assert str(config.endpoint) == "http://otel-collector:4318"
+
+
+def test_invalid_value_does_not_echo_the_credential() -> None:
+    """A rejected field reports the failure without the input."""
+    with pytest.raises(ValidationError) as excinfo:
+        TraceConfig(sample_ratio=-1, endpoint="https://usr:s3cret@collector")
+
+    assert "s3cret" not in str(excinfo.value)

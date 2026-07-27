@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
-from pydantic import BaseModel, RedisDsn, SecretStr, ValidationError
+from pydantic import BaseModel, ConfigDict, RedisDsn, SecretStr, ValidationError
 from pydantic_core import Url
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio.client import Redis
@@ -13,8 +13,10 @@ from redis.asyncio.cluster import RedisCluster
 from redis.asyncio.sentinel import Sentinel
 from typing_extensions import Doc
 
+from grelmicro._redact import redact_url
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers._base import Provider
+from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -40,9 +42,14 @@ class RedisConfig(BaseModel):
     Plain `BaseModel` (env-free). Pass to `RedisProvider.from_config(cfg)`
     or build a `RedisProvider` directly from kwargs. The env path lives
     on the provider, not the config.
+
+    A rejected value is never echoed back: a mistyped URL would carry the
+    password into the `ValidationError` text.
     """
 
-    url: RedisDsn | None = None
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    url: SecretUrl[RedisDsn] | None = None
     host: str | None = None
     port: int = 6379
     db: int = 0
@@ -52,9 +59,9 @@ class RedisConfig(BaseModel):
 class _RedisEnvSettings(BaseSettings):
     """Read Redis settings from the environment (env_prefix-driven)."""
 
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
-    url: RedisDsn | None = None
+    url: SecretUrl[RedisDsn] | None = None
     host: str | None = None
     port: int = 6379
     db: int = 0
@@ -211,7 +218,11 @@ class RedisProvider(Provider):
         The config is treated as authoritative: no environment reads.
         """
         return cls(
-            url=config.url.unicode_string() if config.url else None,
+            url=(
+                config.url.get_secret_value().unicode_string()
+                if config.url
+                else None
+            ),
             host=config.host,
             port=config.port,
             db=config.db,
@@ -364,7 +375,7 @@ class RedisProvider(Provider):
         Safe to log or include in operator-facing diagnostics. The
         password is replaced with `***` whenever present.
         """
-        return _redact_url(self._url)
+        return redact_url(self._url)
 
     def __repr__(self) -> str:
         """Return a safe representation that never exposes the password."""
@@ -531,7 +542,7 @@ def _resolve_url(
         msg = f"set either {env_prefix}URL or {env_prefix}HOST, not both"
         raise RedisProviderConfigError(msg)
     if settings.url is not None:
-        return settings.url.unicode_string()
+        return settings.url.get_secret_value().unicode_string()
     if settings.host is not None:
         return _compose_url(
             host=settings.host,
@@ -679,75 +690,6 @@ def _quote_credential(value: str) -> str:
     from urllib.parse import quote  # noqa: PLC0415
 
     return quote(value, safe="")
-
-
-_USERINFO_RE = re.compile(r"(://[^/?#@]*:)([^@/?#]+)(@)")
-_CREDENTIAL_QUERY_KEYS = frozenset(
-    {
-        "password",
-        "passwd",
-        "pwd",
-        "token",
-        "access_token",
-        "auth",
-        "secret",
-        "client_secret",
-        "api_key",
-        "apikey",
-        "key",
-    }
-)
-
-
-def _redact_query(query: str | None) -> str | None:
-    """Return `query` with credential-like values replaced by `***`.
-
-    Matches keys case-insensitively against `_CREDENTIAL_QUERY_KEYS`.
-    Returns the input unchanged when no key matches.
-    """
-    if not query:
-        return query
-    from urllib.parse import parse_qsl, urlencode  # noqa: PLC0415
-
-    pairs = parse_qsl(query, keep_blank_values=True)
-    if not any(k.lower() in _CREDENTIAL_QUERY_KEYS for k, _ in pairs):
-        return query
-    redacted = "***"
-    redacted_pairs = [
-        (k, redacted if k.lower() in _CREDENTIAL_QUERY_KEYS else v)
-        for k, v in pairs
-    ]
-    # `safe="*"` keeps the `***` marker readable; other values are
-    # properly escaped by `urlencode`.
-    return urlencode(redacted_pairs, safe="*")
-
-
-def _redact_url(url: str) -> str:
-    """Redact userinfo password and credential-like query values with `***`.
-
-    Tries structured parsing first. Falls back to a conservative regex
-    on any parse failure so a malformed URL still cannot leak the
-    password through `safe_url` / `repr()`.
-    """
-    if not url:
-        return url
-    try:
-        parsed = Url(url)
-    except ValueError:
-        return _USERINFO_RE.sub(r"\1***\3", url)
-    redacted_query = _redact_query(parsed.query)
-    if parsed.password is None and redacted_query == parsed.query:
-        return url
-    return Url.build(
-        scheme=parsed.scheme,
-        username=parsed.username,
-        password="***" if parsed.password is not None else None,
-        host=parsed.host or "",
-        port=parsed.port,
-        path=parsed.path.lstrip("/") if parsed.path else None,
-        query=redacted_query,
-        fragment=parsed.fragment,
-    ).unicode_string()
 
 
 _HASH_TAG_RE = re.compile(r"\{[^}]+\}")

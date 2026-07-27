@@ -106,6 +106,7 @@ nav:
     - reference/task.md
     - reference/testing.md
     - reference/trace.md
+    - reference/types.md
 - Architecture:
     - architecture/index.md
     - architecture/asyncio.md

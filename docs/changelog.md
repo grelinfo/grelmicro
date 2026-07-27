@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+* 💥 Credential-carrying URL fields are now `SecretUrl`: `url` on `PostgresConfig` and `RedisConfig`, and `endpoint` on `TraceConfig` and `MetricsConfig`. Each `headers` value on `TraceConfig` and `MetricsConfig` is now a `SecretStr`. Passing a plain string still works, but reading the value back needs `.get_secret_value()`. ([#550](https://github.com/grelinfo/grelmicro/issues/550))
+
+### Features
+
+* ✨ Add `grelmicro.types.SecretUrl`, a URL that never shows its credentials. It displays the URL with the userinfo password and credential-like query values replaced by `***`, so the scheme, host, and path stay readable in logs. Parametrize it with any pydantic URL type to keep that type's validation: `SecretUrl[RedisDsn]`, `SecretUrl[PostgresDsn]`, or a bare `SecretUrl` for any URL. ([#550](https://github.com/grelinfo/grelmicro/issues/550))
+
+### Security
+
+* 🔒 Mask credentials embedded in connection URLs. `url` on `PostgresConfig` and `RedisConfig`, and `endpoint` and `headers` on `TraceConfig` and `MetricsConfig`, appeared in full in `repr()`, `model_dump()`, and `model_dump_json()`. Nothing changes on the wire. ([#550](https://github.com/grelinfo/grelmicro/issues/550))
+* 🔒 Stop echoing rejected values from `PostgresConfig`, `RedisConfig`, `TraceConfig`, and `MetricsConfig`. A mistyped URL carried its password into the `ValidationError` text. ([#550](https://github.com/grelinfo/grelmicro/issues/550))
+
 ## 0.31.0 - 2026-07-27
 
 ### Breaking

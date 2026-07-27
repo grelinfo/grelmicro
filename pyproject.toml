@@ -319,6 +319,14 @@ ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
     "RUF029",  # async test helpers may be coroutine-only without awaits
 ]
 
+[tool.ruff.lint.flake8-type-checking]
+# Pydantic resolves annotations at runtime, so a type used only in a field
+# annotation still has to be imported outside `TYPE_CHECKING`.
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+]
+
 [tool.ruff.lint.pycodestyle]
 max-line-length = 100 # reports only line that exceed 100 characters.
 

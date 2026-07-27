@@ -509,8 +509,10 @@ def _exporter_kwargs(config: TraceConfig) -> dict[str, Any]:
     """
     kwargs: dict[str, Any] = {}
     if config.endpoint is not None:
-        kwargs["endpoint"] = config.endpoint
-    headers = dict(config.headers)
+        kwargs["endpoint"] = config.endpoint.get_secret_value()
+    headers = {
+        name: value.get_secret_value() for name, value in config.headers.items()
+    }
     authorization = config.authorization_header
     if authorization is not None:
         headers["Authorization"] = authorization
