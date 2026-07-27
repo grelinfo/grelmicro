@@ -47,7 +47,7 @@ async def test_retry_backoff_driven_by_virtual_clock(
             raise _BOOM
         return "ok"
 
-    task = asyncio.create_task(flaky())  # ty: ignore[invalid-argument-type]
+    task = asyncio.create_task(flaky())
 
     # Let the first attempt run, fail, and suspend on the backoff sleep.
     await asyncio.sleep(0)
@@ -80,7 +80,7 @@ async def test_retry_max_seconds_stops_on_time_budget(
         calls += 1
         raise _BOOM
 
-    task = asyncio.create_task(always_fails())  # ty: ignore[invalid-argument-type]
+    task = asyncio.create_task(always_fails())
 
     # Attempt 1 runs at t=0.
     await asyncio.sleep(0)

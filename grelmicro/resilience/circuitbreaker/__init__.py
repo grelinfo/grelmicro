@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from inspect import iscoroutinefunction
 from logging import getLogger
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self, overload
 
 from typing_extensions import Doc
 
@@ -32,7 +32,7 @@ _STATE_CODE = {
 """Numeric codes for the `grelmicro.circuit_breaker.state` gauge."""
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
     from types import TracebackType
 
     from pydantic import Discriminator, PositiveFloat, PositiveInt
@@ -387,12 +387,23 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         self._logger = getLogger(f"grelmicro.circuitbreaker.{name}")
         self._logger.setLevel(config.log_level)
 
+    @overload
+    def __call__[**P, R](
+        self, func: Callable[P, Awaitable[R]]
+    ) -> Callable[P, Awaitable[R]]: ...
+
+    @overload
+    def __call__[**P, R](self, func: Callable[P, R]) -> Callable[P, R]: ...
+
+    @overload
+    def __call__(self, func: None = None) -> Self: ...
+
     def __call__(
         self, func: Callable[..., Any] | None = None
-    ) -> Callable[..., Any]:
+    ) -> Callable[..., Any] | Self:
         """Return a decorator that protects a function with the circuit breaker."""
         if func is None:
-            return self.__call__
+            return self
 
         if iscoroutinefunction(func):
 

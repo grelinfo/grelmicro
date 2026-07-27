@@ -172,9 +172,9 @@ class Timeout(Reconfigurable[TimeoutConfig]):
                 )
         return None
 
-    def __call__(
-        self, fn: Callable[..., Awaitable[Any]], /
-    ) -> Callable[..., Awaitable[Any]]:
+    def __call__[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]:
         """Decorate ``fn`` so each call runs under this timeout."""
         if not iscoroutinefunction(fn):
             msg = (
@@ -184,7 +184,7 @@ class Timeout(Reconfigurable[TimeoutConfig]):
             raise TypeError(msg)
 
         @functools.wraps(fn)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             async with self:
                 return await fn(*args, **kwargs)
 

@@ -488,13 +488,13 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             raise TypeError(msg)
         return await self._execute(fn, args, kwargs)
 
-    def __call__(
+    def __call__[**P, R](
         self,
         fn: Annotated[
-            Callable[..., Awaitable[Any]],
+            Callable[P, Awaitable[R]],
             Doc("Async function to decorate."),
         ],
-    ) -> Callable[..., Awaitable[Any]]:
+    ) -> Callable[P, Awaitable[R]]:
         """Decorate `fn` so each call runs through this Shield."""
         if not inspect.iscoroutinefunction(fn):
             msg = (
@@ -504,7 +504,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             raise TypeError(msg)
 
         @functools.wraps(fn)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             return await self._execute(fn, args, kwargs)
 
         return wrapper

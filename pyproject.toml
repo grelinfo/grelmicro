@@ -407,7 +407,6 @@ module = [
     "grelmicro.providers.sqlite",
     "grelmicro.providers.valkey",
     "grelmicro.resilience._components",
-    "grelmicro.resilience.bulkhead",
     "grelmicro.resilience.fallback",
     "grelmicro.resilience.retry",
     "grelmicro.trace._component",

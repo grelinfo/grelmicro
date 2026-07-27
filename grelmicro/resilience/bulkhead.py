@@ -229,7 +229,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 # so the value is never `None` on this branch.
                 raise BulkheadFullError(
                     name=self._name,
-                    max_concurrent=state.config.max_concurrent,  # ty: ignore[invalid-argument-type]
+                    max_concurrent=state.config.max_concurrent,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 ) from None
         if self._uses and not self._opened:
             await self._open_uses()
@@ -293,9 +293,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 await exit_stack.enter_async_context(item)
             self._opened = True
 
-    def __call__(
-        self, fn: Callable[..., Awaitable[Any]], /
-    ) -> Callable[..., Awaitable[Any]]:
+    def __call__[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]:
         """Decorate ``fn`` so each call runs under this bulkhead."""
         if not iscoroutinefunction(fn):
             msg = (
@@ -305,7 +305,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             raise TypeError(msg)
 
         @functools.wraps(fn)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             async with self:
                 return await fn(*args, **kwargs)
 
