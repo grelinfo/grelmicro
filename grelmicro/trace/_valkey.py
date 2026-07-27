@@ -16,7 +16,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from opentelemetry.instrumentation.instrumentor import BaseInstrumentor
+from opentelemetry.instrumentation.instrumentor import (  # type: ignore[attr-defined]
+    BaseInstrumentor,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Collection

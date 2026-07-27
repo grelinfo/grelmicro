@@ -57,7 +57,9 @@ def _resolve_fqn(fqn: str) -> type[BaseException]:
     return cls
 
 
-class _BaseShieldConfig(BaseModel, frozen=True, extra="forbid"):
+class _BaseShieldConfig(
+    BaseModel, frozen=True, extra="forbid", arbitrary_types_allowed=True
+):
     """Base Shield configuration shared by every profile.
 
     Subclasses freeze the profile-specific algorithm parameters as
@@ -135,8 +137,6 @@ class _BaseShieldConfig(BaseModel, frozen=True, extra="forbid"):
             "exception. May be sync or async."
         ),
     ] = None
-
-    model_config = {"arbitrary_types_allowed": True}
 
     @field_validator("timeout_errors", mode="before")
     @classmethod

@@ -21,7 +21,7 @@ from grelmicro.log.errors import LogSettingsValidationError
 try:
     from opentelemetry import trace
 except ImportError:  # pragma: no cover
-    trace: Any = None
+    trace: Any = None  # type: ignore[no-redef]
 
 from grelmicro._json import has_orjson, json_default, json_dumps_str
 
