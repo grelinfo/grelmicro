@@ -79,7 +79,7 @@ def test_retry_prebuilt_config_is_static() -> None:
     """A `Retry` built from a pre-built config stays static."""
     policy = Retry.from_config(
         "static-retry",
-        RetryConfig(when=(ValueError,)),  # ty: ignore[missing-argument]
+        RetryConfig(when=(ValueError,)),
     )
     assert policy._env_prefix is None
     assert policy not in reconfigurable_instances()
