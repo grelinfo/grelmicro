@@ -927,9 +927,9 @@ class Grelmicro:
         micro = Grelmicro(uses=[Coordination(redis), Cache(redis)])  # adopted
         ```
 
-        A `Coordination` holds two backends (a lock backend and an election
-        backend), each able to borrow its own Provider, so both are walked and
-        each borrowed Provider is adopted.
+        A `Coordination` holds three backends (a lock backend, an election
+        backend, and a schedule backend), each able to borrow its own Provider,
+        so all are walked and each borrowed Provider is adopted.
 
         Providers the user already listed are left untouched, so their declared
         order still applies and the ordering check in
@@ -1037,14 +1037,16 @@ def _iter_provider_backends(item: object) -> list[object]:
     """Return the provider-holding backends to inspect for `item`.
 
     Most components expose one backend via `backend`. A `Coordination`
-    component holds a lock backend and an election backend, either of which
-    may own a Provider, so both are returned. A plain item with no backend
-    is inspected directly.
+    component holds a lock backend, an election backend, and a schedule
+    backend, any of which may own a Provider, so all present ones are
+    returned. A plain item with no backend is inspected directly.
     """
-    lock_backend = getattr(item, "_lock_backend", None)
-    election_backend = getattr(item, "_election_backend", None)
-    if lock_backend is not None or election_backend is not None:
-        return [b for b in (lock_backend, election_backend) if b is not None]
+    backends = [
+        getattr(item, name, None)
+        for name in ("_lock_backend", "_election_backend", "_schedule_backend")
+    ]
+    if any(backend is not None for backend in backends):
+        return [backend for backend in backends if backend is not None]
     return [getattr(item, "backend", item)]
 
 

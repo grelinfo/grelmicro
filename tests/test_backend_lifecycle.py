@@ -65,9 +65,13 @@ async def test_sync_postgres_async_with(
         pass
 
 
-async def test_sync_sqlite_async_with(tmp_path) -> None:  # noqa: ANN001
+async def test_sync_sqlite_async_with(
+    tmp_path,  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The SQLite sync adapter opens and closes cleanly."""
-    async with SQLiteLockAdapter(tmp_path / "lock.db"):
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "lock.db"))
+    async with SQLiteLockAdapter():
         pass
 
 

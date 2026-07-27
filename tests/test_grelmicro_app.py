@@ -151,13 +151,44 @@ class _RecordingElectionAdapter:
         raise NotImplementedError
 
 
+class _RecordingScheduleAdapter:
+    """A `ScheduleBackend` that borrows a provider it does not own.
+
+    Only the lifecycle hooks run in these tests. The schedule methods are
+    stubs present to satisfy the `ScheduleBackend` protocol.
+    """
+
+    def __init__(self, provider: _RecordingProvider) -> None:
+        self._provider = provider
+        self._owns_provider = False
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    async def __aenter__(self) -> Self:
+        self._loop = asyncio.get_running_loop()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    async def claim(self, name: str, due: float) -> bool:
+        raise NotImplementedError
+
+    async def last_fired(self, name: str) -> float | None:
+        raise NotImplementedError
+
+
 class _RecordingProvider(Provider):
     """A Provider that records its enter/exit lifecycle for discovery tests.
 
-    `Coordination(provider)` asks for both a lock backend and an election
-    backend, so this Provider ships both. The two adapters borrow the same
-    Provider instance, so discovery walks both backends and still adopts the
-    Provider exactly once.
+    `Coordination(provider)` asks for a lock backend, an election backend,
+    and a schedule backend, so this Provider ships all three. The adapters
+    borrow the same Provider instance, so discovery walks every backend and
+    still adopts the Provider exactly once.
     """
 
     short_name: ClassVar[str] = "rec"
@@ -174,6 +205,9 @@ class _RecordingProvider(Provider):
         **kwargs: object,  # noqa: ARG002
     ) -> _RecordingElectionAdapter:
         return _RecordingElectionAdapter(self)
+
+    def schedule(self, **kwargs: object) -> _RecordingScheduleAdapter:  # noqa: ARG002
+        return _RecordingScheduleAdapter(self)
 
     async def __aenter__(self) -> Self:
         self.entered += 1
@@ -730,6 +764,17 @@ async def test_discovers_both_providers_of_a_coordination() -> None:
     assert lock_provider.exited == 1
     assert election_provider.entered == 1
     assert election_provider.exited == 1
+
+
+async def test_discovers_the_provider_of_a_schedule_backend() -> None:
+    """A `Coordination` holding only a schedule backend adopts its provider."""
+    provider = _RecordingProvider()
+    micro = Grelmicro(uses=[Coordination(schedule=provider)])
+    async with micro:
+        pass
+
+    assert provider.entered == 1
+    assert provider.exited == 1
 
 
 async def test_explicit_provider_takes_precedence_over_discovery() -> None:
