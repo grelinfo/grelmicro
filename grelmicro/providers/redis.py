@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
-from pydantic import BaseModel, RedisDsn, ValidationError
+from pydantic import BaseModel, RedisDsn, SecretStr, ValidationError
 from pydantic_core import Url
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio.client import Redis
@@ -46,7 +46,7 @@ class RedisConfig(BaseModel):
     host: str | None = None
     port: int = 6379
     db: int = 0
-    password: str | None = None
+    password: SecretStr | None = None
 
 
 class _RedisEnvSettings(BaseSettings):
@@ -58,7 +58,7 @@ class _RedisEnvSettings(BaseSettings):
     host: str | None = None
     port: int = 6379
     db: int = 0
-    password: str | None = None
+    password: SecretStr | None = None
 
 
 class RedisProvider(Provider):
@@ -215,7 +215,9 @@ class RedisProvider(Provider):
             host=config.host,
             port=config.port,
             db=config.db,
-            password=config.password,
+            password=(
+                config.password.get_secret_value() if config.password else None
+            ),
             env_prefix=env_prefix,
             env_load=False,
         )
@@ -535,7 +537,11 @@ def _resolve_url(
             host=settings.host,
             port=settings.port,
             db=settings.db,
-            password=settings.password,
+            password=(
+                settings.password.get_secret_value()
+                if settings.password
+                else None
+            ),
         )
     msg = f"either {env_prefix}URL or {env_prefix}HOST must be set"
     raise RedisProviderConfigError(msg)

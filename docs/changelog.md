@@ -5,7 +5,7 @@
 ### Breaking
 
 * 💥 Default `Metrics()` to the `auto` exporter. It exports over OTLP HTTP when an endpoint is configured and otherwise auto-disables into a true no-op, so an unconfigured `Metrics()` no longer falls back to `localhost:4318`. Register it unconditionally: an auto-disabled `Metrics` installs no provider and never conflicts with a second app. ([#508](https://github.com/grelinfo/grelmicro/issues/508))
-* 💥 `TraceConfig.basic_auth_password` and `MetricsConfig.basic_auth_password` are now `SecretStr`. Passing a plain string still works, but reading the value back needs `.get_secret_value()`. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
+* 💥 Credential fields are now `SecretStr`: `basic_auth_password` on `TraceConfig` and `MetricsConfig`, and `password` on `PostgresConfig` and `RedisConfig`. Passing a plain string still works, but reading the value back needs `.get_secret_value()`. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
 
 ### Features
 
@@ -21,7 +21,7 @@
 
 ### Security
 
-* 🔒 Stop leaking the OTLP Basic auth password. `basic_auth_password` was a plain `str`, so it appeared in `repr()`, `model_dump()`, and `model_dump_json()` of `TraceConfig` and `MetricsConfig`, and therefore in any log line or validation error carrying the config. It is now a `SecretStr`, which masks all three. The `Authorization` header sent on the wire is unchanged. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
+* 🔒 Stop leaking credentials through config objects. `basic_auth_password` on `TraceConfig` and `MetricsConfig`, and `password` on `PostgresConfig` and `RedisConfig`, were plain `str`, so they appeared in `repr()`, `model_dump()`, and `model_dump_json()`, and therefore in any log line or validation error carrying the config. All four are now `SecretStr`, which masks every path. The `Authorization` header and the connection URLs are unchanged. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
 
 ### Internal
 
