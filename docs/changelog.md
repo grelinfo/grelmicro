@@ -12,6 +12,7 @@
 
 ### Fixed
 
+* 🏷️ Preserve the wrapped function's signature through the resilience decorators. Applying `Retry`, `Shield`, `Bulkhead`, `Timeout`, `CircuitBreaker`, or `Fallback` no longer erases the parameter and return types, so calls to a decorated function stay type-checked. ([#545](https://github.com/grelinfo/grelmicro/pull/545))
 * 🐛 Declare `_loop` on `LockBackend`, `ScheduleBackend`, `CacheBackend`, and `CircuitBreakerBackend`. The attribute was already required in prose, so a third-party adapter that omitted it type-checked and then raised `AttributeError` on the first `from_thread` call. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
 * 🐛 Raise a clear error when `Lock.from_thread` or `TaskLock.from_thread` runs before the backend is opened, matching the cache and circuit-breaker behavior. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
 * 🐛 Point the circuit-breaker worker-thread error at `async with micro:` instead of `grelmicro.lifespan()`, which is not a public API. ([#540](https://github.com/grelinfo/grelmicro/pull/540))

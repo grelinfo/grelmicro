@@ -1,12 +1,16 @@
 """Type assertions for the resilience primitives."""
 
-from typing import Any, assert_type
+from typing import assert_type
 
 from grelmicro.resilience import (
+    Bulkhead,
     CircuitBreaker,
+    Fallback,
     RateLimiter,
     Retry,
     Shield,
+    Timeout,
+    retry,
 )
 
 
@@ -29,18 +33,26 @@ assert_type(
 assert_type(RateLimiter.sliding_window("rl", limit=10, window=1.0), RateLimiter)
 
 
-# --- Known gap: decorating erases the wrapped signature ---
-#
-# `Retry.__call__` and friends are typed `Callable[..., Awaitable[Any]]`, so a
-# decorated function loses both its parameter types and its return type. These
-# assertions pin the current behavior: when the decorators gain `ParamSpec`
-# generics, they fail and must be tightened to the real types. See #543.
+# --- Decorating preserves the wrapped signature ---
 
 retried = Retry.exponential("api", when=ValueError)(fetch)
 shielded = Shield.api("api")(fetch)
+bounded = Bulkhead("pool", max_concurrent=4)(fetch)
+deadlined = Timeout("slow", seconds=1.0)(fetch)
+broken = CircuitBreaker.consecutive_count("api")(fetch)
+fell_back = Fallback("api", when=ValueError, default={})(fetch)
+
+
+# The module-level functional form preserves signatures too.
+functional = retry(when=ValueError)(fetch)
 
 
 async def call_decorated() -> None:
-    """Awaiting a decorated coroutine currently yields `Any`."""
-    assert_type(await retried("ORD-1"), Any)
-    assert_type(await shielded("ORD-1"), Any)
+    """Awaiting a decorated coroutine yields the original return type."""
+    assert_type(await retried("ORD-1"), dict[str, int])
+    assert_type(await shielded("ORD-1", retries=5), dict[str, int])
+    assert_type(await bounded("ORD-1"), dict[str, int])
+    assert_type(await deadlined("ORD-1"), dict[str, int])
+    assert_type(await broken("ORD-1"), dict[str, int])
+    assert_type(await fell_back("ORD-1"), dict[str, int])
+    assert_type(await functional("ORD-1"), dict[str, int])

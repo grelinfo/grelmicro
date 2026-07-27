@@ -429,12 +429,12 @@ class Fallback(Reconfigurable[FallbackConfig]):
         return cls(name, config=config)
 
     @overload
-    def __call__(
-        self, fn: Callable[..., Awaitable[Any]], /
-    ) -> Callable[..., Awaitable[Any]]: ...
+    def __call__[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]: ...
 
     @overload
-    def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]: ...
+    def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
 
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
         """Decorate ``fn`` so each call runs through this fallback policy."""
