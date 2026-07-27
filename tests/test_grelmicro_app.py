@@ -935,7 +935,7 @@ async def test_use_bare_class_needing_args_raises_clear_error() -> None:
             self.required = required
 
     with pytest.raises(TypeError, match="needs constructor arguments"):
-        Grelmicro(uses=[_NeedsArgs])
+        Grelmicro(uses=[_NeedsArgs])  # ty: ignore[invalid-argument-type]
 
 
 async def test_use_bare_plain_context_manager_class() -> None:

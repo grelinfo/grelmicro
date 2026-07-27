@@ -220,7 +220,7 @@ def test_lock_keyword_accepts_bare_backend_class() -> None:
 def test_election_keyword_accepts_bare_backend_class() -> None:
     """`election=MemoryLeaderElectionAdapter` instantiates the class."""
     coordination = Coordination(
-        election=MemoryLeaderElectionAdapter,  # ty: ignore[invalid-argument-type]
+        election=MemoryLeaderElectionAdapter,
     )
     assert isinstance(
         coordination.election_backend, MemoryLeaderElectionAdapter
