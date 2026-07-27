@@ -98,7 +98,8 @@ class RateLimiterRegistry:
         tb: TracebackType | None,
     ) -> bool | None:
         """Close the underlying backend."""
-        return await self._backend.__aexit__(exc_type, exc, tb)
+        await self._backend.__aexit__(exc_type, exc, tb)
+        return None
 
 
 class CircuitBreakerRegistry:
@@ -184,4 +185,5 @@ class CircuitBreakerRegistry:
         tb: TracebackType | None,
     ) -> bool | None:
         """Close the underlying backend."""
-        return await self._backend.__aexit__(exc_type, exc, tb)
+        await self._backend.__aexit__(exc_type, exc, tb)
+        return None

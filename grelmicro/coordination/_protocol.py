@@ -15,6 +15,7 @@ from pydantic import PositiveFloat
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
+    import asyncio
     from collections.abc import Mapping
     from datetime import datetime
     from types import TracebackType
@@ -30,6 +31,8 @@ class LockBackend(Protocol):
     in a ``_loop`` attribute so lock adapters (``Lock.from_thread``,
     ``TaskLock.from_thread``) can dispatch coroutines back into it.
     """
+
+    _loop: asyncio.AbstractEventLoop | None
 
     async def __aenter__(self) -> Self:
         """Open the lock backend."""
@@ -170,6 +173,8 @@ class ScheduleBackend(Protocol):
     Implementations capture the running event loop on `__aenter__` in a
     `_loop` attribute when they bridge from threads, mirroring `LockBackend`.
     """
+
+    _loop: asyncio.AbstractEventLoop | None
 
     async def __aenter__(self) -> Self:
         """Open the schedule backend."""

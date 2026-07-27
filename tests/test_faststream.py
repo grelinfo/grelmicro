@@ -257,3 +257,10 @@ def test_check_ambient_binding_false_without_middleware() -> None:
     micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
     app = FastStream(RedisBroker())
     assert micro.check_ambient_binding(app) is False
+
+
+def test_install_without_broker_raises() -> None:
+    """Ambient install on a brokerless app raises a clear error."""
+    app = FastStream()
+    with pytest.raises(ValueError, match="has no broker"):
+        Grelmicro().install(app)

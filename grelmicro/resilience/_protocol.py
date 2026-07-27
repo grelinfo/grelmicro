@@ -22,6 +22,7 @@ from typing import (
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
+    import asyncio
     from types import TracebackType
 
     from grelmicro.resilience.circuitbreaker import (
@@ -315,6 +316,8 @@ class CircuitBreakerBackend(Protocol):
     in a ``_loop`` attribute so the sync ``from_thread`` adapter can
     dispatch coroutines back into it.
     """
+
+    _loop: asyncio.AbstractEventLoop | None
 
     is_shared: ClassVar[bool]
     """Whether the backend stores state outside the local process.

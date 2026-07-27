@@ -178,8 +178,8 @@ async def test_circuit_from_thread_unopened_backend_raises() -> None:
     def enter() -> None:
         cb.from_thread.__enter__()
 
-    # Act + Assert: the helpful message guides the user to open lifespan.
-    with pytest.raises(RuntimeError, match="lifespan"):
+    # Act + Assert: the helpful message guides the user to open the app.
+    with pytest.raises(RuntimeError, match="async with micro:"):
         await asyncio.to_thread(enter)
 
 

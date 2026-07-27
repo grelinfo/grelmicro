@@ -42,7 +42,7 @@ def span(name: str, **fields: object) -> Generator[None, None, None]:
         otel.trace.get_tracer(__name__).start_as_current_span(
             name, attributes={k: str(v) for k, v in fields.items()}
         )
-        if otel.trace is not None
+        if otel is not None
         else nullcontext()
     )
     with otel_cm as otel_span:
@@ -50,13 +50,14 @@ def span(name: str, **fields: object) -> Generator[None, None, None]:
             yield
         except BaseException:
             if (
-                otel_span is not None
+                otel is not None
+                and otel_span is not None
                 and hasattr(otel_span, "is_recording")
                 and otel_span.is_recording()
             ):
                 exc = sys.exc_info()[1]
                 if exc is not None:  # pragma: no branch
-                    otel_span.set_status(otel.status_code.ERROR, str(exc))  # ty: ignore[unresolved-attribute]
+                    otel_span.set_status(otel.status_code.ERROR, str(exc))
                     otel_span.record_exception(exc)
             raise
         finally:

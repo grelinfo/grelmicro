@@ -153,12 +153,20 @@ def install(
     app.start = _start_with_micro_rollback  # ty: ignore[invalid-assignment]
 
     if ambient:
+        broker = app.broker
+        if broker is None:
+            msg = (
+                "Cannot register the ambient middleware: the FastStream app "
+                "has no broker. Pass a broker to `FastStream(...)`, or call "
+                "`install(app, micro, ambient=False)`."
+            )
+            raise ValueError(msg)
         middleware = type(
             "GrelmicroBrokerMiddleware",
             (_GrelmicroBrokerMiddleware,),
             {"micro": micro},
         )
-        app.broker.add_middleware(middleware)  # ty: ignore[unresolved-attribute]
+        broker.add_middleware(middleware)
     else:
         micro._on_ambient_disabled()  # noqa: SLF001
     _instrument_broker(app, micro)
