@@ -20,6 +20,9 @@
 ### Internal
 
 * 🔥 Drop the inert mypy `# type: ignore` comments. grelmicro type-checks with ty, which never read them, and `ty check` stays clean without them. ([#539](https://github.com/grelinfo/grelmicro/pull/539))
+* ✅ Add `tests/typechecking/`, a suite of `assert_type` claims on the public API, checked by both ty and mypy. grelmicro ships `py.typed`, so these annotations are part of the contract. ([#544](https://github.com/grelinfo/grelmicro/pull/544))
+* 👷 Run mypy in CI alongside ty. The 30 modules that do not pass yet are listed in `[[tool.mypy.overrides]]` and tracked in [#541](https://github.com/grelinfo/grelmicro/issues/541). ([#544](https://github.com/grelinfo/grelmicro/pull/544))
+* 🔥 Delete `grelmicro/metrics/_otel.py`, which nothing imported. ([#544](https://github.com/grelinfo/grelmicro/pull/544))
 * ♻️ Return `OTel | None` from the private trace resolver so the handles narrow together, rather than a tuple of independently optional fields. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
 
 ## 0.30.1 - 2026-07-18

@@ -83,6 +83,9 @@ jobs:
       - name: Run Ty
         run: uv run ty check
 
+      - name: Run Mypy
+        run: uv run mypy
+
   docs:
     name: Docs
     needs: changes
