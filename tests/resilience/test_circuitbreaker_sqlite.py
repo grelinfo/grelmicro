@@ -181,11 +181,16 @@ async def test_open_rejects_until_reset_timeout_elapses(
 ) -> None:
     """OPEN rejects calls until `reset_timeout`, then enters HALF_OPEN."""
     strategy = _bind(backend, reset_timeout=0.5)
-    await strategy.transition(desired=CircuitBreakerState.OPEN)
 
+    # A long cool-down makes the rejection assert independent of scheduling:
+    # a stalled runner cannot let the window elapse between the two calls.
+    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=60)
     assert await strategy.try_acquire() is False
 
-    await asyncio.sleep(0.6)
+    # Re-open with a short cool-down and wait several times past it, so the
+    # elapse assert has margin instead of racing a 0.1s gap.
+    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=0.1)
+    await asyncio.sleep(0.5)
 
     assert await strategy.try_acquire() is True
     snapshot = await strategy.get_snapshot()
@@ -199,7 +204,7 @@ async def test_half_open_admission_cap_enforced_globally(
     cap = 2
     strategy = _bind(backend, half_open_capacity=cap, reset_timeout=0.1)
     await strategy.transition(desired=CircuitBreakerState.OPEN)
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.5)  # 5x the 0.1s cool-down, not a 0.05s race
 
     results = await asyncio.gather(*(strategy.try_acquire() for _ in range(10)))
 
@@ -336,7 +341,7 @@ async def test_half_open_success_below_threshold_stays_half_open(
         backend, success_threshold=2, half_open_capacity=2, reset_timeout=0.1
     )
     await strategy.transition(desired=CircuitBreakerState.OPEN)
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.5)  # 5x the 0.1s cool-down, not a 0.05s race
     assert await strategy.try_acquire() is True  # consumes one admit slot
 
     snapshot = await strategy.record_outcome(success=True)
@@ -353,7 +358,7 @@ async def test_half_open_failure_releases_admit_slot(
         backend, error_threshold=2, half_open_capacity=2, reset_timeout=0.1
     )
     await strategy.transition(desired=CircuitBreakerState.OPEN)
-    await asyncio.sleep(0.15)
+    await asyncio.sleep(0.5)  # 5x the 0.1s cool-down, not a 0.05s race
     assert await strategy.try_acquire() is True  # consumes one admit slot
 
     snapshot = await strategy.record_outcome(success=False)

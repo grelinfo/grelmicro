@@ -20,6 +20,7 @@
 
 ### Internal
 
+* ✅ Widen the circuit-breaker cool-down margins in the SQLite, Postgres, and Redis backend tests. The rejection assert now uses a 60s cool-down so a stalled runner cannot let the window elapse between two adjacent calls, and the elapse asserts wait 5x the cool-down instead of racing a 0.05s gap. ([#548](https://github.com/grelinfo/grelmicro/pull/548))
 * 👷 Enable the Pydantic mypy plugin and shrink the mypy override ladder from 29 modules to 19. Ten modules now type-check under both checkers. ([#547](https://github.com/grelinfo/grelmicro/pull/547))
 * ♻️ Declare `arbitrary_types_allowed` in the `_BaseShieldConfig` class kwargs instead of a second `model_config` assignment. Pydantic merged both, so the settings are unchanged. ([#547](https://github.com/grelinfo/grelmicro/pull/547))
 * 🔥 Drop the inert mypy `# type: ignore` comments. grelmicro type-checks with ty, which never read them, and `ty check` stays clean without them. ([#539](https://github.com/grelinfo/grelmicro/pull/539))
