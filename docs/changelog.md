@@ -5,6 +5,7 @@
 ### Breaking
 
 * 💥 Default `Metrics()` to the `auto` exporter. It exports over OTLP HTTP when an endpoint is configured and otherwise auto-disables into a true no-op, so an unconfigured `Metrics()` no longer falls back to `localhost:4318`. Register it unconditionally: an auto-disabled `Metrics` installs no provider and never conflicts with a second app. ([#508](https://github.com/grelinfo/grelmicro/issues/508))
+* 💥 `TraceConfig.basic_auth_password` and `MetricsConfig.basic_auth_password` are now `SecretStr`. Passing a plain string still works, but reading the value back needs `.get_secret_value()`. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
 
 ### Features
 
@@ -18,8 +19,13 @@
 * 🐛 Point the circuit-breaker worker-thread error at `async with micro:` instead of `grelmicro.lifespan()`, which is not a public API. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
 * 🐛 Raise a clear error when installing the FastStream ambient middleware on an app with no broker, instead of an `AttributeError`. ([#540](https://github.com/grelinfo/grelmicro/pull/540))
 
+### Security
+
+* 🔒 Stop leaking the OTLP Basic auth password. `basic_auth_password` was a plain `str`, so it appeared in `repr()`, `model_dump()`, and `model_dump_json()` of `TraceConfig` and `MetricsConfig`, and therefore in any log line or validation error carrying the config. It is now a `SecretStr`, which masks all three. The `Authorization` header sent on the wire is unchanged. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
+
 ### Internal
 
+* 📝 Document the `_loop` capture contract in the third-party adapter guide. The protocols require it, but the guide did not mention it, so a new adapter could follow the docs and still fail on the first `from_thread` call. ([#549](https://github.com/grelinfo/grelmicro/pull/549))
 * ✅ Widen the circuit-breaker cool-down margins in the SQLite, Postgres, and Redis backend tests. The rejection assert now uses a 60s cool-down so a stalled runner cannot let the window elapse between two adjacent calls, and the elapse asserts wait 5x the cool-down instead of racing a 0.05s gap. ([#548](https://github.com/grelinfo/grelmicro/pull/548))
 * 👷 Enable the Pydantic mypy plugin and shrink the mypy override ladder from 29 modules to 19. Ten modules now type-check under both checkers. ([#547](https://github.com/grelinfo/grelmicro/pull/547))
 * ♻️ Declare `arbitrary_types_allowed` in the `_BaseShieldConfig` class kwargs instead of a second `model_config` assignment. Pydantic merged both, so the settings are unchanged. ([#547](https://github.com/grelinfo/grelmicro/pull/547))

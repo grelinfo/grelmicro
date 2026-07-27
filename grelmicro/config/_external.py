@@ -47,7 +47,8 @@ def _coerce_source(value: ConfigBackend | str | PathLike[str]) -> ConfigBackend:
     HTTP adapter, a git URL to the git adapter, anything else to
     `FileConfigAdapter`. The network adapters resolve through the
     `grelmicro.config.adapters` entry points, so they raise
-    `AdapterNotRegisteredError` until their extra is installed.
+    `AdapterNotRegisteredError` until a package registering one is
+    installed. grelmicro itself ships only the file adapter.
 
     Raises:
         AdapterNotRegisteredError: The source needs an adapter that is
