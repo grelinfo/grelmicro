@@ -179,7 +179,11 @@ class ValkeyProvider(RedisProvider):
         The config is treated as authoritative: no environment reads.
         """
         return cls(
-            url=config.url.unicode_string() if config.url else None,
+            url=(
+                config.url.get_secret_value().unicode_string()
+                if config.url
+                else None
+            ),
             host=config.host,
             port=config.port,
             db=config.db,

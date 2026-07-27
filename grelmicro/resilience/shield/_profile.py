@@ -8,7 +8,7 @@ as Pydantic fields.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable  # noqa: TC003
+from collections.abc import Awaitable, Callable
 from importlib import import_module
 from typing import Annotated, Any, ClassVar
 

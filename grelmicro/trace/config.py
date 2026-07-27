@@ -13,6 +13,8 @@ from pydantic import (
 )
 from typing_extensions import Doc
 
+from grelmicro.types import SecretUrl
+
 
 class _CaseInsensitiveEnum(StrEnum):
     @classmethod
@@ -52,7 +54,9 @@ class TraceSamplerType(_CaseInsensitiveEnum):
     TRACEIDRATIO = "traceidratio"
 
 
-class TraceConfig(BaseModel, frozen=True, extra="forbid"):
+class TraceConfig(
+    BaseModel, frozen=True, extra="forbid", hide_input_in_errors=True
+):
     """Trace Config."""
 
     service_name: Annotated[
@@ -74,17 +78,20 @@ class TraceConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = TraceExporterType.AUTO
     endpoint: Annotated[
-        str | None,
+        SecretUrl[str] | None,
         Doc(
             "Exporter endpoint. Falls back to `OTEL_EXPORTER_OTLP_ENDPOINT` "
-            "when unset."
+            "when unset. Read the value back with `get_secret_value()`: an "
+            "endpoint can embed credentials in its userinfo or query, so it "
+            "is displayed with those replaced by `***`."
         ),
     ] = None
     headers: Annotated[
-        dict[str, str],
+        dict[str, SecretStr],
         Doc(
             "Exporter headers. Falls back to `OTEL_EXPORTER_OTLP_HEADERS` "
-            "when empty."
+            "when empty. Header values carry API keys and tokens, so each "
+            "one is a `SecretStr` and reads back with `get_secret_value()`."
         ),
     ] = Field(default_factory=dict)
     basic_auth_username: Annotated[

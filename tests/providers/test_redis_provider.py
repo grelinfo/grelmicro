@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 from redis.asyncio.client import Redis
 from redis.asyncio.cluster import RedisCluster
 from redis.asyncio.sentinel import Sentinel
@@ -218,43 +219,42 @@ class TestSafeUrl:
 
     def test_safe_url_empty_string_returned_as_is(self) -> None:
         """An empty URL (e.g. `from_client` providers) is returned unchanged."""
-        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
-        assert _redact_url("") == ""
+        assert redact_url("") == ""
 
     def test_safe_url_invalid_url_returned_as_is(self) -> None:
         """A non-URL string with no userinfo falls back to the input."""
-        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
-        assert _redact_url("not-a-valid-url") == "not-a-valid-url"
+        assert redact_url("not-a-valid-url") == "not-a-valid-url"
 
     def test_safe_url_malformed_with_password_still_redacted(self) -> None:
         """A malformed URL that still contains a password is redacted by regex."""
-        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
         assert (
-            _redact_url("redis://:secret@bad host:6379/0")
+            redact_url("redis://:secret@bad host:6379/0")
             == "redis://:***@bad host:6379/0"
         )
 
     def test_safe_url_query_credentials_redacted(self) -> None:
         """Credential-like query params (password, token, ...) are redacted."""
-        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
         assert (
-            _redact_url("redis://host/0?password=secret&db=1")
+            redact_url("redis://host/0?password=secret&db=1")
             == "redis://host/0?password=***&db=1"
         )
         assert (
-            _redact_url("redis://host/0?TOKEN=abc")
-            == "redis://host/0?TOKEN=***"
+            redact_url("redis://host/0?TOKEN=abc") == "redis://host/0?TOKEN=***"
         )
 
     def test_safe_url_query_without_credentials_passthrough(self) -> None:
         """A URL with a query but no credential keys is returned unchanged."""
-        from grelmicro.providers.redis import _redact_url  # noqa: PLC0415
+        from grelmicro._redact import redact_url  # noqa: PLC0415
 
-        assert _redact_url("redis://host/0?foo=bar") == "redis://host/0?foo=bar"
+        assert redact_url("redis://host/0?foo=bar") == "redis://host/0?foo=bar"
 
     def test_repr_never_exposes_password(self) -> None:
         """`repr()` uses the redacted URL form."""
@@ -676,3 +676,90 @@ class TestClusterHashTagGuard:
 
         assert cache.provider is provider
         assert lock.provider is provider
+
+
+class TestConfigRedaction:
+    """`RedisConfig` must not expose the credential embedded in the URL."""
+
+    def test_repr_redacts_url_password(self) -> None:
+        """`repr()` shows the DSN with the password replaced."""
+        config = RedisConfig(url=URL)
+
+        assert "test_password" not in repr(config)
+        assert "***" in repr(config)
+
+    def test_json_dump_redacts_url_password(self) -> None:
+        """`model_dump_json()` emits the redacted DSN."""
+        config = RedisConfig(url=URL)
+
+        assert "test_password" not in config.model_dump_json()
+
+    def test_python_dump_does_not_leak(self) -> None:
+        """`model_dump()` keeps the wrapper, so printing it stays safe."""
+        config = RedisConfig(url=URL)
+
+        assert "test_password" not in repr(config.model_dump())
+
+    def test_provider_still_receives_the_real_url(self) -> None:
+        """The provider built from the config connects with the real DSN."""
+        provider = RedisProvider.from_config(RedisConfig(url=URL))
+
+        assert provider.url == URL
+
+
+class TestRedactUrlEdgeCases:
+    """Cases the structured parser alone does not cover."""
+
+    def test_comma_in_password_is_redacted(self) -> None:
+        """A comma inside the password must not defeat the fallback regex."""
+        from grelmicro._redact import redact_url  # noqa: PLC0415
+
+        assert (
+            redact_url("redis://user:hun,ter2@:6379/0")
+            == "redis://user:***@:6379/0"
+        )
+
+    def test_scheme_less_userinfo_is_redacted(self) -> None:
+        """A `user:password@host:port` string hides its password in the path."""
+        from grelmicro._redact import redact_url  # noqa: PLC0415
+
+        assert (
+            redact_url("user:hunter2@collector:4317")
+            == "user:***@collector:4317"
+        )
+
+    def test_url_without_credentials_is_returned_unchanged(self) -> None:
+        """Nothing to redact means the exact input comes back, unnormalized."""
+        from grelmicro._redact import redact_url  # noqa: PLC0415
+
+        for url in (
+            "http://otel-collector:4318",
+            "https://example.com?x=1",
+            "redis://user@host:6379/0",
+        ):
+            assert redact_url(url) == url
+
+    def test_provider_repr_redacts_unparsable_url(self) -> None:
+        """A URL redis-py accepts but pydantic cannot parse still reprs safely."""
+        provider = RedisProvider("redis://user:hun,ter2@:6379/0")
+
+        assert "hun,ter2" not in repr(provider)
+        assert "***" in repr(provider)
+
+
+class TestValidationErrors:
+    """A rejected value must never carry its credential into the error."""
+
+    def test_invalid_url_does_not_echo_the_password(self) -> None:
+        """A wrong scheme reports the failure without the input."""
+        with pytest.raises(ValidationError) as excinfo:
+            RedisConfig(url="https://usr:test_password@h/0")
+
+        assert "test_password" not in str(excinfo.value)
+
+    def test_malformed_url_does_not_echo_the_password(self) -> None:
+        """A URL that cannot be parsed reports the failure without the input."""
+        with pytest.raises(ValidationError) as excinfo:
+            RedisConfig(url="redis://usr:test_password@h:notaport/0")
+
+        assert "test_password" not in str(excinfo.value)

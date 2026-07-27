@@ -37,7 +37,6 @@ if TYPE_CHECKING:
 
     from pydantic import Discriminator, PositiveFloat, PositiveInt
 
-    from grelmicro._types import LogLevel
     from grelmicro.resilience._protocol import (
         CircuitBreakerBackend,
         CircuitBreakerSnapshot,
@@ -46,6 +45,7 @@ if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker.consecutive_count import (
         ConsecutiveCountConfig,
     )
+    from grelmicro.types import LogLevel
 
     CircuitBreakerConfig = Annotated[
         ConsecutiveCountConfig, Discriminator("kind")
