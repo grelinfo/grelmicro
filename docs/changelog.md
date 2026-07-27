@@ -13,6 +13,7 @@
 
 ### Fixed
 
+* 🐛 Capture the running event loop in `PostgresLockAdapter` and `PostgresScheduleAdapter`. Both protocols require a `_loop` attribute, but neither adapter set it, so `Lock.from_thread` and `TaskLock.from_thread` raised `AttributeError` against a Postgres backend instead of working. Every other backend already captured it. ([#541](https://github.com/grelinfo/grelmicro/issues/541))
 * 🐛 Share one SQLite connection across every component on the same file. `SQLiteLockAdapter` and `SQLiteScheduleAdapter` opened their own connection, so an app pairing a lock with a cache held two. They now borrow the provider's connection and shared lock, so `Grelmicro` can dedupe them onto one provider like every other adapter. ([#546](https://github.com/grelinfo/grelmicro/issues/546))
 * 🐛 Adopt the provider behind a `Coordination` schedule backend. Provider discovery walked the lock and election backends only, so a schedule-only `Coordination` left its provider unopened and duplicate providers undeduped. ([#546](https://github.com/grelinfo/grelmicro/issues/546))
 
@@ -20,6 +21,12 @@
 
 * 🔒 Mask credentials embedded in connection URLs. `url` on `PostgresConfig` and `RedisConfig`, and `endpoint` and `headers` on `TraceConfig` and `MetricsConfig`, appeared in full in `repr()`, `model_dump()`, and `model_dump_json()`. Nothing changes on the wire. ([#550](https://github.com/grelinfo/grelmicro/issues/550))
 * 🔒 Stop echoing rejected values from `PostgresConfig`, `RedisConfig`, `TraceConfig`, and `MetricsConfig`. A mistyped URL carried its password into the `ValidationError` text. ([#550](https://github.com/grelinfo/grelmicro/issues/550))
+
+### Internal
+
+* ✅ Add `tests/test_adapter_contracts.py`, which asserts every first-party adapter initializes `_loop` and captures the running loop on `__aenter__`. A `Protocol` attribute annotation declares the requirement but never creates it, so both type checkers pass an adapter that omits it. ([#541](https://github.com/grelinfo/grelmicro/issues/541))
+* 👷 Clear 16 modules from the mypy override ladder, leaving 3. The `uses=` resolver, the optional-import rebinding, and the `functools.wraps` returns now type-check under both checkers. ([#541](https://github.com/grelinfo/grelmicro/issues/541))
+* 🔥 Drop a stale `# type: ignore` in `grelmicro/metrics/_component.py`. grelmicro suppresses with `# ty: ignore` only. ([#541](https://github.com/grelinfo/grelmicro/issues/541))
 
 ## 0.31.0 - 2026-07-27
 

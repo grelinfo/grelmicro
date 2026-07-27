@@ -235,7 +235,7 @@ class TTLCache(Generic[T]):
         """Deserialize bytes from storage."""
         if self._serializer is not None:
             return self._serializer.loads(raw)
-        return raw  # ty: ignore[invalid-return-type]
+        return cast("T", raw)
 
     async def get(
         self,
@@ -399,7 +399,7 @@ class TTLCache(Generic[T]):
         the most recent value (kept for ``stale_ttl`` seconds past its TTL)
         instead of propagating the error.
         """
-        result = await self.get(key, _SENTINEL)
+        result = await self.get(key, cast("T", _SENTINEL))
         if result is not _SENTINEL:
             return cast("T", result)
 

@@ -9,7 +9,7 @@ from contextlib import (
 )
 from contextvars import ContextVar
 from threading import Lock as ThreadLock
-from typing import TYPE_CHECKING, Annotated, Any, Self, cast
+from typing import TYPE_CHECKING, Annotated, Any, Protocol, Self, cast
 
 from typing_extensions import Doc
 
@@ -967,18 +967,19 @@ class Grelmicro:
         Adapters that received an explicit `provider=` instance are
         left alone: their lifecycle is the caller's responsibility.
         """
-        cache: dict[tuple[type, str], object] = {}
+        cache: dict[tuple[type, str], Provider] = {}
         for item in self._items:
             for target in _iter_provider_backends(item):
                 if not getattr(target, "_owns_provider", False):
                     continue
-                provider = target._provider  # noqa: SLF001  # ty: ignore[unresolved-attribute]
-                key = (type(provider), provider.env_prefix)
+                borrower = cast("_ProviderBorrower", target)
+                provider = borrower._provider  # noqa: SLF001
+                key = (type(provider), getattr(provider, "env_prefix", ""))
                 shared = cache.get(key)
                 if shared is None:
                     cache[key] = provider
                 elif shared is not provider:  # pragma: no branch
-                    target._rebind_provider(shared)  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+                    borrower._rebind_provider(shared)  # noqa: SLF001
 
     def _warn_unlifecycled_providers(self) -> None:
         """Warn when a user-listed Provider is ordered after its Component.
@@ -1010,7 +1011,7 @@ class Grelmicro:
     def _report_provider_lifecycle(
         self,
         target: object,
-        provider: object,
+        provider: Provider,
         index: int,
     ) -> None:
         """Warn or raise when a user-listed Provider is ordered after its Component.
@@ -1021,7 +1022,7 @@ class Grelmicro:
         """
         import warnings  # noqa: PLC0415
 
-        if self._items.index(provider) > index:  # ty: ignore[invalid-argument-type]
+        if self._items.index(provider) > index:
             msg = (
                 f"{type(provider).__name__} is listed after "
                 f"{type(target).__name__} in Grelmicro(uses=[...]). "
@@ -1031,6 +1032,21 @@ class Grelmicro:
             if self._strict:
                 raise LifecycleOrderError(msg)
             warnings.warn(msg, UserWarning, stacklevel=3)
+
+
+class _ProviderBorrower(Protocol):
+    """A backend that holds a Provider and can be rebound onto a shared one.
+
+    Every first-party adapter that accepts `provider=` exposes these three
+    members. `Grelmicro` reads them to adopt, dedupe, and rebind Providers.
+    """
+
+    _provider: Provider
+    _owns_provider: bool
+
+    def _rebind_provider(self, provider: Provider) -> None:
+        """Swap the underlying provider."""
+        ...
 
 
 def _iter_provider_backends(item: object) -> list[object]:

@@ -9,7 +9,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from inspect import iscoroutinefunction
-from typing import TYPE_CHECKING, Annotated, Any, Self, TypeVar, overload
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Self,
+    TypeVar,
+    cast,
+    overload,
+)
 
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Doc
@@ -91,7 +99,9 @@ def _resolve_fqn(fqn: str) -> type[Exception]:
     return cls
 
 
-class FallbackConfig(BaseModel, frozen=True, extra="forbid"):
+class FallbackConfig(
+    BaseModel, frozen=True, extra="forbid", arbitrary_types_allowed=True
+):
     """Fallback policy configuration.
 
     Holds the exception filter plus exactly one of ``default`` or
@@ -127,8 +137,6 @@ class FallbackConfig(BaseModel, frozen=True, extra="forbid"):
             "exception. Mutually exclusive with ``default``."
         ),
     ] = None
-
-    model_config = {"arbitrary_types_allowed": True}
 
     @field_validator("when", mode="before")
     @classmethod
@@ -504,7 +512,7 @@ def fallback(
                         raise
                     return _resolve_value(config, exc)
 
-            return async_wrapper  # ty: ignore[invalid-return-type]
+            return cast("F", async_wrapper)
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -515,7 +523,7 @@ def fallback(
                     raise
                 return _resolve_value(config, exc)
 
-        return sync_wrapper  # ty: ignore[invalid-return-type]
+        return cast("F", sync_wrapper)
 
     return wrap
 

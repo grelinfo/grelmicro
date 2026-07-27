@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 
 from typing_extensions import Doc
 
@@ -152,15 +152,18 @@ class Outbox:
             env_load=env_load,
             error_type=OutboxSettingsValidationError,
         )
-        source = instantiate_if_class(source)
-        if isinstance(source, Provider):
-            self._backend = source.outbox(
+        resolved = cast(
+            "Provider | OutboxBackend",
+            instantiate_if_class(source),
+        )
+        if isinstance(resolved, Provider):
+            self._backend = resolved.outbox(
                 table=self._config.table,
                 auto_migrate=self._config.auto_migrate,
                 notify=self._config.notify,
             )
         else:
-            self._backend = source
+            self._backend = resolved
         self._registry = OutboxRegistry()
         self._relay: Relay | None = None
         self._shutdown_timeout = shutdown_timeout

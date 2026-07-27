@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
@@ -136,6 +137,7 @@ class PostgresLockAdapter(LockBackend):
         self._release_sql = self._SQL_RELEASE.format(table_name=table_name)
         self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def provider(self) -> PostgresProvider:
@@ -151,6 +153,7 @@ class PostgresLockAdapter(LockBackend):
         """Open the adapter and its provider when owned."""
         if self._owns_provider:
             await self._provider.__aenter__()
+        self._loop = asyncio.get_running_loop()
         await self._provider.client.execute(
             self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
                 table_name=self._table_name
@@ -276,6 +279,7 @@ class PostgresScheduleAdapter(ScheduleBackend):
         self._last_fired_sql = self._SQL_LAST_FIRED.format(
             table_name=table_name
         )
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def provider(self) -> PostgresProvider:
@@ -291,6 +295,7 @@ class PostgresScheduleAdapter(ScheduleBackend):
         """Open the adapter and its provider when owned."""
         if self._owns_provider:
             await self._provider.__aenter__()
+        self._loop = asyncio.get_running_loop()
         await self._provider.client.execute(
             self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
                 table_name=self._table_name

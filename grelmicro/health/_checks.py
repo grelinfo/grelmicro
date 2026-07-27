@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from logging import getLogger
 from types import TracebackType
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self, cast
 
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
@@ -89,9 +89,9 @@ def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
     The sync/async decision is made once at registration, not per call.
     """
     if is_async_callable(func):
-        return func  # ty: ignore[invalid-return-type]
+        return cast("AsyncHealthCheckFunc", func)
 
-    sync_func: Callable[[], HealthDetails | None] = func  # ty: ignore[invalid-assignment]
+    sync_func = cast("Callable[[], HealthDetails | None]", func)
 
     async def _async_wrapper() -> HealthDetails | None:
         return await asyncio.to_thread(sync_func)

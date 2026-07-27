@@ -245,9 +245,9 @@ def configure(config: LogConfig | None = None) -> None:
             processors.append(
                 structlog.processors.JSONRenderer(serializer=orjson.dumps)
             )
-            logger_factory = structlog.BytesLoggerFactory(
-                file=sys.stdout.buffer
-            )
+            logger_factory: (
+                structlog.BytesLoggerFactory | structlog.PrintLoggerFactory
+            ) = structlog.BytesLoggerFactory(file=sys.stdout.buffer)
         else:
             processors.append(
                 structlog.processors.JSONRenderer(default=json_default)

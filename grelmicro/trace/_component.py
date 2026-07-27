@@ -412,6 +412,7 @@ def _build_provider(config: TraceConfig) -> Any:  # noqa: ANN401
             ALWAYS_OFF,
             ALWAYS_ON,
             ParentBased,
+            Sampler,
             TraceIdRatioBased,
         )
     except ImportError as exc:  # pragma: no cover
@@ -422,6 +423,7 @@ def _build_provider(config: TraceConfig) -> Any:  # noqa: ANN401
         resource_attrs["service.name"] = config.service_name
     resource = Resource.create(resource_attrs) if resource_attrs else None
 
+    sampler: Sampler
     if config.sampler == TraceSamplerType.ALWAYS_ON:
         sampler = ALWAYS_ON
     elif config.sampler == TraceSamplerType.ALWAYS_OFF:
@@ -491,13 +493,13 @@ def _build_exporter(
 
     try:  # pragma: no cover
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
-            OTLPSpanExporter,
+            OTLPSpanExporter as GrpcOTLPSpanExporter,
         )
     except ImportError as exc:  # pragma: no cover
         raise DependencyNotFoundError(
             module="opentelemetry-exporter-otlp-proto-grpc"
         ) from exc
-    return OTLPSpanExporter(**_exporter_kwargs(config))  # pragma: no cover
+    return GrpcOTLPSpanExporter(**_exporter_kwargs(config))  # pragma: no cover
 
 
 def _exporter_kwargs(config: TraceConfig) -> dict[str, Any]:
