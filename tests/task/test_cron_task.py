@@ -178,7 +178,7 @@ async def test_cron_delay_uses_true_elapsed_across_dst(
         return True  # break the loop after the first scheduled sleep
 
     def frozen_now(tz: object) -> datetime:
-        return pre_dst.astimezone(tz)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        return pre_dst.astimezone(tz)  # ty: ignore[invalid-argument-type]
 
     mocker.patch(
         "grelmicro.task._cron.sleep_or_stop", side_effect=capture_sleep

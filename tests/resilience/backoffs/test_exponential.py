@@ -127,4 +127,4 @@ def test_frozen_config() -> None:
     """`ExponentialBackoff` is frozen."""
     config = ExponentialBackoff()
     with pytest.raises(ValidationError):
-        config.base_delay = 0.5  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        config.base_delay = 0.5  # ty: ignore[invalid-assignment]

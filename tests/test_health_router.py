@@ -363,7 +363,7 @@ def test_healthz_details_dep_none_rejected() -> None:
 def test_healthz_details_invalid_type_rejected() -> None:
     """An invalid ``show_details`` value is rejected at router build time."""
     with pytest.raises(TypeError, match="show_details"):
-        health_router(show_details="yes")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        health_router(show_details="yes")  # ty: ignore[invalid-argument-type]
 
 
 def test_healthz_exclude_checker(

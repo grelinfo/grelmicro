@@ -229,7 +229,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 # so the value is never `None` on this branch.
                 raise BulkheadFullError(
                     name=self._name,
-                    max_concurrent=state.config.max_concurrent,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                    max_concurrent=state.config.max_concurrent,  # ty: ignore[invalid-argument-type]
                 ) from None
         if self._uses and not self._opened:
             await self._open_uses()

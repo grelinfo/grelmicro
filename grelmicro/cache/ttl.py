@@ -222,7 +222,7 @@ class TTLCache(Generic[T]):
     def _serialize(self, value: T) -> bytes:
         """Serialize a value to bytes for storage."""
         if self._serializer is not None:
-            return self._serializer.dumps(value)  # type: ignore[arg-type]
+            return self._serializer.dumps(value)
         if isinstance(value, bytes):
             return value
         msg = (
@@ -234,8 +234,8 @@ class TTLCache(Generic[T]):
     def _deserialize(self, raw: bytes) -> T:
         """Deserialize bytes from storage."""
         if self._serializer is not None:
-            return self._serializer.loads(raw)  # type: ignore[return-value]
-        return raw  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+            return self._serializer.loads(raw)
+        return raw  # ty: ignore[invalid-return-type]
 
     async def get(
         self,

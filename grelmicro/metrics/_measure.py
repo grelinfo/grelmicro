@@ -80,7 +80,7 @@ def measure(
 ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
-def measure[**P, R](  # type: ignore[return-value]
+def measure[**P, R](
     func: Annotated[
         Callable[P, R] | None,
         Doc(
@@ -141,7 +141,7 @@ def measure[**P, R](  # type: ignore[return-value]
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
                 start = m.enter()
                 try:
-                    result = await fn(*args, **kwargs)  # type: ignore[misc]
+                    result = await fn(*args, **kwargs)
                 except BaseException as exc:
                     m.error(exc)
                     raise
@@ -151,7 +151,7 @@ def measure[**P, R](  # type: ignore[return-value]
                 finally:
                     m.exit(start)
 
-            return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+            return async_wrapper  # ty: ignore[invalid-return-type]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -167,7 +167,7 @@ def measure[**P, R](  # type: ignore[return-value]
             finally:
                 m.exit(start)
 
-        return sync_wrapper  # type: ignore[return-value]
+        return sync_wrapper
 
     if func is not None:
         return decorator(func)

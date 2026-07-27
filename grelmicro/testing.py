@@ -45,7 +45,7 @@ class Call:
 
     method: Annotated[str, Doc("Name of the method that was called.")]
     args: Annotated[
-        tuple,  # type: ignore[type-arg]
+        tuple,
         Doc("Positional arguments the method was called with."),
     ] = field(default_factory=tuple)
     kwargs: Annotated[
@@ -74,7 +74,7 @@ class CallLog:
             Doc("Method name to match, or `None` to count every call."),
         ] = None,
         args: Annotated[
-            tuple | None,  # type: ignore[type-arg]
+            tuple | None,
             Doc("Positional arguments to match, or `None` to skip the check."),
         ] = None,
         **kwargs: Any,  # noqa: ANN401

@@ -32,4 +32,4 @@ def get() -> OTel:
         from opentelemetry import metrics  # noqa: PLC0415
     except ImportError:
         return OTel(None)
-    return OTel(metrics)  # type: ignore[arg-type]
+    return OTel(metrics)

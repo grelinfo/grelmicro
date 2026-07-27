@@ -972,13 +972,13 @@ class Grelmicro:
             for target in _iter_provider_backends(item):
                 if not getattr(target, "_owns_provider", False):
                     continue
-                provider = target._provider  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+                provider = target._provider  # noqa: SLF001  # ty: ignore[unresolved-attribute]
                 key = (type(provider), provider.env_prefix)
                 shared = cache.get(key)
                 if shared is None:
                     cache[key] = provider
                 elif shared is not provider:  # pragma: no branch
-                    target._rebind_provider(shared)  # type: ignore[attr-defined]  # noqa: SLF001  # ty: ignore[unresolved-attribute]
+                    target._rebind_provider(shared)  # noqa: SLF001  # ty: ignore[unresolved-attribute]
 
     def _warn_unlifecycled_providers(self) -> None:
         """Warn when a user-listed Provider is ordered after its Component.
@@ -1021,7 +1021,7 @@ class Grelmicro:
         """
         import warnings  # noqa: PLC0415
 
-        if self._items.index(provider) > index:  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        if self._items.index(provider) > index:  # ty: ignore[invalid-argument-type]
             msg = (
                 f"{type(provider).__name__} is listed after "
                 f"{type(target).__name__} in Grelmicro(uses=[...]). "

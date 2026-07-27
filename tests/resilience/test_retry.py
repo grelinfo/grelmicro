@@ -55,7 +55,7 @@ def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_config_requires_when() -> None:
     """`RetryConfig` raises when `when` is missing."""
     with pytest.raises(ValidationError):
-        RetryConfig()  # type: ignore[call-arg]  # ty: ignore[missing-argument]
+        RetryConfig()  # ty: ignore[missing-argument]
 
 
 def test_config_default_attempts_and_backoff() -> None:
@@ -76,7 +76,7 @@ def test_config_frozen() -> None:
     """`RetryConfig` is frozen."""
     config = RetryConfig(when=(ValueError,))
     with pytest.raises(ValidationError):
-        config.attempts = _FIVE  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        config.attempts = _FIVE  # ty: ignore[invalid-assignment]
 
 
 # --- Class-form construction ----------------------------------------------
@@ -548,7 +548,7 @@ async def test_env_populates_attempts_and_when(
     """`GREL_RETRY_{NAME}_ATTEMPTS` and `_WHEN` populate unset fields."""
     monkeypatch.setenv("GREL_RETRY_PAYMENTS_ATTEMPTS", "7")
     monkeypatch.setenv("GREL_RETRY_PAYMENTS_WHEN", "builtins.ValueError")
-    policy = Retry("payments")  # type: ignore[call-arg]
+    policy = Retry("payments")
     expected_attempts = 7
     assert policy.config.attempts == expected_attempts
     matcher = policy.config.when
@@ -563,7 +563,7 @@ async def test_env_backoff_via_json(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
         "GREL_RETRY_FOO_BACKOFF", '{"kind":"constant","delay":2.5}'
     )
-    policy = Retry("foo")  # type: ignore[call-arg]
+    policy = Retry("foo")
     assert isinstance(policy.config.backoff, ConstantBackoff)
     expected_delay = 2.5
     assert policy.config.backoff.delay == expected_delay
@@ -742,7 +742,7 @@ def test_when_accepts_match_directly(fast_constant: ConstantBackoff) -> None:
 def test_when_rejects_invalid_value(fast_constant: ConstantBackoff) -> None:
     """Non-Match, non-class, non-tuple, non-callable raises."""
     with pytest.raises((ValidationError, TypeError)):
-        Retry("api", fast_constant, when=42)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        Retry("api", fast_constant, when=42)  # ty: ignore[invalid-argument-type]
 
 
 async def test_env_when_rejects_non_dotted_name(
@@ -751,7 +751,7 @@ async def test_env_when_rejects_non_dotted_name(
     """Bare-name env entry raises a clear error."""
     monkeypatch.setenv("GREL_RETRY_BAD_WHEN", "ValueError")
     with pytest.raises((ValidationError, ValueError)):
-        Retry("bad")  # type: ignore[call-arg]
+        Retry("bad")
 
 
 async def test_env_when_rejects_non_exception_class(
@@ -760,7 +760,7 @@ async def test_env_when_rejects_non_exception_class(
     """FQN that resolves to a non-Exception class raises."""
     monkeypatch.setenv("GREL_RETRY_BAD2_WHEN", "builtins.int")
     with pytest.raises((ValidationError, TypeError)):
-        Retry("bad2")  # type: ignore[call-arg]
+        Retry("bad2")
 
 
 # --- Block form coverage extras -------------------------------------------
@@ -803,7 +803,7 @@ async def test_env_when_rejects_unknown_module(
     with pytest.raises(
         (ValidationError, ValueError), match="cannot import module"
     ):
-        Retry("bad3")  # type: ignore[call-arg]
+        Retry("bad3")
 
 
 async def test_env_when_rejects_unknown_attribute(
@@ -812,7 +812,7 @@ async def test_env_when_rejects_unknown_attribute(
     """FQN that points to a missing attribute raises with a clear message."""
     monkeypatch.setenv("GREL_RETRY_BAD4_WHEN", "builtins.NoSuchClass")
     with pytest.raises((ValidationError, ValueError), match="has no attribute"):
-        Retry("bad4")  # type: ignore[call-arg]
+        Retry("bad4")
 
 
 async def test_async_budget_elapsed_note(mocker: MockerFixture) -> None:

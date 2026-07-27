@@ -205,14 +205,14 @@ async def test_decorator_rejects_sync_functions() -> None:
     """Sync functions cannot be wrapped by Shield."""
     s = _shield()
     with pytest.raises(TypeError, match="async"):
-        s(lambda: None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        s(lambda: None)  # ty: ignore[invalid-argument-type]
 
 
 async def test_run_rejects_sync_functions() -> None:
     """`Shield.run` raises a clear error for sync callables."""
     s = _shield()
     with pytest.raises(TypeError, match="async"):
-        await s.run(lambda: None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        await s.run(lambda: None)  # ty: ignore[invalid-argument-type]
 
 
 async def test_state_shared_across_calls_through_one_instance() -> None:
@@ -241,7 +241,7 @@ async def test_from_config_constructs_instance() -> None:
 async def test_name_is_required_on_factory() -> None:
     """`Shield.api(name)` requires the name positionally."""
     with pytest.raises(TypeError):
-        Shield.api()  # type: ignore[call-arg]  # ty: ignore[missing-argument]
+        Shield.api()  # ty: ignore[missing-argument]
 
 
 async def test_pep_678_note_format() -> None:

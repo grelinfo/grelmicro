@@ -10,6 +10,10 @@
 
 * ✨ Add `basic_auth=(username, password)` to `Metrics`, matching `Trace`. grelmicro builds the `Authorization: Basic` header and attaches it to the OTLP exporter directly, bypassing the fragile `OTEL_EXPORTER_OTLP_HEADERS` encoding. From the environment, set `GREL_METRICS_BASIC_AUTH_USERNAME` and `GREL_METRICS_BASIC_AUTH_PASSWORD`. ([#507](https://github.com/grelinfo/grelmicro/issues/507))
 
+### Internal
+
+* 🔥 Drop the inert mypy `# type: ignore` comments. grelmicro type-checks with ty, which never read them, and `ty check` stays clean without them. ([#539](https://github.com/grelinfo/grelmicro/pull/539))
+
 ## 0.30.1 - 2026-07-18
 
 ### Fixed

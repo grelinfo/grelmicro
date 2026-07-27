@@ -53,7 +53,7 @@ _DEFAULT_SENSITIVE_NAMES = frozenset(
 
 def _record_exception(otel_span: object) -> None:
     """Record the current exception on an OTel span."""
-    if (  # type: ignore[truthy-function]
+    if (
         otel_span is not None
         and hasattr(otel_span, "is_recording")
         and otel_span.is_recording()  # ty: ignore[call-non-callable]
@@ -61,7 +61,7 @@ def _record_exception(otel_span: object) -> None:
         exc = sys.exc_info()[1]
         if exc is not None:  # pragma: no branch
             otel = _get_otel()
-            otel_span.set_status(otel.status_code.ERROR, str(exc))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            otel_span.set_status(otel.status_code.ERROR, str(exc))  # ty: ignore[unresolved-attribute]
             otel_span.record_exception(exc)  # ty: ignore[unresolved-attribute]
 
 
@@ -108,7 +108,7 @@ def instrument(
 ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
-def instrument[**P, R](  # type: ignore[return-value]
+def instrument[**P, R](
     func: Annotated[
         Callable[P, R] | None,
         Doc(
@@ -202,15 +202,15 @@ def instrument[**P, R](  # type: ignore[return-value]
                             attributes={k: str(v) for k, v in fields.items()},
                         ) as otel_span:
                             try:
-                                return await fn(*args, **kwargs)  # type: ignore[misc]
+                                return await fn(*args, **kwargs)
                             except BaseException:
                                 _record_exception(otel_span)
                                 raise
-                    return await fn(*args, **kwargs)  # type: ignore[misc]
+                    return await fn(*args, **kwargs)
                 finally:
                     _pop_context(token)
 
-            return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+            return async_wrapper  # ty: ignore[invalid-return-type]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -231,7 +231,7 @@ def instrument[**P, R](  # type: ignore[return-value]
             finally:
                 _pop_context(token)
 
-        return sync_wrapper  # type: ignore[return-value]
+        return sync_wrapper
 
     if func is not None:
         return decorator(func)

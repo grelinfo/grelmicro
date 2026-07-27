@@ -570,7 +570,7 @@ class TestStructlogCallerInfo:
         processor = _add_caller_info(caller_enabled=True)
 
         # Act
-        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        result: dict[str, object] = processor(None, "info", event_dict)  # ty: ignore[invalid-assignment]
 
         # Assert
         assert result["logger"] == "mymodule"
@@ -587,7 +587,7 @@ class TestStructlogCallerInfo:
         processor = _add_caller_info(caller_enabled=False)
 
         # Act
-        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        result: dict[str, object] = processor(None, "info", event_dict)  # ty: ignore[invalid-assignment]
 
         # Assert
         assert result["logger"] == "mymodule"
@@ -600,7 +600,7 @@ class TestStructlogCallerInfo:
         processor = _add_caller_info(caller_enabled=True)
 
         # Act
-        result: dict[str, object] = processor(None, "info", event_dict)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        result: dict[str, object] = processor(None, "info", event_dict)  # ty: ignore[invalid-assignment]
 
         # Assert
         assert result["logger"] == "unknown"

@@ -1068,7 +1068,7 @@ async def test_reconfigure_rejects_different_config_type() -> None:
 
     cb = CircuitBreaker("rc")
     with pytest.raises(TypeError, match="ConsecutiveCountConfig"):
-        await cb.reconfigure(Other())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        await cb.reconfigure(Other())  # ty: ignore[invalid-argument-type]
 
 
 # --- shared-backend integration ---

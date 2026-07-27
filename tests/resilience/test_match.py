@@ -54,7 +54,7 @@ def test_exception_requires_arguments() -> None:
 def test_exception_rejects_non_exception_class() -> None:
     """Non-exception class raises ``TypeError``."""
     with pytest.raises(TypeError, match="exception classes"):
-        Match.exception(int)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        Match.exception(int)  # ty: ignore[invalid-argument-type]
 
 
 # --- Match.result ----------------------------------------------------------
@@ -253,7 +253,7 @@ def test_exception_cause_skips_when_returned() -> None:
 def test_exception_cause_rejects_non_exception_class() -> None:
     """Non-exception arg raises ``TypeError``."""
     with pytest.raises(TypeError, match="exception classes"):
-        Match.exception_cause(int)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        Match.exception_cause(int)  # ty: ignore[invalid-argument-type]
 
 
 def test_not_exception_message_scoped_to_raised() -> None:
@@ -311,7 +311,7 @@ def test_predicate_non_bool_warns(caplog: pytest.LogCaptureFixture) -> None:
     """A predicate returning a non-bool value logs a warning on first call."""
     import grelmicro.resilience._match as match_mod  # noqa: PLC0415
 
-    def truthy_int(_exc: Exception) -> int:  # type: ignore[return]
+    def truthy_int(_exc: Exception) -> int:
         return 1
 
     match_mod._warned_predicates.discard(id(truthy_int))
@@ -329,7 +329,7 @@ def test_predicate_non_bool_warns_only_once(
     """The non-bool warning fires at most once per predicate."""
     import grelmicro.resilience._match as match_mod  # noqa: PLC0415
 
-    def truthy_int(_exc: Exception) -> int:  # type: ignore[return]
+    def truthy_int(_exc: Exception) -> int:
         return 1
 
     match_mod._warned_predicates.discard(id(truthy_int))

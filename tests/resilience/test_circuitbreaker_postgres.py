@@ -75,7 +75,7 @@ def test_bind_rejects_unknown_kind(monkeypatch: pytest.MonkeyPatch) -> None:
         kind = "failure_rate"
 
     with pytest.raises(NotImplementedError, match="failure_rate"):
-        backend.bind(name="x", config=Fake())  # type: ignore[arg-type] # ty: ignore[invalid-argument-type]
+        backend.bind(name="x", config=Fake())  # ty: ignore[invalid-argument-type]
 
 
 # --- Integration tests against a real Postgres container ---

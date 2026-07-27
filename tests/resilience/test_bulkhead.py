@@ -200,7 +200,7 @@ def test_decorator_rejects_sync_function() -> None:
 
     with pytest.raises(TypeError, match="only decorates async functions"):
 
-        @bulkhead  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        @bulkhead  # ty: ignore[invalid-argument-type]
         def handler() -> None: ...
 
 

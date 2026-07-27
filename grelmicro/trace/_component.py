@@ -315,9 +315,9 @@ class Trace:
                 "release or open an issue against grelmicro."
             )
             raise TraceError(msg)
-        self._prior_provider = trace._TRACER_PROVIDER  # type: ignore[attr-defined]  # noqa: SLF001
+        self._prior_provider = trace._TRACER_PROVIDER  # noqa: SLF001
         self._provider = _build_provider(config)
-        trace._TRACER_PROVIDER = self._provider  # type: ignore[attr-defined]  # noqa: SLF001
+        trace._TRACER_PROVIDER = self._provider  # noqa: SLF001
         return self
 
     async def __aexit__(
@@ -360,7 +360,7 @@ class Trace:
                         timeout,
                     )
         finally:
-            trace._TRACER_PROVIDER = self._prior_provider  # type: ignore[attr-defined]  # noqa: SLF001
+            trace._TRACER_PROVIDER = self._prior_provider  # noqa: SLF001
             self._provider = None
             self._prior_provider = None
             self._resolved = None

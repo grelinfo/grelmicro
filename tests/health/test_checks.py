@@ -565,7 +565,7 @@ async def test_reconfigure_rejects_different_config_type() -> None:
 
     registry = HealthChecks()
     with pytest.raises(TypeError, match="HealthChecksConfig"):
-        await registry.reconfigure(Other())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        await registry.reconfigure(Other())  # ty: ignore[invalid-argument-type]
 
 
 async def test_reconfigure_changes_cache_ttl_for_next_run() -> None:

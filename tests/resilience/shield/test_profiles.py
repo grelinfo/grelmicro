@@ -88,20 +88,20 @@ def test_config_kind_discriminator() -> None:
 def test_config_extra_forbidden() -> None:
     """Unknown fields are rejected."""
     with pytest.raises(ValidationError):
-        ApiShieldConfig(unknown_field="x")  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+        ApiShieldConfig(unknown_field="x")  # ty: ignore[unknown-argument]
 
 
 def test_timeout_errors_rejects_base_exception_class() -> None:
     """`BaseException`-only types cannot be passed as `timeout_errors`."""
     with pytest.raises(TypeError, match="not an Exception subclass"):
-        ApiShieldConfig(timeout_errors=KeyboardInterrupt)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        ApiShieldConfig(timeout_errors=KeyboardInterrupt)  # ty: ignore[invalid-argument-type]
 
 
 def test_config_frozen() -> None:
     """Configs are frozen after construction."""
     config = ApiShieldConfig()
     with pytest.raises(ValidationError):
-        config.max_rate = 5  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        config.max_rate = 5  # ty: ignore[invalid-assignment]
 
 
 def test_model_dump_roundtrip() -> None:

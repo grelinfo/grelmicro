@@ -224,7 +224,7 @@ def _resolve_config(
     env_prefix = default_env_prefix("FALLBACK", name)
     _load_default_from_env(kwargs, env_prefix)
     settings_cls = _build_settings_cls(FallbackConfig, env_prefix)
-    return settings_cls(**kwargs)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+    return settings_cls(**kwargs)  # ty: ignore[invalid-return-type]
 
 
 def _load_default_from_env(kwargs: dict[str, Any], env_prefix: str) -> None:
@@ -285,7 +285,7 @@ class FallbackResult[T]:
                 "fallback path to fill it when an exception is matched."
             )
             raise RuntimeError(msg)
-        return self._value  # type: ignore[no-any-return]
+        return self._value
 
 
 class _FallbackBlock[T]:
@@ -504,7 +504,7 @@ def fallback(
                         raise
                     return _resolve_value(config, exc)
 
-            return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+            return async_wrapper  # ty: ignore[invalid-return-type]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -515,7 +515,7 @@ def fallback(
                     raise
                 return _resolve_value(config, exc)
 
-        return sync_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+        return sync_wrapper  # ty: ignore[invalid-return-type]
 
     return wrap
 

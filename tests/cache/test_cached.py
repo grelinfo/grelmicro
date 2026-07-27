@@ -230,7 +230,7 @@ class TestAsyncCachedCacheControl:
         await fetch(1)  # miss
         await fetch(2)  # miss
         await fetch(1)  # hit
-        info = fetch.cache_info()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        info = fetch.cache_info()  # ty: ignore[unresolved-attribute]
 
         # Assert
         assert info.hits == EXPECTED_HITS_1
@@ -247,7 +247,7 @@ class TestAsyncCachedCacheControl:
             return x
 
         # Assert
-        assert inspect.iscoroutinefunction(fetch.cache_clear)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        assert inspect.iscoroutinefunction(fetch.cache_clear)  # ty: ignore[unresolved-attribute]
 
     async def test_cache_clear_empties_the_cache(self) -> None:
         """Awaiting cache_clear() causes subsequent calls to recompute."""
@@ -265,7 +265,7 @@ class TestAsyncCachedCacheControl:
         assert call_count == EXPECTED_CALL_COUNT_1
 
         # Act
-        await fetch.cache_clear()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        await fetch.cache_clear()  # ty: ignore[unresolved-attribute]
         await fetch(1)
 
         # Assert: recomputed after clear
@@ -282,13 +282,13 @@ class TestAsyncCachedCacheControl:
 
         await fetch(1)
         await fetch(2)
-        assert fetch.cache_info().currsize == EXPECTED_CURRSIZE_2  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        assert fetch.cache_info().currsize == EXPECTED_CURRSIZE_2  # ty: ignore[unresolved-attribute]
 
         # Act
-        await fetch.cache_clear()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        await fetch.cache_clear()  # ty: ignore[unresolved-attribute]
 
         # Assert
-        assert fetch.cache_info().currsize == 0  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        assert fetch.cache_info().currsize == 0  # ty: ignore[unresolved-attribute]
 
 
 class TestAsyncCachedFunctionMetadata:
@@ -771,7 +771,7 @@ class TestSyncCachedCacheControl:
         # Act
         await asyncio.to_thread(lambda: compute(1))  # miss
         await asyncio.to_thread(lambda: compute(1))  # hit
-        info = compute.cache_info()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        info = compute.cache_info()  # ty: ignore[unresolved-attribute]
 
         # Assert
         assert info.hits == EXPECTED_HITS_1
@@ -793,7 +793,7 @@ class TestSyncCachedCacheControl:
         assert call_count == EXPECTED_CALL_COUNT_1
 
         # Act: cache_clear is always a coroutine
-        await compute.cache_clear()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        await compute.cache_clear()  # ty: ignore[unresolved-attribute]
         await asyncio.to_thread(lambda: compute(1))
 
         # Assert: recomputed after clear
@@ -1148,7 +1148,7 @@ class TestEarlyRefresh:
         """An unknown lock value raises at decoration time."""
         cache = _make_cache()
         with pytest.raises(ValueError, match="lock"):
-            cached(cache, lock="global")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            cached(cache, lock="global")  # ty: ignore[invalid-argument-type]
 
     async def test_early_outside_window_does_not_refresh(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1834,10 +1834,10 @@ class TestPrivateCacheForm:
             return expected_value
 
         assert await get_value() == expected_value
-        info = get_value.cache_info()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        info = get_value.cache_info()  # ty: ignore[unresolved-attribute]
         assert info.hits == 0
         assert info.misses == EXPECTED_MISSES_1
-        await get_value.cache_clear()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        await get_value.cache_clear()  # ty: ignore[unresolved-attribute]
 
     async def test_maxsize_bounds_private_cache(self) -> None:
         """maxsize= bounds the private cache and evicts the oldest entry."""

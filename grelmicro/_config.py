@@ -187,10 +187,10 @@ def resolve_config[C: BaseModel](
 
         settings_cls = _build_settings_cls(config_cls, env_prefix)
         # The dynamic subclass is built at runtime via `type(...)` below, so
-        # neither mypy nor ty can prove that `settings_cls` accepts the kwargs
-        # declared on `config_cls` or that it returns `C`. Pydantic's runtime
-        # validation enforces the contract.
-        return settings_cls(**provided)  # type: ignore[return-value, arg-type]  # ty: ignore[invalid-return-type, invalid-argument-type]
+        # ty cannot prove that `settings_cls` accepts the kwargs declared on
+        # `config_cls` or that it returns `C`. Pydantic's runtime validation
+        # enforces the contract.
+        return settings_cls(**provided)  # ty: ignore[invalid-return-type, invalid-argument-type]
     except ValidationError as error:
         if error_type is None:
             raise
@@ -215,17 +215,13 @@ def _build_settings_cls[C: BaseModel](
     """
     # `model_config` is a TypedDict (`SettingsConfigDict`/`ConfigDict`).
     # Spreading it into a plain dict to add `env_prefix` widens the value
-    # type to `dict[str, object]`, which downstream constructors accept
-    # at runtime but mypy/ty cannot narrow back to the TypedDict shape.
-    merged_config: dict[str, object] = {**(config_cls.model_config or {})}  # type: ignore[dict-item]
+    # type to `dict[str, object]`.
+    merged_config: dict[str, object] = {**(config_cls.model_config or {})}
     merged_config["env_prefix"] = env_prefix
-    # `SettingsConfigDict(**merged_config)` round-trips a `dict[str, object]`
-    # through a TypedDict constructor. Static checkers reject the widened
-    # value types even though Pydantic's runtime validator accepts them.
     return type(
         f"_{config_cls.__name__}Settings",
         (config_cls, BaseSettings),
-        {"model_config": SettingsConfigDict(**merged_config)},  # type: ignore[typeddict-item]
+        {"model_config": SettingsConfigDict(**merged_config)},
     )
 
 

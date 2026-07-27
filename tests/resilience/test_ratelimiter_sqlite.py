@@ -42,8 +42,8 @@ def test_refill_clamps_clock_step_back() -> None:
     """
     # Arrange
     bucket = _SQLiteTokenBucket(
-        conn=None,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-        lock=None,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        conn=None,  # ty: ignore[invalid-argument-type]
+        lock=None,  # ty: ignore[invalid-argument-type]
         prefix="grel:ratelimiter:test:",
         table_name="rate_limit",
         config=TokenBucketConfig(capacity=10, refill_rate=1.0),
@@ -142,12 +142,12 @@ async def test_acquire_rolls_back_on_error(
             raise RuntimeError(msg)
         return original_execute(sql, *args, **kwargs)
 
-    conn.execute = fail_on_insert  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    conn.execute = fail_on_insert  # ty: ignore[invalid-assignment]
     try:
         with pytest.raises(RuntimeError, match="boom"):
             await strategy.acquire(key="rollback", cost=1)
     finally:
-        conn.execute = original_execute  # type: ignore[method-assign]
+        conn.execute = original_execute
 
     # The connection is usable again: the failed transaction rolled back.
     result = await strategy.acquire(key="rollback", cost=1)

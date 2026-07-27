@@ -290,7 +290,7 @@ async def test_acquire_result_is_named_tuple(limiter: RateLimiter) -> None:
     assert isinstance(result, RateLimitResult)
     assert isinstance(result, tuple)
     with pytest.raises(AttributeError):
-        result.allowed = False  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        result.allowed = False  # ty: ignore[invalid-assignment]
 
 
 # --- acquire_or_raise ---

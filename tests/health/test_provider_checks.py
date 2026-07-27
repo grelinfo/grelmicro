@@ -19,7 +19,7 @@ class FakeProvider(Provider):
         self, short_name: str = "fake", *, healthy: bool = True
     ) -> None:
         """Record the vendor name and the desired check outcome."""
-        self.short_name = short_name  # type: ignore[misc]  # ty: ignore[invalid-attribute-access]
+        self.short_name = short_name  # ty: ignore[invalid-attribute-access]
         self._healthy = healthy
         self.calls = 0
 

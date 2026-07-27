@@ -150,7 +150,7 @@ def install(
                 await micro.__aexit__(*sys.exc_info())
             raise
 
-    app.start = _start_with_micro_rollback  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.start = _start_with_micro_rollback  # ty: ignore[invalid-assignment]
 
     if ambient:
         middleware = type(

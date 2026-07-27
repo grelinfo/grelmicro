@@ -60,7 +60,7 @@ def _resolve_path(
         # `_env_prefix` is a pydantic-settings runtime kwarg that overrides
         # `model_config["env_prefix"]` per call. The stubs do not expose it,
         # so static checkers reject it even though the runtime accepts it.
-        settings = _SQLiteEnvSettings(_env_prefix=env_prefix)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+        settings = _SQLiteEnvSettings(_env_prefix=env_prefix)  # ty: ignore[unknown-argument]
         if settings.path:
             return settings.path
     msg = f"SQLite path is not set. Pass path=... or set {env_prefix}PATH."
