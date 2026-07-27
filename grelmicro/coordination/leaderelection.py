@@ -6,7 +6,7 @@ from contextlib import suppress
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
-from typing import Annotated, ClassVar, Self
+from typing import Annotated, Any, ClassVar, Self
 from uuid import UUID
 
 from pydantic import model_validator
@@ -599,10 +599,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         await self.wait_for_leader()
         work: asyncio.Future[T] = asyncio.ensure_future(func(*args))
         loss = asyncio.ensure_future(self.wait_lose_leader())
+        racing: set[asyncio.Future[Any]] = {work, loss}
         try:
-            await asyncio.wait(
-                {work, loss}, return_when=asyncio.FIRST_COMPLETED
-            )
+            await asyncio.wait(racing, return_when=asyncio.FIRST_COMPLETED)
             if work.done():
                 return work.result()
             return None

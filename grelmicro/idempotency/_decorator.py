@@ -77,6 +77,6 @@ def idempotent(
                 fingerprint=call_fingerprint,
             )
 
-        return wrapper  # ty: ignore[invalid-return-type]
+        return wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     return decorator

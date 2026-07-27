@@ -13,7 +13,7 @@ from typing_extensions import Doc
 try:
     import opentelemetry
 except ImportError:  # pragma: no cover
-    opentelemetry: Any = None
+    opentelemetry: Any = None  # type: ignore[no-redef]
 
 
 class _CaseInsensitiveEnum(StrEnum):

@@ -610,7 +610,7 @@ def _build_exporter(
         return OTLPMetricExporter(**_exporter_kwargs(config))
 
     try:  # pragma: no cover
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # noqa: PLC0415
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # noqa: PLC0415  # type: ignore[assignment]
             OTLPMetricExporter,
         )
     except ImportError as exc:  # pragma: no cover

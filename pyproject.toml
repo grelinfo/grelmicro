@@ -370,11 +370,18 @@ filterwarnings = [
 testpaths = "tests"
 
 [tool.mypy]
+plugins = ["pydantic.mypy"]
 files = ["grelmicro", "tests/typechecking"]
 python_version = "3.12"
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+
+# grelmicro type-checks with `ty`. mypy runs as a second opinion because the
+# package ships `py.typed`, so downstream mypy users see these annotations.
+# The modules below do not pass yet: they are dynamic-Pydantic, optional-import
+# rebinding, or third-party stub variance. Tracked in #541. Clear one, delete
+# its entry. Never add an entry to silence a new error.
 
 # grelmicro type-checks with `ty`. mypy runs as a second opinion because the
 # package ships `py.typed`, so downstream mypy users see these annotations.
@@ -388,30 +395,20 @@ module = [
     "grelmicro.cache._component",
     "grelmicro.cache.ttl",
     "grelmicro.coordination._component",
-    "grelmicro.coordination.leaderelection",
-    "grelmicro.coordination.lock",
-    "grelmicro.coordination.tasklock",
     "grelmicro.health._checks",
-    "grelmicro.idempotency._decorator",
     "grelmicro.integrations.faststream",
-    "grelmicro.log._shared",
     "grelmicro.log._structlog",
-    "grelmicro.log.config",
     "grelmicro.log.uvicorn",
     "grelmicro.metrics._component",
-    "grelmicro.metrics._measure",
     "grelmicro.outbox._codec",
     "grelmicro.outbox._component",
     "grelmicro.providers.postgres",
     "grelmicro.providers.redis",
-    "grelmicro.providers.sqlite",
-    "grelmicro.providers.valkey",
     "grelmicro.resilience._components",
     "grelmicro.resilience.fallback",
     "grelmicro.resilience.retry",
     "grelmicro.trace._component",
     "grelmicro.trace._instrument",
-    "grelmicro.trace._valkey",
 ]
 ignore_errors = true
 

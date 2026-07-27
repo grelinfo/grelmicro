@@ -162,7 +162,7 @@ class ValkeyProvider(RedisProvider):
         instrumentor = getattr(self, "_valkey_instrumentor", None)
         if instrumentor is not None:
             instrumentor.uninstrument()
-            self._valkey_instrumentor = None
+            self._valkey_instrumentor = None  # type: ignore[assignment]
 
     @classmethod
     def from_config(
