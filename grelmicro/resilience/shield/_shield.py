@@ -195,7 +195,7 @@ async def _safe_cache_set(cache: Any, key: str, value: Any) -> None:  # noqa: AN
     """
     try:
         await cache.set(key, value)
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.debug("shield: cache write failed", exc_info=True)
 
 
@@ -609,7 +609,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             key = self._compute_key(state, args, kwargs)
             try:
                 value = await cache.get(key)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.debug("shield: cache read failed", exc_info=True)
                 value = None
             if value is not None:

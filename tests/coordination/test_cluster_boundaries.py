@@ -229,7 +229,7 @@ class _RecordingBackend(LeaderElectionBackend):
     """Backend double that captures the metadata passed to acquire_or_renew."""
 
     def __init__(self) -> None:
-        self.metadata_seen: Mapping[str, str] | None | str = "unset"
+        self.metadata_seen: Mapping[str, str] | str | None = "unset"
 
     async def __aenter__(self) -> Self:
         return self

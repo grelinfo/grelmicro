@@ -261,7 +261,7 @@ class ExternalConfig:
         """
         try:
             data = await src.load()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.warning(
                 "External config reload failed for the %s source, "
                 "keeping last good config",
