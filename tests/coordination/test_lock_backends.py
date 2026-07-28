@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator, Generator
 from uuid import uuid4
 
 import pytest
+from docker.errors import APIError
 from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
@@ -24,18 +25,39 @@ from grelmicro.providers.sqlite import SQLiteProvider
 pytestmark = [pytest.mark.timeout(30)]
 
 
+def _container_report(container: DockerContainer) -> str:
+    """Return the container state and tail of its logs, for a failed wait."""
+    try:
+        wrapped = container.get_wrapped_container()
+        wrapped.reload()
+        logs = wrapped.logs(tail=20).decode("utf-8", errors="replace")
+    except APIError as error:
+        return f"container state unavailable ({error})"
+    return f"status={wrapped.status}, last logs:\n{logs}"
+
+
 def _wait_for_k3s(
     container: DockerContainer,
     timeout: float = 60,
 ) -> None:
-    """Wait for k3s to be ready."""
+    """Wait for k3s to be ready.
+
+    Docker reports a container as started before it necessarily accepts a
+    command. In that window the probe raises `APIError` instead of returning
+    a non-zero exit code, so both mean "not ready yet" and are polled again.
+    On timeout the container state and logs are reported, which separates a
+    genuine k3s failure from a slow start.
+    """
     start = time_module.time()
     while time_module.time() - start < timeout:
-        exit_code, _ = container.exec("kubectl get --raw /readyz")
+        try:
+            exit_code, _ = container.exec("kubectl get --raw /readyz")
+        except APIError:
+            exit_code = None
         if exit_code == 0:
             return
         time_module.sleep(1)
-    msg = "k3s did not become ready"
+    msg = f"k3s did not become ready within {timeout}s. {_container_report(container)}"
     raise TimeoutError(msg)
 
 
@@ -494,3 +516,59 @@ async def test_owned_another(backend: LockBackend) -> None:
     # Assert
     assert owned_before is False
     assert owned_after is False
+
+
+class _FakeContainer:
+    """Minimal stand-in for the parts of `DockerContainer` the k3s wait uses."""
+
+    def __init__(self, results: list[int | Exception]) -> None:
+        """Queue one result per probe, an exception instance or an exit code."""
+        self.results = results
+        self.calls = 0
+
+    def exec(self, command: str) -> tuple[int, bytes]:  # noqa: ARG002
+        """Return the next queued exit code, or raise the next queued error."""
+        result = self.results[min(self.calls, len(self.results) - 1)]
+        self.calls += 1
+        if isinstance(result, Exception):
+            raise result
+        return (result, b"")
+
+    def get_wrapped_container(self) -> object:
+        """Report no state, matching a container that has gone away."""
+        msg = "no such container"
+        raise APIError(msg)
+
+
+def test_wait_for_k3s_retries_while_container_not_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test the k3s wait treats a not-running container as not ready yet."""
+    # Arrange
+    expected_probes = 2
+    monkeypatch.setattr(time_module, "sleep", lambda _: None)
+    container = _FakeContainer([APIError("is not running"), 0])
+
+    # Act
+    _wait_for_k3s(container, timeout=10)  # ty: ignore[invalid-argument-type]
+
+    # Assert
+    assert container.calls == expected_probes
+
+
+def test_wait_for_k3s_reports_container_state_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test the timeout message carries the container state."""
+    # Arrange
+    monkeypatch.setattr(time_module, "sleep", lambda _: None)
+    container = _FakeContainer([APIError("is not running")])
+
+    # Act
+    with pytest.raises(
+        TimeoutError, match="container state unavailable"
+    ) as error:
+        _wait_for_k3s(container, timeout=0.01)  # ty: ignore[invalid-argument-type]
+
+    # Assert
+    assert "did not become ready" in str(error.value)
