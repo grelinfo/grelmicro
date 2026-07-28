@@ -69,13 +69,15 @@ async def lock(locks: list[Lock]) -> Lock:
     return locks[WORKER_1]
 
 
-# A lease long enough that it never expires during a from-thread test, even
-# under heavy parallel load. Each `from_thread` call is a thread<->loop
-# round-trip, and the shared session loop can be starved by parallel neighbors,
-# so the default 10 ms lease would lapse mid-sequence and flake. The 5 s module
-# timeout still catches a genuine hang. Tests that assert lease *expiry* keep
-# the short-lease `lock`/`locks` fixtures.
-THREAD_LEASE_DURATION = 30.0
+# A lease long enough that it never expires mid-test, even under heavy
+# parallel load. Two shapes need it. A `from_thread` call is a thread<->loop
+# round-trip, and the shared session loop can be starved by parallel
+# neighbors. A contention test needs the first worker to still hold the lock
+# when the second one tries. Either way the default 10 ms lease would lapse
+# mid-sequence and flake. The 5 s module timeout still catches a genuine hang.
+# Tests that assert lease *expiry* keep the short-lease `lock`/`locks`
+# fixtures.
+LONG_LEASE_DURATION = 30.0
 
 
 @pytest.fixture
@@ -86,7 +88,7 @@ async def thread_locks(backend: LockBackend) -> list[Lock]:
             backend=backend,
             name=LOCK_NAME,
             worker=f"worker_{i}",
-            lease_duration=THREAD_LEASE_DURATION,
+            lease_duration=LONG_LEASE_DURATION,
             retry_interval=0.001,
         )
         for i in range(WORKER_COUNT)
@@ -97,6 +99,28 @@ async def thread_locks(backend: LockBackend) -> list[Lock]:
 async def thread_lock(thread_locks: list[Lock]) -> Lock:
     """Single generous-lease lock for from-thread tests."""
     return thread_locks[WORKER_1]
+
+
+@pytest.fixture
+async def contended_locks(backend: LockBackend) -> list[Lock]:
+    """Locks whose lease outlives scheduling jitter, for contention tests.
+
+    A test asserting that a second worker is *blocked* needs the first
+    worker to still hold the lock when the second one tries. The
+    short-lease `locks` fixture races that: when the lease lapses first,
+    the second worker acquires and the expected `WouldBlock` never
+    happens.
+    """
+    return [
+        Lock(
+            backend=backend,
+            name=LOCK_NAME,
+            worker=f"worker_{i}",
+            lease_duration=LONG_LEASE_DURATION,
+            retry_interval=0.001,
+        )
+        for i in range(WORKER_COUNT)
+    ]
 
 
 @pytest.fixture
@@ -248,7 +272,7 @@ async def test_lock_from_thread_context_manager_wait(
         backend=backend,
         name=LOCK_NAME,
         worker=f"worker_{WORKER_2}",
-        lease_duration=THREAD_LEASE_DURATION,
+        lease_duration=LONG_LEASE_DURATION,
         retry_interval=0.001,
     )
     locked_before = None
@@ -405,8 +429,11 @@ async def test_lock_from_thread_acquire_nowait(thread_lock: Lock) -> None:
     assert locked_after is True
 
 
-async def test_lock_acquire_nowait_would_block(locks: list[Lock]) -> None:
+async def test_lock_acquire_nowait_would_block(
+    contended_locks: list[Lock],
+) -> None:
     """Test Lock wait acquire would block."""
+    locks = contended_locks
     # Arrange
     await locks[WORKER_1].acquire()
 
