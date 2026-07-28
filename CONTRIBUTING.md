@@ -409,6 +409,13 @@ uv run coverage report --fail-under=100
   an explicit **"Choosing a ..." guide**: a numbered decision
   list plus a side-by-side comparison table.
 
+Every release publishes the site to GitHub Pages. To republish
+without cutting a release, run the `Docs` workflow:
+
+```bash
+gh workflow run docs.yml --ref main
+```
+
 ## Third-party material
 
 If you adapt code from another project, even a snippet:
