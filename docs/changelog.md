@@ -5,6 +5,8 @@
 ### Docs
 
 * 📝 Document the recommended `CircuitBreaker` lifecycle. Build one per name at module level. The circuit lives in the backend keyed by name, but `last_error`, the call totals, and the cached state are per instance, so a per-request breaker reports empty metrics and logs a transition that never happened. ([#497](https://github.com/grelinfo/grelmicro/issues/497))
+* 📝 Correct the cross-replica story for cron tasks. The task page said at-most-once always needs a `TaskLock` or `LeaderElection`, which is true for `every` and false for `cron`. Cron claims each fire against the schedule backend, so a wired `Coordination` component is all it needs. ([#502](https://github.com/grelinfo/grelmicro/issues/502))
+* 📝 Warn against gating a cron body on leadership. Winning the claim advances the durable state before the body runs, so an early return consumes the fire without doing the work. ([#502](https://github.com/grelinfo/grelmicro/issues/502))
 * 📝 Document what the `auto` trace exporter selects. It resolves to OTLP HTTP or to the no-op and never to gRPC, whatever the endpoint URL or the installed exporter packages. ([#498](https://github.com/grelinfo/grelmicro/issues/498))
 
 ## 0.32.3 - 2026-07-28
