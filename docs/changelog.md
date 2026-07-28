@@ -29,6 +29,7 @@
 * 🔥 Drop a stale `# type: ignore` in `grelmicro/metrics/_component.py`. grelmicro suppresses with `# ty: ignore` only. ([#541](https://github.com/grelinfo/grelmicro/issues/541))
 * ⬆️ Bump `ruff` to 0.16. Markdown formatting is now stable, so the formatter skips `*.md` and leaves the README and docs examples written as they read best. The new `CPY001` rule stays off: the MIT licence lives in `LICENSE`, not in a per-file header. ([#557](https://github.com/grelinfo/grelmicro/pull/557))
 * 👷 Pin the `ty-check` pre-commit hook to `TY_MAX_PARALLELISM=1`, matching CI. ty resolves inference cycles in whichever order threads reach them, so a local run could flag a diagnostic that CI did not. ([#551](https://github.com/grelinfo/grelmicro/issues/551))
+* 📝 List each Provider once in the SQLite and bulkhead examples. A Component that borrows a Provider already adopts its lifecycle, so the bare Provider beside it was redundant. The Redis and Postgres examples were already written this way. ([#559](https://github.com/grelinfo/grelmicro/pull/559))
 
 ## 0.31.0 - 2026-07-27
 
