@@ -800,7 +800,7 @@ async def _distributed_orchestrate(
         return result
 
 
-def _maybe_refresh_sync(  # noqa: PLR0913
+def _maybe_refresh_sync(  # noqa: PLR0913, PLR0917
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],

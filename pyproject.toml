@@ -254,9 +254,20 @@ replacement = '\1="https://raw.githubusercontent.com/grelinfo/grelmicro/main/doc
 target-version = "py312"
 line-length = 80
 
+[tool.ruff.format]
+# ruff 0.16 stabilized markdown formatting, which restyles every fenced code
+# block in the README and docs. The published examples are written by hand to
+# read well, so the formatter stays off them. `docs/snippets/*.py` are real
+# modules and are still formatted.
+exclude = ["*.md"]
+
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["COM812", "ISC001"] # Ignore rules conflicting with the formatter.
+ignore = [
+    "COM812", # conflicts with the formatter
+    "ISC001", # conflicts with the formatter
+    "CPY001", # the MIT licence lives in LICENSE, not in a per-file header
+]
 
 [tool.ruff.lint.extend-per-file-ignores]
 "tools/*" = [

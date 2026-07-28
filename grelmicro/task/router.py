@@ -148,8 +148,8 @@ class TaskRouter:
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
         def decorator(
-            function: Callable[[], None | Awaitable[None]],
-        ) -> Callable[[], None | Awaitable[None]]:
+            function: Callable[[], Awaitable[None] | None],
+        ) -> Callable[[], Awaitable[None] | None]:
             self.add_task(
                 IntervalTask(
                     name=name,
@@ -267,8 +267,8 @@ class TaskRouter:
         from grelmicro.task._cron import CronTask  # noqa: PLC0415
 
         def decorator(
-            function: Callable[[], None | Awaitable[None]],
-        ) -> Callable[[], None | Awaitable[None]]:
+            function: Callable[[], Awaitable[None] | None],
+        ) -> Callable[[], Awaitable[None] | None]:
             self.add_task(
                 CronTask(
                     name=name,
