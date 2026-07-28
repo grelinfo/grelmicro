@@ -27,6 +27,8 @@
 * ✅ Add `tests/test_adapter_contracts.py`, which asserts every first-party adapter initializes `_loop` and captures the running loop on `__aenter__`. A `Protocol` attribute annotation declares the requirement but never creates it, so both type checkers pass an adapter that omits it. ([#541](https://github.com/grelinfo/grelmicro/issues/541))
 * 👷 Clear 16 modules from the mypy override ladder, leaving 3. The `uses=` resolver, the optional-import rebinding, and the `functools.wraps` returns now type-check under both checkers. ([#541](https://github.com/grelinfo/grelmicro/issues/541))
 * 🔥 Drop a stale `# type: ignore` in `grelmicro/metrics/_component.py`. grelmicro suppresses with `# ty: ignore` only. ([#541](https://github.com/grelinfo/grelmicro/issues/541))
+* ⬆️ Bump `ruff` to 0.16. Markdown formatting is now stable, so the formatter skips `*.md` and leaves the README and docs examples written as they read best. The new `CPY001` rule stays off: the MIT licence lives in `LICENSE`, not in a per-file header. ([#557](https://github.com/grelinfo/grelmicro/pull/557))
+* 👷 Pin the `ty-check` pre-commit hook to `TY_MAX_PARALLELISM=1`, matching CI. ty resolves inference cycles in whichever order threads reach them, so a local run could flag a diagnostic that CI did not. ([#551](https://github.com/grelinfo/grelmicro/issues/551))
 
 ## 0.31.0 - 2026-07-27
 
