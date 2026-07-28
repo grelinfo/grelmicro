@@ -1,7 +1,7 @@
 # Third-party adapter skeleton
 
 A minimal example of publishing a grelmicro backend from an external package,
-here a fake `grelmicro-mongo`. See the [Plugins](https://grelinfo.github.io/grelmicro/architecture/plugins/)
+here a fake `grelmicro-mongo`. See the [Plugins](https://grelmicro.grel.info/architecture/plugins/)
 docs for the full contract.
 
 ## What makes it discoverable

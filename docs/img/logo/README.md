@@ -60,7 +60,7 @@ URL is shared on social platforms.
 <link rel="icon" type="image/png" sizes="16x16" href="img/logo/favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="img/logo/apple-touch-icon.png">
 <meta property="og:image"
-      content="https://grelinfo.github.io/grelmicro/img/logo/social-preview.png">
+      content="https://grelmicro.grel.info/img/logo/social-preview.png">
 ```
 
 ## Brand

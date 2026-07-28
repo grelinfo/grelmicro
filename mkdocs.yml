@@ -1,6 +1,6 @@
 site_name: grelmicro
 site_description: grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes, workers, or services.
-site_url: https://grelinfo.github.io/grelmicro
+site_url: https://grelmicro.grel.info
 theme:
   name: material
   logo: img/logo/favicon-48.png
