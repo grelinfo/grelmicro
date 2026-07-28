@@ -1,0 +1,20 @@
+name: Docs
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        type: string
+        description: 'Git ref to build and publish. Defaults to the triggering ref.'
+        default: ''
+permissions: {}
+jobs:
+  publish-docs:
+    # Publishes the documentation site on demand, outside the release cycle.
+    # Use it to redeploy the current docs without cutting a release.
+    uses: ./.github/workflows/reusable-docs.yml
+    with:
+      ref: ${{ inputs.ref }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
