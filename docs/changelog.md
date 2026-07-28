@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.32.1 - 2026-07-28
+
+Re-cut of 0.32.0, which never reached PyPI. A flaky test failed the release run, so publishing was skipped. The 0.32.0 tag is immutable, so the same contents ship here. See [0.32.0](#0320---2026-07-28) for the changes.
 
 ### Internal
 
