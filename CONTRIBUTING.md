@@ -515,6 +515,35 @@ schedule and every release run the full tier (the Python matrix plus
 the slow, integration, and demo tiers), so a release is always tested
 against everything before it publishes.
 
+### When a required check is missing
+
+Sometimes a pull request stays blocked while `gh pr checks` shows only
+passing rows. `CI Green` never appeared at all, and a check that never
+reports looks nothing like one that failed.
+
+GitHub runs `pull_request` workflows against a temporary merge commit.
+When it cannot create that commit, no run is created at all. A merge
+conflict is the documented cause.
+
+Update the branch. `main` requires branches to be up to date anyway,
+and the new head commit triggers a fresh run:
+
+```bash
+gh pr update-branch <number>
+```
+
+On a Dependabot pull request, comment `@dependabot recreate` instead.
+
+If neither fits, dispatch the workflow by hand:
+
+```bash
+gh workflow run ci.yml --ref <branch>
+```
+
+Dispatch after your last push, because a later push needs a new
+dispatch. A dispatched run also executes the full test tier instead of
+the light one, so expect it to take much longer.
+
 ## Before opening a PR
 
 - All pre-commit gates pass locally
