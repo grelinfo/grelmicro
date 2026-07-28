@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+* ✅ Stop `test_lock_acquire_nowait_would_block` racing its own lease. The test asserts that a second worker is blocked, but held the lock on a 10 ms lease, so a loaded runner could let the lease lapse before the second worker tried. It then acquired cleanly and `WouldBlock` never fired, which failed the 0.32.0 release on Python 3.14. Contention tests now use a lease that outlives scheduling jitter, matching the from-thread twin.
+
 ## 0.32.0 - 2026-07-28
 
 ### Breaking
