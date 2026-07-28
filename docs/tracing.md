@@ -141,6 +141,8 @@ configure()
 
     `Trace()` reads `GREL_TRACE_*` environment variables (see `TraceConfig` for the full field set) or accepts the same fields as keyword arguments. The OTLP HTTP and gRPC exporters require their own packages (`opentelemetry-exporter-otlp-proto-http` or `opentelemetry-exporter-otlp-proto-grpc`) and are imported only when selected.
 
+    `AUTO` resolves to OTLP HTTP or to the no-op, never to gRPC. It does not read the endpoint URL scheme and does not check which exporter packages are installed, so the rule stays the same however you deploy. Set `exporter=TraceExporterType.OTLP_GRPC` to send over gRPC. Because `AUTO` already means HTTP whenever an endpoint is present, pinning `OTLP_HTTP` yourself for that case changes nothing.
+
 ??? note "Works with all logging backends"
     The tracing context is injected into all three logging backends (stdlib, loguru, structlog). Use whichever logger you prefer:
 
@@ -198,7 +200,7 @@ What is covered:
 | Redis | Cache and lock commands | per-client when grelmicro owns the client, cluster included |
 | asyncpg | Queries | covers a grelmicro `PostgresProvider` and any app-owned asyncpg or SQLAlchemy-on-asyncpg engine |
 | Any other installed instrumentor | Per that library | e.g. `sqlalchemy`, `httpx`, `psycopg` : install the package and it is wired |
-| Valkey | Commands | grelmicro ships a first-party instrumentor (valkey-py has no OpenTelemetry package); spans match the Redis ones |
+| Valkey | Commands | grelmicro ships a first-party instrumentor (valkey-py has no OpenTelemetry package). Spans match the Redis ones |
 | SQLite | None | aiosqlite has no OpenTelemetry package. Use `@instrument`. |
 
 !!! note "asyncpg and SQLAlchemy together"

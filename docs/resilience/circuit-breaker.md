@@ -19,6 +19,29 @@ Wrap the protected call with `async with cb:` or decorate an async function with
 !!! warning "Thread safety"
     The Circuit Breaker is not thread-safe. The async API (`async with cb:` or `@cb` on `async def`) is the default. From a synchronous handler running in a worker thread (for example a sync route in your web framework), use `with cb.from_thread:` or apply `@cb` to a sync function. The adapter dispatches state changes onto the parent event loop captured by the backend, so calls stay serialized. See [Sync from thread](../architecture/sync-from-thread.md).
 
+## Lifecycle
+
+Declare a breaker once at module level and reuse it across requests:
+
+```python
+breaker = CircuitBreaker.consecutive_count("upstream")
+
+
+async def handler() -> None:
+    async with breaker:
+        await call_upstream()
+```
+
+The circuit is owned by the backend and keyed by breaker name, so two instances sharing a name share one circuit. The state, the consecutive counters, and the `half_open_capacity` probe budget all live there. Building a breaker inside a per-request dependency still blocks calls correctly.
+
+What a per-request instance loses is the per-instance reporting built on top of that circuit:
+
+- `last_error` and `last_error_time`, on both `metrics()` and the raised `CircuitBreakerError`, are recorded locally and start empty on a fresh instance.
+- `active_calls`, `total_error_count`, and `total_success_count` count only that instance, so they stay near zero.
+- A fresh instance starts cached as `CLOSED`. Reading an already-open circuit then looks like a transition, which emits a `grelmicro.circuit_breaker.transitions` metric and a transition log line for a change that never happened.
+
+Each construction also validates the config, creates a logger, and allocates a `ContextVar`. Build the breaker once.
+
 ## State machine
 
 The breaker watches call outcomes and moves between three normal states. After `reset_timeout`, it lets a few probe calls test whether the dependency is back.
