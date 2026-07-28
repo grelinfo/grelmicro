@@ -449,6 +449,15 @@ async def test_two_breakers_share_state(
 SWEEP_LIMIT = 4
 """Rows a bounded sweep is allowed to delete in tests."""
 
+DAY = 86400.0
+"""The flat stored-state lifetime, in seconds."""
+
+SWEEP_FACTOR = 10.0
+"""Multiple of a cool-down that floors a row's lifetime."""
+
+LONG_COOL_DOWN = 40000.0
+"""A cool-down whose floor exceeds the flat lifetime."""
+
 SWEEP_SURVIVORS = 6
 """Rows left behind once the bounded sweep hits its limit."""
 
@@ -546,7 +555,7 @@ async def test_cleanup_spares_forced_and_fresh_rows(
     )
 
     await backend.provider.client.execute(
-        backend._cleanup_sql, (60.0, time(), 100)
+        backend._cleanup_sql, (60.0, 0.0, time(), 100)
     )
 
     assert await _row_names(backend) == ["cb:forced", "cb:fresh"]
@@ -563,7 +572,7 @@ async def test_cleanup_is_bounded(
     )
 
     await backend.provider.client.execute(
-        backend._cleanup_sql, (60.0, time(), SWEEP_LIMIT)
+        backend._cleanup_sql, (60.0, 0.0, time(), SWEEP_LIMIT)
     )
 
     assert len(await _row_names(backend)) == SWEEP_SURVIVORS
@@ -659,3 +668,26 @@ async def test_migrates_a_table_created_before_updated_at(
 
         assert row is not None
         assert row[0] == 1
+
+
+async def test_sweep_spares_an_open_circuit_still_cooling_down(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A long cool-down floors the row's lifetime, sweep included."""
+    strategy = _bind(
+        backend, name="slow", error_threshold=1, reset_timeout=LONG_COOL_DOWN
+    )
+    await strategy.record_outcome(success=False)
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.OPEN
+
+    # A whole day of quiet, still well inside 10x the cool-down.
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = ?;",
+        (time() - DAY,),
+    )
+    await backend.provider.client.execute(
+        backend._cleanup_sql, (DAY, SWEEP_FACTOR, time(), 100)
+    )
+
+    assert await _row_names(backend) == ["cb:slow"]
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.OPEN

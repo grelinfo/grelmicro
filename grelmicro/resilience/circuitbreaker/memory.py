@@ -126,8 +126,13 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         self._half_open_capacity = config.half_open_capacity
         self._ttl = ttl
 
-    def _expired(self, state: _BreakerState, now: float) -> bool:
+    @staticmethod
+    def _expired(state: _BreakerState, now: float) -> bool:
         """Whether an entry has gone quiet for longer than its lifetime.
+
+        The lifetime comes from the entry's own cool-down, so a strategy
+        sweeping the shared map cannot judge another breaker's entry by
+        its own configuration.
 
         Manually forced states never expire. An operator holds them
         until an explicit `reset`, so a quiet period must not release
@@ -135,7 +140,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         """
         if state.state in _FORCED_STATES:
             return False
-        return now - state.updated_at >= self._ttl
+        return now - state.updated_at >= _resolve_state_ttl(state.cool_down)
 
     def _get_or_create(self) -> _BreakerState:
         """Return the live entry for this breaker, creating it if needed.

@@ -34,6 +34,12 @@ ERRORS = 2
 UNCULLED = 20
 """Entries a single bounded cull must leave behind."""
 
+DAY = 86400.0
+"""The flat stored-state lifetime, in seconds."""
+
+LONG_COOL_DOWN = 40000.0
+"""A cool-down whose floor exceeds the flat lifetime."""
+
 
 class SentinelError(Exception):
     """A sentinel error for testing purposes."""
@@ -438,3 +444,31 @@ async def test_forced_circuit_never_expires(
     with pytest.raises(CircuitBreakerError):
         async with cb.keyed("held"):
             pytest.fail("Expected not reached")
+
+
+async def test_cull_spares_another_breaker_still_cooling_down(
+    backend: MemoryCircuitBreakerAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One breaker's traffic cannot reclaim another's live circuit."""
+    clock = 0.0
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.monotonic", lambda: clock
+    )
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.memory.monotonic", lambda: clock
+    )
+    slow = CircuitBreaker.consecutive_count(
+        "slow", error_threshold=1, reset_timeout=LONG_COOL_DOWN
+    )
+    fast = CircuitBreaker.consecutive_count("fast", error_threshold=1)
+    await trip(slow, 1)
+
+    # A day of quiet: past the flat lifetime, inside 10x slow's cool-down.
+    clock += DAY + 1
+
+    for index in range(3):
+        await trip(fast.keyed(f"k{index}"), 1)
+
+    assert "slow" in backend._states
+    assert slow.state == CircuitBreakerState.OPEN

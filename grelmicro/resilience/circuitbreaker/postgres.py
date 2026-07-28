@@ -131,7 +131,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 WHERE name = p_name
                   AND state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
                   AND updated_at + GREATEST(
-                      {state_ttl}, {state_ttl_factor} * p_reset_timeout
+                      {state_ttl}, {state_ttl_factor} * cool_down
                   ) <= v_now;
             SELECT state, opened_at, cool_down, ho_admit
                 INTO v_state, v_opened_at, v_cool_down, v_ho_admit
@@ -194,7 +194,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 WHERE name = p_name
                   AND state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
                   AND updated_at + GREATEST(
-                      {state_ttl}, {state_ttl_factor} * p_reset_timeout
+                      {state_ttl}, {state_ttl_factor} * cool_down
                   ) <= v_now;
             SELECT t.state, t.opened_at, t.ho_admit
                 INTO v_state, v_opened_at, v_ho_admit
@@ -256,7 +256,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 WHERE name = p_name
                   AND state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
                   AND updated_at + GREATEST(
-                      {state_ttl}, {state_ttl_factor} * p_reset_timeout
+                      {state_ttl}, {state_ttl_factor} * cool_down
                   ) <= v_now;
             SELECT t.state, t.opened_at, t.ho_admit
                 INTO v_state, v_opened_at, v_ho_admit
@@ -349,7 +349,9 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             FOR v_name IN
                 SELECT name FROM {table_name}
                     WHERE state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                      AND updated_at + p_ttl <= v_now
+                      AND updated_at + GREATEST(
+                          p_ttl, {state_ttl_factor} * cool_down
+                      ) <= v_now
                     LIMIT p_limit
             LOOP
                 -- Skip any circuit a call is currently mutating, so the
@@ -361,7 +363,9 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                     DELETE FROM {table_name}
                         WHERE name = v_name
                           AND state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                          AND updated_at + p_ttl <= v_now;
+                          AND updated_at + GREATEST(
+                              p_ttl, {state_ttl_factor} * cool_down
+                          ) <= v_now;
                     v_deleted := v_deleted + 1;
                 END IF;
             END LOOP;
@@ -385,7 +389,14 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
         BEGIN
             SELECT t.state, t.cerr, t.csucc, t.opened_at
                 INTO v_state, v_cerr, v_csucc, v_opened_at
-                FROM {table_name} t WHERE t.name = p_name;
+                FROM {table_name} t
+                WHERE t.name = p_name
+                  AND (
+                      t.state IN ('FORCED_OPEN', 'FORCED_CLOSED')
+                      OR t.updated_at + GREATEST(
+                          {state_ttl}, {state_ttl_factor} * t.cool_down
+                      ) > EXTRACT(EPOCH FROM clock_timestamp())
+                  );
             IF v_state IS NULL THEN
                 RETURN QUERY SELECT 'CLOSED'::TEXT, 0, 0, 0::double precision;
                 RETURN;

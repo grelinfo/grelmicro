@@ -42,19 +42,16 @@ _KEYED_RESIDENCY = 300.0
 _STATE_TTL = 86400.0
 """Seconds a circuit's stored state survives without activity.
 
-Consecutive-count carries no time decay, so counters older than a day
-describe a dependency nobody is calling any more. Storing them longer
-only preserves staler numbers. A shared backend reclaims the entry
-once the lifetime lapses, which is what bounds a dynamic key set.
+Once the lifetime lapses the backend reclaims the entry, and the next
+call on that circuit starts from a clean `CLOSED`.
 """
 
 _STATE_TTL_RESET_FACTOR = 10.0
-"""Multiple of `reset_timeout` that floors the stored-state lifetime.
+"""Multiple of a circuit's cool-down that floors its stored lifetime.
 
-An `OPEN` circuit is the one state nothing rewrites: every call is
-rejected without touching the store, so the lifetime set when it opened
-has to outlast the whole cool-down. Below that floor a quiet circuit
-would forget it was open and admit a full burst instead of one probe.
+An `OPEN` circuit is rewritten by nothing: every call is rejected
+without touching the store. The floor keeps its lifetime longer than
+the cool-down it is waiting out.
 """
 
 
@@ -872,11 +869,10 @@ class _KeyedCircuitBreaker(CircuitBreaker):
     its own bound strategy, and its own counters, so each key trips
     independently.
 
-    The shared logger and `ContextVar` are load-bearing, not an
-    optimization. Both are process-global once created: `getLogger`
-    retains every name for the life of the process, and a `ContextVar`
-    is held strongly by any `Context` that saw it. Building either per
-    key would leak for an unbounded key set.
+    The logger and `ContextVar` stay shared because both are
+    process-global once created: `getLogger` retains every name for the
+    life of the process, and a `ContextVar` is held strongly by any
+    `Context` that saw it.
     """
 
     def __init__(self, breaker: CircuitBreaker, key: str) -> None:

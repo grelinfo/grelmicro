@@ -506,3 +506,37 @@ async def test_no_janitor_when_cleanup_is_disabled(
         ) as adapter,
     ):
         assert adapter._janitor_task is None
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_get_snapshot_honours_the_lifetime(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A read of a stale circuit reports CLOSED, like every other backend."""
+    strategy = _bind(backend, name="stale", error_threshold=1)
+    await strategy.record_outcome(success=False)
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.OPEN
+
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+    )
+
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.CLOSED
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_get_snapshot_keeps_a_forced_circuit(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """An operator hold survives the lifetime on the read path too."""
+    strategy = _bind(backend, name="forced")
+    await strategy.transition(desired=CircuitBreakerState.FORCED_OPEN)
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+    )
+
+    snapshot = await strategy.get_snapshot()
+
+    assert snapshot.state is CircuitBreakerState.FORCED_OPEN

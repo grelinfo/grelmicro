@@ -20,6 +20,7 @@ from grelmicro.resilience._protocol import (
 )
 from grelmicro.resilience.circuitbreaker import (
     _STATE_TTL,
+    _STATE_TTL_RESET_FACTOR,
     CircuitBreakerState,
     _resolve_state_ttl,
 )
@@ -116,7 +117,7 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
         DELETE FROM {table_name} WHERE rowid IN (
             SELECT rowid FROM {table_name}
                 WHERE state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                  AND updated_at + ? <= ?
+                  AND updated_at + MAX(?, ? * cool_down) <= ?
                 LIMIT ?
         );
     """
@@ -288,7 +289,12 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
                     try:
                         await client.execute(
                             self._cleanup_sql,
-                            (_STATE_TTL, time(), _CLEANUP_LIMIT),
+                            (
+                                _STATE_TTL,
+                                _STATE_TTL_RESET_FACTOR,
+                                time(),
+                                _CLEANUP_LIMIT,
+                            ),
                         )
                         await client.execute("COMMIT;")
                     except BaseException:
@@ -386,7 +392,10 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
         # Lazy expiry: a circuit nobody has touched for its lifetime
         # reads as a clean CLOSED instead of carrying stale counters.
         # An operator hold has no lifetime.
-        if state not in _FORCED_STATES and float(row[6]) + self._ttl <= time():
+        if (
+            state not in _FORCED_STATES
+            and float(row[6]) + _resolve_state_ttl(float(row[2])) <= time()
+        ):
             return _Row()
         return _Row(
             state=state,
