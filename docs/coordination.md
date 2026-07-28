@@ -305,9 +305,11 @@ async with task_lock:
 ```
 
 !!! tip
-    For scheduled tasks, prefer the
+    For interval tasks, prefer the
     [`every()` decorator with `lock=TaskLock(...)`](task.md#distributed-lock),
-    which re-stamps the lock with the task name automatically.
+    which re-stamps the lock with the task name automatically. Cron tasks need
+    no lock at all. They claim each fire against the
+    [schedule backend](task.md#distributed-cron) instead.
 
 !!! warning
     When the lock expires before the task completes (`lease_duration`

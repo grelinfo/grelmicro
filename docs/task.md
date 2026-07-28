@@ -28,7 +28,7 @@ async with micro:
 ```
 
 !!! warning "Per-process by default"
-    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run a task at most once across the fleet, gate it with [`TaskLock`](coordination.md#task-lock) or [`LeaderElection`](coordination.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.every(...)` three times per tick.
+    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run an interval task at most once across the fleet, gate it with [`TaskLock`](coordination.md#task-lock) or [`LeaderElection`](coordination.md#leader-election). Without one of those, a 3-replica deployment runs the same `@tasks.every(...)` three times per tick. Cron tasks work differently. They claim each fire against the schedule backend, so a wired [`Coordination`](coordination.md) component is all they need.
 
 !!! note
     This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
@@ -46,7 +46,8 @@ Choose the entry point by the job:
 | Simple recurring function | `@tasks.every(...)` |
 | Group tasks across modules | `TaskRouter` |
 | Add an object that already implements the task protocol | `tasks.add_task(...)` |
-| Run at most once across replicas | `@tasks.every(..., lock=TaskLock(...))` |
+| Run an interval task at most once across replicas | `@tasks.every(..., lock=TaskLock(...))` |
+| Run a cron task at most once across replicas | `@tasks.cron(...)` with a [`Coordination`](coordination.md) component |
 | Run only on the leader | `@tasks.every(..., leader=leader_election)` |
 
 Start it standalone using the application lifespan:
@@ -159,6 +160,11 @@ Use the `cron` decorator to run a task on a cron schedule:
 --8<-- "task/cron.py"
 ```
 
+!!! note "Cron has no `lock` parameter"
+    `every` needs a [`TaskLock`](coordination.md#task-lock) to run at most once across replicas. Cron does not. It claims each fire against the schedule backend instead, so at-most-once is automatic once a [`Coordination`](coordination.md) component is wired. See [Distributed cron](#distributed-cron).
+
+    Pass `sync=` to hold a [`Lock`](coordination.md#lock) around a shared resource during the run.
+
 The expression has five fields: `minute hour day-of-month month day-of-week`. The example above runs every day at 02:00 in the `Europe/Zurich` timezone. The `timezone` defaults to `"UTC"`.
 
 Each field accepts:
@@ -188,6 +194,19 @@ async def sync_data():
 ```
 
 The schedule backend stores the last fire on the provider (Redis, Postgres, and SQLite all ship today). Because that state is durable, a fire missed while every worker was down replays once when a worker comes back. Only the most recent missed fire runs, never a backlog of skipped ones. Without a backend, the task runs on every worker, every fire. Kubernetes is intentionally not provided: use a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/).
+
+!!! warning "Do not gate a cron body on leadership"
+    Winning the claim advances the durable last-fire state **before** the body runs. A body that returns early still consumes the fire, so the work is skipped and the next attempt is a whole cron period away:
+
+    ```python
+    @task.cron("0 3 * * *")
+    async def nightly():
+        if not leader.is_leader():
+            return  # the fire is already claimed, so it is now lost
+        await do_work()
+    ```
+
+    Nothing needs gating here. The claim already picks exactly one worker per fire.
 
 Set `misfire_grace_seconds` to bound how late a missed fire may run:
 
