@@ -112,10 +112,22 @@ Use a **shared** backend (Redis or Postgres) when one replica's circuit decision
 
 When the shared backend is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with [`Retry`](retry.md) or a Fallback Pattern if you need a degraded path during an outage.
 
-!!! warning "Per-key circuits on a shared backend"
-    `maxsize` bounds what one replica keeps in memory, not what the backend stores. Evicting a circuit locally cannot delete the shared row, because another replica may still be relying on it.
+### Stored state
 
-    The shared backends do not expire circuit state today, so a row survives for every key you ever use. Keep the key set bounded on Redis, Postgres, and SQLite. A key space that grows without limit (raw user IDs, request IDs) grows the store without limit too. Use the Memory backend, which clears on close, when the key set is open-ended.
+A circuit stores nothing until it has something to remember. Closing on recovery, and `reset()`, delete the entry rather than writing an empty one, because every backend already reads a missing entry as `CLOSED`.
+
+What remains is bounded by a lifetime. A circuit nobody has called for a day is forgotten, and the next call starts from a clean `CLOSED`. That is what keeps a dynamic key set from growing the store forever. The lifetime is always longer than the cool-down, so an open circuit cannot forget itself while it is waiting to probe.
+
+`isolate()` is exempt. An operator hold has no lifetime and stays until you `reset()` it.
+
+Each backend reclaims in its own way. Redis expires the key itself. Postgres and SQLite sweep in the background every hour, deleting a bounded number of rows per pass and skipping any circuit a call is using. Pass `cleanup_interval=` to change the period, or `None` to turn the sweep off.
+
+```python
+CircuitBreakerRegistry(PostgresCircuitBreakerAdapter(cleanup_interval=600))
+```
+
+!!! warning "Turning the sweep off"
+    `cleanup_interval=None` leaves a dynamic key set to grow without bound. Only use it when the key set is small and fixed, or when your own job reclaims the table.
 
 ??? note "Local vs. shared, and how shared state is stored"
 

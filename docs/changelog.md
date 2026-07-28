@@ -4,6 +4,7 @@
 
 ### Features
 
+* ✨ Circuit breakers now reclaim their own stored state. A circuit that closes on recovery, or that you `reset()`, deletes its entry instead of writing an empty one, since every backend already reads a missing entry as `CLOSED`. What remains expires after a day without a call, always longer than the cool-down, so an open circuit cannot forget itself while waiting to probe. `isolate()` is exempt and holds until you reset it. Redis expires the key itself. Postgres and SQLite sweep hourly in the background, bounded per pass and skipping circuits in use, tunable with `cleanup_interval=`. This is what keeps a dynamic key set from growing the store forever. ([#496](https://github.com/grelinfo/grelmicro/issues/496))
 * ✨ Add `CircuitBreaker.keyed(key)` to give each tenant, endpoint, or model its own circuit. Each key gets independent counters, state, and cool-down, so one failing key opens alone while the rest keep calling. The returned circuit supports the same block, decorator, `from_thread`, `isolate`, `reset`, `state`, and `metrics` surface. A breaker keeps `maxsize` circuits resident (1024 by default) and never evicts one that is busy or recently used. ([#496](https://github.com/grelinfo/grelmicro/issues/496))
 
 ## 0.32.1 - 2026-07-28

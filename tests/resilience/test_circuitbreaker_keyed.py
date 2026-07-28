@@ -14,6 +14,7 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerError,
     CircuitBreakerState,
 )
+from grelmicro.resilience.circuitbreaker import memory as cb_memory
 from grelmicro.resilience.circuitbreaker.consecutive_count import (
     ConsecutiveCountConfig,
 )
@@ -29,6 +30,9 @@ MAXSIZE = 3
 
 ERRORS = 2
 """Errors driven through a circuit in counter tests."""
+
+UNCULLED = 20
+"""Entries a single bounded cull must leave behind."""
 
 
 class SentinelError(Exception):
@@ -368,3 +372,69 @@ async def test_keyed_circuit_cannot_be_reconfigured() -> None:
 
     with pytest.raises(ValueError, match="per-key circuit"):
         await cb.keyed("a").reconfigure(ConsecutiveCountConfig())
+
+
+async def test_backend_reclaims_expired_circuits(
+    backend: MemoryCircuitBreakerAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stored state is bounded too, not just the local circuit map."""
+    clock = 0.0
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.monotonic", lambda: clock
+    )
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.memory.monotonic", lambda: clock
+    )
+    cb = CircuitBreaker.consecutive_count("upstream", error_threshold=1)
+
+    for index in range(KEYS):
+        clock += 100_000.0
+        await trip(cb.keyed(f"gone-{index}"), 1)
+
+    assert len(backend._states) < KEYS
+
+
+async def test_backend_cull_is_bounded(
+    backend: MemoryCircuitBreakerAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single write reclaims at most the cull limit."""
+    clock = 0.0
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.monotonic", lambda: clock
+    )
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.memory.monotonic", lambda: clock
+    )
+    cb = CircuitBreaker.consecutive_count("upstream", error_threshold=1)
+    for index in range(cb_memory._CULL_LIMIT + UNCULLED):
+        await trip(cb.keyed(f"old-{index}"), 1)
+
+    clock += 100_000.0
+    await trip(cb.keyed("new"), 1)
+
+    # One write cannot sweep the whole keyspace.
+    assert len(backend._states) > UNCULLED
+
+
+async def test_forced_circuit_never_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator hold survives any quiet period."""
+    clock = 0.0
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.monotonic", lambda: clock
+    )
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.memory.monotonic", lambda: clock
+    )
+    cb = CircuitBreaker.consecutive_count("upstream")
+    await cb.keyed("held").isolate()
+
+    clock += 100_000_000.0
+
+    assert cb.keyed("held").state == CircuitBreakerState.FORCED_OPEN
+    with pytest.raises(CircuitBreakerError):
+        async with cb.keyed("held"):
+            pytest.fail("Expected not reached")

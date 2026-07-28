@@ -1,6 +1,7 @@
 """Tests for Postgres Circuit Breaker Adapter."""
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator, Generator
 
 import pytest
@@ -306,3 +307,202 @@ async def test_two_breakers_share_state(
             pass
 
     assert cb_b.state is CircuitBreakerState.OPEN
+
+
+SWEEP_LIMIT = 4
+"""Rows a bounded sweep is allowed to delete in tests."""
+
+SWEEP_SURVIVORS = 6
+"""Rows left behind once the bounded sweep hits its limit."""
+
+
+async def _row_count(backend: PostgresCircuitBreakerAdapter) -> int:
+    return await backend.provider.client.fetchval(
+        "SELECT count(*) FROM grelmicro_circuit_breaker;"
+    )
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_recovered_circuit_stores_nothing(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """Closing on recovery deletes the row, since absence means CLOSED."""
+    strategy = _bind(
+        backend,
+        name="recover",
+        error_threshold=1,
+        success_threshold=1,
+        reset_timeout=0.01,
+    )
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+    assert await _row_count(backend) == 1
+
+    await asyncio.sleep(0.05)
+    await strategy.try_acquire()
+    snapshot = await strategy.record_outcome(success=True)
+
+    assert snapshot.state is CircuitBreakerState.CLOSED
+    assert await _row_count(backend) == 0
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_reset_stores_nothing(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A manual reset deletes the row rather than storing a CLOSED one."""
+    strategy = _bind(backend, name="reset", error_threshold=1)
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+
+    await strategy.transition(desired=CircuitBreakerState.CLOSED)
+
+    assert await _row_count(backend) == 0
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.CLOSED
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_stale_circuit_reads_as_closed(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A circuit nobody has touched for its lifetime starts clean."""
+    strategy = _bind(backend, name="stale", error_threshold=2)
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+    )
+
+    snapshot = await strategy.record_outcome(success=False)
+
+    # Counters restarted from one instead of reaching the threshold.
+    assert snapshot.state is CircuitBreakerState.CLOSED
+    assert snapshot.consecutive_error_count == 1
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_cleanup_deletes_only_expired_unforced_rows(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """The sweep reclaims stale circuits and never an operator hold."""
+    stale = _bind(backend, name="stale", error_threshold=5)
+    forced = _bind(backend, name="forced")
+    fresh = _bind(backend, name="fresh", error_threshold=5)
+    await stale.record_outcome(success=False)
+    await forced.transition(desired=CircuitBreakerState.FORCED_OPEN)
+    await fresh.record_outcome(success=False)
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0 "
+        "WHERE name IN ('cb:stale', 'cb:forced');"
+    )
+
+    await backend.provider.client.execute(backend._cleanup_sql, 60.0, 100)
+
+    names = [
+        r["name"]
+        for r in await backend.provider.client.fetch(
+            "SELECT name FROM grelmicro_circuit_breaker ORDER BY name;"
+        )
+    ]
+
+    assert names == ["cb:forced", "cb:fresh"]
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_cleanup_is_bounded(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A sweep deletes at most the row limit it is given."""
+    for index in range(10):
+        await _bind(backend, name=f"t{index}").record_outcome(success=False)
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+    )
+
+    await backend.provider.client.execute(
+        backend._cleanup_sql, 60.0, SWEEP_LIMIT
+    )
+
+    assert await _row_count(backend) == SWEEP_SURVIVORS
+
+
+def test_cleanup_interval_must_be_positive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-positive sweep interval is rejected at construction."""
+    monkeypatch.setenv("POSTGRES_URL", URL)
+    with pytest.raises(ValueError, match="cleanup_interval must be positive"):
+        PostgresCircuitBreakerAdapter(cleanup_interval=0)
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_janitor_sweeps_on_its_interval(
+    container: PostgresContainer,
+) -> None:
+    """The background sweep reclaims stale rows without being called."""
+    port = container.get_exposed_port(5432)
+    provider = PostgresProvider(f"postgresql://test:test@localhost:{port}/test")
+    async with (
+        provider,
+        PostgresCircuitBreakerAdapter(
+            provider=provider, cleanup_interval=0.05
+        ) as adapter,
+    ):
+        await provider.client.execute("TRUNCATE grelmicro_circuit_breaker;")
+        await _bind(adapter, name="stale").record_outcome(success=False)
+        await provider.client.execute(
+            "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+        )
+
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            if await _row_count(adapter) == 0:
+                break
+
+        assert await _row_count(adapter) == 0
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_janitor_survives_a_failing_sweep(
+    container: PostgresContainer, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A sweep error is logged and the loop keeps running."""
+    port = container.get_exposed_port(5432)
+    provider = PostgresProvider(f"postgresql://test:test@localhost:{port}/test")
+    async with (
+        provider,
+        PostgresCircuitBreakerAdapter(
+            provider=provider, cleanup_interval=0.05
+        ) as adapter,
+    ):
+        adapter._cleanup_sql = "SELECT does_not_exist($1, $2);"
+        with caplog.at_level(logging.WARNING, logger="grelmicro"):
+            await asyncio.sleep(0.3)
+
+        assert adapter._janitor_task is not None
+        assert not adapter._janitor_task.done()
+        assert "cleanup sweep failed" in caplog.text
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_no_janitor_when_cleanup_is_disabled(
+    container: PostgresContainer,
+) -> None:
+    """`cleanup_interval=None` starts no sweep and closes cleanly."""
+    port = container.get_exposed_port(5432)
+    provider = PostgresProvider(f"postgresql://test:test@localhost:{port}/test")
+    async with (
+        provider,
+        PostgresCircuitBreakerAdapter(
+            provider=provider, cleanup_interval=None
+        ) as adapter,
+    ):
+        assert adapter._janitor_task is None
