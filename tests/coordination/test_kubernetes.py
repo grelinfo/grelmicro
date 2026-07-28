@@ -1,7 +1,6 @@
 """Tests for the Kubernetes leader election backend."""
 
 import tempfile
-import time as time_module
 from asyncio import sleep
 from collections.abc import AsyncGenerator, Generator
 from datetime import UTC, datetime
@@ -25,6 +24,10 @@ from grelmicro.coordination.kubernetes import (
     _sanitize_lease_name,
 )
 from grelmicro.errors import OutOfContextError, SettingsValidationError
+from tests.coordination._k3s import (
+    extract_kubeconfig,
+    wait_for_k3s,
+)
 
 TOKEN = "test-token"
 OTHER = "other-token"
@@ -681,36 +684,6 @@ _DURATION = 1.0
 _EXPIRE_WAIT = _DURATION + 2.0
 
 
-def _wait_for_k3s(
-    container: DockerContainer,
-    timeout: float = 60,
-) -> None:
-    """Wait for k3s to become ready."""
-    start = time_module.time()
-    while time_module.time() - start < timeout:
-        try:
-            exit_code, _ = container.exec("kubectl get --raw /readyz")
-        except Exception:  # noqa: BLE001
-            # Right after start, the Docker daemon can reject the exec with
-            # 409 "container is not running" before the container is fully
-            # up. Treat any exec error as not-ready and keep polling.
-            exit_code = 1
-        if exit_code == 0:
-            return
-        time_module.sleep(1)
-    msg = "k3s did not become ready"
-    raise TimeoutError(msg)
-
-
-def _extract_kubeconfig(container: DockerContainer) -> str:
-    """Extract the kubeconfig from the k3s container."""
-    exit_code, output = container.exec("cat /etc/rancher/k3s/k3s.yaml")
-    if exit_code != 0:
-        msg = "Failed to extract kubeconfig"
-        raise RuntimeError(msg)
-    return output.decode()
-
-
 @pytest.fixture(scope="module")
 def k3s_container() -> Generator[str]:
     """Start a k3s container and yield a kubeconfig path pointing at it."""
@@ -725,8 +698,8 @@ def k3s_container() -> Generator[str]:
         )
         .with_exposed_ports(6443) as container
     ):
-        _wait_for_k3s(container)
-        kubeconfig_content = _extract_kubeconfig(container)
+        wait_for_k3s(container)
+        kubeconfig_content = extract_kubeconfig(container)
         port = container.get_exposed_port(6443)
         kubeconfig_content = kubeconfig_content.replace(
             "https://127.0.0.1:6443",

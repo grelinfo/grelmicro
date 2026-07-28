@@ -21,6 +21,7 @@
   <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
   <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/grelinfo/grelmicro"><img alt="OpenSSF Scorecard" src="https://api.securityscorecards.dev/projects/github.com/grelinfo/grelmicro/badge"></a>
+  <a href="https://slsa.dev/spec/latest/levels"><img alt="SLSA Build Level 2" src="https://slsa.dev/images/gh-badge-level2.svg"></a>
 </p>
 
 <p align="center">
@@ -37,7 +38,9 @@ ______________________________________________________________________
 
 ## Why grelmicro
 
-grelmicro ships microservice patterns as small, composable modules with pluggable backends: locks, rate limits, circuit breakers, cache, the transactional outbox, logging, health checks, and task scheduling. Async-first, type-safe, and fully tested.
+grelmicro is an async Python toolkit for microservices and distributed systems: shared locks, caching, rate limits, circuit breakers, and scheduled tasks.
+
+It ships them as small, composable modules with pluggable backends, alongside the transactional outbox, logging, health checks, and tracing. Async-first, type-safe, and fully tested.
 
 It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve microservices, a modular monolith, or a self-contained system, and fit naturally into containerized and Kubernetes deployments.
 

@@ -21,53 +21,12 @@ from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from tests.coordination._k3s import (
+    extract_kubeconfig,
+    wait_for_k3s,
+)
 
 pytestmark = [pytest.mark.timeout(30)]
-
-
-def _container_report(container: DockerContainer) -> str:
-    """Return the container state and tail of its logs, for a failed wait."""
-    try:
-        wrapped = container.get_wrapped_container()
-        wrapped.reload()
-        logs = wrapped.logs(tail=20).decode("utf-8", errors="replace")
-    except APIError as error:
-        return f"container state unavailable ({error})"
-    return f"status={wrapped.status}, last logs:\n{logs}"
-
-
-def _wait_for_k3s(
-    container: DockerContainer,
-    timeout: float = 60,
-) -> None:
-    """Wait for k3s to be ready.
-
-    Docker reports a container as started before it necessarily accepts a
-    command. In that window the probe raises `APIError` instead of returning
-    a non-zero exit code, so both mean "not ready yet" and are polled again.
-    On timeout the container state and logs are reported, which separates a
-    genuine k3s failure from a slow start.
-    """
-    start = time_module.time()
-    while time_module.time() - start < timeout:
-        try:
-            exit_code, _ = container.exec("kubectl get --raw /readyz")
-        except APIError:
-            exit_code = None
-        if exit_code == 0:
-            return
-        time_module.sleep(1)
-    msg = f"k3s did not become ready within {timeout}s. {_container_report(container)}"
-    raise TimeoutError(msg)
-
-
-def _extract_kubeconfig(container: DockerContainer) -> str:
-    """Extract kubeconfig from k3s container."""
-    exit_code, output = container.exec("cat /etc/rancher/k3s/k3s.yaml")
-    if exit_code != 0:
-        msg = "Failed to extract kubeconfig"
-        raise RuntimeError(msg)
-    return output.decode()
 
 
 @pytest.fixture(scope="module")
@@ -124,8 +83,8 @@ def container(
             )
             .with_exposed_ports(6443) as container
         ):
-            _wait_for_k3s(container)
-            kubeconfig_content = _extract_kubeconfig(container)
+            wait_for_k3s(container)
+            kubeconfig_content = extract_kubeconfig(container)
             port = container.get_exposed_port(6443)
             kubeconfig_content = kubeconfig_content.replace(
                 "https://127.0.0.1:6443",
@@ -550,7 +509,7 @@ def test_wait_for_k3s_retries_while_container_not_running(
     container = _FakeContainer([APIError("is not running"), 0])
 
     # Act
-    _wait_for_k3s(container, timeout=10)  # ty: ignore[invalid-argument-type]
+    wait_for_k3s(container, timeout=10)  # ty: ignore[invalid-argument-type]
 
     # Assert
     assert container.calls == expected_probes
@@ -568,7 +527,7 @@ def test_wait_for_k3s_reports_container_state_on_timeout(
     with pytest.raises(
         TimeoutError, match="container state unavailable"
     ) as error:
-        _wait_for_k3s(container, timeout=0.01)  # ty: ignore[invalid-argument-type]
+        wait_for_k3s(container, timeout=0.01)  # ty: ignore[invalid-argument-type]
 
     # Assert
     assert "did not become ready" in str(error.value)

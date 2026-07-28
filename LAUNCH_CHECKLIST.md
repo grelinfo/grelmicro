@@ -10,7 +10,7 @@ The launch ships on the current `0.x` line. It is not gated on a 1.0 bump.
 - [ ] `docs/benchmarks.md` numbers re-run on a clean machine and dated. Currently dated 2026-06-14 (Apple Silicon, macOS, CPython 3.12).
 - [x] The [FastAPI demo](examples/fastapi-demo) starts from a fresh clone in three commands. Verified 2026-07-28: `cd examples/fastapi-demo`, `docker compose up --wait`, `open http://localhost:8000/docs`.
 - [x] Record the demo asset (see below) and embed it in the README. `docs/img/demo.gif`, 840K, embedded at the top of `README.md`.
-- [ ] Enable the badges (see below). Scorecard is live. The SLSA 2 badge waits for the first release that publishes a verified attestation.
+- [x] Enable the badges (see below). Scorecard and SLSA 2 are both live in `README.md`. 0.32.5 is the first release publishing a verified attestation.
 - [ ] README "Why grelmicro" leads with one sentence a stranger understands.
 - [x] CHANGELOG `Unreleased` section moved under the release version heading.
 
@@ -34,19 +34,14 @@ Draft copy lives in this file's history; refine per channel. Do not cross-post t
 `ossf/scorecard-action` on a weekly schedule and on push to `main` with
 `publish_results: true`, and stays off pull-request triggers so it never gates PR CI.
 
-**SLSA Build L2: earned per release, badge not yet added.** `release.yml` runs
-`actions/attest-build-provenance` on the built artifacts, then `gh attestation verify`
-on each one before the release completes. Provenance is signed on GitHub
-infrastructure separate from the build job, which is what Level 2 asks for on a hosted
-runner.
+**SLSA Build L2: live.** `release.yml` runs `actions/attest-build-provenance` on the
+built artifacts, then `gh attestation verify` on each one before the release completes.
+Provenance is signed on GitHub infrastructure separate from the build job, which is
+what Level 2 asks for on a hosted runner.
 
-Add this to `README.md` **only after** a release has published with a verified
-attestation. Releases up to and including 0.32.4 have none, so the badge would claim a
-level the published artifacts cannot back:
-
-```markdown
-[![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev/spec/latest/levels)
-```
+The badge went into `README.md` only once a release actually backed it. **0.32.5 is the
+first**, verified after publishing. 0.32.4 and earlier have no attestation, so the
+badge would have claimed a level those artifacts could not back.
 
 Check any published version with:
 
