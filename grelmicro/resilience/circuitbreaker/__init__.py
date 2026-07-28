@@ -506,11 +506,14 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
     def _evict_keyed(self) -> None:
         """Drop least recently used circuits while over the budget.
 
-        Skips circuits that are busy, not `CLOSED`, or still inside the
-        residency window, so an open circuit is never dropped and
-        cannot silently re-admit traffic. Stops when nothing is
-        evictable, letting the map exceed `maxsize` rather than losing
-        a live circuit.
+        Skips circuits with calls in flight, and circuits still inside
+        the residency window. Stops when nothing is evictable, letting
+        the map exceed `maxsize` rather than dropping a busy circuit.
+
+        Evicting an open circuit is safe. The backend owns the state,
+        so the next call on that key rebinds and reads the same
+        `OPEN` back. Only the per-replica counters and `last_error`
+        reset, which are already documented as per-replica.
         """
         keyed = self._keyed
         maxsize = self._keyed_maxsize
@@ -529,7 +532,6 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         """Whether this circuit can be dropped from the parent's map."""
         return (
             self._active_call_count == 0
-            and self._cached_state == CircuitBreakerState.CLOSED
             and now - self._touched >= _KEYED_RESIDENCY
         )
 

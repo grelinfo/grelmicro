@@ -70,7 +70,9 @@ Each key gets independent counters, its own state, and its own cool-down. `keyed
 The unkeyed `async with cb:` path is unchanged and stays available on the same instance.
 
 !!! warning "Key cardinality"
-    A breaker keeps at most `maxsize` circuits resident (1024 by default) and evicts the least recently used. A circuit is never evicted while it has calls in flight, while it is anything other than `CLOSED`, or within 300 seconds of its last call, so an open circuit cannot be dropped and silently re-admit traffic. Set `maxsize=0` to keep every key, and only do that when the key set is bounded.
+    A breaker keeps at most `maxsize` circuits resident (1024 by default) and evicts the least recently used. A circuit is never evicted while it has calls in flight or within 300 seconds of its last call. Set `maxsize=0` to keep every key, and only do that when the key set is bounded.
+
+    Evicting an open circuit is safe. The backend owns the state, so the next call on that key rebinds and reads the same `OPEN` back. Only the per-replica counters and `last_error` reset.
 
     Metrics stay under the breaker name, not the key, so `grelmicro.circuit_breaker.calls` does not gain one time series per tenant. Read per-key detail with `cb.keyed(key).metrics()`. Log lines carry the full `name:key` identity.
 

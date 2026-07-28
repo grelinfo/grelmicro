@@ -269,10 +269,10 @@ async def test_evicts_least_recently_used_past_residency(
     assert "tenant-0" not in cb._keyed
 
 
-async def test_never_evicts_an_open_circuit(
+async def test_evicts_idle_open_circuits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An open circuit survives eviction pressure."""
+    """Keys that trip open once and go quiet do not pin the map."""
     clock = 0.0
     monkeypatch.setattr(
         "grelmicro.resilience.circuitbreaker.monotonic", lambda: clock
@@ -280,15 +280,29 @@ async def test_never_evicts_an_open_circuit(
     cb = CircuitBreaker.consecutive_count(
         "upstream", error_threshold=1, maxsize=1
     )
+
+    for index in range(KEYS):
+        clock += 1000.0
+        await trip(cb.keyed(f"gone-{index}"), 1)
+
+    assert len(cb._keyed) == 1
+
+
+async def test_evicted_open_circuit_still_rejects() -> None:
+    """The backend owns the state, so eviction cannot re-admit traffic."""
+    cb = CircuitBreaker.consecutive_count(
+        "upstream", error_threshold=1, maxsize=1
+    )
     await trip(cb.keyed("bad"), 1)
 
-    clock = 1000.0
-    for index in range(10):
-        async with cb.keyed(f"good-{index}"):
-            pass
+    del cb._keyed["bad"]
+    revived = cb.keyed("bad")
 
-    assert "bad" in cb._keyed
-    assert cb.keyed("bad").state == CircuitBreakerState.OPEN
+    assert revived.state == CircuitBreakerState.CLOSED
+    with pytest.raises(CircuitBreakerError):
+        async with revived:
+            pytest.fail("Expected not reached")
+    assert revived.state == CircuitBreakerState.OPEN
 
 
 async def test_never_evicts_a_busy_circuit(
