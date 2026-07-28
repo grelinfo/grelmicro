@@ -1,0 +1,50 @@
+name: Reusable Docs
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref to check out and build. Defaults to the triggering ref.'
+        type: string
+        default: ''
+      deploy:
+        description: 'Publish the built site to GitHub Pages.'
+        type: boolean
+        default: true
+permissions: {}
+env:
+    UV_FROZEN: 1
+jobs:
+  publish:
+    name: Publish Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Install uv and Activate Environment
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: false
+          activate-environment: true
+      - name: Install Docs Dependencies
+        run: uv sync --group docs
+      - name: Build Docs
+        run: mkdocs build --strict
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+      - name: Deploy Docs on GitHub Pages
+        id: deployment
+        if: ${{ inputs.deploy }}
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
