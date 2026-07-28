@@ -1,12 +1,14 @@
 """Tests for the Postgres Cache Adapter."""
 
 import asyncio
+import logging
 from types import TracebackType
 from typing import Self
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from grelmicro.cache import postgres as cache_postgres
 from grelmicro.cache.postgres import PostgresCacheAdapter, _escape_like
 from grelmicro.providers.postgres import (
     PostgresProvider,
@@ -362,6 +364,25 @@ class TestAsyncMethods:
         call = pool.execute.await_args
         assert call is not None
         assert "DELETE FROM grelmicro_cache" in call.args[0]
+        assert "LIMIT $1" in call.args[0]
+        assert call.args[1] == cache_postgres._JANITOR_LIMIT
+
+    async def test_janitor_survives_a_failing_sweep(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A sweep error is logged and the loop keeps running."""
+        backend, pool = _build_with_mock_pool(
+            cleanup_interval=0.01, auto_migrate=False
+        )
+        pool.execute = AsyncMock(side_effect=RuntimeError("boom"))
+
+        async with backend:
+            with caplog.at_level(logging.WARNING, logger="grelmicro"):
+                await asyncio.sleep(0.05)
+            assert backend._janitor_task is not None
+            assert not backend._janitor_task.done()
+
+        assert "Cache cleanup sweep failed" in caplog.text
 
     async def test_janitor_suppresses_errors(self) -> None:
         """Janitor swallows errors so transient failures don't crash the task."""
