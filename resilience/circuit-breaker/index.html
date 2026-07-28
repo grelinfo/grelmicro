@@ -820,6 +820,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#per-key-breaking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-key breaking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#backend" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -836,6 +847,17 @@
     <span class="md-ellipsis">
       
         Choosing a backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stored-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stored state
       
     </span>
   </a>
@@ -2693,6 +2715,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#per-key-breaking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-key breaking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#backend" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2709,6 +2742,17 @@
     <span class="md-ellipsis">
       
         Choosing a backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stored-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stored state
       
     </span>
   </a>
@@ -2849,6 +2893,43 @@
 <p>Two operator verbs let you drive the breaker by hand.</p>
 <p><code>await cb.isolate()</code> is the big red button. It forces the breaker open (<code>FORCED_OPEN</code>) and keeps it there, so every call is blocked until you reset. Use it to take a known-bad dependency out of rotation.</p>
 <p><code>await cb.reset()</code> returns the breaker to normal automatic operation. It clears the counters and the last error, then moves to <code>CLOSED</code>. Use it to release an <code>isolate()</code> hold or to start fresh.</p>
+<h2 id="per-key-breaking">Per-key breaking</h2>
+<p>By default a breaker protects one circuit. Every call shares the same counters, so the whole dependency opens together. That is the right default when the dependency is either up or down for everyone.</p>
+<p>Some failures are per-key instead. One tenant's credentials get revoked while every other tenant is fine. One model endpoint degrades while the rest answer normally. A single circuit either opens for everyone (a false positive) or never opens at all, because the healthy majority hides the broken key.</p>
+<p>Call <code>cb.keyed(key)</code> to give each key its own circuit:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.resilience</span><span class="w"> </span><span class="kn">import</span> <span class="n">CircuitBreaker</span>
+
+<span class="c1"># One breaker, one independent circuit per tenant.</span>
+<span class="n">upstream</span> <span class="o">=</span> <span class="n">CircuitBreaker</span><span class="o">.</span><span class="n">consecutive_count</span><span class="p">(</span><span class="s2">&quot;upstream&quot;</span><span class="p">,</span> <span class="n">error_threshold</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">fetch</span><span class="p">(</span><span class="n">tenant</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">upstream</span><span class="o">.</span><span class="n">keyed</span><span class="p">(</span><span class="n">tenant</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Calling upstream for </span><span class="si">{</span><span class="n">tenant</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@upstream</span><span class="o">.</span><span class="n">keyed</span><span class="p">(</span><span class="s2">&quot;acme&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">fetch_acme</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Calling upstream for acme...&quot;</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">quarantine</span><span class="p">(</span><span class="n">tenant</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="c1"># Blocks this tenant only, every other tenant keeps calling.</span>
+    <span class="k">await</span> <span class="n">upstream</span><span class="o">.</span><span class="n">keyed</span><span class="p">(</span><span class="n">tenant</span><span class="p">)</span><span class="o">.</span><span class="n">isolate</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">upstream</span><span class="o">.</span><span class="n">keyed</span><span class="p">(</span><span class="n">tenant</span><span class="p">)</span><span class="o">.</span><span class="n">state</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">release</span><span class="p">(</span><span class="n">tenant</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">upstream</span><span class="o">.</span><span class="n">keyed</span><span class="p">(</span><span class="n">tenant</span><span class="p">)</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+</code></pre></div>
+<p>Each key gets independent counters, its own state, and its own cool-down. <code>keyed(key)</code> returns a full breaker, so <code>state</code>, <code>metrics()</code>, <code>isolate()</code>, <code>reset()</code>, <code>from_thread</code>, and the decorator form all work per key.</p>
+<p>The unkeyed <code>async with cb:</code> path is unchanged and stays available on the same instance.</p>
+<div class="admonition warning">
+<p class="admonition-title">Key cardinality</p>
+<p>A breaker keeps at most <code>maxsize</code> circuits resident (1024 by default) and evicts the least recently used. A circuit is never evicted while it has calls in flight or within 300 seconds of its last call. Set <code>maxsize=0</code> to keep every key, and only do that when the key set is bounded.</p>
+<p>Evicting an open circuit is safe. The backend owns the state, so the next call on that key rebinds and reads the same <code>OPEN</code> back. Only the per-replica counters and <code>last_error</code> reset.</p>
+<p>Metrics stay under the breaker name, not the key, so <code>grelmicro.circuit_breaker.calls</code> does not gain one time series per tenant. Read per-key detail with <code>cb.keyed(key).metrics()</code>. Log lines carry the full <code>name:key</code> identity.</p>
+</div>
 <h2 id="backend">Backend</h2>
 <p>By default each replica keeps its own breaker state. A degraded downstream trips one replica's breaker without telling the others, and <code>error_threshold</code> errors must happen on every replica before the dependency stops being probed.</p>
 <p>Pass a shared <code>CircuitBreakerRegistry(redis_provider)</code> or <code>CircuitBreakerRegistry(postgres_provider)</code> to fan that state out. The first replica to trip the breaker opens it for the fleet, the <code>half_open_capacity</code> admission cap is enforced globally so probes never exceed the cap across replicas, and manual <code>isolate()</code> and <code>reset()</code> calls are visible everywhere.</p>
@@ -2903,6 +2984,17 @@
 <h3 id="choosing-a-backend">Choosing a backend</h3>
 <p>Use a <strong>shared</strong> backend (Redis or Postgres) when one replica's circuit decision should short-circuit the rest. Pick Redis for the lowest-latency option when you already run it, or Postgres when it is your only stateful dependency. Use <strong>SQLite</strong> when many processes on a single host share one file and you want their circuit decisions to coordinate without an external service. SQLite is a local file, so it coordinates processes on one host, not across hosts. Use <strong>Memory</strong> (the default) when each replica's downstream is independent (per-shard databases, per-zone caches).</p>
 <p>When the shared backend is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with <a href="../retry/"><code>Retry</code></a> or a Fallback Pattern if you need a degraded path during an outage.</p>
+<h3 id="stored-state">Stored state</h3>
+<p>A circuit stores nothing until it has something to remember. Closing on recovery, and <code>reset()</code>, delete the entry rather than writing an empty one, because every backend already reads a missing entry as <code>CLOSED</code>.</p>
+<p>What remains is bounded by a lifetime. A circuit nobody has called for a day is forgotten, and the next call starts from a clean <code>CLOSED</code>. That is what keeps a dynamic key set from growing the store forever. The lifetime is always longer than the cool-down, so an open circuit cannot forget itself while it is waiting to probe.</p>
+<p><code>isolate()</code> is exempt. An operator hold has no lifetime and stays until you <code>reset()</code> it.</p>
+<p>Each backend reclaims in its own way. Redis expires the key itself. Postgres and SQLite sweep in the background every hour, deleting a bounded number of rows per pass and skipping any circuit a call is using. Pass <code>cleanup_interval=</code> to change the period, or <code>None</code> to turn the sweep off.</p>
+<div class="highlight"><pre><span></span><code><span class="n">CircuitBreakerRegistry</span><span class="p">(</span><span class="n">PostgresCircuitBreakerAdapter</span><span class="p">(</span><span class="n">cleanup_interval</span><span class="o">=</span><span class="mi">600</span><span class="p">))</span>
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Turning the sweep off</p>
+<p><code>cleanup_interval=None</code> leaves a dynamic key set to grow without bound. Only use it when the key set is small and fixed, or when your own job reclaims the table.</p>
+</div>
 <details class="note">
 <summary>Local vs. shared, and how shared state is stored</summary>
 <table>

@@ -2017,6 +2017,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.resilience.CircuitBreaker.key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.resilience.CircuitBreaker.state" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2065,6 +2076,17 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;consecutive_count
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.CircuitBreaker.keyed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;keyed
       
     </span>
   </a>
@@ -7060,6 +7082,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#grelmicro.resilience.CircuitBreaker.key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#grelmicro.resilience.CircuitBreaker.state" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7108,6 +7141,17 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;consecutive_count
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grelmicro.resilience.CircuitBreaker.keyed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;keyed
       
     </span>
   </a>
@@ -12002,6 +12046,7 @@ on one <code>Grelmicro</code> under different names.</p>
   &lt;/span&gt; (&lt;code&gt;grelmicro.resilience.circuitbreaker.CircuitBreakerConfig&lt;/code&gt;)" href="#grelmicro.resilience.CircuitBreakerConfig">CircuitBreakerConfig</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CircuitBreakerBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.CircuitBreakerBackend&lt;/code&gt;)" href="#grelmicro.resilience.CircuitBreakerBackend">CircuitBreakerBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">maxsize</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker._KEYED_MAXSIZE">_KEYED_MAXSIZE</span></span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -12112,6 +12157,29 @@ back to the registered <code>"default"</code> Component.</p>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
                       <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>maxsize</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Per-key circuits kept resident by
+<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;keyed&lt;/span&gt;" href="#grelmicro.resilience.CircuitBreaker.keyed"><code>keyed</code></a>.</p>
+<p><code>0</code> keeps every key. Only use it when the key set is
+bounded.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="int">int</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code><span title="grelmicro.resilience.circuitbreaker._KEYED_MAXSIZE">_KEYED_MAXSIZE</span></code>
                   </span>
               </p>
             </td>
@@ -12249,6 +12317,32 @@ so the async API stays the documented default.</p>
 
 
 
+<h4 id="grelmicro.resilience.CircuitBreaker.key" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">key</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">key</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the key this circuit is bound to, or <code>None</code> when unkeyed.</p>
+<p>Set on the circuits returned by
+<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;keyed&lt;/span&gt;" href="#grelmicro.resilience.CircuitBreaker.keyed"><code>keyed</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
 <h4 id="grelmicro.resilience.CircuitBreaker.state" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">state</span>
 
@@ -12342,6 +12436,7 @@ so the async API stays the documented default.</p>
   &lt;/span&gt; (&lt;code&gt;grelmicro.resilience.circuitbreaker.CircuitBreakerConfig&lt;/code&gt;)" href="#grelmicro.resilience.CircuitBreakerConfig">CircuitBreakerConfig</a></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CircuitBreakerBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.CircuitBreakerBackend&lt;/code&gt;)" href="#grelmicro.resilience.CircuitBreakerBackend">CircuitBreakerBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">maxsize</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker._KEYED_MAXSIZE">_KEYED_MAXSIZE</span></span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -12418,6 +12513,26 @@ bypassed and the config is used as-is.</p>
               </p>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>maxsize</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Per-key circuits kept resident by <code>keyed</code>. <code>0</code> keeps every key.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="int">int</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code><span title="grelmicro.resilience.circuitbreaker._KEYED_MAXSIZE">_KEYED_MAXSIZE</span></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -12451,6 +12566,7 @@ bypassed and the config is used as-is.</p>
     <span class="n">half_open_capacity</span><span class="p">:</span> <span class="n"><span title="pydantic.PositiveInt">PositiveInt</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">log_level</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-type_alias&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-type_alias-name&quot;&gt;LogLevel&lt;/span&gt; (&lt;code&gt;grelmicro.types.LogLevel&lt;/code&gt;)" href="../types/#grelmicro.types.LogLevel">LogLevel</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">backend</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CircuitBreakerBackend&lt;/span&gt; (&lt;code&gt;grelmicro.resilience._protocol.CircuitBreakerBackend&lt;/code&gt;)" href="#grelmicro.resilience.CircuitBreakerBackend">CircuitBreakerBackend</a></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">maxsize</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="n"><span title="grelmicro.resilience.circuitbreaker._KEYED_MAXSIZE">_KEYED_MAXSIZE</span></span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
 </code></pre></div>
 
@@ -12627,6 +12743,88 @@ for unset fields, this factory does not.</p>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
                       <code>None</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>maxsize</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Per-key circuits kept resident by <code>keyed</code>. <code>0</code> keeps every key.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="int">int</span></code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code><span title="grelmicro.resilience.circuitbreaker._KEYED_MAXSIZE">_KEYED_MAXSIZE</span></code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="grelmicro.resilience.CircuitBreaker.keyed" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">keyed</span>
+
+
+</h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">keyed</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CircuitBreaker&lt;/span&gt; (&lt;code&gt;grelmicro.resilience.circuitbreaker.CircuitBreaker&lt;/code&gt;)" href="#grelmicro.resilience.CircuitBreaker">CircuitBreaker</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the circuit for <code>key</code>, creating it on first use.</p>
+<p>Each key gets independent counters, state, and cool-down, so
+one failing tenant opens its own circuit while every other key
+keeps calling. The returned breaker supports the same block,
+decorator, <code>from_thread</code>, <code>isolate</code>, <code>reset</code>, <code>state</code>, and
+<code>metrics</code> surface as the unkeyed breaker.</p>
+<p>Circuits are kept resident up to <code>maxsize</code> and the least
+recently used are evicted. A circuit with calls in flight, or
+used within the residency window, is never evicted.</p>
+<p>Evicting an open circuit is safe. The backend owns the state,
+so the next call on that key rebinds and reads the same <code>OPEN</code>
+back.</p>
+
+
+<table>
+      <thead>
+        <tr>
+          <th><span class="doc-section-title">PARAMETER</span></th>
+          <th><span>DESCRIPTION</span></th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>key</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Identifier for the circuit (e.g. tenant, endpoint,
+model).</p>
+<p>The breaker's <code>name</code> already namespaces the backend
+key, so the circuit is stored under <code>name:key</code>.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="str">str</span></code>
                   </span>
               </p>
             </td>
@@ -16481,6 +16679,7 @@ the function's return type.</p>
     <span class="n">prefix</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">table_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;grelmicro_circuit_breaker&quot;</span><span class="p">,</span>
     <span class="n">auto_migrate</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">cleanup_interval</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mf">3600.0</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -16635,6 +16834,32 @@ the schema is managed by your own migration tool.</p>
                   <span class="doc-param-default">
                     <b>DEFAULT:</b>
                       <code>True</code>
+                  </span>
+              </p>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>cleanup_interval</code>
+            </td>
+            <td class="doc-param-details">
+              <div class="doc-md-description">
+                <p>Period in seconds between sweeps that delete circuits
+nobody has called for a day. Defaults to one hour. Pass
+<code>None</code> to disable the sweep, which leaves a dynamic key
+set to grow without bound.</p>
+<p>Each sweep deletes a bounded number of rows and skips
+any circuit a call is currently using, so it stays off
+the admission path.</p>
+              </div>
+              <p>
+                  <span class="doc-param-annotation">
+                    <b>TYPE:</b>
+                      <code><span title="float">float</span> | None</code>
+                  </span>
+                  <span class="doc-param-default">
+                    <b>DEFAULT:</b>
+                      <code>3600.0</code>
                   </span>
               </p>
             </td>
