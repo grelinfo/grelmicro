@@ -5,12 +5,23 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, Self
 
 from typing_extensions import Doc
 
 from grelmicro.cache._protocol import CacheBackend
+from grelmicro.coordination._base import jittered_interval
 from grelmicro.providers.postgres import PostgresProvider
+
+logger = getLogger("grelmicro")
+
+_JANITOR_LIMIT = 1000
+"""Rows a single sweep may delete, bounding how long it holds the write."""
+
+_JANITOR_JITTER = 0.2
+"""Interval jitter, so replicas do not sweep in lockstep."""
+
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -105,7 +116,11 @@ class PostgresCacheAdapter(CacheBackend):
     _SQL_CLEAR_ALL = "DELETE FROM {table_name};"
 
     _SQL_JANITOR = (
-        "DELETE FROM {table_name} WHERE expires_at < NOW() - INTERVAL '1 hour';"
+        "DELETE FROM {table_name} WHERE key IN ("
+        "  SELECT key FROM {table_name}"
+        "    WHERE expires_at < NOW() - INTERVAL '1 hour'"
+        "    LIMIT $1"
+        ");"
     )
 
     def __init__(
@@ -357,12 +372,22 @@ class PostgresCacheAdapter(CacheBackend):
             await self._provider.client.execute(self._clear_all_sql)
 
     async def _janitor_loop(self) -> None:
-        """Periodically delete rows expired for more than one hour."""
+        """Periodically delete rows expired for more than one hour.
+
+        Each pass deletes at most `_JANITOR_LIMIT` rows, so a large
+        backlog is worked off over several passes instead of holding
+        one long delete. The interval is jittered so replicas sharing
+        one database do not sweep at the same instant.
+        """
         interval = self._cleanup_interval or 0
         while True:
-            await asyncio.sleep(interval)
-            with contextlib.suppress(Exception):
-                await self._provider.client.execute(self._janitor_sql)
+            await asyncio.sleep(jittered_interval(interval, _JANITOR_JITTER))
+            try:
+                await self._provider.client.execute(
+                    self._janitor_sql, _JANITOR_LIMIT
+                )
+            except Exception:
+                logger.warning("Cache cleanup sweep failed", exc_info=True)
 
 
 def _escape_like(value: str) -> str:

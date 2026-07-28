@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* 🐛 Bound the cache cleanup sweep. It deleted every expired row in one statement, so a large backlog held one long delete against the table. Each pass now takes at most 1000 rows and the interval is jittered, so replicas do not sweep in lockstep. ([#496](https://github.com/grelinfo/grelmicro/issues/496))
+* 🐛 Log cache cleanup failures instead of swallowing them. A failing sweep was silently suppressed, so a cache that stopped reclaiming disk gave no signal. ([#496](https://github.com/grelinfo/grelmicro/issues/496))
+
 ## 0.32.2 - 2026-07-28
 
 ### Features

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from time import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -15,6 +17,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = [pytest.mark.timeout(5)]
+
+JANITOR_SWEEP = 3
+"""Rows a bounded sweep is allowed to delete in tests."""
+
+JANITOR_OVERFLOW = 8
+"""Expired rows queued up, more than one sweep can take."""
 
 
 # --- Construction and wiring ---
@@ -199,3 +207,44 @@ async def test_clear_without_prefix_drops_everything(
 
         assert await cache.get(key="a") is None
         assert await cache.get(key="b") is None
+
+
+async def test_janitor_sweep_is_bounded(tmp_path: Path) -> None:
+    """One sweep deletes at most the row limit, leaving the rest for later."""
+    path = tmp_path / "bounded.db"
+    async with (
+        SQLiteProvider(str(path)) as provider,
+        SQLiteCacheAdapter(provider=provider, cleanup_interval=None) as cache,
+    ):
+        for index in range(JANITOR_OVERFLOW):
+            await cache.set(key=f"stale-{index}", value=b"v", ttl=-7200)
+
+        await provider.client.execute(
+            cache._janitor_sql, (time() - 3600, JANITOR_SWEEP)
+        )
+
+        async with provider.client.execute(
+            "SELECT COUNT(*) FROM grelmicro_cache;"
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        assert row is not None
+        assert row[0] == JANITOR_OVERFLOW - JANITOR_SWEEP
+
+
+async def test_janitor_survives_a_failing_sweep(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A sweep error is logged and the loop keeps running."""
+    path = tmp_path / "broken.db"
+    async with (
+        SQLiteProvider(str(path)) as provider,
+        SQLiteCacheAdapter(provider=provider, cleanup_interval=0.01) as cache,
+    ):
+        cache._janitor_sql = "DELETE FROM nope WHERE expires_at < ? LIMIT ?;"
+        with caplog.at_level(logging.WARNING, logger="grelmicro"):
+            await asyncio.sleep(0.3)
+
+        assert cache._janitor_task is not None
+        assert not cache._janitor_task.done()
+        assert "Cache cleanup sweep failed" in caplog.text
