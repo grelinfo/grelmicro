@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* ✨ Add `CircuitBreaker.keyed(key)` to give each tenant, endpoint, or model its own circuit. Each key gets independent counters, state, and cool-down, so one failing key opens alone while the rest keep calling. The returned circuit supports the same block, decorator, `from_thread`, `isolate`, `reset`, `state`, and `metrics` surface. A breaker keeps `maxsize` circuits resident (1024 by default) and never evicts one that is busy, not `CLOSED`, or recently used. ([#496](https://github.com/grelinfo/grelmicro/issues/496))
+
 ## 0.32.1 - 2026-07-28
 
 Re-cut of 0.32.0, which never reached PyPI. A flaky test failed the release run, so publishing was skipped. The 0.32.0 tag is immutable, so the same contents ship here. See [0.32.0](#0320-2026-07-28) for the changes.

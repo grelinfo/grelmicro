@@ -53,6 +53,27 @@ Two operator verbs let you drive the breaker by hand.
 
 `await cb.reset()` returns the breaker to normal automatic operation. It clears the counters and the last error, then moves to `CLOSED`. Use it to release an `isolate()` hold or to start fresh.
 
+## Per-key breaking
+
+By default a breaker protects one circuit. Every call shares the same counters, so the whole dependency opens together. That is the right default when the dependency is either up or down for everyone.
+
+Some failures are per-key instead. One tenant's credentials get revoked while every other tenant is fine. One model endpoint degrades while the rest answer normally. A single circuit either opens for everyone (a false positive) or never opens at all, because the healthy majority hides the broken key.
+
+Call `cb.keyed(key)` to give each key its own circuit:
+
+```python
+--8<-- "resilience/circuitbreaker_keyed.py"
+```
+
+Each key gets independent counters, its own state, and its own cool-down. `keyed(key)` returns a full breaker, so `state`, `metrics()`, `isolate()`, `reset()`, `from_thread`, and the decorator form all work per key.
+
+The unkeyed `async with cb:` path is unchanged and stays available on the same instance.
+
+!!! warning "Key cardinality"
+    A breaker keeps at most `maxsize` circuits resident (1024 by default) and evicts the least recently used. A circuit is never evicted while it has calls in flight, while it is anything other than `CLOSED`, or within 300 seconds of its last call, so an open circuit cannot be dropped and silently re-admit traffic. Set `maxsize=0` to keep every key, and only do that when the key set is bounded.
+
+    Metrics stay under the breaker name, not the key, so `grelmicro.circuit_breaker.calls` does not gain one time series per tenant. Read per-key detail with `cb.keyed(key).metrics()`. Log lines carry the full `name:key` identity.
+
 ## Backend
 
 By default each replica keeps its own breaker state. A degraded downstream trips one replica's breaker without telling the others, and `error_threshold` errors must happen on every replica before the dependency stops being probed.
@@ -88,6 +109,8 @@ Pass a shared `CircuitBreakerRegistry(redis_provider)` or `CircuitBreakerRegistr
 Use a **shared** backend (Redis or Postgres) when one replica's circuit decision should short-circuit the rest. Pick Redis for the lowest-latency option when you already run it, or Postgres when it is your only stateful dependency. Use **SQLite** when many processes on a single host share one file and you want their circuit decisions to coordinate without an external service. SQLite is a local file, so it coordinates processes on one host, not across hosts. Use **Memory** (the default) when each replica's downstream is independent (per-shard databases, per-zone caches).
 
 When the shared backend is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with [`Retry`](retry.md) or a Fallback Pattern if you need a degraded path during an outage.
+
+Per-key circuits on a shared backend need one more thing to hold. `maxsize` bounds what a replica keeps in memory, not what the backend stores. Evicting a circuit locally must never delete the shared row, because another replica may still be relying on it. Shared state is therefore expired by the backend on its own schedule, and a key that goes quiet is cleaned up there rather than on eviction.
 
 ??? note "Local vs. shared, and how shared state is stored"
 
