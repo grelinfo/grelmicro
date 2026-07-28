@@ -9,7 +9,7 @@ checkout_redis = RedisProvider("redis://localhost:6379/1")
 checkout = Bulkhead(
     "checkout",
     max_concurrent=50,
-    uses=[checkout_redis, Coordination(checkout_redis)],
+    uses=[Coordination(checkout_redis)],
 )
 
 cart_lock = Lock("cart")
