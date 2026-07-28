@@ -17,10 +17,10 @@ JSONEncodable: TypeAlias = (  # noqa: UP040
     | float
     | bool
     | datetime
-    | None
     | Mapping[str, "JSONEncodable"]
     | list["JSONEncodable"]
     | tuple["JSONEncodable", ...]
+    | None
 )
 """Recursive JSON-encodable value (``datetime`` becomes an ISO 8601 string)."""
 

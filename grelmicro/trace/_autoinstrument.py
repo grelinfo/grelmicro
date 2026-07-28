@@ -120,7 +120,7 @@ def instrument_providers(
             continue
         try:
             attached = provider.instrument(tracer_provider)
-        except Exception:  # noqa: BLE001
+        except Exception:
             _logger.warning(
                 "Failed to auto-instrument provider '%s'",
                 provider.short_name,
@@ -143,7 +143,7 @@ def uninstrument_providers(providers: Sequence[Provider]) -> None:
     for provider in providers:
         try:
             provider.uninstrument()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _logger.warning(
                 "Failed to un-instrument provider '%s'",
                 provider.short_name,
@@ -229,7 +229,7 @@ def instrument_libraries(
         try:
             instrumentor = entries[name].load()()
             instrumentor.instrument(tracer_provider=tracer_provider)
-        except Exception:  # noqa: BLE001
+        except Exception:
             _logger.warning(
                 "Failed to auto-instrument library '%s'", name, exc_info=True
             )
@@ -243,7 +243,7 @@ def uninstrument_libraries(instrumentors: Sequence[Any]) -> None:
     for instrumentor in instrumentors:
         try:
             instrumentor.uninstrument()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _logger.warning(
                 "Failed to un-instrument library '%s'",
                 type(instrumentor).__name__,
