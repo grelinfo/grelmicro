@@ -62,25 +62,21 @@ jobs:
     needs: publish-pypi
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pages: write
       id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     env:
       UV_FROZEN: 1
       RELEASE_VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}
-      GH_ACTOR: ${{ github.actor }}
-      GH_ACTOR_ID: ${{ github.actor_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ env.RELEASE_VERSION }}
-          fetch-depth: 0
-          persist-credentials: true
-      - name: Configure Git User
-        run: |
-          git config user.name "$GH_ACTOR"
-          git config user.email "${GH_ACTOR_ID}+${GH_ACTOR}@users.noreply.github.com"
+          persist-credentials: false
       - name: Install uv and Activate Environment
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
@@ -90,6 +86,11 @@ jobs:
         run: uv sync --group docs
       - name: Build Docs
         run: mkdocs build --strict
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
       - name: Deploy Docs on GitHub Pages
+        id: deployment
         if: ${{ github.event.inputs.dry_run != 'true' }}
-        run: mkdocs gh-deploy --force
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
