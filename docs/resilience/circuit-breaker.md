@@ -53,6 +53,29 @@ Two operator verbs let you drive the breaker by hand.
 
 `await cb.reset()` returns the breaker to normal automatic operation. It clears the counters and the last error, then moves to `CLOSED`. Use it to release an `isolate()` hold or to start fresh.
 
+## Per-key breaking
+
+By default a breaker protects one circuit. Every call shares the same counters, so the whole dependency opens together. That is the right default when the dependency is either up or down for everyone.
+
+Some failures are per-key instead. One tenant's credentials get revoked while every other tenant is fine. One model endpoint degrades while the rest answer normally. A single circuit either opens for everyone (a false positive) or never opens at all, because the healthy majority hides the broken key.
+
+Call `cb.keyed(key)` to give each key its own circuit:
+
+```python
+--8<-- "resilience/circuitbreaker_keyed.py"
+```
+
+Each key gets independent counters, its own state, and its own cool-down. `keyed(key)` returns a full breaker, so `state`, `metrics()`, `isolate()`, `reset()`, `from_thread`, and the decorator form all work per key.
+
+The unkeyed `async with cb:` path is unchanged and stays available on the same instance.
+
+!!! warning "Key cardinality"
+    A breaker keeps at most `maxsize` circuits resident (1024 by default) and evicts the least recently used. A circuit is never evicted while it has calls in flight or within 300 seconds of its last call. Set `maxsize=0` to keep every key, and only do that when the key set is bounded.
+
+    Evicting an open circuit is safe. The backend owns the state, so the next call on that key rebinds and reads the same `OPEN` back. Only the per-replica counters and `last_error` reset.
+
+    Metrics stay under the breaker name, not the key, so `grelmicro.circuit_breaker.calls` does not gain one time series per tenant. Read per-key detail with `cb.keyed(key).metrics()`. Log lines carry the full `name:key` identity.
+
 ## Backend
 
 By default each replica keeps its own breaker state. A degraded downstream trips one replica's breaker without telling the others, and `error_threshold` errors must happen on every replica before the dependency stops being probed.
@@ -88,6 +111,23 @@ Pass a shared `CircuitBreakerRegistry(redis_provider)` or `CircuitBreakerRegistr
 Use a **shared** backend (Redis or Postgres) when one replica's circuit decision should short-circuit the rest. Pick Redis for the lowest-latency option when you already run it, or Postgres when it is your only stateful dependency. Use **SQLite** when many processes on a single host share one file and you want their circuit decisions to coordinate without an external service. SQLite is a local file, so it coordinates processes on one host, not across hosts. Use **Memory** (the default) when each replica's downstream is independent (per-shard databases, per-zone caches).
 
 When the shared backend is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with [`Retry`](retry.md) or a Fallback Pattern if you need a degraded path during an outage.
+
+### Stored state
+
+A circuit stores nothing until it has something to remember. Closing on recovery, and `reset()`, delete the entry rather than writing an empty one, because every backend already reads a missing entry as `CLOSED`.
+
+What remains is bounded by a lifetime. A circuit nobody has called for a day is forgotten, and the next call starts from a clean `CLOSED`. That is what keeps a dynamic key set from growing the store forever. The lifetime is always longer than the cool-down, so an open circuit cannot forget itself while it is waiting to probe.
+
+`isolate()` is exempt. An operator hold has no lifetime and stays until you `reset()` it.
+
+Each backend reclaims in its own way. Redis expires the key itself. Postgres and SQLite sweep in the background every hour, deleting a bounded number of rows per pass and skipping any circuit a call is using. Pass `cleanup_interval=` to change the period, or `None` to turn the sweep off.
+
+```python
+CircuitBreakerRegistry(PostgresCircuitBreakerAdapter(cleanup_interval=600))
+```
+
+!!! warning "Turning the sweep off"
+    `cleanup_interval=None` leaves a dynamic key set to grow without bound. Only use it when the key set is small and fixed, or when your own job reclaims the table.
 
 ??? note "Local vs. shared, and how shared state is stored"
 

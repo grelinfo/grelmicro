@@ -310,9 +310,9 @@
       "()": "(*, name, max_concurrent)"
     },
     "CircuitBreaker": {
-      "()": "(name, config=..., *, backend=...)",
-      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=...)",
-      ".from_config": "(name, config, *, backend=...)"
+      "()": "(name, config=..., *, backend=..., maxsize=...)",
+      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=..., maxsize=...)",
+      ".from_config": "(name, config, *, backend=..., maxsize=...)"
     },
     "CircuitBreakerBackend": {
       "()": "(*args, **kwargs)"
@@ -401,7 +401,7 @@
       ".from_result": "(result)"
     },
     "PostgresCircuitBreakerAdapter": {
-      "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
+      "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=..., cleanup_interval=...)"
     },
     "PostgresRateLimiterAdapter": {
       "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
@@ -462,7 +462,7 @@
       "()": "(*args, **kwargs)"
     },
     "SQLiteCircuitBreakerAdapter": {
-      "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
+      "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=..., cleanup_interval=...)"
     },
     "SQLiteRateLimiterAdapter": {
       "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
@@ -531,9 +531,9 @@
   },
   "grelmicro.resilience.circuitbreaker": {
     "CircuitBreaker": {
-      "()": "(name, config=..., *, backend=...)",
-      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=...)",
-      ".from_config": "(name, config, *, backend=...)"
+      "()": "(name, config=..., *, backend=..., maxsize=...)",
+      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=..., maxsize=...)",
+      ".from_config": "(name, config, *, backend=..., maxsize=...)"
     },
     "CircuitBreakerConfig": {
       "()": "(*args, **kwargs)"

@@ -1,8 +1,10 @@
 """Tests for SQLite Circuit Breaker Adapter."""
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from time import time
 
 import pytest
 
@@ -442,3 +444,250 @@ async def test_two_breakers_share_state(
             pass
 
     assert cb_b.state is CircuitBreakerState.OPEN
+
+
+SWEEP_LIMIT = 4
+"""Rows a bounded sweep is allowed to delete in tests."""
+
+DAY = 86400.0
+"""The flat stored-state lifetime, in seconds."""
+
+SWEEP_FACTOR = 10.0
+"""Multiple of a cool-down that floors a row's lifetime."""
+
+LONG_COOL_DOWN = 40000.0
+"""A cool-down whose floor exceeds the flat lifetime."""
+
+SWEEP_SURVIVORS = 6
+"""Rows left behind once the bounded sweep hits its limit."""
+
+
+async def _row_names(backend: SQLiteCircuitBreakerAdapter) -> list[str]:
+    async with backend.provider.client.execute(
+        "SELECT name FROM grelmicro_circuit_breaker ORDER BY name;"
+    ) as cursor:
+        return [row[0] for row in await cursor.fetchall()]
+
+
+async def test_recovered_circuit_stores_nothing(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """Closing on recovery deletes the row, since absence means CLOSED."""
+    strategy = _bind(
+        backend,
+        name="recover",
+        error_threshold=1,
+        success_threshold=1,
+        reset_timeout=0.01,
+    )
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+    assert await _row_names(backend) == ["cb:recover"]
+
+    await asyncio.sleep(0.05)
+    await strategy.try_acquire()
+    snapshot = await strategy.record_outcome(success=True)
+
+    assert snapshot.state is CircuitBreakerState.CLOSED
+    assert await _row_names(backend) == []
+
+
+async def test_reset_stores_nothing(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A manual reset deletes the row rather than storing a CLOSED one."""
+    strategy = _bind(backend, name="reset", error_threshold=1)
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+
+    await strategy.transition(desired=CircuitBreakerState.CLOSED)
+
+    assert await _row_names(backend) == []
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.CLOSED
+
+
+async def test_stale_circuit_reads_as_closed(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A circuit nobody has touched for its lifetime starts clean."""
+    strategy = _bind(backend, name="stale", error_threshold=2)
+    await strategy.record_outcome(success=False)
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+    )
+
+    snapshot = await strategy.record_outcome(success=False)
+
+    assert snapshot.state is CircuitBreakerState.CLOSED
+    assert snapshot.consecutive_error_count == 1
+
+
+async def test_forced_state_never_expires(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """An operator hold outlives any lifetime."""
+    strategy = _bind(backend, name="forced")
+    await strategy.transition(desired=CircuitBreakerState.FORCED_OPEN)
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+    )
+
+    snapshot = await strategy.get_snapshot()
+
+    assert snapshot.state is CircuitBreakerState.FORCED_OPEN
+
+
+async def test_cleanup_spares_forced_and_fresh_rows(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """The sweep reclaims stale circuits and never an operator hold."""
+    await _bind(backend, name="stale", error_threshold=5).record_outcome(
+        success=False
+    )
+    await _bind(backend, name="forced").transition(
+        desired=CircuitBreakerState.FORCED_OPEN
+    )
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+    )
+    await _bind(backend, name="fresh", error_threshold=5).record_outcome(
+        success=False
+    )
+
+    await backend.provider.client.execute(
+        backend._cleanup_sql, (60.0, 0.0, time(), 100)
+    )
+
+    assert await _row_names(backend) == ["cb:forced", "cb:fresh"]
+
+
+async def test_cleanup_is_bounded(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A sweep deletes at most the row limit it is given."""
+    for index in range(10):
+        await _bind(backend, name=f"t{index}").record_outcome(success=False)
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+    )
+
+    await backend.provider.client.execute(
+        backend._cleanup_sql, (60.0, 0.0, time(), SWEEP_LIMIT)
+    )
+
+    assert len(await _row_names(backend)) == SWEEP_SURVIVORS
+
+
+def test_cleanup_interval_must_be_positive() -> None:
+    """A non-positive sweep interval is rejected at construction."""
+    with pytest.raises(ValueError, match="cleanup_interval must be positive"):
+        SQLiteCircuitBreakerAdapter(
+            provider=SQLiteProvider("x.db"), cleanup_interval=0
+        )
+
+
+async def test_janitor_sweeps_on_its_interval(tmp_path: Path) -> None:
+    """The background sweep reclaims stale rows without being called."""
+    provider = SQLiteProvider(str(tmp_path / "janitor.db"))
+    async with (
+        provider,
+        SQLiteCircuitBreakerAdapter(
+            provider=provider, cleanup_interval=0.05
+        ) as adapter,
+    ):
+        await _bind(adapter, name="stale").record_outcome(success=False)
+        await provider.client.execute(
+            "UPDATE grelmicro_circuit_breaker SET updated_at = 0;"
+        )
+        await provider.client.commit()
+
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            if not await _row_names(adapter):
+                break
+
+        assert await _row_names(adapter) == []
+
+
+async def test_janitor_survives_a_failing_sweep(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A sweep error is logged and the loop keeps running."""
+    provider = SQLiteProvider(str(tmp_path / "broken.db"))
+    async with (
+        provider,
+        SQLiteCircuitBreakerAdapter(
+            provider=provider, cleanup_interval=0.05
+        ) as adapter,
+    ):
+        adapter._cleanup_sql = "DELETE FROM nope WHERE 1;"
+        with caplog.at_level(logging.WARNING, logger="grelmicro"):
+            await asyncio.sleep(0.3)
+
+        assert adapter._janitor_task is not None
+        assert not adapter._janitor_task.done()
+        assert "cleanup sweep failed" in caplog.text
+
+
+async def test_migrates_a_table_created_before_updated_at(
+    tmp_path: Path,
+) -> None:
+    """An existing table gains the column instead of erroring."""
+    path = tmp_path / "legacy.db"
+    provider = SQLiteProvider(str(path))
+    async with provider:
+        # The pre-lifetime schema, exactly as older versions created it.
+        await provider.client.execute(
+            "CREATE TABLE grelmicro_circuit_breaker ("
+            "  name TEXT PRIMARY KEY,"
+            "  state TEXT NOT NULL DEFAULT 'CLOSED',"
+            "  opened_at REAL NOT NULL DEFAULT 0,"
+            "  cool_down REAL NOT NULL DEFAULT 0,"
+            "  cerr INTEGER NOT NULL DEFAULT 0,"
+            "  csucc INTEGER NOT NULL DEFAULT 0,"
+            "  ho_admit INTEGER NOT NULL DEFAULT 0"
+            ");"
+        )
+        await provider.client.commit()
+
+        async with SQLiteCircuitBreakerAdapter(
+            provider=provider, cleanup_interval=None
+        ) as adapter:
+            strategy = _bind(adapter, name="legacy", error_threshold=1)
+            await strategy.record_outcome(success=False)
+
+            assert (
+                await strategy.get_snapshot()
+            ).state is CircuitBreakerState.OPEN
+
+        async with provider.client.execute(
+            "SELECT count(*) FROM pragma_table_info('grelmicro_circuit_breaker')"
+            " WHERE name = 'updated_at';"
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        assert row is not None
+        assert row[0] == 1
+
+
+async def test_sweep_spares_an_open_circuit_still_cooling_down(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A long cool-down floors the row's lifetime, sweep included."""
+    strategy = _bind(
+        backend, name="slow", error_threshold=1, reset_timeout=LONG_COOL_DOWN
+    )
+    await strategy.record_outcome(success=False)
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.OPEN
+
+    # A whole day of quiet, still well inside 10x the cool-down.
+    await backend.provider.client.execute(
+        "UPDATE grelmicro_circuit_breaker SET updated_at = ?;",
+        (time() - DAY,),
+    )
+    await backend.provider.client.execute(
+        backend._cleanup_sql, (DAY, SWEEP_FACTOR, time(), 100)
+    )
+
+    assert await _row_names(backend) == ["cb:slow"]
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.OPEN

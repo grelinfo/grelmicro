@@ -4,18 +4,37 @@ from __future__ import annotations
 
 import asyncio
 import re
+from contextlib import suppress
+from logging import getLogger
 from time import time
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro.coordination._base import jittered_interval
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
     CircuitBreakerSnapshot,
     CircuitBreakerStrategy,
 )
-from grelmicro.resilience.circuitbreaker import CircuitBreakerState
+from grelmicro.resilience.circuitbreaker import (
+    _STATE_TTL,
+    _STATE_TTL_RESET_FACTOR,
+    CircuitBreakerState,
+    _resolve_state_ttl,
+)
+
+logger = getLogger("grelmicro")
+
+_CLEANUP_LIMIT = 100
+"""Rows a single sweep may delete, bounding its cost."""
+
+_CLEANUP_FIRST_DELAY = 30.0
+"""Seconds before the first sweep, so short-lived workers reclaim too."""
+
+_CLEANUP_JITTER = 0.2
+"""Interval jitter, so processes do not sweep in lockstep."""
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -75,7 +94,31 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
             cool_down REAL NOT NULL DEFAULT 0,
             cerr INTEGER NOT NULL DEFAULT 0,
             csucc INTEGER NOT NULL DEFAULT 0,
-            ho_admit INTEGER NOT NULL DEFAULT 0
+            ho_admit INTEGER NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL DEFAULT 0
+        );
+    """
+
+    _SQL_HAS_UPDATED_AT = """
+        SELECT count(*) FROM pragma_table_info('{table_name}')
+            WHERE name = 'updated_at';
+    """
+
+    _SQL_ADD_UPDATED_AT = """
+        ALTER TABLE {table_name} ADD COLUMN updated_at REAL NOT NULL DEFAULT 0;
+    """
+
+    _SQL_CREATE_INDEX = """
+        CREATE INDEX IF NOT EXISTS {table_name}_updated_at_idx
+            ON {table_name} (updated_at);
+    """
+
+    _SQL_CLEANUP = """
+        DELETE FROM {table_name} WHERE rowid IN (
+            SELECT rowid FROM {table_name}
+                WHERE state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
+                  AND updated_at + MAX(?, ? * cool_down) <= ?
+                LIMIT ?
         );
     """
 
@@ -133,8 +176,26 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
                 """
             ),
         ] = True,
+        cleanup_interval: Annotated[
+            float | None,
+            Doc(
+                """
+                Period in seconds between sweeps that delete circuits
+                nobody has called for a day. Defaults to one hour. Pass
+                `None` to disable the sweep, which leaves a dynamic key
+                set to grow without bound.
+
+                Each sweep deletes a bounded number of rows, so it
+                stays off the admission path.
+                """
+            ),
+        ] = 3600.0,
     ) -> None:
         """Initialize the circuit breaker adapter."""
+        if cleanup_interval is not None and cleanup_interval <= 0:
+            msg = f"cleanup_interval must be positive, got {cleanup_interval!r}"
+            raise ValueError(msg)
+
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise ValueError(msg)
@@ -150,6 +211,9 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
         self._key_prefix = f"{prefix}{self._KEY_PREFIX}"
         self._table_name = table_name
         self._auto_migrate = auto_migrate
+        self._cleanup_interval = cleanup_interval
+        self._cleanup_sql = self._SQL_CLEANUP.format(table_name=table_name)
+        self._janitor_task: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
@@ -168,9 +232,26 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
         if self._auto_migrate:  # pragma: no branch
-            await self._provider.client.execute(
+            client = self._provider.client
+            await client.execute(
                 self._SQL_CREATE_TABLE.format(table_name=self._table_name)
             )
+            # SQLite has no ADD COLUMN IF NOT EXISTS, so an existing
+            # table is widened only when the column is really missing.
+            async with client.execute(
+                self._SQL_HAS_UPDATED_AT.format(table_name=self._table_name)
+            ) as cursor:
+                present = await cursor.fetchone()
+            if not present or not present[0]:
+                await client.execute(
+                    self._SQL_ADD_UPDATED_AT.format(table_name=self._table_name)
+                )
+            await client.execute(
+                self._SQL_CREATE_INDEX.format(table_name=self._table_name)
+            )
+            await client.commit()
+        if self._cleanup_interval is not None:
+            self._janitor_task = asyncio.create_task(self._janitor_loop())
         return self
 
     async def __aexit__(
@@ -181,8 +262,48 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
     ) -> None:
         """Close the provider when owned. External providers are left alone."""
         self._loop = None
+        if self._janitor_task is not None:
+            self._janitor_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._janitor_task
+            self._janitor_task = None
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
+
+    async def _janitor_loop(self) -> None:
+        """Sweep expired circuits on an interval until the adapter closes.
+
+        The interval is jittered so processes sharing one file do not
+        all sweep at the same instant. The first sweep runs shortly
+        after startup, so a short-lived worker still reclaims something.
+        """
+        interval = self._cleanup_interval or 0.0
+        delay = min(_CLEANUP_FIRST_DELAY, interval)
+        while True:
+            await asyncio.sleep(jittered_interval(delay, _CLEANUP_JITTER))
+            delay = interval
+            try:
+                client = self._provider.client
+                async with self._provider.connection_lock:
+                    await client.execute("BEGIN IMMEDIATE;")
+                    try:
+                        await client.execute(
+                            self._cleanup_sql,
+                            (
+                                _STATE_TTL,
+                                _STATE_TTL_RESET_FACTOR,
+                                time(),
+                                _CLEANUP_LIMIT,
+                            ),
+                        )
+                        await client.execute("COMMIT;")
+                    except BaseException:
+                        await client.execute("ROLLBACK;")
+                        raise
+            except Exception:
+                logger.warning(
+                    "Circuit breaker cleanup sweep failed", exc_info=True
+                )
 
     def bind(
         self,
@@ -217,21 +338,25 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
     file.
     """
 
+    _SQL_DELETE = "DELETE FROM {table_name} WHERE name = ?;"
+
     _SQL_SELECT = (
-        "SELECT state, opened_at, cool_down, cerr, csucc, ho_admit "
-        "FROM {table_name} WHERE name = ?;"
+        "SELECT state, opened_at, cool_down, cerr, csucc, ho_admit, "
+        "updated_at FROM {table_name} WHERE name = ?;"
     )
     _SQL_UPSERT = """
         INSERT INTO {table_name}
-            (name, state, opened_at, cool_down, cerr, csucc, ho_admit)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (name, state, opened_at, cool_down, cerr, csucc, ho_admit,
+             updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (name) DO UPDATE SET
             state = excluded.state,
             opened_at = excluded.opened_at,
             cool_down = excluded.cool_down,
             cerr = excluded.cerr,
             csucc = excluded.csucc,
-            ho_admit = excluded.ho_admit;
+            ho_admit = excluded.ho_admit,
+            updated_at = excluded.updated_at;
     """
 
     def __init__(
@@ -253,6 +378,8 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
         self._half_open_capacity = config.half_open_capacity
         self._select_sql = self._SQL_SELECT.format(table_name=table_name)
         self._upsert_sql = self._SQL_UPSERT.format(table_name=table_name)
+        self._delete_sql = self._SQL_DELETE.format(table_name=table_name)
+        self._ttl = _resolve_state_ttl(config.reset_timeout)
 
     async def _read(self) -> _Row:
         async with self._conn.execute(
@@ -261,14 +388,27 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
             row = await cursor.fetchone()
         if row is None:
             return _Row()
+        state = CircuitBreakerState(row[0])
+        # Lazy expiry: a circuit nobody has touched for its lifetime
+        # reads as a clean CLOSED instead of carrying stale counters.
+        # An operator hold has no lifetime.
+        if (
+            state not in _FORCED_STATES
+            and float(row[6]) + _resolve_state_ttl(float(row[2])) <= time()
+        ):
+            return _Row()
         return _Row(
-            state=CircuitBreakerState(row[0]),
+            state=state,
             opened_at=float(row[1]),
             cool_down=float(row[2]),
             cerr=int(row[3]),
             csucc=int(row[4]),
             ho_admit=int(row[5]),
         )
+
+    async def _delete(self) -> None:
+        """Drop the row, which every reader already treats as CLOSED."""
+        await self._conn.execute(self._delete_sql, (self._name,))
 
     async def _write(self, row: _Row) -> None:
         await self._conn.execute(
@@ -281,6 +421,7 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
                 row.cerr,
                 row.csucc,
                 row.ho_admit,
+                time(),
             ),
         )
 
@@ -358,12 +499,10 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
                 if row.ho_admit > 0:  # pragma: no branch
                     row.ho_admit -= 1
                 if row.csucc >= self._success_threshold:
-                    row.state = CircuitBreakerState.CLOSED
-                    row.opened_at = 0.0
-                    row.cool_down = 0.0
-                    row.cerr = 0
-                    row.csucc = 0
-                    row.ho_admit = 0
+                    # A closed circuit with cleared counters is what a
+                    # missing row already means, so store nothing.
+                    await self._delete()
+                    return _DEFAULT_SNAPSHOT
         else:
             row.cerr += 1
             row.csucc = 0
@@ -390,6 +529,10 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
         async with self._lock:
             await self._conn.execute("BEGIN IMMEDIATE;")
             try:
+                if desired == CircuitBreakerState.CLOSED:
+                    await self._delete()
+                    await self._conn.execute("COMMIT;")
+                    return
                 row = _Row(state=desired)
                 if desired == CircuitBreakerState.OPEN:
                     row.opened_at = time()
@@ -409,6 +552,21 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
         async with self._lock:
             row = await self._read()
         return _snapshot_of(row)
+
+
+_FORCED_STATES = (
+    CircuitBreakerState.FORCED_OPEN,
+    CircuitBreakerState.FORCED_CLOSED,
+)
+"""States held by an operator, which no lifetime may release."""
+
+_DEFAULT_SNAPSHOT = CircuitBreakerSnapshot(
+    state=CircuitBreakerState.CLOSED,
+    opened_at=0.0,
+    consecutive_error_count=0,
+    consecutive_success_count=0,
+)
+"""What every reader sees for a circuit with no stored row."""
 
 
 class _Row:

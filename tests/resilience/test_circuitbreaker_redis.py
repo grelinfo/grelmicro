@@ -73,6 +73,9 @@ def test_bind_rejects_unknown_kind(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- Integration tests against a real Redis container ---
 
 
+LONG_RESET_TIMEOUT = 3600
+"""A cool-down long enough that the lifetime floor must exceed it."""
+
 _INTEGRATION_TIMEOUT = pytest.mark.timeout(30)
 
 
@@ -310,3 +313,103 @@ async def test_two_breakers_share_state(
             pass
 
     assert cb_b.state is CircuitBreakerState.OPEN
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_state_key_carries_a_lifetime(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """A stored circuit expires instead of living forever."""
+    strategy = _bind(backend, name="ttl", error_threshold=1)
+
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+
+    ttl = await backend.provider.client.ttl(f"{backend._key_prefix}ttl")
+
+    assert ttl > 0
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_lifetime_outlasts_the_cool_down(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """The lifetime floor keeps an open circuit from forgetting itself."""
+    strategy = _bind(
+        backend,
+        name="floor",
+        error_threshold=1,
+        reset_timeout=LONG_RESET_TIMEOUT,
+    )
+
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+
+    ttl = await backend.provider.client.ttl(f"{backend._key_prefix}floor")
+
+    assert ttl > LONG_RESET_TIMEOUT
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_recovered_circuit_stores_nothing(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """Closing on recovery deletes the key, since absence means CLOSED."""
+    strategy = _bind(
+        backend,
+        name="recover",
+        error_threshold=1,
+        success_threshold=1,
+        reset_timeout=0.01,
+    )
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+    assert await backend.provider.client.exists(f"{backend._key_prefix}recover")
+
+    await asyncio.sleep(0.05)
+    await strategy.try_acquire()
+    snapshot = await strategy.record_outcome(success=True)
+
+    assert snapshot.state is CircuitBreakerState.CLOSED
+    assert not await backend.provider.client.exists(
+        f"{backend._key_prefix}recover"
+    )
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_reset_stores_nothing(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """A manual reset deletes the key rather than storing a CLOSED one."""
+    strategy = _bind(backend, name="reset", error_threshold=1)
+    await strategy.try_acquire()
+    await strategy.record_outcome(success=False)
+
+    await strategy.transition(desired=CircuitBreakerState.CLOSED)
+
+    assert not await backend.provider.client.exists(
+        f"{backend._key_prefix}reset"
+    )
+    assert (await strategy.get_snapshot()).state is CircuitBreakerState.CLOSED
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_forced_states_never_expire(
+    backend: RedisCircuitBreakerAdapter,
+) -> None:
+    """An operator hold outlives any lifetime."""
+    strategy = _bind(backend, name="forced")
+
+    await strategy.transition(desired=CircuitBreakerState.FORCED_OPEN)
+
+    ttl = await backend.provider.client.ttl(f"{backend._key_prefix}forced")
+
+    assert ttl == -1
+    assert (
+        await strategy.get_snapshot()
+    ).state is CircuitBreakerState.FORCED_OPEN

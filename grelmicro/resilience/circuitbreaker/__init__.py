@@ -6,6 +6,7 @@ import asyncio
 import functools
 import logging
 import threading
+from collections import OrderedDict
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,6 +20,7 @@ from typing_extensions import Doc
 from grelmicro._app import Grelmicro
 from grelmicro._async import raise_backend_not_open
 from grelmicro._config import Reconfigurable, default_env_prefix
+from grelmicro.clock import monotonic
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import CircuitBreakerError
 
@@ -30,6 +32,33 @@ _STATE_CODE = {
     "FORCED_CLOSED": 4,
 }
 """Numeric codes for the `grelmicro.circuit_breaker.state` gauge."""
+
+_KEYED_MAXSIZE = 1024
+"""Per-key circuits a breaker keeps resident before evicting."""
+
+_KEYED_RESIDENCY = 300.0
+"""Seconds a per-key circuit is immune from eviction after its last call."""
+
+_STATE_TTL = 86400.0
+"""Seconds a circuit's stored state survives without activity.
+
+Once the lifetime lapses the backend reclaims the entry, and the next
+call on that circuit starts from a clean `CLOSED`.
+"""
+
+_STATE_TTL_RESET_FACTOR = 10.0
+"""Multiple of a circuit's cool-down that floors its stored lifetime.
+
+An `OPEN` circuit is rewritten by nothing: every call is rejected
+without touching the store. The floor keeps its lifetime longer than
+the cool-down it is waiting out.
+"""
+
+
+def _resolve_state_ttl(reset_timeout: float) -> float:
+    """Return the stored-state lifetime for a circuit's `reset_timeout`."""
+    return max(_STATE_TTL, _STATE_TTL_RESET_FACTOR * reset_timeout)
+
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -224,6 +253,18 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                 """
             ),
         ] = None,
+        maxsize: Annotated[
+            int,
+            Doc(
+                """
+                Per-key circuits kept resident by
+                [`keyed`][grelmicro.resilience.CircuitBreaker.keyed].
+
+                `0` keeps every key. Only use it when the key set is
+                bounded.
+                """
+            ),
+        ] = _KEYED_MAXSIZE,
     ) -> None:
         """Initialize the circuit breaker, defaulting the algorithm to consecutive-count."""
         register = config is None
@@ -233,7 +274,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             )
 
             config = ConsecutiveCountConfig()
-        self._setup(name, config, backend, register=register)
+        self._setup(name, config, backend, register=register, maxsize=maxsize)
 
     @classmethod
     def from_config(
@@ -259,10 +300,16 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             CircuitBreakerBackend | str | None,
             Doc("The circuit breaker backend."),
         ] = None,
+        maxsize: Annotated[
+            int,
+            Doc(
+                "Per-key circuits kept resident by `keyed`. `0` keeps every key."
+            ),
+        ] = _KEYED_MAXSIZE,
     ) -> Self:
         """Construct a `CircuitBreaker` from a name and a pre-built `CircuitBreakerConfig`."""
         instance = cls.__new__(cls)
-        instance._setup(name, config, backend)  # noqa: SLF001
+        instance._setup(name, config, backend, maxsize=maxsize)  # noqa: SLF001
         return instance
 
     @classmethod
@@ -308,6 +355,12 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             CircuitBreakerBackend | str | None,
             Doc("The circuit breaker backend."),
         ] = None,
+        maxsize: Annotated[
+            int,
+            Doc(
+                "Per-key circuits kept resident by `keyed`. `0` keeps every key."
+            ),
+        ] = _KEYED_MAXSIZE,
     ) -> Self:
         """Construct a `CircuitBreaker` running the consecutive-count algorithm.
 
@@ -331,7 +384,9 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             {k: v for k, v in provided.items() if v is not None}
         )
         instance = cls.__new__(cls)
-        instance._setup(name, config, backend, register=True)  # noqa: SLF001
+        instance._setup(  # noqa: SLF001
+            name, config, backend, register=True, maxsize=maxsize
+        )
         return instance
 
     def _setup(
@@ -341,6 +396,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         backend: CircuitBreakerBackend | str | None,
         *,
         register: bool = False,
+        maxsize: int = _KEYED_MAXSIZE,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance.
 
@@ -351,8 +407,16 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         `register=False` and stays static.
         """
         self._name = name
+        self._key: str | None = None
+        # Metrics are attributed to the breaker, never to a per-key
+        # circuit, so a dynamic key set cannot multiply time series.
+        self._metric_name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
+        # Per-key circuits, most recently used last.
+        self._keyed: OrderedDict[str, _KeyedCircuitBreaker] = OrderedDict()
+        self._keyed_maxsize = maxsize
+        self._touched = 0.0
         if register:
             self._track_reconfigure(default_env_prefix("CIRCUITBREAKER", name))
         self._backend: CircuitBreakerBackend | None = (
@@ -420,6 +484,80 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                 return func(*args, **kwargs)
 
         return sync_wrapper
+
+    def keyed(
+        self,
+        key: Annotated[
+            str,
+            Doc(
+                """
+                Identifier for the circuit (e.g. tenant, endpoint,
+                model).
+
+                The breaker's `name` already namespaces the backend
+                key, so the circuit is stored under `name:key`.
+                """
+            ),
+        ],
+    ) -> CircuitBreaker:
+        """Return the circuit for `key`, creating it on first use.
+
+        Each key gets independent counters, state, and cool-down, so
+        one failing tenant opens its own circuit while every other key
+        keeps calling. The returned breaker supports the same block,
+        decorator, `from_thread`, `isolate`, `reset`, `state`, and
+        `metrics` surface as the unkeyed breaker.
+
+        Circuits are kept resident up to `maxsize` and the least
+        recently used are evicted. A circuit with calls in flight, or
+        used within the residency window, is never evicted.
+
+        Evicting an open circuit is safe. The backend owns the state,
+        so the next call on that key rebinds and reads the same `OPEN`
+        back.
+        """
+        keyed = self._keyed
+        circuit = keyed.get(key)
+        if circuit is not None:
+            keyed.move_to_end(key)
+            circuit._touched = monotonic()  # noqa: SLF001
+            return circuit
+        circuit = _KeyedCircuitBreaker(self, key)
+        keyed[key] = circuit
+        self._evict_keyed()
+        return circuit
+
+    def _evict_keyed(self) -> None:
+        """Drop least recently used circuits while over the budget.
+
+        Skips circuits with calls in flight, and circuits still inside
+        the residency window. Stops when nothing is evictable, letting
+        the map exceed `maxsize` rather than dropping a busy circuit.
+
+        Evicting an open circuit is safe. The backend owns the state,
+        so the next call on that key rebinds and reads the same
+        `OPEN` back. Only the per-replica counters and `last_error`
+        reset, which are already documented as per-replica.
+        """
+        keyed = self._keyed
+        maxsize = self._keyed_maxsize
+        if not maxsize:
+            return
+        now = monotonic()
+        while len(keyed) > maxsize:
+            for key, circuit in keyed.items():
+                if circuit._evictable(now):  # noqa: SLF001
+                    del keyed[key]
+                    break
+            else:
+                return
+
+    def _evictable(self, now: float) -> bool:
+        """Whether this circuit can be dropped from the parent's map."""
+        return (
+            self._active_call_count == 0
+            and now - self._touched >= _KEYED_RESIDENCY
+        )
 
     @property
     def backend(self) -> CircuitBreakerBackend:
@@ -503,7 +641,10 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         if not await strategy.try_acquire():
             _emit.incr(
                 "grelmicro.circuit_breaker.calls",
-                **{"circuit_breaker.name": self._name, "result": "rejected"},
+                **{
+                    "circuit_breaker.name": self._metric_name,
+                    "result": "rejected",
+                },
             )
             self._apply_snapshot(await strategy.get_snapshot())
             raise CircuitBreakerError(
@@ -512,6 +653,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                 last_error=self._last_error,
             )
         self._active_call_count += 1
+        self._touched = monotonic()
         self._enter_stack.set((*self._enter_stack.get(), state.config))
         return self
 
@@ -546,7 +688,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             return None
         _emit.incr(
             "grelmicro.circuit_breaker.calls",
-            **{"circuit_breaker.name": self._name, "result": result},
+            **{"circuit_breaker.name": self._metric_name, "result": result},
         )
         self._apply_snapshot(snapshot)
         return None
@@ -561,13 +703,13 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         _emit.observe(
             "grelmicro.circuit_breaker.state",
             _STATE_CODE.get(new, -1),
-            **{"circuit_breaker.name": self._name},
+            **{"circuit_breaker.name": self._metric_name},
         )
         if previous != new:
             _emit.incr(
                 "grelmicro.circuit_breaker.transitions",
                 **{
-                    "circuit_breaker.name": self._name,
+                    "circuit_breaker.name": self._metric_name,
                     "from": str(previous),
                     "to": str(new),
                 },
@@ -594,6 +736,15 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
     def name(self) -> str:
         """Return the name of the circuit breaker."""
         return self._name
+
+    @property
+    def key(self) -> str | None:
+        """Return the key this circuit is bound to, or `None` when unkeyed.
+
+        Set on the circuits returned by
+        [`keyed`][grelmicro.resilience.CircuitBreaker.keyed].
+        """
+        return self._key
 
     @property
     def state(self) -> CircuitBreakerState:
@@ -671,6 +822,10 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         """Release a call in the circuit breaker."""
         if self._active_call_count > 0:  # pragma: no branch
             self._active_call_count -= 1
+        # Residency runs from the end of the call, so a call that
+        # outlives the window does not leave its circuit evictable the
+        # moment it returns.
+        self._touched = monotonic()
 
     async def _apply_reconfigure(
         self, new_config: CircuitBreakerConfig
@@ -680,6 +835,11 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         # Clear the cached strategy. The next call rebinds it through
         # `_resolve_strategy` with the freshly published config.
         self._state = _State(config=new_config, strategy=None)
+        # Per-key circuits track the breaker's config, so clear theirs
+        # too and let the next call on each key rebind.
+        for circuit in self._keyed.values():
+            circuit._config = new_config  # noqa: SLF001
+            circuit._state = _State(config=new_config, strategy=None)  # noqa: SLF001
 
     def _map_last_error(self) -> ErrorDetails | None:
         """Map the last error to ErrorDetails."""
@@ -699,6 +859,70 @@ class _State:
 
     config: CircuitBreakerConfig
     strategy: CircuitBreakerStrategy | None
+
+
+class _KeyedCircuitBreaker(CircuitBreaker):
+    """One per-key circuit of a keyed `CircuitBreaker`.
+
+    Shares the breaker's logger, admission-config stack, reconfigure
+    lock, and backend binding. Owns the storage identity `name:key`,
+    its own bound strategy, and its own counters, so each key trips
+    independently.
+
+    The logger and `ContextVar` stay shared because both are
+    process-global once created: `getLogger` retains every name for the
+    life of the process, and a `ContextVar` is held strongly by any
+    `Context` that saw it.
+    """
+
+    def __init__(self, breaker: CircuitBreaker, key: str) -> None:
+        """Bind a circuit for `key` onto the breaker's shared machinery."""
+        self._key = key
+        self._name = f"{breaker._name}:{key}"  # noqa: SLF001
+        # Metrics stay attributed to the breaker, so a dynamic key set
+        # never multiplies time series. Logs carry `_name` instead and
+        # keep the full identity.
+        self._metric_name = breaker._metric_name  # noqa: SLF001
+        self._config = breaker._config  # noqa: SLF001
+        self._reconfigure_lock = breaker._reconfigure_lock  # noqa: SLF001
+        self._backend = breaker._backend  # noqa: SLF001
+        self._backend_name = breaker._backend_name  # noqa: SLF001
+        self._enter_stack = breaker._enter_stack  # noqa: SLF001
+        self._logger = breaker._logger  # noqa: SLF001
+        self._from_thread: _ThreadAdapter | None = None
+        self._state = _State(config=breaker._state.config, strategy=None)  # noqa: SLF001
+        self._cached_state = CircuitBreakerState.CLOSED
+        self._consecutive_error_count = 0
+        self._consecutive_success_count = 0
+        self._total_error_count = 0
+        self._total_success_count = 0
+        self._last_error: Exception | None = None
+        self._last_error_time: datetime | None = None
+        self._active_call_count = 0
+        self._touched = monotonic()
+        # A per-key circuit is a leaf: it is not itself keyed, and it
+        # is not tracked for external reload (the breaker is).
+        self._keyed: OrderedDict[str, _KeyedCircuitBreaker] = OrderedDict()
+        self._keyed_maxsize = 0
+
+    def keyed(self, key: str) -> CircuitBreaker:  # noqa: ARG002
+        """Raise, because a per-key circuit cannot be keyed again."""
+        msg = (
+            f"CircuitBreaker({self._name!r}) is already keyed on "
+            f"{self._key!r}. Call keyed() on the breaker instead."
+        )
+        raise ValueError(msg)
+
+    async def reconfigure(
+        self,
+        new_config: CircuitBreakerConfig,  # noqa: ARG002
+    ) -> None:
+        """Raise, because config is published by the breaker."""
+        msg = (
+            f"CircuitBreaker({self._name!r}) is a per-key circuit. "
+            f"Call reconfigure() on the breaker instead."
+        )
+        raise ValueError(msg)
 
 
 def _derive_cause(
@@ -790,6 +1014,7 @@ async def _async_admit(cb: CircuitBreaker) -> bool:
     strategy = state.strategy or cb._resolve_strategy(state)  # noqa: SLF001
     if await strategy.try_acquire():
         cb._active_call_count += 1  # noqa: SLF001
+        cb._touched = monotonic()  # noqa: SLF001
         return True
     cb._apply_snapshot(await strategy.get_snapshot())  # noqa: SLF001
     return False

@@ -12,7 +12,10 @@ from grelmicro.resilience._protocol import (
     CircuitBreakerSnapshot,
     CircuitBreakerStrategy,
 )
-from grelmicro.resilience.circuitbreaker import CircuitBreakerState
+from grelmicro.resilience.circuitbreaker import (
+    CircuitBreakerState,
+    _resolve_state_ttl,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -20,6 +23,16 @@ if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker.consecutive_count import (
         ConsecutiveCountConfig,
     )
+
+
+_CULL_LIMIT = 32
+"""Expired entries reclaimed per write, bounding the sweep's cost."""
+
+_FORCED_STATES = (
+    CircuitBreakerState.FORCED_OPEN,
+    CircuitBreakerState.FORCED_CLOSED,
+)
+"""States held by an operator, which no lifetime may release."""
 
 
 @dataclass(slots=True)
@@ -32,6 +45,8 @@ class _BreakerState:
     consecutive_error_count: int = 0
     consecutive_success_count: int = 0
     half_open_admit: int = 0
+    updated_at: float = 0.0
+    """Monotonic time of the last write, used for lazy expiry."""
 
 
 class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
@@ -83,6 +98,7 @@ class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
             states=self._states,
             name=name,
             config=config,
+            ttl=_resolve_state_ttl(config.reset_timeout),
         )
 
 
@@ -99,6 +115,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         states: dict[str, _BreakerState],
         name: str,
         config: ConsecutiveCountConfig,
+        ttl: float,
     ) -> None:
         """Bind the strategy to the breaker's per-name state and config."""
         self._states = states
@@ -107,13 +124,61 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         self._success_threshold = config.success_threshold
         self._reset_timeout = config.reset_timeout
         self._half_open_capacity = config.half_open_capacity
+        self._ttl = ttl
+
+    @staticmethod
+    def _expired(state: _BreakerState, now: float) -> bool:
+        """Whether an entry has gone quiet for longer than its lifetime.
+
+        The lifetime comes from the entry's own cool-down, so a strategy
+        sweeping the shared map cannot judge another breaker's entry by
+        its own configuration.
+
+        Manually forced states never expire. An operator holds them
+        until an explicit `reset`, so a quiet period must not release
+        the hold.
+        """
+        if state.state in _FORCED_STATES:
+            return False
+        return now - state.updated_at >= _resolve_state_ttl(state.cool_down)
 
     def _get_or_create(self) -> _BreakerState:
+        """Return the live entry for this breaker, creating it if needed.
+
+        Expiry is lazy: a stale entry reads as absent and is replaced,
+        so a returning key starts from a clean `CLOSED` instead of
+        inheriting counters nobody has touched for a day.
+        """
         state = self._states.get(self._name)
-        if state is None:
-            state = _BreakerState()
+        if state is None or self._expired(state, monotonic()):
+            state = _BreakerState(updated_at=monotonic())
             self._states[self._name] = state
+            self._cull()
         return state
+
+    def _cull(self) -> None:
+        """Reclaim a bounded number of expired entries.
+
+        Runs only when a new entry is added, and stops after
+        `_CULL_LIMIT`, so no single call pays for the whole keyspace.
+        """
+        now = monotonic()
+        reclaimed = 0
+        for name, state in list(self._states.items()):
+            if reclaimed >= _CULL_LIMIT:
+                return
+            if name != self._name and self._expired(state, now):
+                del self._states[name]
+                reclaimed += 1
+
+    def _close(self) -> CircuitBreakerSnapshot:
+        """Drop the entry and report the default snapshot.
+
+        Every adapter reads a missing entry as `CLOSED`, so a circuit
+        that closes with its counters cleared stores nothing at all.
+        """
+        self._states.pop(self._name, None)
+        return _DEFAULT_SNAPSHOT
 
     async def try_acquire(self) -> bool:
         """Atomic admission in the loop thread."""
@@ -136,6 +201,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
                 state.half_open_admit = 0
                 state.opened_at = 0.0
                 state.cool_down = 0.0
+                state.updated_at = monotonic()
             else:
                 return False
 
@@ -144,6 +210,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
             and state.half_open_admit < self._half_open_capacity
         ):
             state.half_open_admit += 1
+            state.updated_at = monotonic()
             return True
 
         return False
@@ -164,6 +231,8 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         ):
             return _snapshot_of(state)
 
+        state.updated_at = monotonic()
+
         if success:
             state.consecutive_success_count += 1
             state.consecutive_error_count = 0
@@ -171,12 +240,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
                 if state.half_open_admit > 0:  # pragma: no branch
                     state.half_open_admit -= 1
                 if state.consecutive_success_count >= self._success_threshold:
-                    state.state = CircuitBreakerState.CLOSED
-                    state.consecutive_success_count = 0
-                    state.consecutive_error_count = 0
-                    state.half_open_admit = 0
-                    state.opened_at = 0.0
-                    state.cool_down = 0.0
+                    return self._close()
         else:
             state.consecutive_error_count += 1
             state.consecutive_success_count = 0
@@ -201,8 +265,17 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         desired: CircuitBreakerState,
         cool_down: float | None = None,
     ) -> None:
-        """Manual transition. Last-write-wins."""
+        """Manual transition. Last-write-wins.
+
+        A transition to plain `CLOSED` clears every counter, which is
+        exactly what a missing entry already means, so the entry is
+        dropped instead of stored.
+        """
+        if desired == CircuitBreakerState.CLOSED:
+            self._close()
+            return
         state = self._get_or_create()
+        state.updated_at = monotonic()
         if desired == CircuitBreakerState.OPEN:
             state.state = CircuitBreakerState.OPEN
             state.opened_at = monotonic()
@@ -220,7 +293,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
     async def get_snapshot(self) -> CircuitBreakerSnapshot:
         """Read the current snapshot without mutating state."""
         state = self._states.get(self._name)
-        if state is None:
+        if state is None or self._expired(state, monotonic()):
             return _DEFAULT_SNAPSHOT
         return _snapshot_of(state)
 

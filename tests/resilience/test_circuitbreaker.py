@@ -464,8 +464,10 @@ async def test_circuit_transition_to_half_open_after_timeout(
     cb = await create_circuit(
         CircuitBreakerState.OPEN, success_threshold=2
     )  # Ensure it doesn't close immediately
-    # Push monotonic far enough into the future for the cool_down to elapse.
-    monkeypatch.setattr(cb_memory_module, "monotonic", lambda: 10**9)
+    # Push monotonic past the cool_down, but well inside the stored-state
+    # lifetime: a jump longer than that forgets the circuit by design.
+    resume = cb_memory_module.monotonic() + 60
+    monkeypatch.setattr(cb_memory_module, "monotonic", lambda: resume)
 
     # Act
     await generate_success(cb)
