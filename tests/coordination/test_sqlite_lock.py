@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import aiosqlite
 import pytest
 
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
@@ -161,6 +162,44 @@ async def test_shares_one_connection_with_another_component(
 
         # Assert
         assert lock.provider.client is cache.provider.client
+
+
+async def test_acquire_and_release_commit_for_other_processes(
+    tmp_path: Path,
+) -> None:
+    """Acquire and release are durable, not left open on the connection.
+
+    The provider's connection runs in autocommit, so both statements commit
+    when they finish. A second connection stands in for another process: it
+    can only see writes that actually committed, which an assertion on the
+    adapter's own connection could not distinguish.
+    """
+    # Arrange
+    path = tmp_path / "locks.db"
+    provider = SQLiteProvider(path)
+
+    async with provider, SQLiteLockAdapter(provider=provider) as backend:
+        # Act
+        await backend.acquire(name="lock", token="token", duration=60)
+
+        # Assert
+        async with (
+            aiosqlite.connect(path) as other,
+            other.execute("SELECT token FROM locks WHERE name = 'lock';") as c,
+        ):
+            assert await c.fetchone() == ("token",)
+
+        # Act
+        released = await backend.release(name="lock", token="token")
+
+        # Assert
+        assert released is True
+        async with (
+            aiosqlite.connect(path) as other,
+            other.execute("SELECT token FROM locks WHERE name = 'lock';") as c,
+        ):
+            assert await c.fetchone() == (None,)
+        assert provider.client.in_transaction is False
 
 
 async def test_acquire_rolls_back_on_error(tmp_path: Path) -> None:
