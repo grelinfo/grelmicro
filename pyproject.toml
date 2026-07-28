@@ -68,7 +68,7 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://grelinfo.github.io/grelmicro"
+Documentation = "https://grelmicro.grel.info"
 Repository = "https://github.com/grelinfo/grelmicro.git"
 Issues = "https://github.com/grelinfo/grelmicro/issues"
 
@@ -238,12 +238,12 @@ path = "README.md"
 # Rewrite relative `docs/<section>/index.md` links to docs site URLs.
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '\]\(docs/(.+?)/index\.md\)'
-replacement = '](https://grelinfo.github.io/grelmicro/\1/)'
+replacement = '](https://grelmicro.grel.info/\1/)'
 
 # Rewrite relative `docs/<path>.md` links to docs site URLs.
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '\]\(docs/(.+?)\.md\)'
-replacement = '](https://grelinfo.github.io/grelmicro/\1/)'
+replacement = '](https://grelmicro.grel.info/\1/)'
 
 # Rewrite relative `docs/img/...` asset references to GitHub raw.
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]

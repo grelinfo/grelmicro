@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://grelinfo.github.io/grelmicro">
+  <a href="https://grelmicro.grel.info">
     <img alt="grelmicro" class="grel-wordmark" src="docs/img/logo/wordmark.svg" width="360">
   </a>
 </p>
@@ -29,7 +29,7 @@
 
 ______________________________________________________________________
 
-**Documentation**: [https://grelinfo.github.io/grelmicro/](https://grelinfo.github.io/grelmicro)
+**Documentation**: [https://grelmicro.grel.info/](https://grelmicro.grel.info)
 
 **Source Code**: [https://github.com/grelinfo/grelmicro](https://github.com/grelinfo/grelmicro)
 
@@ -49,23 +49,23 @@ It is built for any Python application that coordinates work across processes, w
 
 grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq) and **not** a web framework (it plugs into FastAPI, Starlette, or Litestar). It fills the gap between the web framework you picked and the infrastructure you run.
 
-Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](https://grelinfo.github.io/grelmicro/comparison/) for a per-domain breakdown.
+Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](https://grelmicro.grel.info/comparison/) for a per-domain breakdown.
 
 ## Modules
 
 | Module | Summary |
 |---|---|
-| [**Cache**](https://grelinfo.github.io/grelmicro/cache/) | `@cached` decorator with local and distributed stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
-| [**Idempotency**](https://grelinfo.github.io/grelmicro/idempotency/) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
-| [**Coordination**](https://grelinfo.github.io/grelmicro/coordination/) | Distributed `Lock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
-| [**Outbox**](https://grelinfo.github.io/grelmicro/outbox/) | Transactional outbox. `publish` a message inside your database transaction and a background relay delivers it at least once with retries and dead-lettering. PostgreSQL, in-memory. |
-| [**Task Scheduler**](https://grelinfo.github.io/grelmicro/task/) | Interval and cron tasks with durable, distributed at-most-once execution. A modern, lightweight alternative to APScheduler and Celery beat. |
-| [**Resilience**](https://grelinfo.github.io/grelmicro/resilience/) | [Circuit Breaker](https://grelinfo.github.io/grelmicro/resilience/circuit-breaker/) and [Rate Limiter](https://grelinfo.github.io/grelmicro/resilience/rate-limiter/) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
-| [**Logging**](https://grelinfo.github.io/grelmicro/logging/) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
-| [**Tracing**](https://grelinfo.github.io/grelmicro/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
-| [**Metrics**](https://grelinfo.github.io/grelmicro/metrics/) | OpenTelemetry metrics with a `@measure` decorator, a Prometheus `/metrics` router, and built-in instrumentation across components. |
-| [**Health**](https://grelinfo.github.io/grelmicro/health/) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
-| [**Configuration**](https://grelinfo.github.io/grelmicro/config/) | `ExternalConfig` reconfigures live components from a mounted ConfigMap, Secret, or `.env` / JSON / YAML / TOML file. |
+| [**Cache**](https://grelmicro.grel.info/cache/) | `@cached` decorator with local and distributed stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
+| [**Idempotency**](https://grelmicro.grel.info/idempotency/) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
+| [**Coordination**](https://grelmicro.grel.info/coordination/) | Distributed `Lock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
+| [**Outbox**](https://grelmicro.grel.info/outbox/) | Transactional outbox. `publish` a message inside your database transaction and a background relay delivers it at least once with retries and dead-lettering. PostgreSQL, in-memory. |
+| [**Task Scheduler**](https://grelmicro.grel.info/task/) | Interval and cron tasks with durable, distributed at-most-once execution. A modern, lightweight alternative to APScheduler and Celery beat. |
+| [**Resilience**](https://grelmicro.grel.info/resilience/) | [Circuit Breaker](https://grelmicro.grel.info/resilience/circuit-breaker/) and [Rate Limiter](https://grelmicro.grel.info/resilience/rate-limiter/) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
+| [**Logging**](https://grelmicro.grel.info/logging/) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
+| [**Tracing**](https://grelmicro.grel.info/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
+| [**Metrics**](https://grelmicro.grel.info/metrics/) | OpenTelemetry metrics with a `@measure` decorator, a Prometheus `/metrics` router, and built-in instrumentation across components. |
+| [**Health**](https://grelmicro.grel.info/health/) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
+| [**Configuration**](https://grelmicro.grel.info/config/) | `ExternalConfig` reconfigures live components from a mounted ConfigMap, Secret, or `.env` / JSON / YAML / TOML file. |
 
 ## Installation
 
@@ -73,7 +73,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 pip install grelmicro
 ```
 
-See the [Installation guide](https://grelinfo.github.io/grelmicro/installation/) for `uv` and `poetry` commands, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, and structlog.
+See the [Installation guide](https://grelmicro.grel.info/installation/) for `uv` and `poetry` commands, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, and structlog.
 
 ## Example
 
@@ -282,7 +282,7 @@ The key shape:
 - **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`, and `GrelmicroMiddleware` extends that scope to request handlers. The same `Lock` works in production with Redis and in tests with `MemoryLockAdapter`, no rewiring.
 - **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
 
-For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelinfo.github.io/grelmicro/).
+For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelmicro.grel.info/).
 
 ## Contributing
 

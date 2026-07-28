@@ -123,9 +123,9 @@ Backends for each pattern: Redis, PostgreSQL, SQLite, Kubernetes Lease, and in-m
 Why not separate libraries? If you only need one pattern, a focused library is often the right pick. The comparison page names the right one per domain. When you need two or more in the same service, grelmicro removes four or five separate config dialects and replaces them with one lifecycle (`async with micro:`) and one shared backend client.
 
 - Repo: https://github.com/grelinfo/grelmicro
-- Docs: https://grelinfo.github.io/grelmicro/
+- Docs: https://grelmicro.grel.info/
 - Demo: https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo
-- Comparison: https://grelinfo.github.io/grelmicro/comparison/
+- Comparison: https://grelmicro.grel.info/comparison/
 
 `pip install grelmicro`
 
@@ -158,7 +158,7 @@ The [FastAPI demo](https://github.com/grelinfo/grelmicro/tree/main/examples/fast
 What it is not: not a task queue (reach for Celery, Dramatiq, or taskiq), not a web framework (it plugs into FastAPI, not next to it).
 
 - Repo: https://github.com/grelinfo/grelmicro
-- Docs: https://grelinfo.github.io/grelmicro/
+- Docs: https://grelmicro.grel.info/
 - Demo: https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo
 
 `pip install grelmicro`

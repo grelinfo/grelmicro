@@ -2,7 +2,7 @@
 
 The changelog is published with the documentation:
 
-**<https://grelinfo.github.io/grelmicro/changelog/>**
+**<https://grelmicro.grel.info/changelog/>**
 
 Its source is [`docs/changelog.md`](docs/changelog.md). It lives under `docs/` so it
 renders as part of the documentation site alongside the rest of the guides.
