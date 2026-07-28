@@ -55,7 +55,10 @@ repos:
   - id: ty-check
     name: ty-check
     description: "Run 'ty check' for static type checking"
-    entry: uv run ty check
+    # Single-threaded so cycle resolution is deterministic, matching CI. ty
+    # resolves inference cycles in whichever order threads reach them, which
+    # can flip a diagnostic on unchanged code (astral-sh/ty#1670).
+    entry: env TY_MAX_PARALLELISM=1 uv run ty check
     language: system
     require_serial: true
     pass_filenames: false
