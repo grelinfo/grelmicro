@@ -488,9 +488,12 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         `metrics` surface as the unkeyed breaker.
 
         Circuits are kept resident up to `maxsize` and the least
-        recently used are evicted. A circuit with calls in flight, in
-        any state other than `CLOSED`, or used within the residency
-        window is never evicted.
+        recently used are evicted. A circuit with calls in flight, or
+        used within the residency window, is never evicted.
+
+        Evicting an open circuit is safe. The backend owns the state,
+        so the next call on that key rebinds and reads the same `OPEN`
+        back.
         """
         keyed = self._keyed
         circuit = keyed.get(key)
@@ -798,6 +801,10 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         """Release a call in the circuit breaker."""
         if self._active_call_count > 0:  # pragma: no branch
             self._active_call_count -= 1
+        # Residency runs from the end of the call, so a call that
+        # outlives the window does not leave its circuit evictable the
+        # moment it returns.
+        self._touched = monotonic()
 
     async def _apply_reconfigure(
         self, new_config: CircuitBreakerConfig
