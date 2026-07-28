@@ -610,14 +610,14 @@ def _build_exporter(
         return OTLPMetricExporter(**_exporter_kwargs(config))
 
     try:  # pragma: no cover
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # noqa: PLC0415  # type: ignore[assignment]
-            OTLPMetricExporter,
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # noqa: PLC0415
+            OTLPMetricExporter as GrpcOTLPMetricExporter,
         )
     except ImportError as exc:  # pragma: no cover
         raise DependencyNotFoundError(
             module="opentelemetry-exporter-otlp-proto-grpc"
         ) from exc
-    return OTLPMetricExporter(  # pragma: no cover
+    return GrpcOTLPMetricExporter(  # pragma: no cover
         **_exporter_kwargs(config),
     )
 

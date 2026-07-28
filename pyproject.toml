@@ -387,36 +387,17 @@ warn_redundant_casts = true
 
 # grelmicro type-checks with `ty`. mypy runs as a second opinion because the
 # package ships `py.typed`, so downstream mypy users see these annotations.
-# The modules below do not pass yet: they are dynamic-Pydantic, optional-import
-# rebinding, or third-party stub variance. Tracked in #541. Clear one, delete
-# its entry. Never add an entry to silence a new error.
-
-# grelmicro type-checks with `ty`. mypy runs as a second opinion because the
-# package ships `py.typed`, so downstream mypy users see these annotations.
-# The modules below do not pass yet: they are dynamic-Pydantic, optional-import
-# rebinding, or third-party stub variance. Tracked in #541. Clear one, delete
-# its entry. Never add an entry to silence a new error.
+# The three modules below stay: each hits a limit in mypy or in a third-party
+# stub, not a weakness in the annotations, and `ty` reads all three clean.
+#   _config, resilience.fallback  dynamic `BaseSettings` subclasses built at
+#     runtime, so the return type is the base class, not the subclass.
+#   outbox._codec  typeshed rejects `type[...]` as `Hashable` for `lru_cache`.
+# Never add an entry to silence a new error.
 [[tool.mypy.overrides]]
 module = [
-    "grelmicro._app",
     "grelmicro._config",
-    "grelmicro.cache._component",
-    "grelmicro.cache.ttl",
-    "grelmicro.coordination._component",
-    "grelmicro.health._checks",
-    "grelmicro.integrations.faststream",
-    "grelmicro.log._structlog",
-    "grelmicro.log.uvicorn",
-    "grelmicro.metrics._component",
     "grelmicro.outbox._codec",
-    "grelmicro.outbox._component",
-    "grelmicro.providers.postgres",
-    "grelmicro.providers.redis",
-    "grelmicro.resilience._components",
     "grelmicro.resilience.fallback",
-    "grelmicro.resilience.retry",
-    "grelmicro.trace._component",
-    "grelmicro.trace._instrument",
 ]
 ignore_errors = true
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self, cast
 
 from typing_extensions import Doc
 
@@ -80,11 +80,14 @@ class Cache:
     ) -> None:
         """Initialize the component with the wrapped backend."""
         self._name = name
-        source = instantiate_if_class(source)
-        if isinstance(source, Provider):
-            self._backend = source.cache()
+        resolved = cast(
+            "Provider | CacheBackend",
+            instantiate_if_class(source),
+        )
+        if isinstance(resolved, Provider):
+            self._backend = resolved.cache()
         else:
-            self._backend = source
+            self._backend = resolved
 
     @property
     def name(self) -> str:

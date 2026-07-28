@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self, cast
 
 from typing_extensions import Doc
 
@@ -70,11 +70,14 @@ class RateLimiterRegistry:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self._name = name
-        source = instantiate_if_class(source)
-        if isinstance(source, Provider):
-            self._backend = source.ratelimiter()
+        resolved = cast(
+            "Provider | RateLimiterBackend",
+            instantiate_if_class(source),
+        )
+        if isinstance(resolved, Provider):
+            self._backend = resolved.ratelimiter()
         else:
-            self._backend = source
+            self._backend = resolved
 
     @property
     def name(self) -> str:
@@ -157,11 +160,14 @@ class CircuitBreakerRegistry:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self._name = name
-        source = instantiate_if_class(source)
-        if isinstance(source, Provider):
-            self._backend = source.circuitbreaker()
+        resolved = cast(
+            "Provider | CircuitBreakerBackend",
+            instantiate_if_class(source),
+        )
+        if isinstance(resolved, Provider):
+            self._backend = resolved.circuitbreaker()
         else:
-            self._backend = source
+            self._backend = resolved
 
     @property
     def name(self) -> str:

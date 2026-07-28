@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 
 from typing_extensions import Doc
 
@@ -147,7 +147,10 @@ class Coordination:
                 self._schedule_backend = None
 
         if lock is not None:
-            resolved_lock = instantiate_if_class(lock)
+            resolved_lock = cast(
+                "Provider | LockBackend",
+                instantiate_if_class(lock),
+            )
             self._lock_backend = (
                 resolved_lock.lock()
                 if isinstance(resolved_lock, Provider)
@@ -155,7 +158,10 @@ class Coordination:
             )
 
         if election is not None:
-            resolved_election = instantiate_if_class(election)
+            resolved_election = cast(
+                "Provider | LeaderElectionBackend",
+                instantiate_if_class(election),
+            )
             self._election_backend = (
                 resolved_election.leaderelection()
                 if isinstance(resolved_election, Provider)
@@ -163,7 +169,10 @@ class Coordination:
             )
 
         if schedule is not None:
-            resolved_schedule = instantiate_if_class(schedule)
+            resolved_schedule = cast(
+                "Provider | ScheduleBackend",
+                instantiate_if_class(schedule),
+            )
             self._schedule_backend = (
                 resolved_schedule.schedule()
                 if isinstance(resolved_schedule, Provider)

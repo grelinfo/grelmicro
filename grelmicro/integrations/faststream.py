@@ -150,7 +150,8 @@ def install(
                 await micro.__aexit__(*sys.exc_info())
             raise
 
-    app.start = _start_with_micro_rollback  # ty: ignore[invalid-assignment]
+    # Monkeypatch: replace the bound method so a failed start unwinds `micro`.
+    setattr(app, "start", _start_with_micro_rollback)  # noqa: B010
 
     if ambient:
         broker = app.broker
@@ -161,10 +162,13 @@ def install(
                 "`install(app, micro, ambient=False)`."
             )
             raise ValueError(msg)
-        middleware = type(
-            "GrelmicroBrokerMiddleware",
-            (_GrelmicroBrokerMiddleware,),
-            {"micro": micro},
+        middleware = cast(
+            "type[_GrelmicroBrokerMiddleware]",
+            type(
+                "GrelmicroBrokerMiddleware",
+                (_GrelmicroBrokerMiddleware,),
+                {"micro": micro},
+            ),
         )
         broker.add_middleware(middleware)
     else:

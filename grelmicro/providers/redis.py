@@ -153,6 +153,7 @@ class RedisProvider(Provider):
         )
         self._sentinel: Sentinel | None = None
         self._client = self._build_client(self._url)
+        self._instrumentor: Any = None
         self._own = True
 
     def _build_client(
@@ -237,7 +238,7 @@ class RedisProvider(Provider):
     def from_client(
         cls,
         client: Annotated[
-            Redis[bytes],
+            Redis,
             Doc("A pre-built `redis.asyncio.Redis` client."),
         ],
         *,
@@ -263,6 +264,7 @@ class RedisProvider(Provider):
         self._url = ""
         self._sentinel = None
         self._client = client
+        self._instrumentor = None
         self._own = own
         return self
 
@@ -321,6 +323,7 @@ class RedisProvider(Provider):
         self._url = url
         self._sentinel = None
         self._client = self._build_client(url, sentinel_kwargs=sentinel_kwargs)
+        self._instrumentor = None
         self._own = True
         return self
 
@@ -354,6 +357,7 @@ class RedisProvider(Provider):
         self._url = url
         self._sentinel = None
         self._client = self._build_client(url)
+        self._instrumentor = None
         self._own = True
         return self
 
@@ -480,9 +484,8 @@ class RedisProvider(Provider):
 
     def uninstrument(self) -> None:
         """Detach the Redis instrumentor from this client."""
-        instrumentor = getattr(self, "_instrumentor", None)
-        if instrumentor is not None:
-            instrumentor.uninstrument_client(self._client)
+        if self._instrumentor is not None:
+            self._instrumentor.uninstrument_client(self._client)
             self._instrumentor = None
 
     async def __aenter__(self) -> Self:

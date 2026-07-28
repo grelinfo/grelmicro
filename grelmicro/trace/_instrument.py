@@ -5,7 +5,15 @@ from __future__ import annotations
 import functools
 import inspect
 import sys
-from typing import TYPE_CHECKING, Annotated, Any, ParamSpec, TypeVar, overload
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ParamSpec,
+    TypeVar,
+    cast,
+    overload,
+)
 
 from typing_extensions import Doc
 
@@ -51,18 +59,18 @@ _DEFAULT_SENSITIVE_NAMES = frozenset(
 )
 
 
-def _record_exception(otel_span: object) -> None:
+def _record_exception(otel_span: Any) -> None:  # noqa: ANN401
     """Record the current exception on an OTel span."""
     if (
         otel_span is not None
         and hasattr(otel_span, "is_recording")
-        and otel_span.is_recording()  # ty: ignore[call-non-callable]
+        and otel_span.is_recording()
     ):
         exc = sys.exc_info()[1]
         otel = _get_otel()
         if exc is not None and otel is not None:  # pragma: no branch
-            otel_span.set_status(otel.status_code.ERROR, str(exc))  # ty: ignore[unresolved-attribute]
-            otel_span.record_exception(exc)  # ty: ignore[unresolved-attribute]
+            otel_span.set_status(otel.status_code.ERROR, str(exc))
+            otel_span.record_exception(exc)
 
 
 def _make_extract_fields(
@@ -178,7 +186,7 @@ def instrument[**P, R](
     skip_set = skip or frozenset()
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
-        span_name = name or getattr(fn, "__qualname__", str(fn))
+        span_name = name or str(getattr(fn, "__qualname__", fn))
         extract = _make_extract_fields(
             inspect.signature(fn), skip_set, skip_all=skip_all
         )
@@ -208,7 +216,7 @@ def instrument[**P, R](
                 finally:
                     _pop_context(token)
 
-            return async_wrapper  # ty: ignore[invalid-return-type]
+            return cast("Callable[P, R]", async_wrapper)
 
         @functools.wraps(fn)
         def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -229,7 +237,7 @@ def instrument[**P, R](
             finally:
                 _pop_context(token)
 
-        return sync_wrapper
+        return cast("Callable[P, R]", sync_wrapper)
 
     if func is not None:
         return decorator(func)

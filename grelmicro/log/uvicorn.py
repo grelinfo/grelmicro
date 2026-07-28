@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from grelmicro.log._shared import (
     load_settings,
@@ -15,6 +15,7 @@ from grelmicro.log.config import LogFormatType
 
 if TYPE_CHECKING:
     import logging
+    from collections.abc import Callable, Mapping
 
 _UVICORN_LOG_RECORD_ATTRS = _STANDARD_LOG_RECORD_ATTRS | {
     "asctime",
@@ -48,6 +49,7 @@ class UvicornFormatter(_UvicornBaseFormatter):
             otel_enabled=settings.otel_enabled,
         )
 
+        self._format_record: Callable[[Mapping[str, Any]], str]
         match resolved_format:
             case LogFormatType.LOGFMT:
                 self._format_record = logfmt_dumps

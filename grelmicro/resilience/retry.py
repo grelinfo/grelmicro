@@ -17,6 +17,7 @@ from typing import (
     Literal,
     Self,
     TypeVar,
+    cast,
     overload,
 )
 
@@ -127,7 +128,9 @@ def _resolve_fqn(fqn: str) -> type[Exception]:
     return cls
 
 
-class RetryConfig(BaseModel, frozen=True, extra="forbid"):
+class RetryConfig(
+    BaseModel, frozen=True, extra="forbid", arbitrary_types_allowed=True
+):
     """Retry policy configuration.
 
     Holds the top-level retry fields plus a discriminated backoff
@@ -181,8 +184,6 @@ class RetryConfig(BaseModel, frozen=True, extra="forbid"):
             "Default: exponential with full jitter."
         ),
     ]
-
-    model_config = {"arbitrary_types_allowed": True}
 
     @field_validator("when", mode="before")
     @classmethod
@@ -832,13 +833,13 @@ def _decorator(
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
                 return await _run_async(fn, args, kwargs, config, matcher)
 
-            return async_wrapper  # ty: ignore[invalid-return-type]
+            return cast("F", async_wrapper)
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _run_sync(fn, args, kwargs, config, matcher)
 
-        return sync_wrapper  # ty: ignore[invalid-return-type]
+        return cast("F", sync_wrapper)
 
     return wrap
 
