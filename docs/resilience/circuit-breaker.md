@@ -110,7 +110,10 @@ Use a **shared** backend (Redis or Postgres) when one replica's circuit decision
 
 When the shared backend is unreachable, calls to the breaker raise the underlying client error. Wrap the protected block with [`Retry`](retry.md) or a Fallback Pattern if you need a degraded path during an outage.
 
-Per-key circuits on a shared backend need one more thing to hold. `maxsize` bounds what a replica keeps in memory, not what the backend stores. Evicting a circuit locally must never delete the shared row, because another replica may still be relying on it. Shared state is therefore expired by the backend on its own schedule, and a key that goes quiet is cleaned up there rather than on eviction.
+!!! warning "Per-key circuits on a shared backend"
+    `maxsize` bounds what one replica keeps in memory, not what the backend stores. Evicting a circuit locally cannot delete the shared row, because another replica may still be relying on it.
+
+    The shared backends do not expire circuit state today, so a row survives for every key you ever use. Keep the key set bounded on Redis, Postgres, and SQLite. A key space that grows without limit (raw user IDs, request IDs) grows the store without limit too. Use the Memory backend, which clears on close, when the key set is open-ended.
 
 ??? note "Local vs. shared, and how shared state is stored"
 
