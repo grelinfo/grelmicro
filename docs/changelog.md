@@ -5,10 +5,16 @@
 ### Breaking
 
 * 💥 Credential-carrying URL fields are now `SecretUrl`: `url` on `PostgresConfig` and `RedisConfig`, and `endpoint` on `TraceConfig` and `MetricsConfig`. Each `headers` value on `TraceConfig` and `MetricsConfig` is now a `SecretStr`. Passing a plain string still works, but reading the value back needs `.get_secret_value()`. ([#550](https://github.com/grelinfo/grelmicro/issues/550))
+* 💥 `SQLiteLockAdapter` and `SQLiteScheduleAdapter` now take `provider=` instead of `path=`, like every other SQLite adapter. Replace `SQLiteLockAdapter("app.db")` with `SQLiteLockAdapter(provider=SQLiteProvider("app.db"))`, or pass the provider to `Coordination(sqlite)` and let it build both. A missing path now raises `SettingsValidationError` instead of `CoordinationSettingsValidationError`. ([#546](https://github.com/grelinfo/grelmicro/issues/546))
 
 ### Features
 
 * ✨ Add `grelmicro.types.SecretUrl`, a URL that never shows its credentials. It displays the URL with the userinfo password and credential-like query values replaced by `***`, so the scheme, host, and path stay readable in logs. Parametrize it with any pydantic URL type to keep that type's validation: `SecretUrl[RedisDsn]`, `SecretUrl[PostgresDsn]`, or a bare `SecretUrl` for any URL. ([#550](https://github.com/grelinfo/grelmicro/issues/550))
+
+### Fixed
+
+* 🐛 Share one SQLite connection across every component on the same file. `SQLiteLockAdapter` and `SQLiteScheduleAdapter` opened their own connection, so an app pairing a lock with a cache held two. They now borrow the provider's connection and shared lock, so `Grelmicro` can dedupe them onto one provider like every other adapter. ([#546](https://github.com/grelinfo/grelmicro/issues/546))
+* 🐛 Adopt the provider behind a `Coordination` schedule backend. Provider discovery walked the lock and election backends only, so a schedule-only `Coordination` left its provider unopened and duplicate providers undeduped. ([#546](https://github.com/grelinfo/grelmicro/issues/546))
 
 ### Security
 

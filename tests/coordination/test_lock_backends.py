@@ -19,6 +19,7 @@ from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.providers.sqlite import SQLiteProvider
 
 pytestmark = [pytest.mark.timeout(30)]
 
@@ -162,7 +163,8 @@ async def backend(
         async with MemoryLockAdapter() as backend:
             yield backend
     elif backend_name == "sqlite":
-        async with SQLiteLockAdapter(":memory:") as backend:
+        provider = SQLiteProvider(":memory:")
+        async with provider, SQLiteLockAdapter(provider=provider) as backend:
             yield backend
     elif backend_name == "kubernetes" and container:
         async with KubernetesLockAdapter(namespace="default") as backend:

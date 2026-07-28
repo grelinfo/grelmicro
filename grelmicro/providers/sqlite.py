@@ -211,26 +211,20 @@ class SQLiteProvider(Provider):
         return SQLiteRateLimiterAdapter(provider=self, **kwargs)
 
     def lock(self, **kwargs: Any) -> SQLiteLockAdapter:  # noqa: ANN401
-        """Build a `SQLiteLockAdapter` for this provider's path.
-
-        The lock adapter opens its own connection to the same file.
-        """
+        """Build a `SQLiteLockAdapter` bound to this provider."""
         from grelmicro.coordination.sqlite import (  # noqa: PLC0415
             SQLiteLockAdapter,
         )
 
-        return SQLiteLockAdapter(self._path, **kwargs)
+        return SQLiteLockAdapter(provider=self, **kwargs)
 
     def schedule(self, **kwargs: Any) -> SQLiteScheduleAdapter:  # noqa: ANN401
-        """Build a `SQLiteScheduleAdapter` for this provider's path.
-
-        The schedule adapter opens its own connection to the same file.
-        """
+        """Build a `SQLiteScheduleAdapter` bound to this provider."""
         from grelmicro.coordination.sqlite import (  # noqa: PLC0415
             SQLiteScheduleAdapter,
         )
 
-        return SQLiteScheduleAdapter(self._path, **kwargs)
+        return SQLiteScheduleAdapter(provider=self, **kwargs)
 
     def cache(self, **kwargs: Any) -> SQLiteCacheAdapter:  # noqa: ANN401
         """Build a `SQLiteCacheAdapter` bound to this provider."""

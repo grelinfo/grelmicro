@@ -1,44 +1,29 @@
-"""SQLite Lock Adapter."""
+"""SQLite coordination adapters."""
+
+from __future__ import annotations
 
 import asyncio
 import re
 from math import ceil
-from pathlib import Path
-from types import TracebackType
-from typing import Annotated, Self
+from typing import TYPE_CHECKING, Annotated, Self
 
-import aiosqlite
-from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
 from grelmicro.coordination._protocol import LockBackend, ScheduleBackend
-from grelmicro.coordination.errors import CoordinationSettingsValidationError
-from grelmicro.errors import OutOfContextError
+from grelmicro.providers.sqlite import SQLiteProvider
 
-
-class _SQLiteSettings(BaseSettings):
-    """SQLite settings from the environment variables."""
-
-    SQLITE_PATH: str | None = None
-
-
-def _get_sqlite_path() -> str:
-    """Get the SQLite path from the environment variables.
-
-    Raises:
-        CoordinationSettingsValidationError: If SQLITE_PATH is not set.
-    """
-    settings = _SQLiteSettings()
-
-    if settings.SQLITE_PATH:
-        return settings.SQLITE_PATH
-
-    msg = "SQLITE_PATH must be set"
-    raise CoordinationSettingsValidationError(msg)
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 class SQLiteLockAdapter(LockBackend):
     """SQLite Lock Adapter.
+
+    Borrows the connection and a shared lock from a `SQLiteProvider` and
+    implements the `LockBackend` protocol for distributed locks on a single
+    host. Pass an explicit `provider=` to share a connection with other
+    components, or rely on the default `env_prefix=` to build one from
+    environment variables.
 
     Fencing tokens live in a `fence` column on the lock row. Acquire runs
     inside a `BEGIN IMMEDIATE` transaction, bumps the fence on every
@@ -46,6 +31,20 @@ class SQLiteLockAdapter(LockBackend):
     with `RETURNING fence`. Release clears the holder and expiry but keeps the
     row and its fence, so the fence is strictly monotonic per name across
     release and re-acquire cycles.
+
+    The provider's lock serializes the single connection within the process,
+    and the transaction's write lock serializes across processes sharing the
+    same file.
+
+    Example:
+    ```python
+    from grelmicro import Grelmicro
+    from grelmicro.coordination import Coordination
+    from grelmicro.providers.sqlite import SQLiteProvider
+
+    sqlite = SQLiteProvider("app.db")
+    micro = Grelmicro(uses=[sqlite, Coordination(lock=sqlite)])
+    ```
     """
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
@@ -103,15 +102,27 @@ class SQLiteLockAdapter(LockBackend):
 
     def __init__(
         self,
-        path: Annotated[
-            str | Path | None,
-            Doc("""
-                The SQLite database path.
-
-                If not provided, the path will be taken from the environment variable SQLITE_PATH.
-                """),
-        ] = None,
         *,
+        provider: Annotated[
+            SQLiteProvider | None,
+            Doc(
+                """
+                A pre-built `SQLiteProvider`. When set, the adapter
+                borrows the provider's connection and does not manage
+                its lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `SQLiteProvider` when `provider` is not set. Resolves
+                the path from `SQLITE_PATH` by default.
+                """,
+            ),
+        ] = "SQLITE_",
         table_name: Annotated[
             str, Doc("The table name to store the locks.")
         ] = "locks",
@@ -121,7 +132,13 @@ class SQLiteLockAdapter(LockBackend):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise ValueError(msg)
 
-        self._path = str(path) if path is not None else _get_sqlite_path()
+        if provider is None:
+            self._provider = SQLiteProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
         self._table_name = table_name
         self._acquire_sql = self._SQL_ACQUIRE_OR_EXTEND.format(
             table_name=table_name
@@ -129,20 +146,29 @@ class SQLiteLockAdapter(LockBackend):
         self._release_sql = self._SQL_RELEASE.format(table_name=table_name)
         self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
         self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
-        self._conn: aiosqlite.Connection | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
 
+    @property
+    def provider(self) -> SQLiteProvider:
+        """The bound `SQLiteProvider`."""
+        return self._provider
+
+    def _rebind_provider(self, provider: SQLiteProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+
     async def __aenter__(self) -> Self:
-        """Open the lock backend."""
+        """Open the adapter and its provider when owned."""
+        if self._owns_provider:
+            await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
-        self._conn = await aiosqlite.connect(self._path)
-        await self._conn.execute("PRAGMA journal_mode=WAL;")
-        await self._conn.execute(
-            self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
-                table_name=self._table_name
-            ),
-        )
-        await self._conn.commit()
+        async with self._provider.connection_lock:
+            await self._provider.client.execute(
+                self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
+                    table_name=self._table_name
+                ),
+            )
         return self
 
     async def __aexit__(
@@ -151,16 +177,15 @@ class SQLiteLockAdapter(LockBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the lock backend."""
-        if self._conn:  # pragma: no branch
-            await self._conn.execute(
+        """Close the provider when owned. External providers are left alone."""
+        async with self._provider.connection_lock:
+            await self._provider.client.execute(
                 self._SQL_RELEASE_ALL_EXPIRED.format(
                     table_name=self._table_name
                 ),
             )
-            await self._conn.commit()
-            await self._conn.close()
-            self._conn = None
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
 
     async def acquire(
         self, *, name: str, token: str, duration: float
@@ -170,48 +195,47 @@ class SQLiteLockAdapter(LockBackend):
         Runs the read-modify-write inside a `BEGIN IMMEDIATE` transaction so
         the fence high-water update is serialized against concurrent writers.
         """
-        if not self._conn:
-            raise OutOfContextError(self, "acquire")
-
-        await self._conn.execute("BEGIN IMMEDIATE;")
-        try:
-            async with self._conn.execute(
-                self._acquire_sql, (name, token, ceil(duration))
-            ) as cursor:
-                result = await cursor.fetchone()
-        except BaseException:
-            await self._conn.rollback()
-            raise
-        await self._conn.commit()
+        conn = self._provider.client
+        async with self._provider.connection_lock:
+            await conn.execute("BEGIN IMMEDIATE;")
+            try:
+                async with conn.execute(
+                    self._acquire_sql, (name, token, ceil(duration))
+                ) as cursor:
+                    result = await cursor.fetchone()
+                await conn.execute("COMMIT;")
+            except BaseException:
+                await conn.execute("ROLLBACK;")
+                raise
         return int(result[0]) if result is not None else None
 
     async def release(self, *, name: str, token: str) -> bool:
         """Release the lock."""
-        if not self._conn:
-            raise OutOfContextError(self, "release")
-
-        async with self._conn.execute(
-            self._release_sql, (name, token)
-        ) as cursor:
+        conn = self._provider.client
+        async with (
+            self._provider.connection_lock,
+            conn.execute(self._release_sql, (name, token)) as cursor,
+        ):
             result = await cursor.fetchone()
-        await self._conn.commit()
         return result is not None
 
     async def locked(self, *, name: str) -> bool:
         """Check if the lock is acquired."""
-        if not self._conn:
-            raise OutOfContextError(self, "locked")
-
-        async with self._conn.execute(self._locked_sql, (name,)) as cursor:
+        conn = self._provider.client
+        async with (
+            self._provider.connection_lock,
+            conn.execute(self._locked_sql, (name,)) as cursor,
+        ):
             result = await cursor.fetchone()
         return result is not None
 
     async def owned(self, *, name: str, token: str) -> bool:
         """Check if the lock is owned."""
-        if not self._conn:
-            raise OutOfContextError(self, "owned")
-
-        async with self._conn.execute(self._owned_sql, (name, token)) as cursor:
+        conn = self._provider.client
+        async with (
+            self._provider.connection_lock,
+            conn.execute(self._owned_sql, (name, token)) as cursor,
+        ):
             result = await cursor.fetchone()
         return result is not None
 
@@ -219,12 +243,26 @@ class SQLiteLockAdapter(LockBackend):
 class SQLiteScheduleAdapter(ScheduleBackend):
     """SQLite Schedule Adapter.
 
-    Implements the `ScheduleBackend` protocol for durable distributed cron on a
-    single host. The `last_fired` epoch is stored as a `REAL` column on a row
-    keyed by `name`, and the claim decision runs in a single UPSERT gated by a
-    `WHERE` clause. The cursor's `rowcount` tells whether this call performed
-    the write, so the compare-and-set is atomic across processes sharing the
-    file.
+    Borrows the connection and a shared lock from a `SQLiteProvider` and
+    implements the `ScheduleBackend` protocol for durable distributed cron on a
+    single host. Pass an explicit `provider=` to share a connection with other
+    components, or rely on the default `env_prefix=` to build one from
+    environment variables.
+
+    The `last_fired` epoch is stored as a `REAL` column on a row keyed by
+    `name`, and the claim decision runs in a single UPSERT gated by a `WHERE`
+    clause. The cursor's `rowcount` tells whether this call performed the
+    write, so the compare-and-set is atomic across processes sharing the file.
+
+    Example:
+    ```python
+    from grelmicro import Grelmicro
+    from grelmicro.coordination import Coordination
+    from grelmicro.providers.sqlite import SQLiteProvider
+
+    sqlite = SQLiteProvider("app.db")
+    micro = Grelmicro(uses=[sqlite, Coordination(schedule=sqlite)])
+    ```
     """
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
@@ -248,15 +286,27 @@ class SQLiteScheduleAdapter(ScheduleBackend):
 
     def __init__(
         self,
-        path: Annotated[
-            str | Path | None,
-            Doc("""
-                The SQLite database path.
-
-                If not provided, the path will be taken from the environment variable SQLITE_PATH.
-                """),
-        ] = None,
         *,
+        provider: Annotated[
+            SQLiteProvider | None,
+            Doc(
+                """
+                A pre-built `SQLiteProvider`. When set, the adapter
+                borrows the provider's connection and does not manage
+                its lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `SQLiteProvider` when `provider` is not set. Resolves
+                the path from `SQLITE_PATH` by default.
+                """,
+            ),
+        ] = "SQLITE_",
         table_name: Annotated[
             str, Doc("The table name to store the schedules.")
         ] = "schedules",
@@ -266,26 +316,41 @@ class SQLiteScheduleAdapter(ScheduleBackend):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
             raise ValueError(msg)
 
-        self._path = str(path) if path is not None else _get_sqlite_path()
+        if provider is None:
+            self._provider = SQLiteProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
         self._table_name = table_name
         self._claim_sql = self._SQL_CLAIM.format(table_name=table_name)
         self._last_fired_sql = self._SQL_LAST_FIRED.format(
             table_name=table_name
         )
-        self._conn: aiosqlite.Connection | None = None
-        self._lock = asyncio.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
 
+    @property
+    def provider(self) -> SQLiteProvider:
+        """The bound `SQLiteProvider`."""
+        return self._provider
+
+    def _rebind_provider(self, provider: SQLiteProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+
     async def __aenter__(self) -> Self:
-        """Open the schedule backend."""
+        """Open the adapter and its provider when owned."""
+        if self._owns_provider:
+            await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
-        self._conn = await aiosqlite.connect(self._path, isolation_level=None)
-        await self._conn.execute("PRAGMA journal_mode=WAL;")
-        await self._conn.execute(
-            self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
-                table_name=self._table_name
-            ),
-        )
+        async with self._provider.connection_lock:
+            await self._provider.client.execute(
+                self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
+                    table_name=self._table_name
+                ),
+            )
         return self
 
     async def __aexit__(
@@ -294,40 +359,38 @@ class SQLiteScheduleAdapter(ScheduleBackend):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the schedule backend."""
-        if self._conn:  # pragma: no branch
-            await self._conn.close()
-            self._conn = None
+        """Close the provider when owned. External providers are left alone."""
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
 
     async def claim(self, name: str, due: float) -> bool:
         """Atomically claim the fire at `due`.
 
         Runs the gated UPSERT inside a `BEGIN IMMEDIATE` transaction so the
-        compare-and-set is serialized against concurrent writers. The lock
-        serializes the single connection within the process, and the
+        compare-and-set is serialized against concurrent writers. The provider's
+        lock serializes the single connection within the process, and the
         transaction's write lock serializes across processes sharing the file.
         An insert or a successful update changes one row (won), the gated update
         changes none (lost).
         """
-        if not self._conn:
-            raise OutOfContextError(self, "claim")
-
-        async with self._lock:
-            await self._conn.execute("BEGIN IMMEDIATE;")
+        conn = self._provider.client
+        async with self._provider.connection_lock:
+            await conn.execute("BEGIN IMMEDIATE;")
             try:
-                cursor = await self._conn.execute(self._claim_sql, (name, due))
-                changes = cursor.rowcount
-                await self._conn.execute("COMMIT;")
+                async with conn.execute(self._claim_sql, (name, due)) as cursor:
+                    changes = cursor.rowcount
+                await conn.execute("COMMIT;")
             except BaseException:
-                await self._conn.execute("ROLLBACK;")
+                await conn.execute("ROLLBACK;")
                 raise
         return changes == 1
 
     async def last_fired(self, name: str) -> float | None:
         """Return the stored `last_fired` epoch, or `None`."""
-        if not self._conn:
-            raise OutOfContextError(self, "last_fired")
-
-        async with self._conn.execute(self._last_fired_sql, (name,)) as cursor:
+        conn = self._provider.client
+        async with (
+            self._provider.connection_lock,
+            conn.execute(self._last_fired_sql, (name,)) as cursor,
+        ):
             result = await cursor.fetchone()
         return float(result[0]) if result is not None else None
