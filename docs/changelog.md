@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.32.5 - 2026-07-28
+
+### Security
+
+* 🔒 Attest build provenance for every release. Each published artifact now carries a provenance attestation signed on GitHub infrastructure separate from the build job, and the release verifies it before publishing, so a missing or invalid attestation fails the release. ([#575](https://github.com/grelinfo/grelmicro/pull/575))
+
+### Docs
+
+* 📝 Move the documentation site to [grelmicro.grel.info](https://grelmicro.grel.info). The old GitHub Pages address redirects, so existing links keep working. ([#577](https://github.com/grelinfo/grelmicro/pull/577))
+* 📝 Add a root `CHANGELOG.md` pointing to the published changelog, so tools that look for one at the repository root find it. ([#576](https://github.com/grelinfo/grelmicro/pull/576))
+
 ## 0.32.4 - 2026-07-28
 
 ### Docs
