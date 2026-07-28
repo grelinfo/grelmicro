@@ -1493,6 +1493,8 @@
       
         
       
+        
+      
     
     
     
@@ -1940,6 +1942,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Types
   
 
     
@@ -2829,7 +2859,7 @@
 <span class="n">checkout</span> <span class="o">=</span> <span class="n">Bulkhead</span><span class="p">(</span>
     <span class="s2">&quot;checkout&quot;</span><span class="p">,</span>
     <span class="n">max_concurrent</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
-    <span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">checkout_redis</span><span class="p">,</span> <span class="n">Coordination</span><span class="p">(</span><span class="n">checkout_redis</span><span class="p">)],</span>
+    <span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Coordination</span><span class="p">(</span><span class="n">checkout_redis</span><span class="p">)],</span>
 <span class="p">)</span>
 
 <span class="n">cart_lock</span> <span class="o">=</span> <span class="n">Lock</span><span class="p">(</span><span class="s2">&quot;cart&quot;</span><span class="p">)</span>

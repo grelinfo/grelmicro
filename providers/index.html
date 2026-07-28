@@ -1347,6 +1347,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#credentials-in-a-config-object" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials in a config object
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#factory-methods" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1531,6 +1542,8 @@
   
     
     
+      
+        
       
         
       
@@ -2009,6 +2022,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Types
   
 
     
@@ -2810,6 +2851,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#credentials-in-a-config-object" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials in a config object
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#factory-methods" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3082,6 +3134,41 @@ only what is inside the first <code>{...}</code>.</p>
 that names the fix. Standalone and Sentinel need no hash tag, since every
 key lives on one server. The rate limiter, circuit breaker, schedule, and
 leader-election adapters touch one key per call and work on Cluster as is.</p>
+<h2 id="credentials-in-a-config-object">Credentials in a config object</h2>
+<p>A connection URL carries its password inside itself, so a config object
+holding one would print it. The <code>url</code> field on <code>PostgresConfig</code> and
+<code>RedisConfig</code> is a
+<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SecretUrl&lt;/span&gt;" href="../reference/types/#grelmicro.types.SecretUrl"><code>SecretUrl</code></a>: it displays the URL with every
+credential replaced by <code>***</code>, and hands back the real value only through
+<code>get_secret_value()</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.redis</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisConfig</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="n">RedisConfig</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;redis://app:hunter2@cache:6379/0&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">config</span><span class="p">))</span>
+<span class="c1"># RedisConfig(url=SecretUrl(&#39;redis://app:***@cache:6379/0&#39;), host=None, ...)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">get_secret_value</span><span class="p">())</span>
+<span class="c1"># redis://app:hunter2@cache:6379/0</span>
+</code></pre></div>
+<p>Building the config is unchanged: pass a plain string and grelmicro
+wraps it. The scheme, host, port, and database stay readable, so a log
+line still tells an operator which server the app is talking to.</p>
+<p>The same masking covers <code>repr()</code>, <code>model_dump()</code>, and
+<code>model_dump_json()</code>. Passing the config to <code>from_config()</code> uses the real
+URL, and so does every connection grelmicro opens.</p>
+<p>A rejected value is never quoted back either. A mistyped URL would carry
+its password into the <code>ValidationError</code> text, so these configs report the
+failing field without the input.</p>
+<div class="admonition warning">
+<p class="admonition-title">Do not persist a config through JSON</p>
+<p><code>model_dump_json()</code> writes the masked form. Reloading that output
+gives you a config whose password is the literal <code>***</code>, and the
+connection then fails to authenticate. Persist the value from
+<code>get_secret_value()</code> instead, or keep the credential in the
+environment and let the provider read it. This matches how <code>SecretStr</code>
+already behaves for the <code>password</code> field.</p>
+</div>
 <h2 id="factory-methods">Factory methods</h2>
 <p>Each Provider exposes factory methods that return its matching adapter:</p>
 <table>

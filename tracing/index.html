@@ -1502,6 +1502,8 @@
       
         
       
+        
+      
     
     
     
@@ -1949,6 +1951,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Types
   
 
     
@@ -2920,6 +2950,10 @@
 <span class="p">)</span>
 </code></pre></div>
 <p>From the environment, set <code>GREL_TRACE_BASIC_AUTH_USERNAME</code> and <code>GREL_TRACE_BASIC_AUTH_PASSWORD</code> instead. The header is attached on the exporter directly, so it bypasses the <code>OTEL_EXPORTER_OTLP_HEADERS</code> encoding where base64 padding (<code>=</code>) can be mangled or dropped.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">The config never prints your credentials</p>
+<p>An endpoint can embed credentials in its userinfo or query (<code>https://usr:token@collector/v1</code>), and header values are API keys. On <code>TraceConfig</code> the <code>endpoint</code> field is a <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SecretUrl&lt;/span&gt;" href="../reference/types/#grelmicro.types.SecretUrl"><code>SecretUrl</code></a> and each <code>headers</code> value is a <code>SecretStr</code>, so <code>repr()</code>, <code>model_dump()</code>, and <code>model_dump_json()</code> show <code>***</code> in their place. The endpoint keeps its scheme, host, and path readable, so you can still see which collector is configured. Read either back with <code>get_secret_value()</code>. What grelmicro sends to the collector is unchanged.</p>
 </div>
 <details class="note">
 <summary>Provider lifecycle and exporters</summary>

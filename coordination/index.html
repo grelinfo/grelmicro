@@ -1640,6 +1640,8 @@
       
         
       
+        
+      
     
     
     
@@ -2087,6 +2089,34 @@
     
   
     Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Types
   
 
     
@@ -3165,7 +3195,7 @@ backends and resolves them for you.</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">grelmicro.providers.sqlite</span><span class="w"> </span><span class="kn">import</span> <span class="n">SQLiteProvider</span>
 
 <span class="n">sqlite</span> <span class="o">=</span> <span class="n">SQLiteProvider</span><span class="p">(</span><span class="s2">&quot;locks.db&quot;</span><span class="p">)</span>
-<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">sqlite</span><span class="p">,</span> <span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">sqlite</span><span class="p">)])</span>
+<span class="n">micro</span> <span class="o">=</span> <span class="n">Grelmicro</span><span class="p">(</span><span class="n">uses</span><span class="o">=</span><span class="p">[</span><span class="n">Coordination</span><span class="p">(</span><span class="n">lock</span><span class="o">=</span><span class="n">sqlite</span><span class="p">)])</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">

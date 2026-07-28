@@ -16,7 +16,7 @@
         <link rel="prev" href="../testing/">
       
       
-        <link rel="next" href="../../architecture/">
+        <link rel="next" href="../types/">
       
       
         
@@ -1344,6 +1344,8 @@
       
         
       
+        
+      
     
     
     
@@ -2366,6 +2368,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -4471,12 +4501,12 @@ path is bypassed and the config is used as-is.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">endpoint</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">endpoint</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SecretUrl&lt;/span&gt; (&lt;code&gt;grelmicro.types.SecretUrl&lt;/code&gt;)" href="../types/#grelmicro.types.SecretUrl">SecretUrl</a></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Exporter endpoint. Falls back to <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> when unset.</p>
+        <p>Exporter endpoint. Falls back to <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> when unset. Read the value back with <code>get_secret_value()</code>: an endpoint can embed credentials in its userinfo or query, so it is displayed with those replaced by <code>***</code>.</p>
 
     </div>
 
@@ -4496,12 +4526,12 @@ path is bypassed and the config is used as-is.</p>
   </span>
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">headers</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">=</span> <span class="n"><span title="pydantic.Field">Field</span></span><span class="p">(</span><span class="n"><span title="pydantic.Field(default_factory)">default_factory</span></span><span class="o">=</span><span class="n"><span title="dict">dict</span></span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">headers</span><span class="p">:</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="pydantic.SecretStr">SecretStr</span></span><span class="p">]</span> <span class="o">=</span> <span class="n"><span title="pydantic.Field">Field</span></span><span class="p">(</span><span class="n"><span title="pydantic.Field(default_factory)">default_factory</span></span><span class="o">=</span><span class="n"><span title="dict">dict</span></span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Exporter headers. Falls back to <code>OTEL_EXPORTER_OTLP_HEADERS</code> when empty.</p>
+        <p>Exporter headers. Falls back to <code>OTEL_EXPORTER_OTLP_HEADERS</code> when empty. Header values carry API keys and tokens, so each one is a <code>SecretStr</code> and reads back with <code>get_secret_value()</code>.</p>
 
     </div>
 
