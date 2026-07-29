@@ -1,8 +1,7 @@
 """Tests for the Kubernetes leader election backend."""
 
-import tempfile
 from asyncio import sleep
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -12,7 +11,6 @@ from lightkube.core.exceptions import ApiError
 from lightkube.models.coordination_v1 import LeaseSpec
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.coordination_v1 import Lease
-from testcontainers.core.container import DockerContainer
 
 from grelmicro.coordination._protocol import LeaderElectionBackend
 from grelmicro.coordination.kubernetes import (
@@ -24,10 +22,6 @@ from grelmicro.coordination.kubernetes import (
     _sanitize_lease_name,
 )
 from grelmicro.errors import OutOfContextError, SettingsValidationError
-from tests.coordination._k3s import (
-    extract_kubeconfig,
-    wait_for_k3s,
-)
 
 TOKEN = "test-token"
 OTHER = "other-token"
@@ -684,48 +678,20 @@ _DURATION = 1.0
 _EXPIRE_WAIT = _DURATION + 2.0
 
 
-@pytest.fixture(scope="module")
-def k3s_container() -> Generator[str]:
-    """Start a k3s container and yield a kubeconfig path pointing at it."""
-    with (
-        DockerContainer("rancher/k3s:v1.31.4-k3s1")
-        .with_command(
-            "server --disable=traefik,metrics-server --tls-san=127.0.0.1"
-        )
-        .with_kwargs(
-            privileged=True,
-            tmpfs={"/run": "", "/var/run": ""},
-        )
-        .with_exposed_ports(6443) as container
-    ):
-        wait_for_k3s(container)
-        kubeconfig_content = extract_kubeconfig(container)
-        port = container.get_exposed_port(6443)
-        kubeconfig_content = kubeconfig_content.replace(
-            "https://127.0.0.1:6443",
-            f"https://127.0.0.1:{port}",
-        )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write(kubeconfig_content)
-            kubeconfig_path = f.name
-        yield kubeconfig_path
-
-
 @pytest.fixture
 async def backend(
-    k3s_container: str,
+    k3s_kubeconfig: str,
 ) -> AsyncGenerator[KubernetesLeaderElectionAdapter]:
-    """Open a backend connected to the k3s container."""
+    """Open a backend connected to the shared k3s container."""
     async with KubernetesLeaderElectionAdapter(
-        namespace="default", kubeconfig=k3s_container
+        namespace="default", kubeconfig=k3s_kubeconfig
     ) as backend:
         yield backend
 
 
 @pytest.mark.integration
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(60, func_only=True)
+@pytest.mark.xdist_group("k3s")
 async def test_acquire(backend: KubernetesLeaderElectionAdapter) -> None:
     """A fresh election is acquired and creates a live Lease."""
     name = "acquire-" + uuid4().hex
@@ -744,7 +710,8 @@ async def test_acquire(backend: KubernetesLeaderElectionAdapter) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(60, func_only=True)
+@pytest.mark.xdist_group("k3s")
 async def test_renew_keeps_transitions(
     backend: KubernetesLeaderElectionAdapter,
 ) -> None:
@@ -766,7 +733,8 @@ async def test_renew_keeps_transitions(
 
 
 @pytest.mark.integration
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(60, func_only=True)
+@pytest.mark.xdist_group("k3s")
 async def test_live_lease_not_taken(
     backend: KubernetesLeaderElectionAdapter,
 ) -> None:
@@ -788,7 +756,8 @@ async def test_live_lease_not_taken(
 
 
 @pytest.mark.integration
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(60, func_only=True)
+@pytest.mark.xdist_group("k3s")
 async def test_takeover_after_expiry(
     backend: KubernetesLeaderElectionAdapter,
 ) -> None:
@@ -808,7 +777,8 @@ async def test_takeover_after_expiry(
 
 
 @pytest.mark.integration
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(60, func_only=True)
+@pytest.mark.xdist_group("k3s")
 async def test_release(backend: KubernetesLeaderElectionAdapter) -> None:
     """Release returns True for the holder, False for non-holders."""
     name = "release-" + uuid4().hex
@@ -823,7 +793,8 @@ async def test_release(backend: KubernetesLeaderElectionAdapter) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(60, func_only=True)
+@pytest.mark.xdist_group("k3s")
 async def test_get_live_and_expired(
     backend: KubernetesLeaderElectionAdapter,
 ) -> None:
@@ -842,7 +813,8 @@ async def test_get_live_and_expired(
 
 
 @pytest.mark.integration
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(60, func_only=True)
+@pytest.mark.xdist_group("k3s")
 async def test_metadata_roundtrip(
     backend: KubernetesLeaderElectionAdapter,
 ) -> None:
