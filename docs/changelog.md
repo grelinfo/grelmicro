@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* 🐛 Take the state lifetime off the in-memory circuit breaker's admission path. Every call recomputed the lifetime and read the clock, which made `try_acquire` 2.4x slower from 0.32.2 on. Entries now carry an absolute deadline, and a closed circuit admits from one dictionary lookup. ([#582](https://github.com/grelinfo/grelmicro/issues/582))
+
 ## 0.32.5 - 2026-07-28
 
 ### Security

@@ -13,6 +13,7 @@ from grelmicro.resilience._protocol import (
     CircuitBreakerStrategy,
 )
 from grelmicro.resilience.circuitbreaker import (
+    _STATE_TTL,
     CircuitBreakerState,
     _resolve_state_ttl,
 )
@@ -34,6 +35,9 @@ _FORCED_STATES = (
 )
 """States held by an operator, which no lifetime may release."""
 
+_NEVER = float("inf")
+"""Deadline of an entry no lifetime may reclaim."""
+
 
 @dataclass(slots=True)
 class _BreakerState:
@@ -45,8 +49,13 @@ class _BreakerState:
     consecutive_error_count: int = 0
     consecutive_success_count: int = 0
     half_open_admit: int = 0
-    updated_at: float = 0.0
-    """Monotonic time of the last write, used for lazy expiry."""
+    expires_at: float = 0.0
+    """Monotonic deadline past which the entry reads as absent.
+
+    Every write stamps it from the entry's own cool-down, so reading it
+    is one float comparison and a sweep never judges another breaker's
+    entry by its own configuration.
+    """
 
 
 class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
@@ -98,7 +107,7 @@ class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
             states=self._states,
             name=name,
             config=config,
-            ttl=_resolve_state_ttl(config.reset_timeout),
+            open_ttl=_resolve_state_ttl(config.reset_timeout),
         )
 
 
@@ -115,7 +124,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         states: dict[str, _BreakerState],
         name: str,
         config: ConsecutiveCountConfig,
-        ttl: float,
+        open_ttl: float,
     ) -> None:
         """Bind the strategy to the breaker's per-name state and config."""
         self._states = states
@@ -124,50 +133,37 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         self._success_threshold = config.success_threshold
         self._reset_timeout = config.reset_timeout
         self._half_open_capacity = config.half_open_capacity
-        self._ttl = ttl
+        self._open_ttl = open_ttl
 
-    @staticmethod
-    def _expired(state: _BreakerState, now: float) -> bool:
-        """Whether an entry has gone quiet for longer than its lifetime.
-
-        The lifetime comes from the entry's own cool-down, so a strategy
-        sweeping the shared map cannot judge another breaker's entry by
-        its own configuration.
-
-        Manually forced states never expire. An operator holds them
-        until an explicit `reset`, so a quiet period must not release
-        the hold.
-        """
-        if state.state in _FORCED_STATES:
-            return False
-        return now - state.updated_at >= _resolve_state_ttl(state.cool_down)
-
-    def _get_or_create(self) -> _BreakerState:
+    def _live(self, now: float) -> _BreakerState:
         """Return the live entry for this breaker, creating it if needed.
 
-        Expiry is lazy: a stale entry reads as absent and is replaced,
-        so a returning key starts from a clean `CLOSED` instead of
-        inheriting counters nobody has touched for a day.
+        Expiry is lazy: an entry past its deadline reads as absent and
+        is replaced, so a returning key starts from a clean `CLOSED`
+        instead of inheriting counters nobody has touched for a day.
+
+        A manually forced state carries no deadline. An operator holds
+        it until an explicit `reset`, so a quiet period must not release
+        the hold.
         """
         state = self._states.get(self._name)
-        if state is None or self._expired(state, monotonic()):
-            state = _BreakerState(updated_at=monotonic())
+        if state is None or now >= state.expires_at:
+            state = _BreakerState(expires_at=now + _STATE_TTL)
             self._states[self._name] = state
-            self._cull()
+            self._cull(now)
         return state
 
-    def _cull(self) -> None:
+    def _cull(self, now: float) -> None:
         """Reclaim a bounded number of expired entries.
 
         Runs only when a new entry is added, and stops after
         `_CULL_LIMIT`, so no single call pays for the whole keyspace.
         """
-        now = monotonic()
         reclaimed = 0
         for name, state in list(self._states.items()):
             if reclaimed >= _CULL_LIMIT:
                 return
-            if name != self._name and self._expired(state, now):
+            if name != self._name and now >= state.expires_at:
                 del self._states[name]
                 reclaimed += 1
 
@@ -181,36 +177,52 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         return _DEFAULT_SNAPSHOT
 
     async def try_acquire(self) -> bool:
-        """Atomic admission in the loop thread."""
-        state = self._get_or_create()
+        """Atomic admission in the loop thread.
 
-        if state.state in (
+        A missing entry reads as `CLOSED`, and a closed circuit admits
+        whatever its counters say, so the steady-state path answers from
+        one dictionary lookup without reading the clock.
+        """
+        state = self._states.get(self._name)
+        if state is None:
+            return True
+
+        circuit = state.state
+        if circuit in (
             CircuitBreakerState.CLOSED,
             CircuitBreakerState.FORCED_CLOSED,
         ):
             return True
-
-        if state.state == CircuitBreakerState.FORCED_OPEN:
+        if circuit == CircuitBreakerState.FORCED_OPEN:
             return False
 
-        if state.state == CircuitBreakerState.OPEN:
-            if monotonic() >= state.opened_at + state.cool_down:
-                state.state = CircuitBreakerState.HALF_OPEN
-                state.consecutive_error_count = 0
-                state.consecutive_success_count = 0
-                state.half_open_admit = 0
-                state.opened_at = 0.0
-                state.cool_down = 0.0
-                state.updated_at = monotonic()
-            else:
-                return False
+        return self._admit_recovering(state)
 
-        if (
-            state.state == CircuitBreakerState.HALF_OPEN
-            and state.half_open_admit < self._half_open_capacity
-        ):
+    def _admit_recovering(self, state: _BreakerState) -> bool:
+        """Admit against a circuit that is neither closed nor forced.
+
+        `try_acquire` has already answered every other state, so the
+        entry here is `OPEN` or `HALF_OPEN`, and both need the clock.
+        """
+        now = monotonic()
+        if now >= state.expires_at:
+            self._live(now)
+            return True
+
+        if state.state == CircuitBreakerState.OPEN:
+            if now < state.opened_at + state.cool_down:
+                return False
+            state.state = CircuitBreakerState.HALF_OPEN
+            state.consecutive_error_count = 0
+            state.consecutive_success_count = 0
+            state.half_open_admit = 0
+            state.opened_at = 0.0
+            state.cool_down = 0.0
+            state.expires_at = now + _STATE_TTL
+
+        if state.half_open_admit < self._half_open_capacity:
             state.half_open_admit += 1
-            state.updated_at = monotonic()
+            state.expires_at = now + _STATE_TTL
             return True
 
         return False
@@ -222,7 +234,8 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         duration: float = 0.0,  # noqa: ARG002
     ) -> CircuitBreakerSnapshot:
         """Record a call outcome and apply any state transition."""
-        state = self._get_or_create()
+        now = monotonic()
+        state = self._live(now)
 
         if state.state in (
             CircuitBreakerState.FORCED_OPEN,
@@ -231,7 +244,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         ):
             return _snapshot_of(state)
 
-        state.updated_at = monotonic()
+        state.expires_at = now + _STATE_TTL
 
         if success:
             state.consecutive_success_count += 1
@@ -251,8 +264,9 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
                 state.half_open_admit -= 1
             if state.consecutive_error_count >= self._error_threshold:
                 state.state = CircuitBreakerState.OPEN
-                state.opened_at = monotonic()
+                state.opened_at = now
                 state.cool_down = self._reset_timeout
+                state.expires_at = now + self._open_ttl
                 state.consecutive_error_count = 0
                 state.consecutive_success_count = 0
                 state.half_open_admit = 0
@@ -274,18 +288,26 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
         if desired == CircuitBreakerState.CLOSED:
             self._close()
             return
-        state = self._get_or_create()
-        state.updated_at = monotonic()
+        now = monotonic()
+        state = self._live(now)
         if desired == CircuitBreakerState.OPEN:
             state.state = CircuitBreakerState.OPEN
-            state.opened_at = monotonic()
+            state.opened_at = now
             state.cool_down = (
                 cool_down if cool_down is not None else self._reset_timeout
+            )
+            state.expires_at = now + (
+                self._open_ttl
+                if cool_down is None
+                else _resolve_state_ttl(cool_down)
             )
         else:
             state.state = desired
             state.opened_at = 0.0
             state.cool_down = 0.0
+            state.expires_at = (
+                _NEVER if desired in _FORCED_STATES else now + _STATE_TTL
+            )
         state.consecutive_error_count = 0
         state.consecutive_success_count = 0
         state.half_open_admit = 0
@@ -293,7 +315,7 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
     async def get_snapshot(self) -> CircuitBreakerSnapshot:
         """Read the current snapshot without mutating state."""
         state = self._states.get(self._name)
-        if state is None or self._expired(state, monotonic()):
+        if state is None or monotonic() >= state.expires_at:
             return _DEFAULT_SNAPSHOT
         return _snapshot_of(state)
 

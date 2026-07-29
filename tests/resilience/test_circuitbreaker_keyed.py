@@ -401,6 +401,26 @@ async def test_backend_reclaims_expired_circuits(
     assert len(backend._states) < KEYS
 
 
+async def test_returning_key_starts_from_a_clean_circuit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Errors nobody has touched for a lifetime do not count toward a trip."""
+    clock = 0.0
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.monotonic", lambda: clock
+    )
+    monkeypatch.setattr(
+        "grelmicro.resilience.circuitbreaker.memory.monotonic", lambda: clock
+    )
+    cb = CircuitBreaker.consecutive_count("upstream", error_threshold=ERRORS)
+    await trip(cb.keyed("quiet"), ERRORS - 1)
+
+    clock += DAY + 1
+    await trip(cb.keyed("quiet"), 1)
+
+    assert cb.keyed("quiet").state == CircuitBreakerState.CLOSED
+
+
 async def test_backend_cull_is_bounded(
     backend: MemoryCircuitBreakerAdapter,
     monkeypatch: pytest.MonkeyPatch,

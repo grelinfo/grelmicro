@@ -47,6 +47,8 @@ async def _bench_closed_path(iterations: int) -> None:
             name="bench",
             config=ConsecutiveCountConfig(),
         )
+        # Record once so admission reads a live circuit, not a fresh one.
+        await strategy.record_outcome(success=True)
 
         await _measure_async(
             "try_acquire (CLOSED)",

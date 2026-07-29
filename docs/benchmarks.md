@@ -17,7 +17,7 @@ Each script measures the in-memory backend so the numbers reflect grelmicro's ow
 
 ## Results
 
-The numbers below were measured on 2026-06-14 on an Apple Silicon machine (macOS, CPython 3.12) and are indicative only. Run the scripts yourself for figures that match your hardware and Python build.
+The numbers below were measured on an Apple Silicon machine (macOS, CPython 3.12) and are indicative only. Most rows date from 2026-06-14. The circuit breaker rows were re-measured on 2026-07-29, after per-key state lifetimes landed. Run the scripts yourself for figures that match your hardware and Python build.
 
 | Primitive | Operation | Time per op |
 |---|---|---|
@@ -25,7 +25,7 @@ The numbers below were measured on 2026-06-14 on an Apple Silicon machine (macOS
 | Rate limiter | `RateLimiter.sliding_window` acquire (allowed) | ~455 ns |
 | Rate limiter | `MemoryTokenBucket.try_acquire` (sync, hit) | ~260 ns |
 | Circuit breaker | `try_acquire` (CLOSED) | ~90 ns |
-| Circuit breaker | `record_outcome` (success) | ~345 ns |
+| Circuit breaker | `record_outcome` (success) | ~420 ns |
 | Cache | `get` (hit) | ~340 ns |
 | Cache | `get` (miss) | ~260 ns |
 | Cache | `set` | ~290 ns |
