@@ -293,6 +293,41 @@ Arguments not named in the template do not affect the key, so calls that differ 
 --8<-- "cache/key.py"
 ```
 
+### On-demand refresh
+
+`refresh()` recomputes for the given arguments, overwrites the stored entry, and returns the new value. It skips the read, so a live entry is replaced rather than served.
+
+```python title="refresh.py"
+--8<-- "cache/refresh.py"
+```
+
+Use it where a caller asks for fresh data, such as an endpoint honouring `Cache-Control: no-cache`:
+
+```python
+@app.post("/reports/{user_id}")
+async def report(user_id: int, cache_control: Annotated[str, Header()] = "") -> dict:
+    if "no-cache" in cache_control:
+        return await get_report.refresh(user_id)
+    return await get_report(user_id)
+```
+
+Two things differ from a normal miss:
+
+- **Refreshes do not fold.** A miss folds concurrent callers into one execution, but concurrent refreshes each run the function, one at a time per key. A refresh never returns a value computed before the call started, so writing to the database and then refreshing cannot hand you pre-write data.
+- **Errors propagate**, even under `stale_ttl`. Serving the stale value would return the exact entry the caller asked to bypass. Compose it yourself when you want that:
+
+```python
+try:
+    return await get_report.refresh(user_id)
+except UpstreamError:
+    return await get_report(user_id)
+```
+
+A refresh honours `skip`, `tags`, and the `stale_ttl` reserve, so the stored entry stays consistent with what a normal miss would have written. On a sync function `refresh()` returns the value directly, matching the call it mirrors.
+
+!!! tip "Refreshing one key, not the whole cache"
+    `cache_clear()` is bound to the whole `TTLCache`, so on a cache shared between functions it removes every function's entries. `refresh()` touches one key.
+
 ### Stampede Protection
 
 A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. By default `@cached` folds those misses in-process (`lock="local"`). Raise it to `lock=True` to fold across replicas, drop it to `lock=False` to opt out, and add `early=` to refresh hot keys before they expire:
@@ -363,6 +398,14 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 | `early` | `float` in `[0, 1)` | `None` | Probabilistic early refresh in the late TTL window. |
 | `stale_ttl` | `float` | `None` | Serve-stale-on-error budget in seconds. Serve the last good value for this long past the TTL when a recompute fails. |
 | `tags` | `Sequence[str]` | `()` | Tags to attach to each result. Templates like `"user:{user_id}"` fill in from the arguments. Invalidate with `cache.delete_tags(...)`. |
+
+### Decorated Function Helpers
+
+| Helper | Returns | Description |
+|---|---|---|
+| `refresh(*args, **kwargs)` | the new value | Recompute for these arguments and overwrite the stored entry. |
+| `cache_info()` | `CacheInfo` | Statistics for the whole cache backing this function. |
+| `cache_clear()` | awaitable | Remove every entry from that cache. Always a coroutine, even for a sync function. |
 
 ## Redis Backend Configuration
 

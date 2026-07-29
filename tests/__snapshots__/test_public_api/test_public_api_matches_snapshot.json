@@ -55,6 +55,9 @@
     "CacheSettingsValidationError": {
       "()": "(error)"
     },
+    "CachedFunction": {
+      "()": "(*args, **kwargs)"
+    },
     "JsonSerializer": {
       "()": "()"
     },

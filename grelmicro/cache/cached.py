@@ -10,7 +10,16 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
-from typing import Annotated, Any, Literal, NamedTuple, ParamSpec, TypeVar
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    NamedTuple,
+    ParamSpec,
+    Protocol,
+    TypeVar,
+    cast,
+)
 
 from typing_extensions import Doc
 
@@ -24,7 +33,12 @@ from grelmicro.cache._stampede import (
 )
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
-from grelmicro.cache.ttl import _CACHE_PREFIX, _XFETCH_SUFFIX, TTLCache
+from grelmicro.cache.ttl import (
+    _CACHE_PREFIX,
+    _XFETCH_SUFFIX,
+    CacheInfo,
+    TTLCache,
+)
 from grelmicro.coordination.lock import Lock
 from grelmicro.metrics import _emit
 
@@ -34,6 +48,68 @@ from grelmicro.metrics import _emit
 # ``ParamSpec``/``TypeVar`` is the working pattern.
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+class CachedFunction(Protocol[P, R]):
+    """A function wrapped by `@cached`.
+
+    Calling it reads through the cache. The helpers alongside it act on
+    the whole `TTLCache` backing the function, not on one entry.
+    """
+
+    __wrapped__: Callable[P, R]
+    """The undecorated function."""
+
+    __name__: str
+    """The undecorated function's name."""
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        """Return the cached result, computing it on a miss."""
+        ...
+
+    def refresh(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        """Recompute for these arguments, store the result, and return it.
+
+        Skips the read, so a live entry is replaced rather than served.
+        Use it for a caller-driven refresh, such as an endpoint honouring
+        `Cache-Control: no-cache`.
+
+        Concurrent refreshes for one key run one at a time and each one
+        recomputes, so a refresh never returns a value computed before
+        the call started. An error propagates, even under `stale_ttl`,
+        because a caller asking for fresh data is not served the value it
+        asked to bypass.
+
+        Returns a coroutine for an async function and the value itself
+        for a sync one, matching the call it mirrors.
+        """
+        ...
+
+    def cache_info(self) -> CacheInfo:
+        """Return statistics for the whole cache backing this function."""
+        ...
+
+    def cache_clear(self) -> Any:  # noqa: ANN401
+        """Remove every entry from the cache backing this function.
+
+        Always a coroutine, even for a sync function, so it must be
+        awaited.
+        """
+        ...
+
+    def __get__(
+        self,
+        instance: Any,  # noqa: ANN401
+        owner: Any = None,  # noqa: ANN401
+        /,
+    ) -> Any:  # noqa: ANN401
+        """Bind as a method.
+
+        Typed as `Any` because a signature carrying `ParamSpec` cannot
+        also express descriptor binding.
+        """
+        ...
+
 
 _SENTINEL = object()
 
@@ -293,14 +369,17 @@ def cached(  # noqa: PLR0913, C901
             """,
         ),
     ] = (),
-) -> Callable[[Callable[P, R]], Callable[P, R]]:
+) -> Callable[[Callable[P, R]], CachedFunction[P, R]]:
     """Cache decorator for sync and async functions.
 
     Automatically detects whether the decorated function is sync or
     async and wraps it accordingly.
 
-    The decorated function exposes ``cache_info()`` and
-    ``cache_clear()`` helpers (matching ``functools.lru_cache``).
+    The decorated function exposes ``refresh()``, which recomputes for
+    the given arguments and overwrites the stored entry, plus
+    ``cache_info()`` and ``cache_clear()``. The last two act on the whole
+    `TTLCache`, so on a cache shared between functions they report and
+    clear every function's entries, not only this one's.
     ``cache_clear()`` is always a coroutine (must be awaited).
 
     Pass a ``TTLCache`` as ``cache`` to share one store across
@@ -340,7 +419,7 @@ def cached(  # noqa: PLR0913, C901
 
     def decorator(
         func: Callable[P, R],
-    ) -> Callable[P, R]:
+    ) -> CachedFunction[P, R]:
         is_async_func = inspect.iscoroutinefunction(func)
         if is_private_cache and not is_async_func:
             msg = (
@@ -400,7 +479,7 @@ def cached(  # noqa: PLR0913, C901
             )
         wrapper.cache_info = cache.cache_info
         wrapper.cache_clear = cache.clear
-        return wrapper
+        return cast("CachedFunction[P, R]", wrapper)
 
     return decorator
 
@@ -487,7 +566,7 @@ def _serve_stale_sync(cache: TTLCache, key: str, loop: Any) -> tuple[bool, Any]:
 # --- Async function ---
 
 
-def _build_async_wrapper(
+def _build_async_wrapper(  # noqa: C901
     func: Any,  # noqa: ANN401
     cache: TTLCache,
     key_maker: Any,  # noqa: ANN401
@@ -561,7 +640,32 @@ def _build_async_wrapper(
                 return value
             raise
 
-    return async_wrapper
+    async def async_refresh(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+
+        async def recompute() -> Any:  # noqa: ANN401
+            return await _compute_and_cache(
+                func,
+                args,
+                kwargs,
+                cache,
+                key,
+                skip,
+                early=early,
+                stale_ttl=stale_ttl,
+                tag_spec=tag_spec,
+            )
+
+        if not per_key:
+            return await recompute()
+        # Serialized, never folded: each caller runs the function itself,
+        # so a refresh never returns a value computed before it started.
+        async with await guard.get_lock(key):
+            return await recompute()
+
+    wrapper: Any = async_wrapper
+    wrapper.refresh = async_refresh
+    return wrapper
 
 
 async def _maybe_refresh_async(
@@ -671,6 +775,31 @@ def _build_sync_wrapper(  # noqa: C901
                 key_locks.move_to_end(key)
             return the_lock
 
+    def sync_refresh(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        loop = cache._get_backend()._loop  # noqa: SLF001
+        if loop is None:
+            raise_backend_not_open("The cache")
+
+        def recompute() -> Any:  # noqa: ANN401
+            return _compute_and_cache_sync(
+                func,
+                args,
+                kwargs,
+                cache,
+                key,
+                skip,
+                loop,
+                early=early,
+                stale_ttl=stale_ttl,
+                tag_spec=tag_spec,
+            )
+
+        if not per_key:
+            return recompute()
+        with get_key_lock(key):
+            return recompute()
+
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401, C901
         key = _make_key(func, args, kwargs, key_maker, typed=typed)
@@ -754,7 +883,9 @@ def _build_sync_wrapper(  # noqa: C901
                 return value
             raise
 
-    return sync_wrapper
+    wrapper: Any = sync_wrapper
+    wrapper.refresh = sync_refresh
+    return wrapper
 
 
 def _run(coro: Any, loop: Any) -> Any:  # noqa: ANN401

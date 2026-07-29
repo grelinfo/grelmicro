@@ -230,7 +230,7 @@ class TestAsyncCachedCacheControl:
         await fetch(1)  # miss
         await fetch(2)  # miss
         await fetch(1)  # hit
-        info = fetch.cache_info()  # ty: ignore[unresolved-attribute]
+        info = fetch.cache_info()
 
         # Assert
         assert info.hits == EXPECTED_HITS_1
@@ -247,7 +247,7 @@ class TestAsyncCachedCacheControl:
             return x
 
         # Assert
-        assert inspect.iscoroutinefunction(fetch.cache_clear)  # ty: ignore[unresolved-attribute]
+        assert inspect.iscoroutinefunction(fetch.cache_clear)
 
     async def test_cache_clear_empties_the_cache(self) -> None:
         """Awaiting cache_clear() causes subsequent calls to recompute."""
@@ -265,7 +265,7 @@ class TestAsyncCachedCacheControl:
         assert call_count == EXPECTED_CALL_COUNT_1
 
         # Act
-        await fetch.cache_clear()  # ty: ignore[unresolved-attribute]
+        await fetch.cache_clear()
         await fetch(1)
 
         # Assert: recomputed after clear
@@ -282,13 +282,13 @@ class TestAsyncCachedCacheControl:
 
         await fetch(1)
         await fetch(2)
-        assert fetch.cache_info().currsize == EXPECTED_CURRSIZE_2  # ty: ignore[unresolved-attribute]
+        assert fetch.cache_info().currsize == EXPECTED_CURRSIZE_2
 
         # Act
-        await fetch.cache_clear()  # ty: ignore[unresolved-attribute]
+        await fetch.cache_clear()
 
         # Assert
-        assert fetch.cache_info().currsize == 0  # ty: ignore[unresolved-attribute]
+        assert fetch.cache_info().currsize == 0
 
 
 class TestAsyncCachedFunctionMetadata:
@@ -771,7 +771,7 @@ class TestSyncCachedCacheControl:
         # Act
         await asyncio.to_thread(lambda: compute(1))  # miss
         await asyncio.to_thread(lambda: compute(1))  # hit
-        info = compute.cache_info()  # ty: ignore[unresolved-attribute]
+        info = compute.cache_info()
 
         # Assert
         assert info.hits == EXPECTED_HITS_1
@@ -793,7 +793,7 @@ class TestSyncCachedCacheControl:
         assert call_count == EXPECTED_CALL_COUNT_1
 
         # Act: cache_clear is always a coroutine
-        await compute.cache_clear()  # ty: ignore[unresolved-attribute]
+        await compute.cache_clear()
         await asyncio.to_thread(lambda: compute(1))
 
         # Assert: recomputed after clear
@@ -1834,10 +1834,10 @@ class TestPrivateCacheForm:
             return expected_value
 
         assert await get_value() == expected_value
-        info = get_value.cache_info()  # ty: ignore[unresolved-attribute]
+        info = get_value.cache_info()
         assert info.hits == 0
         assert info.misses == EXPECTED_MISSES_1
-        await get_value.cache_clear()  # ty: ignore[unresolved-attribute]
+        await get_value.cache_clear()
 
     async def test_maxsize_bounds_private_cache(self) -> None:
         """maxsize= bounds the private cache and evicts the oldest entry."""
@@ -1880,3 +1880,220 @@ def test_private_cache_rejects_sync_function() -> None:
         @cached(ttl=30)
         def sync_fn() -> int:
             return 1
+
+
+EXPECTED_CALL_COUNT_3 = 3
+EXPECTED_REFRESH_FLEET = 5
+
+
+class TestAsyncCachedRefresh:
+    """Test the `refresh` helper on an async cached function."""
+
+    async def test_refresh_recomputes_and_overwrites(self) -> None:
+        """`refresh` skips the read, stores the new value, and returns it."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache)
+        async def compute(_x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return call_count
+
+        # Act
+        first = await compute(1)
+        refreshed = await compute.refresh(1)
+        after = await compute(1)
+
+        # Assert
+        assert first == EXPECTED_CALL_COUNT_1
+        assert refreshed == EXPECTED_CALL_COUNT_2
+        assert after == EXPECTED_CALL_COUNT_2
+        assert call_count == EXPECTED_CALL_COUNT_2
+
+    async def test_refresh_populates_a_cold_key(self) -> None:
+        """`refresh` on a key that was never cached simply computes it."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache)
+        async def compute(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        # Act
+        refreshed = await compute.refresh(5)
+        cached_value = await compute(5)
+
+        # Assert
+        assert refreshed == EXPECTED_DOUBLE_5
+        assert cached_value == EXPECTED_DOUBLE_5
+        assert call_count == EXPECTED_CALL_COUNT_1
+
+    async def test_concurrent_refreshes_do_not_fold(self) -> None:
+        """Every refresher recomputes, so none returns a pre-call value."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache)
+        async def compute(_x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            await asyncio.sleep(0)
+            return call_count
+
+        # Act
+        results = await asyncio.gather(
+            *(compute.refresh(1) for _ in range(EXPECTED_REFRESH_FLEET))
+        )
+
+        # Assert
+        assert call_count == EXPECTED_REFRESH_FLEET
+        assert sorted(results) == list(range(1, EXPECTED_REFRESH_FLEET + 1))
+
+    async def test_refresh_without_lock_still_recomputes(self) -> None:
+        """`lock=False` opts out of serializing, and refresh still writes."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, lock=False)
+        async def compute(_x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return call_count
+
+        # Act
+        await compute(1)
+        refreshed = await compute.refresh(1)
+
+        # Assert
+        assert refreshed == EXPECTED_CALL_COUNT_2
+
+    async def test_refresh_error_propagates_past_stale_ttl(self) -> None:
+        """A caller asking for fresh data is not handed the stale value."""
+        # Arrange
+        cache = _make_cache()
+        fail = False
+
+        @cached(cache, stale_ttl=60)
+        async def compute(x: int) -> int:  # noqa: ARG001
+            if fail:
+                msg = "upstream down"
+                raise RuntimeError(msg)
+            return 1
+
+        await compute(1)
+        fail = True
+
+        # Act / Assert
+        with pytest.raises(RuntimeError, match="upstream down"):
+            await compute.refresh(1)
+        # The stored entry is untouched, so a normal call still serves it.
+        assert await compute(1) == EXPECTED_CALL_COUNT_1
+
+    async def test_refresh_honours_skip(self) -> None:
+        """A result the skip predicate rejects is not stored."""
+        # Arrange
+        cache = _make_cache()
+        value = 1
+
+        @cached(cache, skip=lambda result: result is None)
+        async def compute(x: int) -> int | None:  # noqa: ARG001
+            return value
+
+        await compute(1)
+        value = None  # type: ignore[assignment]
+
+        # Act
+        refreshed = await compute.refresh(1)
+
+        # Assert
+        assert refreshed is None
+        assert await compute(1) == EXPECTED_CALL_COUNT_1
+
+    async def test_refresh_honours_tags(self) -> None:
+        """A refreshed entry keeps its tags, so tag invalidation still hits."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, key="v:{x}", tags=["all"])
+        async def compute(x: int) -> int:  # noqa: ARG001
+            nonlocal call_count
+            call_count += 1
+            return call_count
+
+        await compute(1)
+        await compute.refresh(1)
+
+        # Act
+        await cache.delete_tags("all")
+        after = await compute(1)
+
+        # Assert
+        assert after == EXPECTED_CALL_COUNT_3
+
+
+class TestSyncCachedRefresh:
+    """Test the `refresh` helper on a sync cached function."""
+
+    async def test_refresh_recomputes_and_overwrites(self) -> None:
+        """A sync `refresh` returns the value directly, not a coroutine."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache)
+        def compute(_x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return call_count
+
+        # Act
+        first = await asyncio.to_thread(lambda: compute(1))
+        refreshed = await asyncio.to_thread(lambda: compute.refresh(1))
+        after = await asyncio.to_thread(lambda: compute(1))
+
+        # Assert
+        assert first == EXPECTED_CALL_COUNT_1
+        assert refreshed == EXPECTED_CALL_COUNT_2
+        assert after == EXPECTED_CALL_COUNT_2
+
+    async def test_refresh_without_lock_still_recomputes(self) -> None:
+        """`lock=False` skips the per-key lock on the sync path too."""
+        # Arrange
+        cache = _make_cache()
+        call_count = 0
+
+        @cached(cache, lock=False)
+        def compute(_x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return call_count
+
+        # Act
+        await asyncio.to_thread(lambda: compute(1))
+        refreshed = await asyncio.to_thread(lambda: compute.refresh(1))
+
+        # Assert
+        assert refreshed == EXPECTED_CALL_COUNT_2
+
+    async def test_refresh_requires_an_open_backend(self) -> None:
+        """A closed backend reports the same error a normal call would."""
+        # Arrange
+        cache = TTLCache(
+            ttl=60, backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+        )
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            return x
+
+        # Act / Assert
+        with pytest.raises(RuntimeError, match="The cache"):
+            await asyncio.to_thread(lambda: compute.refresh(1))

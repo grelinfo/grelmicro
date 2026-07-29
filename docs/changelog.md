@@ -4,6 +4,8 @@
 
 ### Features
 
+* ✨ Add `refresh()` to a `@cached` function. It recomputes for the given arguments, overwrites the stored entry, and returns the new value, so an endpoint honouring `Cache-Control: no-cache` keeps the decorator's key handling and tag invalidation. Concurrent refreshes each recompute rather than folding, and an error propagates instead of serving stale. ([#500](https://github.com/grelinfo/grelmicro/issues/500))
+
 * ✨ Add `IdempotencyMiddleware`. A request carrying an `Idempotency-Key` header runs once, and a retry replays the stored response without reaching the handler. Pure ASGI, so it works on FastAPI, Starlette, and Litestar alike. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 * ✨ Bound the single-flight wait with `wait_timeout=` on an `Idempotency` block and on `run()`. A duplicate that waits longer than that raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`, instead of holding the caller indefinitely. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 
@@ -11,6 +13,7 @@
 
 ### Fixed
 
+* 🐛 Type the helpers a `@cached` function exposes. `cached()` returned a plain `Callable`, so `cache_info()` and `cache_clear()` were documented but invisible to type checkers, and calling them failed a downstream `ty` or `mypy` run. It now returns `CachedFunction`. ([#500](https://github.com/grelinfo/grelmicro/issues/500))
 * 🐛 Release the single-flight lock correctly when an `Idempotency` block is cancelled while acquiring it. The lock was bound to the block before it was held, so the cleanup path tried to release a lock the block did not own and raised `LockNotOwnedError` over the original error. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 * 🐛 Release the in-process idempotency lock even when the distributed release is cancelled mid-flight. A cancellation there left the key locked for the life of the process. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 
