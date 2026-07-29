@@ -9,6 +9,56 @@ ergonomics as [FastAPI](https://fastapi.tiangolo.com/) and
 [Pydantic](https://docs.pydantic.dev/). When in doubt, imitate those
 two projects.
 
+## Reporting a bug
+
+Open a bug report at
+<https://github.com/grelinfo/grelmicro/issues/new/choose>. Anyone with
+a GitHub account can file one. There is no mailing list and no other
+channel to learn.
+
+Search the
+[existing issues](https://github.com/grelinfo/grelmicro/issues?q=is%3Aissue)
+first, so a known problem keeps one thread instead of three.
+
+The bug report form asks for what a fix needs:
+
+- The grelmicro version. Print it with
+  `python -c "from importlib.metadata import version; print(version('grelmicro'))"`.
+- The Python version and the operating system.
+- The backend in use (Memory, Redis, Valkey, Postgres, or SQLite).
+- A minimal snippet that reproduces the problem, plus the full
+  traceback.
+- What you expected to happen instead.
+
+What happens after you file:
+
+- You get a reply within a few days.
+- A confirmed bug is labelled `bug` and given a `priority:high`,
+  `priority:medium`, or `priority:low` label.
+- A report that turns out to be a usage question or a documentation
+  gap is relabelled and answered in the same thread.
+- Fixes ship in the next patch release, and the issue closes when that
+  release publishes.
+
+Every report stays public and searchable in the
+[issue archive](https://github.com/grelinfo/grelmicro/issues?q=is%3Aissue),
+open and closed alike.
+
+Security issues are the one exception. Report a vulnerability
+privately through the
+[security policy](https://github.com/grelinfo/grelmicro/security/policy),
+never in a public issue.
+
+## Requesting a feature
+
+Open a feature request at the same address,
+<https://github.com/grelinfo/grelmicro/issues/new/choose>. Describe the
+problem you hit first and the API you would like second. Feature
+requests get the same reply window as bug reports. Accepted ones are
+labelled `enhancement` and prioritised alongside everything else. See
+[Issues and releases](#issues-and-releases) for how those labels drive
+a release.
+
 ## Quick start
 
 ```bash

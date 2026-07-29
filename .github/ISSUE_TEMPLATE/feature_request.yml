@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a new capability or an improvement to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem you hit first and the API you would like
+        second. See the
+        [reporting guide](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#requesting-a-feature)
+        for how requests are triaged.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: >-
+        What are you trying to do, and where does grelmicro get in the way?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: >-
+        The API you would like, written as the code you would want to
+        write.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: >-
+        What you do today instead, and why it falls short.
+    validations:
+      required: false
