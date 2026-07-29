@@ -1,6 +1,5 @@
 """Test Lock Backends."""
 
-import tempfile
 import time as time_module
 from asyncio import sleep
 from collections.abc import AsyncGenerator, Generator
@@ -21,12 +20,15 @@ from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
-from tests.coordination._k3s import (
-    extract_kubeconfig,
-    wait_for_k3s,
-)
+from tests.coordination._k3s import wait_for_k3s
 
-pytestmark = [pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.timeout(30, func_only=True)]
+"""Thirty seconds of test body.
+
+`func_only` keeps container startup out of the budget. A test body is the
+only thing this timeout should catch, and a container that will not boot
+reports itself through its own wait.
+"""
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +45,13 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch, None, None]:
         "sqlite",
         pytest.param("redis", marks=[pytest.mark.integration]),
         pytest.param("postgres", marks=[pytest.mark.integration]),
-        pytest.param("kubernetes", marks=[pytest.mark.integration]),
+        pytest.param(
+            "kubernetes",
+            marks=[
+                pytest.mark.integration,
+                pytest.mark.xdist_group("k3s"),
+            ],
+        ),
     ],
     scope="module",
 )
@@ -58,6 +66,7 @@ def backend_name(request: pytest.FixtureRequest) -> str:
 def container(
     backend_name: str,
     monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
 ) -> Generator[DockerContainer | None, None, None]:
     """Test Container for each Backend."""
     if backend_name == "redis":
@@ -72,32 +81,11 @@ def container(
         with PostgresContainer() as container:
             yield container
     elif backend_name == "kubernetes":
-        with (
-            DockerContainer("rancher/k3s:v1.31.4-k3s1")
-            .with_command(
-                "server --disable=traefik,metrics-server --tls-san=127.0.0.1"
-            )
-            .with_kwargs(
-                privileged=True,
-                tmpfs={"/run": "", "/var/run": ""},
-            )
-            .with_exposed_ports(6443) as container
-        ):
-            wait_for_k3s(container)
-            kubeconfig_content = extract_kubeconfig(container)
-            port = container.get_exposed_port(6443)
-            kubeconfig_content = kubeconfig_content.replace(
-                "https://127.0.0.1:6443",
-                f"https://127.0.0.1:{port}",
-            )
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".yaml", delete=False
-            ) as f:
-                f.write(kubeconfig_content)
-                kubeconfig_path = f.name
-            monkeypatch.setenv("KUBECONFIG", kubeconfig_path)
-            monkeypatch.setenv("KUBE_NAMESPACE", "default")
-            yield container
+        monkeypatch.setenv(
+            "KUBECONFIG", request.getfixturevalue("k3s_kubeconfig")
+        )
+        monkeypatch.setenv("KUBE_NAMESPACE", "default")
+        yield None
     elif backend_name in ("memory", "sqlite"):
         yield None
 
@@ -147,7 +135,9 @@ async def backend(
         provider = SQLiteProvider(":memory:")
         async with provider, SQLiteLockAdapter(provider=provider) as backend:
             yield backend
-    elif backend_name == "kubernetes" and container:
+    elif backend_name == "kubernetes":
+        # `container` points the adapter at the shared k3s server through
+        # the environment, so it is a dependency even though it yields None.
         async with KubernetesLockAdapter(namespace="default") as backend:
             yield backend
 

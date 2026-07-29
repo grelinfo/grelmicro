@@ -1,8 +1,8 @@
 """Shared k3s container helpers for the Kubernetes backend tests.
 
-Both `test_kubernetes.py` and `test_lock_backends.py` start a k3s container.
-They previously carried their own copies of these helpers, which drifted apart
-and had to be fixed twice.
+Both `test_kubernetes.py` and `test_lock_backends.py` need a k3s API server.
+They share the one container built here, started once per session by the
+`k3s_kubeconfig` fixture in `conftest.py`.
 """
 
 import time as time_module
@@ -10,13 +10,32 @@ import time as time_module
 from docker.errors import APIError
 from testcontainers.core.container import DockerContainer
 
-READY_TIMEOUT = 45
+K3S_IMAGE = "rancher/k3s:v1.31.4-k3s1"
+"""Pinned k3s image. An unpinned tag would make the suite drift with upstream."""
+
+READY_TIMEOUT = 120
 """Seconds to wait for k3s readiness.
 
-Must stay below the `pytest.mark.timeout` of any test using a k3s fixture.
-Fixture setup runs under the first test's timeout, so an equal budget means
-pytest-timeout fires at the same moment and hides the report below.
+A control plane boots in a few seconds when the machine is idle and takes far
+longer when it is not, so this is generous on purpose. It is a once-per-session
+cost, and the tests that use it exempt fixture setup from their own timeout.
 """
+
+
+def create_k3s_container() -> DockerContainer:
+    """Build the k3s container, unstarted.
+
+    Single construction point for the whole suite. Traefik and the metrics
+    server are disabled because no test uses them and both slow the boot.
+    """
+    return (
+        DockerContainer(K3S_IMAGE)
+        .with_command(
+            "server --disable=traefik,metrics-server --tls-san=127.0.0.1"
+        )
+        .with_kwargs(privileged=True, tmpfs={"/run": "", "/var/run": ""})
+        .with_exposed_ports(6443)
+    )
 
 
 def container_report(container: DockerContainer) -> str:
