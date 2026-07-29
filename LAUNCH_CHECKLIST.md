@@ -7,7 +7,7 @@ Maintainer planning doc (not published to the docs site). Tracks the launch task
 The launch ships on the current `0.x` line. It is not gated on a 1.0 bump.
 
 - [ ] Tag and publish the launch release on PyPI. Confirm `pip install grelmicro` resolves it.
-- [ ] `docs/benchmarks.md` numbers re-run on a clean machine and dated. Currently dated 2026-06-14 (Apple Silicon, macOS, CPython 3.12).
+- [ ] `docs/benchmarks.md` numbers re-run on a clean machine and dated. Most rows date from 2026-06-14 and the circuit breaker rows from 2026-07-29 (Apple Silicon, macOS, CPython 3.12). Both runs shared the machine with other work, so neither meets the clean-machine bar.
 - [x] The [FastAPI demo](examples/fastapi-demo) starts from a fresh clone in three commands. Verified 2026-07-28: `cd examples/fastapi-demo`, `docker compose up --wait`, `open http://localhost:8000/docs`.
 - [x] Record the demo asset (see below) and embed it in the README. `docs/img/demo.gif`, 840K, embedded at the top of `README.md`.
 - [x] Enable the badges (see below). Scorecard and SLSA 2 are both live in `README.md`. 0.32.5 is the first release publishing a verified attestation.
