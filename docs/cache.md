@@ -313,7 +313,7 @@ async def report(user_id: int, cache_control: Annotated[str, Header()] = "") -> 
 
 Two things differ from a normal miss:
 
-- **Refreshes do not fold.** A miss folds concurrent callers into one execution, but concurrent refreshes each run the function, one at a time per key. A refresh never returns a value computed before the call started, so writing to the database and then refreshing cannot hand you pre-write data.
+- **Refreshes do not fold.** A miss folds concurrent callers into one execution, but every refresh runs the function itself. A refresh never returns a value computed before the call started, so writing to the database and then refreshing cannot hand you pre-write data. Under the default `lock`, refreshes for one key also serialize within the process, and with `lock=True` and a lock backend they serialize across replicas. Under `lock=False` they run in parallel and the last write wins.
 - **Errors propagate**, even under `stale_ttl`. Serving the stale value would return the exact entry the caller asked to bypass. Compose it yourself when you want that:
 
 ```python
@@ -323,7 +323,9 @@ except UpstreamError:
     return await get_report(user_id)
 ```
 
-A refresh honours `skip`, `tags`, and the `stale_ttl` reserve, so the stored entry stays consistent with what a normal miss would have written. On a sync function `refresh()` returns the value directly, matching the call it mirrors.
+A refresh honours `skip`, `tags`, and the `stale_ttl` reserve, so the stored entry stays consistent with what a normal miss would have written. A result the `skip` predicate rejects is not stored, so the previous entry stays and keeps being served. On a sync function `refresh()` returns the value directly, matching the call it mirrors.
+
+Refreshing a key that was never cached simply computes and stores it. A refresh reads nothing, so it counts as neither a hit nor a miss in `cache_info()`. It works on the private `@cached(ttl=...)` form too.
 
 !!! tip "Refreshing one key, not the whole cache"
     `cache_clear()` is bound to the whole `TTLCache`, so on a cache shared between functions it removes every function's entries. `refresh()` touches one key.
@@ -403,7 +405,7 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 
 | Helper | Returns | Description |
 |---|---|---|
-| `refresh(*args, **kwargs)` | the new value | Recompute for these arguments and overwrite the stored entry. |
+| `refresh(*args, **kwargs)` | the new value | Recompute for these arguments and overwrite the stored entry. On a method, call it as `Class.method.refresh(obj, ...)`. |
 | `cache_info()` | `CacheInfo` | Statistics for the whole cache backing this function. |
 | `cache_clear()` | awaitable | Remove every entry from that cache. Always a coroutine, even for a sync function. |
 

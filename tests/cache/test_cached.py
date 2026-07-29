@@ -2097,3 +2097,78 @@ class TestSyncCachedRefresh:
         # Act / Assert
         with pytest.raises(RuntimeError, match="The cache"):
             await asyncio.to_thread(lambda: compute.refresh(1))
+
+
+class TestCachedRefreshDistributed:
+    """Test refresh under a cross-replica lock backend."""
+
+    async def test_refresh_serializes_across_replicas(self) -> None:
+        """With `lock=True`, refreshes take the cross-replica lock too."""
+        # Arrange
+        cache = _make_cache()
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
+        call_count = 0
+
+        @cached(cache, lock=True)
+        async def compute(_x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            await asyncio.sleep(0)
+            return call_count
+
+        # Act
+        async with micro:
+            results = await asyncio.gather(
+                *(compute.refresh(1) for _ in range(EXPECTED_REFRESH_FLEET))
+            )
+
+        # Assert: still one execution per caller, never folded.
+        assert call_count == EXPECTED_REFRESH_FLEET
+        assert sorted(results) == list(range(1, EXPECTED_REFRESH_FLEET + 1))
+
+    async def test_sync_refresh_serializes_across_replicas(self) -> None:
+        """The sync path takes the cross-replica lock the same way."""
+        # Arrange
+        cache = _make_cache()
+        micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
+        call_count = 0
+
+        @cached(cache, lock=True)
+        def compute(_x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return call_count
+
+        # Act
+        async with micro:
+            first = await asyncio.to_thread(lambda: compute.refresh(1))
+            second = await asyncio.to_thread(lambda: compute.refresh(1))
+
+        # Assert
+        assert first == EXPECTED_CALL_COUNT_1
+        assert second == EXPECTED_CALL_COUNT_2
+
+
+class TestCachedRefreshPrivateCache:
+    """Test refresh on the private per-function cache form."""
+
+    async def test_refresh_on_private_cache(self) -> None:
+        """`@cached(ttl=...)` supports refresh with no app or backend setup."""
+        # Arrange
+        call_count = 0
+
+        @cached(ttl=30)
+        async def compute(_x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return call_count
+
+        # Act
+        first = await compute(1)
+        refreshed = await compute.refresh(1)
+        after = await compute(1)
+
+        # Assert
+        assert first == EXPECTED_CALL_COUNT_1
+        assert refreshed == EXPECTED_CALL_COUNT_2
+        assert after == EXPECTED_CALL_COUNT_2
