@@ -13,6 +13,8 @@
 
 ### Fixed
 
+* 🐛 Accept a SQLAlchemy-style Postgres URL. `PostgresProvider` took `postgresql+asyncpg://` without complaint and then failed at connect time, so every adopter stripped the driver suffix by hand. The suffix is now dropped when the URL is resolved, from a keyword, the environment, or a config. ([#596](https://github.com/grelinfo/grelmicro/issues/596))
+
 * 🐛 Type the helpers a `@cached` function exposes. `cached()` returned a plain `Callable`, so `cache_info()` and `cache_clear()` were documented but invisible to type checkers, and calling them failed a downstream `ty` or `mypy` run. It now returns `CachedFunction`. ([#500](https://github.com/grelinfo/grelmicro/issues/500))
 * 🐛 Release the single-flight lock correctly when an `Idempotency` block is cancelled while acquiring it. The lock was bound to the block before it was held, so the cleanup path tried to release a lock the block did not own and raised `LockNotOwnedError` over the original error. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 * 🐛 Release the in-process idempotency lock even when the distributed release is cancelled mid-flight. A cancellation there left the key locked for the life of the process. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
