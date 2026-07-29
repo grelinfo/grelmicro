@@ -1,22 +1,30 @@
 """FastAPI integration: middleware, install helper, and health router."""
 
+import hashlib
 import logging
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, TypedDict, cast
 
 from pydantic import BaseModel
 from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_bytes
+from grelmicro.errors import OutOfContextError
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import HealthStatus
+from grelmicro.idempotency.errors import (
+    IdempotencyConflictError,
+    IdempotencyWaitTimeoutError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import (
         AsyncIterator,
         Awaitable,
         Callable,
+        Collection,
         MutableMapping,
+        Sequence,
     )
 
     from fastapi import APIRouter
@@ -24,6 +32,7 @@ if TYPE_CHECKING:
     from starlette.applications import Starlette
 
     from grelmicro import Grelmicro
+    from grelmicro.idempotency import Idempotency
     from grelmicro.trace._component import Trace
 
     Scope = MutableMapping[str, Any]
@@ -36,6 +45,8 @@ __all__ = [
     "CheckResultResponse",
     "GrelmicroMiddleware",
     "HealthzResponse",
+    "IdempotencyMiddleware",
+    "StoredResponse",
     "health_router",
     "install",
 ]
@@ -205,6 +216,524 @@ def install(
     else:
         micro._on_ambient_disabled()  # noqa: SLF001
     _instrument_app(app, micro)
+
+
+_MAX_KEY_LENGTH = 255
+"""Longest accepted idempotency key, in characters.
+
+A longer key is answered with `400`.
+"""
+
+_REPLAY_HEADER = b"idempotent-replayed"
+"""Response header marking a replayed response."""
+
+_MIN_CONTENT_STATUS = 200
+"""Lowest status that may carry content."""
+
+_BODYLESS_STATUSES = frozenset({204, 304})
+"""Statuses that carry no content, so a replay sends no Content-Length."""
+
+_KEY_SEPARATOR = "\x1f"
+"""Separator joining the parts of a stored key."""
+
+
+class StoredResponse(TypedDict):
+    """The response `IdempotencyMiddleware` is about to store.
+
+    Handed to `skip` so a handler's own rule decides whether a response
+    replays. `headers` maps lowercased names to their value, keeping the
+    last of a repeated name.
+    """
+
+    status: int
+    headers: dict[str, str]
+    body: bytes
+
+
+class _Entry(TypedDict):
+    """A stored response as it rides the cache.
+
+    Header values and the body are `latin-1` strings, which round-trip
+    any byte sequence through the cache serializers without loss.
+    """
+
+    status: int
+    headers: "Sequence[Sequence[str]]"
+    body: str
+
+
+class IdempotencyMiddleware:
+    """Replay a stored HTTP response when a request repeats its idempotency key.
+
+    A request whose method is listed in `methods` and which carries the
+    `header` runs once. A retry with the same key replays the stored
+    status, headers, and body without reaching the handler, and carries
+    `idempotent-replayed: true`. A request without the header passes
+    straight through, so adding the middleware changes nothing until a
+    client opts in.
+
+    ```python
+    from fastapi import FastAPI
+
+    from grelmicro import Grelmicro
+    from grelmicro.idempotency import Idempotency
+    from grelmicro.integrations.fastapi import IdempotencyMiddleware
+
+    micro = Grelmicro(uses=[...])
+    app = FastAPI()
+
+    app.add_middleware(
+        IdempotencyMiddleware, idempotency=Idempotency("http", ttl=3600)
+    )
+    micro.install(app)
+    ```
+
+    Add it before `micro.install(app)`. The framework runs the last
+    middleware added first, so installing last puts the grelmicro request
+    scope outside this middleware, which is what lets it resolve the
+    `Cache` backend.
+
+    A duplicate that arrives while the first execution is in flight waits
+    for it and replays its response. The wait folds across replicas when
+    a `Coordination` lock backend is configured, and in-process
+    otherwise. It is bounded by `wait_timeout`.
+
+    Every response the app returns is stored, errors included. A handler
+    that raises an unhandled exception stores nothing, so the framework's
+    `500` never replays.
+
+    Four kinds of response are not stored, and each one lets a retry
+    re-run the handler: one carrying `Set-Cookie`, one carrying
+    `Content-Encoding`, one declaring trailers, and one whose body is
+    over `max_body_size`. All four are logged. Pass `skip` to add a rule
+    of your own.
+
+    Background tasks run after the response is sent, so a replay can be
+    served while the original request's background work is still in
+    flight.
+
+    The middleware is pure ASGI and works with any ASGI framework
+    (Starlette, Litestar, ...). It acts on `http` scopes and passes every
+    other scope through untouched.
+    """
+
+    def __init__(
+        self,
+        app: Annotated[
+            "ASGIApp",
+            Doc("The next ASGI application in the middleware chain."),
+        ],
+        *,
+        idempotency: Annotated[
+            "Idempotency[Any]",
+            Doc(
+                "The `Idempotency` that stores responses. Its `ttl` sets "
+                "how long a key replays."
+            ),
+        ],
+        header: Annotated[
+            str,
+            Doc("Request header carrying the idempotency key."),
+        ] = "Idempotency-Key",
+        methods: Annotated[
+            "Collection[str]",
+            Doc(
+                "Methods that take an idempotency key. Every other method "
+                "passes through."
+            ),
+        ] = ("POST",),
+        key_maker: Annotated[
+            "Callable[[Scope, str], str] | None",
+            Doc(
+                """
+                Build the stored key from the ASGI scope and the client key.
+
+                Defaults to the method, the path, the query string, and
+                the client key, so two routes never replay each other.
+                **Set this in any multi-tenant app**, folding in the
+                caller identity. Without it a client that learns another
+                client's key replays their response.
+                """
+            ),
+        ] = None,
+        skip: Annotated[
+            "Callable[[StoredResponse], bool] | None",
+            Doc(
+                """
+                Predicate receiving the response. Return `True` to not store it.
+
+                Mirrors `skip` on `@cached`. Use it for a response that
+                is technically replayable but should not be, such as one
+                whose body embeds a timestamp the caller must not see
+                twice. Responses that are never safe to replay are
+                dropped before this runs.
+                """
+            ),
+        ] = None,
+        require_key: Annotated[
+            bool,
+            Doc(
+                "Answer `400` when a method in `methods` arrives without "
+                "the header, instead of passing it through."
+            ),
+        ] = False,
+        fingerprint_body: Annotated[
+            bool,
+            Doc(
+                """
+                Hash the request body and store the hash with the response.
+
+                A key reused with a different body then gets `422` instead
+                of a wrong replay. Buffers the request body before the
+                handler runs, and answers `413` when it is over
+                `max_body_size`.
+                """
+            ),
+        ] = False,
+        max_body_size: Annotated[
+            int,
+            Doc(
+                "Largest body held in memory, in bytes. A larger response "
+                "is sent to the client and not stored. With "
+                "`fingerprint_body`, a larger request body is answered "
+                "with `413`."
+            ),
+        ] = 1024 * 1024,
+        wait_timeout: Annotated[
+            float,
+            Doc(
+                """
+                Seconds a duplicate waits for an execution already in flight.
+
+                Past it the duplicate is answered with `409` and a
+                `Retry-After` header.
+                """
+            ),
+        ] = 10.0,
+    ) -> None:
+        """Initialize the middleware with the idempotency store and policy."""
+        self.app = app
+        self._idempotency = idempotency
+        self._header = header.lower().encode("latin-1")
+        self._header_name = header
+        self._methods = frozenset(method.upper() for method in methods)
+        self._key_maker = key_maker
+        self._skip = skip
+        self._require_key = require_key
+        self._fingerprint_body = fingerprint_body
+        self._max_body_size = max_body_size
+        self._wait_timeout = wait_timeout
+
+    async def __call__(
+        self, scope: "Scope", receive: "Receive", send: "Send"
+    ) -> None:
+        """Replay, execute, or pass the request through."""
+        if scope["type"] != "http" or scope["method"] not in self._methods:
+            await self.app(scope, receive, send)
+            return
+
+        key = _header_value(scope["headers"], self._header)
+        if not key:
+            if self._require_key:
+                await _send_error(
+                    send, 400, f"Missing {self._header_name} header."
+                )
+                return
+            await self.app(scope, receive, send)
+            return
+
+        if len(key) > _MAX_KEY_LENGTH:
+            await _send_error(
+                send,
+                400,
+                f"{self._header_name} exceeds {_MAX_KEY_LENGTH} characters.",
+            )
+            return
+
+        fingerprint = None
+        if self._fingerprint_body:
+            body, too_large, receive = await _buffer_request(
+                receive, self._max_body_size
+            )
+            if too_large:
+                await _send_error(
+                    send, 413, "Request body too large to fingerprint."
+                )
+                return
+            if body is not None:
+                fingerprint = hashlib.sha256(body).hexdigest()
+
+        await self._execute(
+            scope, receive, send, self._storage_key(scope, key), fingerprint
+        )
+
+    async def _execute(
+        self,
+        scope: "Scope",
+        receive: "Receive",
+        send: "Send",
+        storage_key: str,
+        fingerprint: str | None,
+    ) -> None:
+        """Run the request under the idempotency block, or replay it."""
+        block = self._idempotency(
+            storage_key,
+            fingerprint=fingerprint,
+            wait_timeout=self._wait_timeout,
+        )
+        try:
+            operation = await block.__aenter__()
+        except IdempotencyConflictError:
+            await _send_error(
+                send,
+                422,
+                f"{self._header_name} was already used with a different "
+                f"request payload.",
+            )
+            return
+        except IdempotencyWaitTimeoutError:
+            await _send_error(
+                send,
+                409,
+                f"A request with this {self._header_name} is still in "
+                f"flight. Retry shortly.",
+                headers=[(b"retry-after", b"1")],
+            )
+            return
+        except OutOfContextError as exc:
+            raise OutOfContextError(_OUT_OF_CONTEXT_HINT) from exc
+
+        try:
+            if operation.replayed:
+                await _send_stored(
+                    send, operation.result(), head=scope["method"] == "HEAD"
+                )
+            else:
+                capture = _ResponseCapture(
+                    send, self._max_body_size, self._skip
+                )
+                await self.app(scope, receive, capture)
+                if capture.stored is not None:
+                    operation.store(capture.stored)
+        except BaseException as exc:
+            await block.__aexit__(type(exc), exc, exc.__traceback__)
+            raise
+        else:
+            await block.__aexit__(None, None, None)
+
+    def _storage_key(self, scope: "Scope", key: str) -> str:
+        """Build the stored key, scoped by route unless `key_maker` says otherwise."""
+        if self._key_maker is not None:
+            return self._key_maker(scope, key)
+        parts = [scope["method"], scope["path"]]
+        query = scope.get("query_string", b"")
+        if query:
+            parts.append(query.decode("latin-1"))
+        parts.append(key)
+        return _KEY_SEPARATOR.join(parts)
+
+
+_OUT_OF_CONTEXT_HINT = (
+    "IdempotencyMiddleware resolved no cache backend. Add it before "
+    "micro.install(app) so the grelmicro request scope wraps it, register "
+    "a Cache component, or pass an explicit cache= to Idempotency."
+)
+
+
+class _ResponseCapture:
+    """Forward an ASGI response downstream while copying it for storage.
+
+    Each chunk reaches the client as the handler produces it, so storing
+    a response adds no latency. `stored` stays None until the final body
+    message arrives, so a response torn off midway is never replayed.
+    """
+
+    def __init__(
+        self,
+        send: "Send",
+        max_body_size: int,
+        skip: "Callable[[StoredResponse], bool] | None" = None,
+    ) -> None:
+        """Initialize the capture around the downstream `send`."""
+        self._send = send
+        self._max_body_size = max_body_size
+        self._skip = skip
+        self._status = 0
+        self._headers: list[tuple[str, str]] = []
+        self._chunks: list[bytes] = []
+        self._size = 0
+        self._storable = False
+        self.stored: _Entry | None = None
+
+    async def __call__(self, message: "Message") -> None:
+        """Capture the message, then forward it downstream."""
+        if message["type"] == "http.response.start":
+            self._start(message)
+        elif message["type"] == "http.response.body":
+            self._body(message)
+        await self._send(message)
+
+    def _start(self, message: "Message") -> None:
+        """Record the status and headers, and decide whether to store."""
+        blockers: list[str] = []
+        for name, _value in message["headers"]:
+            lowered = name.lower()
+            if lowered == b"set-cookie":
+                blockers.append("Set-Cookie")
+            elif lowered == b"content-encoding":
+                blockers.append("Content-Encoding")
+        if message.get("trailers"):
+            blockers.append("trailers")
+        self._status = message["status"]
+        # Content-Length is recomputed on replay, so a stored value that
+        # drifts from the stored body can never reach a client.
+        self._headers = [
+            (name.decode("latin-1"), value.decode("latin-1"))
+            for name, value in message["headers"]
+            if name.lower() != b"content-length"
+        ]
+        self._storable = not blockers
+        if blockers:
+            _logger.warning(
+                "Idempotent response not stored: it carries %s. A retry with "
+                "the same key will run the handler again.",
+                " and ".join(blockers),
+            )
+
+    def _body(self, message: "Message") -> None:
+        """Accumulate the body, or give up once it outgrows the limit."""
+        if not self._storable:
+            return
+        chunk = message.get("body", b"")
+        self._size += len(chunk)
+        if self._size > self._max_body_size:
+            self._storable = False
+            self._chunks.clear()
+            _logger.warning(
+                "Idempotent response not stored: body exceeds max_body_size "
+                "(%d bytes). A retry with the same key will run the handler "
+                "again.",
+                self._max_body_size,
+            )
+            return
+        self._chunks.append(chunk)
+        if message.get("more_body", False):
+            return
+        body = b"".join(self._chunks)
+        if self._skip is not None and self._skip(
+            StoredResponse(
+                status=self._status,
+                headers=dict(self._headers),
+                body=body,
+            )
+        ):
+            return
+        self.stored = _Entry(
+            status=self._status,
+            headers=self._headers,
+            body=body.decode("latin-1"),
+        )
+
+
+def _header_value(
+    headers: "Sequence[tuple[bytes, bytes]]", name: bytes
+) -> str | None:
+    """Return the first value of `name`, or None when it is absent."""
+    for raw_name, raw_value in headers:
+        if raw_name.lower() == name:
+            return raw_value.decode("latin-1").strip()
+    return None
+
+
+async def _buffer_request(
+    receive: "Receive", max_body_size: int
+) -> "tuple[bytes | None, bool, Receive]":
+    """Read the request body, and return it with a receive that replays it.
+
+    Returns `(body, too_large, receive)`. `body` is None when the client
+    disconnected before the last chunk, so the caller fingerprints
+    nothing rather than hashing a truncated payload as if it were whole.
+    `too_large` reports a body over `max_body_size`, which the caller
+    answers with `413` instead of buffering without bound.
+
+    The returned receive replays the consumed messages one for one,
+    trailing disconnect included, so the app downstream reads exactly
+    what the client sent.
+    """
+    consumed: list[Message] = []
+    chunks: list[bytes] = []
+    size = 0
+    complete = False
+    while True:
+        message = await receive()
+        consumed.append(message)
+        if message["type"] != "http.request":
+            break
+        chunk = message.get("body", b"")
+        size += len(chunk)
+        if size > max_body_size:
+            return None, True, receive
+        chunks.append(chunk)
+        if not message.get("more_body", False):
+            complete = True
+            break
+    pending = iter(consumed)
+
+    async def replay_receive() -> "Message":
+        message = next(pending, None)
+        if message is None:
+            return await receive()
+        return message
+
+    return (b"".join(chunks) if complete else None), False, replay_receive
+
+
+async def _send_stored(send: "Send", stored: _Entry, *, head: bool) -> None:
+    """Send a stored response, marked as a replay.
+
+    Content-Length is recomputed from the stored body, and left off the
+    statuses that carry no content, so a replay stays a valid response.
+    """
+    body = stored["body"].encode("latin-1")
+    status = stored["status"]
+    headers = [
+        (name.encode("latin-1"), value.encode("latin-1"))
+        for name, value in stored["headers"]
+    ]
+    if status >= _MIN_CONTENT_STATUS and status not in _BODYLESS_STATUSES:
+        headers.append((b"content-length", str(len(body)).encode("latin-1")))
+    headers.append((_REPLAY_HEADER, b"true"))
+    await send(
+        {
+            "type": "http.response.start",
+            "status": stored["status"],
+            "headers": headers,
+        }
+    )
+    await send({"type": "http.response.body", "body": b"" if head else body})
+
+
+async def _send_error(
+    send: "Send",
+    status: int,
+    detail: str,
+    *,
+    headers: "Sequence[tuple[bytes, bytes]]" = (),
+) -> None:
+    """Send a JSON error the middleware produced itself."""
+    body = json_dumps_bytes({"detail": detail})
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("latin-1")),
+                *headers,
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}

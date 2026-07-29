@@ -23,6 +23,7 @@ from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencySettingsValidationError,
     IdempotencyStateError,
+    IdempotencyWaitTimeoutError,
 )
 from grelmicro.metrics import _emit
 
@@ -113,11 +114,13 @@ class _Block(Generic[T]):
         idempotency: Idempotency[T],
         key: str,
         fingerprint: str | None,
+        wait_timeout: float | None = None,
     ) -> None:
         """Initialize the block."""
         self._idempotency = idempotency
         self._key = key
         self._fingerprint = fingerprint
+        self._wait_timeout = wait_timeout
         self._operation: Operation[T] | None = None
         self._local_lock: Any = None
         self._distributed_lock: Lock | None = None
@@ -130,7 +133,11 @@ class _Block(Generic[T]):
                 Pass `cache=`, register a `Cache` Component, or run the
                 call inside `async with micro:` or after
                 `micro.install(app)`.
+            IdempotencyWaitTimeoutError: `wait_timeout` elapsed while an
+                execution already in flight held the single-flight lock.
         """
+        import asyncio  # noqa: PLC0415
+
         from grelmicro._app import (  # noqa: PLC0415
             ComponentNotRegisteredError,
             NoActiveAppError,
@@ -165,48 +172,66 @@ class _Block(Generic[T]):
             return self._operation
 
         guard = self._idempotency._guard  # noqa: SLF001
-        self._local_lock = await guard.get_lock(self._key)
-        await self._local_lock.acquire()
         try:
-            replay = await self._idempotency._replay(  # noqa: SLF001
-                self._key, self._fingerprint
-            )
-            if replay is not _SENTINEL:
-                self._local_lock.release()
-                self._local_lock = None
-                _emit.incr(
-                    "grelmicro.idempotency.operations",
-                    **{
-                        "idempotency.name": self._idempotency._name,  # noqa: SLF001
-                        "result": "replay",
-                    },
-                )
-                self._operation = Operation(replayed=True, response=replay)
-                return self._operation
+            async with asyncio.timeout(self._wait_timeout) as scope:
+                self._local_lock = await guard.get_lock(self._key)
+                await self._local_lock.acquire()
+                try:
+                    replay = await self._idempotency._replay(  # noqa: SLF001
+                        self._key, self._fingerprint
+                    )
+                    if replay is not _SENTINEL:
+                        self._local_lock.release()
+                        self._local_lock = None
+                        _emit.incr(
+                            "grelmicro.idempotency.operations",
+                            **{
+                                "idempotency.name": self._idempotency._name,  # noqa: SLF001
+                                "result": "replay",
+                            },
+                        )
+                        self._operation = Operation(
+                            replayed=True, response=replay
+                        )
+                        return self._operation
 
-            if _has_lock_backend():
-                self._distributed_lock = Lock(
-                    _stampede_lock_name(
-                        self._idempotency._scoped(self._key)  # noqa: SLF001
-                    )
-                )
-                await self._distributed_lock.acquire()
-                replay = await self._idempotency._replay(  # noqa: SLF001
-                    self._key, self._fingerprint
-                )
-                if replay is not _SENTINEL:
+                    if _has_lock_backend():
+                        # Bound to the block only once held, so a failed or
+                        # cancelled acquire never sends `_release` at a lock
+                        # this block does not own.
+                        lock = Lock(
+                            _stampede_lock_name(
+                                self._idempotency._scoped(self._key)  # noqa: SLF001
+                            )
+                        )
+                        await lock.acquire()
+                        self._distributed_lock = lock
+                        replay = await self._idempotency._replay(  # noqa: SLF001
+                            self._key, self._fingerprint
+                        )
+                        if replay is not _SENTINEL:
+                            await self._release()
+                            _emit.incr(
+                                "grelmicro.idempotency.operations",
+                                **{
+                                    "idempotency.name": self._idempotency._name,  # noqa: SLF001
+                                    "result": "replay",
+                                },
+                            )
+                            self._operation = Operation(
+                                replayed=True, response=replay
+                            )
+                            return self._operation
+                except BaseException:
                     await self._release()
-                    _emit.incr(
-                        "grelmicro.idempotency.operations",
-                        **{
-                            "idempotency.name": self._idempotency._name,  # noqa: SLF001
-                            "result": "replay",
-                        },
-                    )
-                    self._operation = Operation(replayed=True, response=replay)
-                    return self._operation
-        except BaseException:
-            await self._release()
+                    raise
+        except TimeoutError:
+            if scope.expired():
+                raise IdempotencyWaitTimeoutError(
+                    name=self._idempotency._name,  # noqa: SLF001
+                    key=self._key,
+                    timeout=cast("float", self._wait_timeout),
+                ) from None
             raise
 
         _emit.incr(
@@ -243,13 +268,20 @@ class _Block(Generic[T]):
             await self._release()
 
     async def _release(self) -> None:
-        """Release the distributed and in-process locks, in that order."""
-        if self._distributed_lock is not None:
-            await self._distributed_lock.release()
-            self._distributed_lock = None
-        if self._local_lock is not None:
-            self._local_lock.release()
-            self._local_lock = None
+        """Release the distributed and in-process locks, in that order.
+
+        The in-process release runs even when the distributed release is
+        cancelled mid-flight, so a key never stays locked for the life of
+        the process.
+        """
+        try:
+            if self._distributed_lock is not None:
+                await self._distributed_lock.release()
+                self._distributed_lock = None
+        finally:
+            if self._local_lock is not None:
+                self._local_lock.release()
+                self._local_lock = None
 
 
 class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
@@ -473,6 +505,19 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 """,
             ),
         ] = None,
+        wait_timeout: Annotated[
+            float | None,
+            Doc(
+                """
+                Seconds to wait for a duplicate that is still in flight.
+
+                A duplicate arriving mid-flight waits for the first
+                execution to finish, then replays its response. When the
+                wait exceeds this many seconds, `TimeoutError` is raised
+                instead. When None (the default), the wait is unbounded.
+                """,
+            ),
+        ] = None,
     ) -> _Block[T]:
         """Open an idempotent block for `key`.
 
@@ -483,6 +528,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             self,
             key,
             fingerprint if fingerprint is not None else self._fingerprint,
+            wait_timeout,
         )
 
     async def run(

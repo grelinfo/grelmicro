@@ -22,6 +22,25 @@ class IdempotencyStateError(IdempotencyError, RuntimeError):
     """
 
 
+class IdempotencyWaitTimeoutError(IdempotencyError, TimeoutError):
+    """Raised when a duplicate waits past `wait_timeout` for the first execution.
+
+    Subclasses `TimeoutError`, so an `except TimeoutError` around the
+    block catches it. Catch this instead to tell a single-flight wait
+    apart from a backend that timed out inside the block.
+    """
+
+    def __init__(self, *, name: str, key: str, timeout: float) -> None:
+        """Initialize the error."""
+        self.name = name
+        self.key = key
+        self.timeout = timeout
+        super().__init__(
+            f"Idempotency({name!r}) waited {timeout}s for an execution "
+            f"already in flight: key={key!r}"
+        )
+
+
 class IdempotencyConflictError(IdempotencyError):
     """Raised when a key is replayed with a different payload fingerprint.
 
