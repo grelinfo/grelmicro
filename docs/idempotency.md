@@ -177,6 +177,28 @@ app.add_middleware(
 
 Fingerprinting buffers the request body before the handler runs, so it is off by default. A request body over `max_body_size` is answered with `413`.
 
+### OpenAPI
+
+The middleware runs below the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists. `document_idempotency` fixes that:
+
+```python
+from grelmicro.integrations.fastapi import (
+    IdempotencyMiddleware,
+    document_idempotency,
+)
+
+app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+micro.install(app)
+document_idempotency(app)
+```
+
+Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call order does not matter, and routes added afterwards are covered too.
+
+An operation that already declares the header keeps its own declaration. The `422` that FastAPI generates for request validation keeps its schema and gains the idempotency case in its description, so neither is lost.
+
+!!! note "Mounted sub-applications"
+    A mounted sub-application builds its own schema. Call `document_idempotency` on it as well.
+
 ### Background tasks
 
 A background task runs after the response is sent, so the response is stored and replayable while the task is still working. A replay can land before the original request's background work finishes. Put anything a retry must not repeat in the handler, not in a background task.

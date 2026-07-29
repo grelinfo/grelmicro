@@ -228,6 +228,9 @@
       "()": "(app, *, idempotency, header=..., methods=..., key_maker=..., skip=..., require_key=..., fingerprint_body=..., max_body_size=..., wait_timeout=...)"
     },
     "StoredResponse": null,
+    "document_idempotency": {
+      "()": "(app)"
+    },
     "health_router": {
       "()": "(registry=..., *, prefix=..., show_details=..., healthz_dependencies=...)"
     },

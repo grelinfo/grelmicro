@@ -9,6 +9,7 @@
         - GrelmicroMiddleware
         - IdempotencyMiddleware
         - StoredResponse
+        - document_idempotency
         - health_router
         - CheckResultResponse
         - HealthzResponse

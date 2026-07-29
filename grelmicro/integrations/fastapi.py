@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         Sequence,
     )
 
-    from fastapi import APIRouter
+    from fastapi import APIRouter, FastAPI
     from fastapi.params import Depends
     from starlette.applications import Starlette
 
@@ -47,6 +47,7 @@ __all__ = [
     "HealthzResponse",
     "IdempotencyMiddleware",
     "StoredResponse",
+    "document_idempotency",
     "health_router",
     "install",
 ]
@@ -531,6 +532,196 @@ class IdempotencyMiddleware:
             parts.append(query.decode("latin-1"))
         parts.append(key)
         return _KEY_SEPARATOR.join(parts)
+
+
+_OPERATION_METHODS = frozenset(
+    {
+        "get",
+        "put",
+        "post",
+        "delete",
+        "options",
+        "head",
+        "patch",
+        "trace",
+    }
+)
+"""Path item keys that are operations, as opposed to `parameters` or `servers`."""
+
+
+def document_idempotency(
+    app: Annotated[
+        "FastAPI",
+        Doc("The app carrying an `IdempotencyMiddleware` to document."),
+    ],
+) -> None:
+    """Describe the installed `IdempotencyMiddleware` in the OpenAPI schema.
+
+    A middleware runs below the routing layer, so nothing it does reaches
+    the generated schema and a client built from that schema never learns
+    the header exists. This reads the installed middleware and annotates
+    every operation it covers with the header parameter and the responses
+    the middleware itself can return.
+
+    ```python
+    from grelmicro.integrations.fastapi import (
+        IdempotencyMiddleware,
+        document_idempotency,
+    )
+
+    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+    micro.install(app)
+    document_idempotency(app)
+    ```
+
+    Call order does not matter. The schema is annotated the next time it
+    is built, so routes added afterwards are covered too.
+
+    An operation that already declares the header keeps its own
+    declaration. A `422` that FastAPI generated for request validation
+    keeps its schema, and the idempotency case is added to its
+    description.
+
+    A mounted sub-application builds its own schema, which this does not
+    reach. Call it on the sub-application as well.
+
+    Raises:
+        DependencyNotFoundError: If `fastapi` is not installed.
+        TypeError: If `app` is not a `FastAPI` app, or carries no
+            `IdempotencyMiddleware`.
+    """
+    try:
+        from fastapi import FastAPI as _FastAPI  # noqa: PLC0415
+    except ImportError:
+        from grelmicro.errors import (  # noqa: PLC0415
+            DependencyNotFoundError,
+        )
+
+        raise DependencyNotFoundError(module="fastapi") from None
+
+    if not isinstance(app, _FastAPI):
+        msg = (
+            f"document_idempotency() needs a FastAPI app, got "
+            f"{type(app).__name__}. Only FastAPI builds an OpenAPI schema."
+        )
+        raise TypeError(msg)
+
+    options = _idempotency_options(app)
+    original = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        schema = original()
+        _annotate_schema(schema, options)
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    # Drop a schema built before this call, which would otherwise be
+    # served from the cache without the annotations.
+    app.openapi_schema = None
+
+
+def _idempotency_options(app: "FastAPI") -> dict[str, Any]:
+    """Return the installed middleware's arguments, defaults filled in."""
+    import inspect  # noqa: PLC0415
+
+    for middleware in app.user_middleware:
+        if middleware.cls is IdempotencyMiddleware:
+            # Every parameter after `app` is keyword-only, so `add_middleware`
+            # can only have passed them by keyword.
+            bound = inspect.signature(IdempotencyMiddleware).bind_partial(
+                **middleware.kwargs
+            )
+            bound.apply_defaults()
+            return dict(bound.arguments)
+    msg = (
+        "document_idempotency() found no IdempotencyMiddleware on the app. "
+        "Add it with app.add_middleware(IdempotencyMiddleware, ...) first."
+    )
+    raise TypeError(msg)
+
+
+def _annotate_schema(schema: dict[str, Any], options: dict[str, Any]) -> None:
+    """Add the header and the middleware's responses to covered operations."""
+    methods = {method.lower() for method in options["methods"]}
+    header = options["header"]
+    fingerprint_body = options["fingerprint_body"]
+    parameter = {
+        "name": header,
+        "in": "header",
+        "required": options["require_key"],
+        "schema": {"type": "string", "maxLength": _MAX_KEY_LENGTH},
+        "description": (
+            "Key that makes this request safe to retry. A repeat within the "
+            "replay window returns the first response instead of running the "
+            "operation again."
+        ),
+    }
+    responses = {
+        "400": f"`{header}` is missing or longer than {_MAX_KEY_LENGTH} characters."
+        if options["require_key"]
+        else f"`{header}` is longer than {_MAX_KEY_LENGTH} characters.",
+        "409": (
+            f"A request with this `{header}` is still in flight. Retry after "
+            f"the delay in `Retry-After`."
+        ),
+    }
+    if fingerprint_body:
+        responses["413"] = "Request body too large to fingerprint."
+        responses["422"] = (
+            f"This `{header}` was already used with a different request "
+            f"payload."
+        )
+
+    for path_item in schema.get("paths", {}).values():
+        for method, operation in path_item.items():
+            if method.lower() not in methods & _OPERATION_METHODS:
+                continue
+            _add_parameter(operation, path_item, parameter)
+            for status, description in responses.items():
+                _merge_response(operation, status, description)
+
+
+def _add_parameter(
+    operation: dict[str, Any],
+    path_item: dict[str, Any],
+    parameter: dict[str, Any],
+) -> None:
+    """Add the header parameter unless the operation already declares it.
+
+    OpenAPI keys a parameter by name and location, and forbids the same
+    pair twice, so a declaration already present at either level wins.
+    """
+    name = parameter["name"].lower()
+    declared = [
+        *operation.get("parameters", ()),
+        *path_item.get("parameters", ()),
+    ]
+    if any(
+        existing.get("in") == "header"
+        and str(existing.get("name", "")).lower() == name
+        for existing in declared
+    ):
+        return
+    operation.setdefault("parameters", []).append(parameter)
+
+
+def _merge_response(
+    operation: dict[str, Any], status: str, description: str
+) -> None:
+    """Describe a status the middleware returns, keeping what is there.
+
+    FastAPI generates a `422` carrying the validation error schema. That
+    entry keeps its schema and gains this description, so neither case is
+    lost and a second call adds nothing.
+    """
+    responses = operation.setdefault("responses", {})
+    existing = responses.get(status)
+    if existing is None:
+        responses[status] = {"description": description}
+        return
+    current = existing.get("description", "")
+    if description not in current:
+        existing["description"] = f"{current}\n\n{description}".strip()
 
 
 _OUT_OF_CONTEXT_HINT = (

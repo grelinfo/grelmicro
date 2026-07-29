@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import gzip
-from typing import TYPE_CHECKING, Any
+import importlib
+import json
+import sys
+from typing import TYPE_CHECKING, Annotated, Any
+from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Header, Response
 from fastapi.testclient import TestClient
+from starlette.applications import Starlette
 from starlette.background import BackgroundTasks
 from starlette.responses import StreamingResponse
 from starlette.status import (
@@ -25,9 +30,12 @@ from starlette.status import (
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import DependencyNotFoundError, OutOfContextError
 from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import IdempotencyMiddleware
+from grelmicro.integrations.fastapi import (
+    IdempotencyMiddleware,
+    document_idempotency,
+)
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -779,3 +787,127 @@ async def test_middleware_duplicate_in_flight_times_out_with_conflict() -> None:
     # Assert
     assert second.status_code == HTTP_409_CONFLICT
     assert second.headers["retry-after"] == "1"
+
+
+def _documented_app(**options: Any) -> FastAPI:  # noqa: ANN401
+    """Build an app whose schema is annotated by `document_idempotency`."""
+    app = build_app(**options)
+
+    @app.post("/declared")
+    async def declared(
+        key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, str]:
+        return {"key": key}
+
+    document_idempotency(app)
+    return app
+
+
+def test_document_idempotency_adds_the_header_and_responses() -> None:
+    """A covered operation gains the header parameter and the responses."""
+    # Arrange
+    app = _documented_app(fingerprint_body=True)
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+    # Assert
+    assert ("Idempotency-Key", "header") in [
+        (p["name"], p["in"]) for p in operation["parameters"]
+    ]
+    assert {"400", "409", "413", "422"} <= set(operation["responses"])
+
+
+def test_document_idempotency_leaves_other_methods_alone() -> None:
+    """A method the middleware ignores keeps its schema untouched."""
+    # Arrange
+    app = _documented_app()
+    # Act
+    operation = app.openapi()["paths"]["/read"]["get"]
+    # Assert
+    assert not [
+        p for p in operation.get("parameters", []) if p["in"] == "header"
+    ]
+    assert "409" not in operation["responses"]
+
+
+def test_document_idempotency_keeps_a_declared_header() -> None:
+    """An operation that declares the header keeps its own declaration."""
+    # Arrange
+    app = _documented_app()
+    # Act
+    parameters = app.openapi()["paths"]["/declared"]["post"]["parameters"]
+    headers = [p for p in parameters if p["in"] == "header"]
+    # Assert
+    assert len(headers) == 1
+    assert headers[0]["required"] is True
+
+
+def test_document_idempotency_keeps_the_validation_error_schema() -> None:
+    """The auto-generated 422 keeps its schema and gains the description."""
+    # Arrange
+    app = _documented_app(fingerprint_body=True)
+    # Act
+    # `/declared` validates a required header, so FastAPI generates a 422.
+    response = app.openapi()["paths"]["/declared"]["post"]["responses"]["422"]
+    # Assert
+    assert "application/json" in response["content"]
+    assert "Validation Error" in response["description"]
+    assert "different request payload" in response["description"]
+
+
+def test_document_idempotency_is_stable_across_calls() -> None:
+    """Rebuilding the schema does not duplicate the injected entries."""
+    # Arrange
+    app = _documented_app(fingerprint_body=True)
+    # Act
+    first = json.dumps(app.openapi())
+    cached = json.dumps(app.openapi())  # served from the cache, annotated once
+    app.openapi_schema = None
+    rebuilt = json.dumps(app.openapi())  # regenerated from the routes
+    # Assert
+    assert cached == first
+    assert rebuilt == first
+
+
+def test_document_idempotency_marks_a_required_key() -> None:
+    """`require_key` makes the documented parameter required."""
+    # Arrange
+    app = _documented_app(require_key=True)
+    # Act
+    parameters = app.openapi()["paths"]["/charge"]["post"]["parameters"]
+    header = next(p for p in parameters if p["in"] == "header")
+    # Assert
+    assert header["required"] is True
+
+
+def test_document_idempotency_rejects_an_app_without_the_middleware() -> None:
+    """A clear error beats silently documenting nothing."""
+    # Arrange
+    app = FastAPI()
+    # Act / Assert
+    with pytest.raises(TypeError, match="no IdempotencyMiddleware"):
+        document_idempotency(app)
+
+
+def test_document_idempotency_rejects_a_plain_starlette_app() -> None:
+    """Only FastAPI builds an OpenAPI schema to annotate."""
+    # Arrange
+    app = Starlette()
+    # Act / Assert
+    with pytest.raises(TypeError, match="needs a FastAPI app"):
+        document_idempotency(app)  # ty: ignore[invalid-argument-type]
+
+
+def test_document_idempotency_raises_without_fastapi() -> None:
+    """`document_idempotency` reports the missing dependency."""
+    # Arrange
+    with patch.dict(sys.modules, {"fastapi": None}):
+        if "grelmicro.integrations.fastapi" in sys.modules:
+            del sys.modules["grelmicro.integrations.fastapi"]
+        module = importlib.import_module("grelmicro.integrations.fastapi")
+        # Act / Assert
+        with pytest.raises(DependencyNotFoundError):
+            module.document_idempotency(None)  # ty: ignore[invalid-argument-type]
+
+    if "grelmicro.integrations.fastapi" in sys.modules:
+        del sys.modules["grelmicro.integrations.fastapi"]
+    importlib.import_module("grelmicro.integrations.fastapi")  # restore
