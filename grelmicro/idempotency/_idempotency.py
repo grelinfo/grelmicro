@@ -557,6 +557,17 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 """,
             ),
         ] = None,
+        wait_timeout: Annotated[
+            float | None,
+            Doc(
+                """
+                Seconds to wait for a duplicate that is still in flight.
+
+                Past it, `IdempotencyWaitTimeoutError` is raised instead.
+                When None (the default), the wait is unbounded.
+                """,
+            ),
+        ] = None,
     ) -> T:
         """Run an operation once for `key`, then replay its response.
 
@@ -568,7 +579,9 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         """
         import asyncio  # noqa: PLC0415
 
-        async with self(key, fingerprint=fingerprint) as operation:
+        async with self(
+            key, fingerprint=fingerprint, wait_timeout=wait_timeout
+        ) as operation:
             if operation.replayed:
                 return operation.result()
             response = factory()

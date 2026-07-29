@@ -911,3 +911,82 @@ def test_document_idempotency_raises_without_fastapi() -> None:
     if "grelmicro.integrations.fastapi" in sys.modules:
         del sys.modules["grelmicro.integrations.fastapi"]
     importlib.import_module("grelmicro.integrations.fastapi")  # restore
+
+
+def test_document_idempotency_covers_a_custom_method() -> None:
+    """A method the middleware covers is annotated, standard or not."""
+    # Arrange
+    app = build_app(methods=("POST", "PURGE"))
+
+    async def purge() -> dict[str, bool]:
+        return {"purged": True}
+
+    app.add_api_route("/thing", purge, methods=["PURGE"])
+    document_idempotency(app)
+    # Act
+    operation = app.openapi()["paths"]["/thing"]["purge"]
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+    assert "409" in operation["responses"]
+
+
+def test_document_idempotency_finds_a_subclass() -> None:
+    """A subclass of the middleware is still the middleware."""
+
+    # Arrange
+    class TenantIdempotencyMiddleware(IdempotencyMiddleware):
+        """A project's own subclass."""
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        TenantIdempotencyMiddleware, idempotency=Idempotency("http", ttl=60)
+    )
+    micro.install(app)
+
+    @app.post("/charge")
+    async def charge() -> dict[str, bool]:
+        return {"ok": True}
+
+    document_idempotency(app)
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+
+
+def test_document_idempotency_ignores_a_callable_middleware() -> None:
+    """A non-class middleware factory never breaks the lookup."""
+
+    # Arrange
+    def passthrough(app: Any) -> Any:  # noqa: ANN401
+        return app
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+    app.add_middleware(passthrough)
+    micro.install(app)
+
+    @app.post("/charge")
+    async def charge() -> dict[str, bool]:
+        return {"ok": True}
+
+    document_idempotency(app)
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+
+
+def test_document_idempotency_gives_each_operation_its_own_parameter() -> None:
+    """Editing one injected parameter never edits another operation's."""
+    # Arrange
+    app = _documented_app()
+    schema = app.openapi()
+    # Act
+    charge = schema["paths"]["/charge"]["post"]["parameters"][-1]
+    created = schema["paths"]["/created"]["post"]["parameters"][-1]
+    charge["description"] = "edited"
+    # Assert
+    assert created["description"] != "edited"

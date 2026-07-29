@@ -5,7 +5,7 @@
 ### Features
 
 * ✨ Add `IdempotencyMiddleware`. A request carrying an `Idempotency-Key` header runs once, and a retry replays the stored response without reaching the handler. Pure ASGI, so it works on FastAPI, Starlette, and Litestar alike. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
-* ✨ Bound the single-flight wait with `wait_timeout=` on an `Idempotency` block. A duplicate that waits longer than that raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`, instead of holding the caller indefinitely. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
+* ✨ Bound the single-flight wait with `wait_timeout=` on an `Idempotency` block and on `run()`. A duplicate that waits longer than that raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`, instead of holding the caller indefinitely. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 
 * ✨ Add `document_idempotency(app)`, which describes the installed `IdempotencyMiddleware` in the OpenAPI schema. A middleware is invisible to the generated schema, so a client built from it never learns the header exists. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 

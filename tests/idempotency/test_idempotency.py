@@ -718,3 +718,30 @@ async def test_idempotency_block_propagates_a_backend_timeout() -> None:
 
     # Assert
     assert not isinstance(exc_info.value, IdempotencyWaitTimeoutError)
+
+
+async def test_idempotency_run_waits_out_the_timeout() -> None:
+    """`run` bounds the wait the same way the block does."""
+    # Arrange
+    wait_timeout = 0.05
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    idem: Idempotency = Idempotency("charge", ttl=60)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow() -> dict[str, bool]:
+        started.set()
+        await release.wait()
+        return {"ok": True}
+
+    # Act
+    async with micro:
+        task = asyncio.create_task(idem.run("key-1", slow))
+        await started.wait()
+        with pytest.raises(IdempotencyWaitTimeoutError):
+            await idem.run("key-1", slow, wait_timeout=wait_timeout)
+        release.set()
+        result = await task
+
+    # Assert
+    assert result == {"ok": True}

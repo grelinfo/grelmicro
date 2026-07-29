@@ -179,7 +179,7 @@ Fingerprinting buffers the request body before the handler runs, so it is off by
 
 ### OpenAPI
 
-The middleware runs below the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists. `document_idempotency` fixes that:
+The middleware runs outside the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists. `document_idempotency` fixes that:
 
 ```python
 from grelmicro.integrations.fastapi import (
@@ -192,7 +192,7 @@ micro.install(app)
 document_idempotency(app)
 ```
 
-Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call order does not matter, and routes added afterwards are covered too.
+Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call it any time after `add_middleware`, and routes added afterwards are covered too.
 
 An operation that already declares the header keeps its own declaration. The `422` that FastAPI generates for request validation keeps its schema and gains the idempotency case in its description, so neither is lost.
 
@@ -288,7 +288,7 @@ With a lock backend, two replicas that receive the same key at the same time run
 
 ### Bounding the wait
 
-The wait is unbounded by default. Pass `wait_timeout=` to bound it. Past it the block raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`.
+The wait is unbounded by default. Pass `wait_timeout=` to bound it, on the block or on `run()`. Past it the wait raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`.
 
 ```python
 from grelmicro.idempotency import IdempotencyWaitTimeoutError

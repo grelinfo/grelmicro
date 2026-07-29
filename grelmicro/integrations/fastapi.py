@@ -534,21 +534,6 @@ class IdempotencyMiddleware:
         return _KEY_SEPARATOR.join(parts)
 
 
-_OPERATION_METHODS = frozenset(
-    {
-        "get",
-        "put",
-        "post",
-        "delete",
-        "options",
-        "head",
-        "patch",
-        "trace",
-    }
-)
-"""Path item keys that are operations, as opposed to `parameters` or `servers`."""
-
-
 def document_idempotency(
     app: Annotated[
         "FastAPI",
@@ -557,7 +542,7 @@ def document_idempotency(
 ) -> None:
     """Describe the installed `IdempotencyMiddleware` in the OpenAPI schema.
 
-    A middleware runs below the routing layer, so nothing it does reaches
+    A middleware runs outside the routing layer, so nothing it does reaches
     the generated schema and a client built from that schema never learns
     the header exists. This reads the installed middleware and annotates
     every operation it covers with the header parameter and the responses
@@ -574,8 +559,8 @@ def document_idempotency(
     document_idempotency(app)
     ```
 
-    Call order does not matter. The schema is annotated the next time it
-    is built, so routes added afterwards are covered too.
+    Call it any time after `add_middleware`. The schema is annotated the
+    next time it is built, so routes added afterwards are covered too.
 
     An operation that already declares the header keeps its own
     declaration. A `422` that FastAPI generated for request validation
@@ -625,7 +610,10 @@ def _idempotency_options(app: "FastAPI") -> dict[str, Any]:
     import inspect  # noqa: PLC0415
 
     for middleware in app.user_middleware:
-        if middleware.cls is IdempotencyMiddleware:
+        # `add_middleware` prepends, so the first match is the last added,
+        # which is the outermost at runtime and answers first on the wire.
+        cls = middleware.cls
+        if isinstance(cls, type) and issubclass(cls, IdempotencyMiddleware):
             # Every parameter after `app` is keyword-only, so `add_middleware`
             # can only have passed them by keyword.
             bound = inspect.signature(IdempotencyMiddleware).bind_partial(
@@ -653,7 +641,7 @@ def _annotate_schema(schema: dict[str, Any], options: dict[str, Any]) -> None:
         "description": (
             "Key that makes this request safe to retry. A repeat within the "
             "replay window returns the first response instead of running the "
-            "operation again."
+            f"operation again. Up to {_MAX_KEY_LENGTH} ASCII characters."
         ),
     }
     responses = {
@@ -674,7 +662,10 @@ def _annotate_schema(schema: dict[str, Any], options: dict[str, Any]) -> None:
 
     for path_item in schema.get("paths", {}).values():
         for method, operation in path_item.items():
-            if method.lower() not in methods & _OPERATION_METHODS:
+            # Every non-operation key of a path item (`parameters`,
+            # `servers`, `summary`, `$ref`) holds a list or a string, so a
+            # mapping under a covered method is an operation.
+            if method.lower() not in methods or not isinstance(operation, dict):
                 continue
             _add_parameter(operation, path_item, parameter)
             for status, description in responses.items():
@@ -702,7 +693,8 @@ def _add_parameter(
         for existing in declared
     ):
         return
-    operation.setdefault("parameters", []).append(parameter)
+    # A copy per operation, so post-processing one never edits the rest.
+    operation.setdefault("parameters", []).append(dict(parameter))
 
 
 def _merge_response(
