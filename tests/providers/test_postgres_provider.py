@@ -595,3 +595,79 @@ class TestValidationErrors:
             PostgresConfig(url="redis://usr:test_password@h/0")
 
         assert "test_password" not in str(excinfo.value)
+
+
+DRIVER_SCHEMES = [
+    "postgresql+asyncpg",
+    "postgresql+pg8000",
+    "postgresql+psycopg",
+    "postgresql+psycopg2",
+    "postgresql+psycopg2cffi",
+    "postgresql+py-postgresql",
+    "postgresql+pygresql",
+]
+
+
+class TestSQLAlchemyDsn:
+    """A SQLAlchemy-style DSN loses its driver suffix, never the rest."""
+
+    @pytest.mark.parametrize("scheme", DRIVER_SCHEMES)
+    def test_driver_suffix_is_dropped(self, scheme: str) -> None:
+        """Every driver-qualified scheme resolves to plain `postgresql`."""
+        # Arrange
+        url = f"{scheme}://test_user:test_password@test_host:1234/test_db"
+        # Act
+        provider = PostgresProvider(url=url)
+        # Assert
+        assert provider.url == URL
+
+    def test_plain_scheme_is_untouched(self) -> None:
+        """A URL with no driver suffix passes through unchanged."""
+        # Arrange / Act
+        provider = PostgresProvider(url=URL)
+        # Assert
+        assert provider.url == URL
+
+    def test_postgres_scheme_is_untouched(self) -> None:
+        """The short `postgres://` scheme keeps its own spelling."""
+        # Arrange
+        url = "postgres://test_user:test_password@test_host:1234/test_db"
+        # Act
+        provider = PostgresProvider(url=url)
+        # Assert
+        assert provider.url == url
+
+    def test_driver_suffix_is_dropped_from_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The env path normalises the scheme the same way."""
+        # Arrange
+        monkeypatch.setenv(
+            "POSTGRES_URL",
+            "postgresql+asyncpg://test_user:test_password@test_host:1234/test_db",
+        )
+        # Act
+        provider = PostgresProvider()
+        # Assert
+        assert provider.url == URL
+
+    def test_driver_suffix_is_dropped_from_a_config(self) -> None:
+        """`from_config` normalises the scheme the same way."""
+        # Arrange
+        config = PostgresConfig(
+            url="postgresql+asyncpg://test_user:test_password@test_host:1234/test_db"
+        )
+        # Act
+        provider = PostgresProvider.from_config(config)
+        # Assert
+        assert provider.url == URL
+
+    def test_password_is_still_redacted(self) -> None:
+        """Normalising the scheme does not leak the credential."""
+        # Arrange
+        url = "postgresql+asyncpg://test_user:test_password@test_host:1234/test_db"
+        # Act
+        provider = PostgresProvider(url=url)
+        # Assert
+        assert "test_password" not in provider.safe_url
+        assert provider.safe_url.startswith("postgresql://")
