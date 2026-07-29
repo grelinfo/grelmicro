@@ -11,7 +11,7 @@ The launch ships on the current `0.x` line. It is not gated on a 1.0 bump.
 - [x] The [FastAPI demo](examples/fastapi-demo) starts from a fresh clone in three commands. Verified 2026-07-28: `cd examples/fastapi-demo`, `docker compose up --wait`, `open http://localhost:8000/docs`.
 - [x] Record the demo asset (see below) and embed it in the README. `docs/img/demo.gif`, 840K, embedded at the top of `README.md`.
 - [x] Enable the badges (see below). Scorecard and SLSA 2 are both live in `README.md`. 0.32.5 is the first release publishing a verified attestation.
-- [ ] README "Why grelmicro" leads with one sentence a stranger understands.
+- [x] README "Why grelmicro" leads with one sentence a stranger understands.
 - [x] CHANGELOG `Unreleased` section moved under the release version heading.
 
 ## Launch channels (#172)

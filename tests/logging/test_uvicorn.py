@@ -547,7 +547,14 @@ async def app(scope, receive, send):
         await send({"type": "http.response.body", "body": b"ok"})
 """
 
-_STARTUP_TIMEOUT = 10
+_STARTUP_TIMEOUT = 30
+"""Seconds to wait for the uvicorn process to accept a request.
+
+Generous because the suite runs 12 xdist workers, so a real interpreter start
+competes with the container-backed tiers. Must stay below the
+`pytest.mark.timeout` of the tests below, so a slow start is reported as
+"did not start in time" rather than an opaque pytest-timeout.
+"""
 _POLL_INTERVAL = 0.1
 
 
@@ -555,7 +562,7 @@ class TestUvicornProcess:
     """Integration tests that start a real uvicorn process."""
 
     @pytest.mark.integration
-    @pytest.mark.timeout(15)
+    @pytest.mark.timeout(45)
     def test_real_uvicorn_access_log(self) -> None:
         """Test structured JSON output from a real uvicorn process."""
         # Arrange: write temp app and log config

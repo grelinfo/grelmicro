@@ -16,7 +16,10 @@ from uuid import uuid4
 
 import pytest
 
-pytestmark = [pytest.mark.timeout(60), pytest.mark.integration]
+# The fixture waits up to 30s for the master and 30s for the sentinel. The
+# marker must stay above their sum, otherwise pytest-timeout fires at the same
+# moment as the last wait and hides which container failed to come up.
+pytestmark = [pytest.mark.timeout(120), pytest.mark.integration]
 
 testcontainers = pytest.importorskip("testcontainers.core.container")
 
