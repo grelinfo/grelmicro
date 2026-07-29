@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+
+* 📝 Document how to report a bug: where to file, what a report needs, and what happens after you file it. ([#588](https://github.com/grelinfo/grelmicro/pull/588))
+* 📝 Add GitHub issue forms for bug reports and feature requests, so a report arrives with the version, the backend, and a runnable reproduction. ([#588](https://github.com/grelinfo/grelmicro/pull/588))
+* 📝 Add the OpenSSF Best Practices badge, now passing at 100%. ([#588](https://github.com/grelinfo/grelmicro/pull/588))
+
 ## 0.32.6 - 2026-07-29
 
 ### Fixed

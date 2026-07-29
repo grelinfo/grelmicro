@@ -21,6 +21,7 @@
   <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
   <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/grelinfo/grelmicro"><img alt="OpenSSF Scorecard" src="https://api.securityscorecards.dev/projects/github.com/grelinfo/grelmicro/badge"></a>
+  <a href="https://www.bestpractices.dev/projects/13655"><img alt="OpenSSF Best Practices" src="https://www.bestpractices.dev/projects/13655/badge"></a>
   <a href="https://slsa.dev/spec/latest/levels"><img alt="SLSA Build Level 2" src="https://slsa.dev/images/gh-badge-level2.svg"></a>
 </p>
 
@@ -289,7 +290,7 @@ For multiple Redis instances, separate names, or test overrides, see the [docs](
 
 ## Contributing
 
-Report bugs and request features in [GitHub issues](https://github.com/grelinfo/grelmicro/issues). Search the open issues first, then include the grelmicro version and the steps to reproduce.
+Report bugs and request features in [GitHub issues](https://github.com/grelinfo/grelmicro/issues/new/choose). The [reporting guide](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#reporting-a-bug) lists what to include and what happens after you file.
 
 To contribute code or docs, read the [contributing guide](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md). It explains the pull request process and the requirements for acceptable contributions: the development setup, the code style, and the pre-merge checklist.
 
