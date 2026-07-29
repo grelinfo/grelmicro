@@ -662,6 +662,29 @@ class TestSQLAlchemyDsn:
         # Assert
         assert provider.url == URL
 
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "postgresql://test_user:pa+ss@test_host:1234/test_db",
+            "postgresql://test_user:test_password@test_host:1234/test+db",
+        ],
+    )
+    def test_a_plus_outside_the_scheme_is_kept(self, url: str) -> None:
+        """A `+` in a credential or a database name is not a driver suffix."""
+        # Arrange / Act
+        provider = PostgresProvider(url=url)
+        # Assert
+        assert provider.url == url
+
+    def test_multi_host_url_keeps_every_host(self) -> None:
+        """Normalising the scheme leaves a multi-host URL intact."""
+        # Arrange
+        url = "postgresql+asyncpg://u:pw@h1:5432,h2:5433/db"
+        # Act
+        provider = PostgresProvider(url=url)
+        # Assert
+        assert provider.url == "postgresql://u:pw@h1:5432,h2:5433/db"
+
     def test_password_is_still_redacted(self) -> None:
         """Normalising the scheme does not leak the credential."""
         # Arrange

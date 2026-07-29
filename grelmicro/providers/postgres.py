@@ -512,20 +512,30 @@ def _resolve_url(
     raise PostgresProviderConfigError(msg)
 
 
+_POSTGRESQL_SCHEME = "postgresql"
+"""Scheme every driver-qualified Postgres URL normalises to."""
+
+_DRIVER_PREFIX = f"{_POSTGRESQL_SCHEME}+"
+"""Prefix marking a SQLAlchemy driver-qualified scheme."""
+
+
 def _normalize_scheme(url: str) -> str:
     """Drop a SQLAlchemy driver suffix from the URL scheme.
 
-    `PostgresDsn` accepts nine driver-qualified schemes, so a
-    `postgresql+asyncpg://` URL from a SQLAlchemy app validates and then
-    fails at connect time. The suffix names that app's client library,
-    not the wire protocol, and this provider always connects with
-    asyncpg, so it is dropped rather than rejected.
+    `PostgresDsn` accepts nine schemes, seven of them driver-qualified,
+    so a `postgresql+asyncpg://` URL from a SQLAlchemy app validates and
+    then fails at connect time. The suffix names that app's client
+    library, not the wire protocol, and this provider always connects
+    with asyncpg, so it is dropped rather than rejected.
+
+    Only a `postgresql+` prefix is rewritten, so a string that is not a
+    Postgres URL is returned untouched rather than truncated at some
+    unrelated `+`.
     """
     scheme, separator, rest = url.partition("://")
-    if not separator or "+" not in scheme:
+    if not separator or not scheme.startswith(_DRIVER_PREFIX):
         return url
-    driver, _, _ = scheme.partition("+")
-    return f"{driver}{separator}{rest}"
+    return f"{_POSTGRESQL_SCHEME}{separator}{rest}"
 
 
 def _compose_url(
