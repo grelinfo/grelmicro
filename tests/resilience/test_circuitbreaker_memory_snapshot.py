@@ -24,6 +24,7 @@ CLOSED = CircuitBreakerState.CLOSED
 OPEN = CircuitBreakerState.OPEN
 HALF_OPEN = CircuitBreakerState.HALF_OPEN
 CLOCK_START = 1000.0
+DAY = 86400.0
 
 
 def strategy(
@@ -160,3 +161,44 @@ async def test_half_open_admission_capacity_and_release() -> None:
         await cb.record_outcome(success=False)
         assert await cb.try_acquire() is True
         assert await cb.try_acquire() is False
+
+
+async def test_admission_never_revives_a_stale_circuit() -> None:
+    """Skipping expiry on admission does not leak the stale counters."""
+    config = ConsecutiveCountConfig(error_threshold=5, reset_timeout=30.0)
+    async with VirtualClock(start=CLOCK_START) as clock:
+        cb = strategy(config)
+        await cb.record_outcome(success=False)
+        assert (await cb.get_snapshot()).consecutive_error_count == 1
+
+        await clock.advance(DAY)
+
+        assert await cb.try_acquire() is True
+        assert (await cb.get_snapshot()).consecutive_error_count == 0
+        snap = await cb.record_outcome(success=False)
+        assert snap.consecutive_error_count == 1
+
+
+async def test_closed_admission_reads_no_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admission on a closed circuit answers from the stored entry alone."""
+    config = ConsecutiveCountConfig(error_threshold=5)
+    async with VirtualClock(start=CLOCK_START):
+        cb = strategy(config)
+        await cb.record_outcome(success=False)  # materializes the entry
+
+        reads = 0
+
+        def counting_monotonic() -> float:
+            nonlocal reads
+            reads += 1
+            return CLOCK_START
+
+        monkeypatch.setattr(
+            "grelmicro.resilience.circuitbreaker.memory.monotonic",
+            counting_monotonic,
+        )
+        assert await cb.try_acquire() is True
+
+        assert reads == 0
