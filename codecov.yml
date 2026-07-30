@@ -4,8 +4,12 @@ coverage:
   status:
     project:
       default:
-        target: auto # do not regress from base branch
-        if_ci_failed: error
+        # Advisory only. A pull request measures the unit tier alone while a
+        # nightly or release run measures unit + slow + integration, so
+        # comparing a head against a base built from a different tier
+        # flip-flops. The enforced total is the `Enforce Combined Coverage`
+        # step in reusable-tests.yml.
+        informational: true
       unit:
         target: 90% # unit test coverage
         flags:

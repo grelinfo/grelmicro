@@ -423,11 +423,19 @@ class RateLimiter:
 - Prefer fixtures with a `_` prefix for side-effect-only setups
   (consumed via `@pytest.mark.usefixtures`). Fixtures returning a
   value the test uses drop the prefix.
-- **100 % line + branch coverage** across unit + integration is
-  enforced by the pre-commit `coverage-report` hook
-  (`coverage report --fail-under=100`). Pull requests and pushes to
-  `main` run the unit tier. The nightly schedule and releases run the
-  full unit, slow, and integration suite.
+- **100 % line + branch coverage** across unit + slow + integration is
+  enforced twice: locally by the pre-commit `coverage-report` hook, and
+  in CI by the `Enforce Combined Coverage` step, both running
+  `coverage report --fail-under=100`. Pull requests and pushes to `main`
+  run the unit tier, so they cannot check the total. The nightly schedule
+  and releases run all three tiers and do. The CI step is pinned to the
+  primary Python, because a version-split module such as
+  `outbox/_uuid.py` leaves dead code on the other interpreters and the
+  total is below 100 % there by design.
+- Codecov's project status is **advisory**. A pull request measures the
+  unit tier alone and a full run measures all three, so comparing a head
+  against a base built from a different tier flip-flops. Trust the
+  `Enforce Combined Coverage` step, not the Codecov percentage.
 
 ### Running tests
 

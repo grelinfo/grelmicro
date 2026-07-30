@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+* 👷 Enforce the 100% coverage claim in CI. Every tier reset coverage instead of accumulating, so CI only ever measured the unit tier and no `fail-under` gate ran there at all. The claim was checked only by a local hook that pre-commit.ci skips. The slow and integration tiers now append, and the full path fails under 100%. ([#602](https://github.com/grelinfo/grelmicro/issues/602))
+* 👷 Make Codecov's project status advisory. It compared a pull request's unit-only coverage against a base built from the full tier, so it reported a regression that was a tier mismatch rather than a real one. ([#602](https://github.com/grelinfo/grelmicro/issues/602))
+
 ## 0.32.7 - 2026-07-30
 
 ### Features
