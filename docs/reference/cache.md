@@ -13,6 +13,7 @@
         - CacheInfo
         - CacheSerializer
         - CacheSettingsValidationError
+        - CachedFunction
         - JsonSerializer
         - PickleSerializer
         - PydanticSerializer

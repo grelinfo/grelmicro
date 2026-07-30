@@ -1,0 +1,86 @@
+name: Bug report
+description: Report incorrect or unexpected behaviour in grelmicro.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a report. The
+        [reporting guide](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#reporting-a-bug)
+        explains what happens next.
+
+        Do not report a security vulnerability here. Use the
+        [security policy](https://github.com/grelinfo/grelmicro/security/policy)
+        instead.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and found no match.
+          required: true
+        - label: I reproduced this on the latest released version.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: grelmicro version
+      description: >-
+        `python -c "from importlib.metadata import version;
+        print(version('grelmicro'))"`
+      placeholder: 0.32.6
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Python version and operating system
+      description: '`python --version` and the platform you run on.'
+      placeholder: Python 3.13.1 on Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      description: The provider behind the pattern that misbehaves.
+      options:
+        - Memory
+        - Redis
+        - Valkey
+        - Postgres
+        - SQLite
+        - None or not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >-
+        The smallest snippet that shows the problem. Include every import
+        so it runs as pasted.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead, with the full traceback or log output.
+    validations:
+      required: true

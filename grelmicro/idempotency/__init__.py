@@ -19,6 +19,7 @@ from grelmicro.idempotency.errors import (
     IdempotencyError,
     IdempotencySettingsValidationError,
     IdempotencyStateError,
+    IdempotencyWaitTimeoutError,
 )
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "IdempotencyError",
     "IdempotencySettingsValidationError",
     "IdempotencyStateError",
+    "IdempotencyWaitTimeoutError",
     "Operation",
     "idempotent",
 ]

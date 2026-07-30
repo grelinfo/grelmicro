@@ -34,6 +34,13 @@ Draft copy lives in this file's history; refine per channel. Do not cross-post t
 `ossf/scorecard-action` on a weekly schedule and on push to `main` with
 `publish_results: true`, and stays off pull-request triggers so it never gates PR CI.
 
+**OpenSSF Best Practices: passing at 100%.** [Project 13655](https://www.bestpractices.dev/projects/13655).
+The last criterion to close was `report_process`, which needs a URL documenting how
+users submit bug reports. `CONTRIBUTING.md#reporting-a-bug` is that URL, backed by the
+GitHub issue forms under `.github/ISSUE_TEMPLATE/`. The self-certification is a
+questionnaire, so a criterion that stops being true only goes stale if the answers are
+never revisited. Re-check it when the reporting or release process changes.
+
 **SLSA Build L2: live.** `release.yml` runs `actions/attest-build-provenance` on the
 built artifacts, then `gh attestation verify` on each one before the release completes.
 Provenance is signed on GitHub infrastructure separate from the build job, which is
