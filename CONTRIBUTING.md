@@ -529,6 +529,19 @@ stable. It is a maturity milestone, not a calendar or launch event. We
 cross it when the API has held steady and we are ready to commit to it,
 not before.
 
+Before `1.0`, a rename is a **clean cut**: the old name goes in the
+same release the new one arrives, with no `DeprecationWarning` and no
+alias. Put the entry under `### Breaking` and add a note to
+[`docs/migration.md`](docs/migration.md) saying what to change.
+
+That is deliberate. A deprecation cycle means carrying a shim, a test
+that proves the warning fires, and the discipline to remove both on
+schedule. Across a fast-moving `0.x` those shims accumulate, and the
+ones that are never removed are worse than the break they softened.
+`0.x.0` is already declared the breaking position, so the signal is
+there. What an adopter actually needs is to find the change quickly,
+which is what the migration page is for.
+
 After `1.0`, standard semver applies: breaking changes wait for the
 next `MAJOR`, and a removal goes through a `DeprecationWarning` cycle
 first. There is no fixed schedule for major versions, and a major
