@@ -466,7 +466,7 @@ def _resolve_url(
         raise PostgresProviderConfigError(msg)
 
     if url is not None:
-        return str(url)
+        return _normalize_scheme(str(url))
 
     if host is not None:
         return _compose_url(
@@ -493,7 +493,9 @@ def _resolve_url(
         msg = f"set either {env_prefix}URL or {env_prefix}HOST, not both"
         raise PostgresProviderConfigError(msg)
     if settings.url is not None:
-        return settings.url.get_secret_value().unicode_string()
+        return _normalize_scheme(
+            settings.url.get_secret_value().unicode_string()
+        )
     if settings.host is not None:
         return _compose_url(
             host=settings.host,
@@ -508,6 +510,32 @@ def _resolve_url(
         )
     msg = f"either {env_prefix}URL or {env_prefix}HOST must be set"
     raise PostgresProviderConfigError(msg)
+
+
+_POSTGRESQL_SCHEME = "postgresql"
+"""Scheme every driver-qualified Postgres URL normalises to."""
+
+_DRIVER_PREFIX = f"{_POSTGRESQL_SCHEME}+"
+"""Prefix marking a SQLAlchemy driver-qualified scheme."""
+
+
+def _normalize_scheme(url: str) -> str:
+    """Drop a SQLAlchemy driver suffix from the URL scheme.
+
+    `PostgresDsn` accepts nine schemes, seven of them driver-qualified,
+    so a `postgresql+asyncpg://` URL from a SQLAlchemy app validates and
+    then fails at connect time. The suffix names that app's client
+    library, not the wire protocol, and this provider always connects
+    with asyncpg, so it is dropped rather than rejected.
+
+    Only a `postgresql+` prefix is rewritten, so a string that is not a
+    Postgres URL is returned untouched rather than truncated at some
+    unrelated `+`.
+    """
+    scheme, separator, rest = url.partition("://")
+    if not separator or not scheme.startswith(_DRIVER_PREFIX):
+        return url
+    return f"{_POSTGRESQL_SCHEME}{separator}{rest}"
 
 
 def _compose_url(

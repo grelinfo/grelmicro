@@ -361,6 +361,17 @@ micro = Grelmicro(uses=[
 ])
 ```
 
+A SQLAlchemy-style URL works as it is. The provider drops the driver
+suffix, so an app already holding `postgresql+asyncpg://localhost/app`
+passes it straight through with no string surgery:
+
+```python
+postgres = PostgresProvider("postgresql+asyncpg://localhost/app")
+```
+
+The suffix names the client library that app uses, not the wire
+protocol, and this provider always connects with asyncpg.
+
 Set `POSTGRES_URL` (or `POSTGRES_HOST` + `POSTGRES_PORT` + `POSTGRES_DB`
 + `POSTGRES_USER` + `POSTGRES_PASSWORD`) for env-driven construction. The
 database name also reads from `POSTGRES_DATABASE` when `POSTGRES_DB` is
