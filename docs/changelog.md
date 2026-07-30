@@ -1,23 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.32.7 - 2026-07-30
 
 ### Features
 
 * ✨ Add `refresh()` to a `@cached` function. It recomputes for the given arguments, overwrites the stored entry, and returns the new value, so an endpoint honouring `Cache-Control: no-cache` keeps the decorator's key handling and tag invalidation. Concurrent refreshes each recompute rather than folding, and an error propagates instead of serving stale. ([#500](https://github.com/grelinfo/grelmicro/issues/500))
-
 * ✨ Add `IdempotencyMiddleware`. A request carrying an `Idempotency-Key` header runs once, and a retry replays the stored response without reaching the handler. Pure ASGI, so it works on FastAPI, Starlette, and Litestar alike. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 * ✨ Bound the single-flight wait with `wait_timeout=` on an `Idempotency` block and on `run()`. A duplicate that waits longer than that raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`, instead of holding the caller indefinitely. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
-
 * ✨ Add `document_idempotency(app)`, which describes the installed `IdempotencyMiddleware` in the OpenAPI schema. A middleware is invisible to the generated schema, so a client built from it never learns the header exists. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 
 ### Fixed
 
-* 🐛 Accept a SQLAlchemy-style Postgres URL. `PostgresProvider` took `postgresql+asyncpg://` without complaint and then failed at connect time, so every adopter stripped the driver suffix by hand. The suffix is now dropped when the URL is resolved, from a keyword, the environment, or a config. ([#596](https://github.com/grelinfo/grelmicro/issues/596))
-
+* 🐛 Accept a SQLAlchemy-style Postgres URL. `PostgresProvider` took `postgresql+asyncpg://` without complaint and then failed at connect time, so every adopter stripped the driver suffix by hand. The suffix is now dropped when the URL is resolved, from a keyword, the environment, or a config, whatever the scheme's case. ([#596](https://github.com/grelinfo/grelmicro/issues/596))
 * 🐛 Type the helpers a `@cached` function exposes. `cached()` returned a plain `Callable`, so `cache_info()` and `cache_clear()` were documented but invisible to type checkers, and calling them failed a downstream `ty` or `mypy` run. It now returns `CachedFunction`. ([#500](https://github.com/grelinfo/grelmicro/issues/500))
 * 🐛 Release the single-flight lock correctly when an `Idempotency` block is cancelled while acquiring it. The lock was bound to the block before it was held, so the cleanup path tried to release a lock the block did not own and raised `LockNotOwnedError` over the original error. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
 * 🐛 Release the in-process idempotency lock even when the distributed release is cancelled mid-flight. A cancellation there left the key locked for the life of the process. ([#503](https://github.com/grelinfo/grelmicro/issues/503))
+
+### Internal
+
+* 🚨 Satisfy the stricter type narrowing in `ty` 0.0.62. Two existing call sites lost a type parameter through `isinstance`, which failed the lint gate on the dependency bump rather than in any user-visible way. ([#598](https://github.com/grelinfo/grelmicro/pull/598))
 
 ### Docs
 
