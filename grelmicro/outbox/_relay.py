@@ -7,6 +7,7 @@ import contextlib
 import secrets
 import time
 from datetime import timedelta
+from functools import partial
 from logging import getLogger
 from typing import TYPE_CHECKING, Self
 
@@ -27,11 +28,13 @@ if TYPE_CHECKING:
 logger = getLogger("grelmicro.outbox")
 
 
-def _report_task_crash(task: asyncio.Task[None], what: str) -> None:
+def _report_task_crash(task: asyncio.Task[None], *, what: str) -> None:
     """Log a background task that ended on an exception.
 
-    `asyncio.wait` never re-raises, so a crashed loop would otherwise stop
-    the relay for the life of the process without saying so.
+    Attached as a done callback so the error surfaces when the task dies,
+    not at shutdown: `asyncio.wait` in `__aexit__` never re-raises, so a
+    loop that crashed on day one would otherwise report only on the way
+    out, long after delivery stopped.
     """
     if task.cancelled():
         return
@@ -88,9 +91,15 @@ class Relay:
         """Start the relay loop and, when set, the retention janitor."""
         self._stop = asyncio.Event()
         self._loop_task = asyncio.create_task(self._run(), name="outbox-relay")
+        self._loop_task.add_done_callback(
+            partial(_report_task_crash, what="relay loop")
+        )
         if self._retention_seconds is not None:
             self._purge_task = asyncio.create_task(
                 self._purge_loop(self._retention_seconds), name="outbox-purge"
+            )
+            self._purge_task.add_done_callback(
+                partial(_report_task_crash, what="purge loop")
             )
         return self
 
@@ -103,11 +112,9 @@ class Relay:
             # task's own error or cancellation. An external cancellation of
             # this await still propagates, as it should.
             await asyncio.wait({self._loop_task})
-            _report_task_crash(self._loop_task, "relay loop")
             self._loop_task = None
         if self._purge_task is not None:
             await asyncio.wait({self._purge_task})
-            _report_task_crash(self._purge_task, "purge loop")
             self._purge_task = None
         await self._drain()
 
@@ -325,18 +332,29 @@ class Relay:
         return floor + _RANDOM.random() * (raw - floor)
 
     async def _idle(self, timeout: float) -> None:  # noqa: ASYNC109
-        """Wait for a wake notification, the timeout, or a stop signal."""
-        await self._race_stop(self._backend.wait_notify(timeout=timeout))
+        """Wait for a wake notification, the timeout, or a stop signal.
+
+        A backend whose `wait_notify` raises instantly would return here
+        with no delay, spinning the loop and its claim query. Falling back
+        to a plain sleep bounds both that and the warning it logs.
+        """
+        if await self._race_stop(self._backend.wait_notify(timeout=timeout)):
+            await self._race_stop(asyncio.sleep(timeout))
 
     async def _wait_slot(self) -> None:
         """Wait for a free handler slot or a stop signal."""
         self._slot_freed.clear()
         await self._race_stop(self._slot_freed.wait())
 
-    async def _race_stop(self, awaitable: Awaitable[object]) -> None:
-        """Await `awaitable` but return early when the stop signal fires."""
+    async def _race_stop(self, awaitable: Awaitable[object]) -> bool:
+        """Await `awaitable` but return early when the stop signal fires.
+
+        Returns whether `awaitable` ended on an exception, so a caller can
+        back off instead of retrying a wait that fails instantly.
+        """
         stop_wait = asyncio.ensure_future(self._stop.wait())
         other = asyncio.ensure_future(awaitable)
+        errored = False
         try:
             await asyncio.wait(
                 {stop_wait, other}, return_when=asyncio.FIRST_COMPLETED
@@ -347,6 +365,7 @@ class Relay:
                     # Retrieve any exception so it is not reported as never
                     # retrieved.
                     if not task.cancelled() and task.exception() is not None:
+                        errored = errored or task is other
                         # A wait that keeps raising makes the relay spin, so
                         # this is not debug-level noise.
                         logger.warning(
@@ -357,3 +376,4 @@ class Relay:
                     task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await task
+        return errored

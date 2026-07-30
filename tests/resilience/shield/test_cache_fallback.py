@@ -215,3 +215,34 @@ async def test_cache_get_failure_falls_through() -> None:
         raise _SignalError
 
     assert await s.run(always_fails) == "fallback"
+
+
+async def test_repeated_cache_failures_log_once_per_interval(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A down cache must not log once per request for as long as it is down."""
+
+    class _BadCache:
+        async def get(self, _key: str) -> Any:  # noqa: ANN401
+            return None
+
+        async def set(self, _key: str, _value: Any) -> None:  # noqa: ANN401
+            msg = "nope"
+            raise RuntimeError(msg)
+
+    s = _shield(cache=_BadCache())
+
+    async def fn() -> str:
+        return "ok"
+
+    with caplog.at_level(
+        logging.WARNING, logger="grelmicro.resilience.shield._shield"
+    ):
+        for _ in range(25):
+            assert await s.run(fn) == "ok"
+        await _flush_pending_tasks()
+
+    failures = [r for r in caplog.records if "cache write failed" in r.message]
+    assert len(failures) == 1, (
+        f"25 failing writes logged {len(failures)} warnings, expected 1"
+    )

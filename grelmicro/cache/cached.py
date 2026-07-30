@@ -122,14 +122,6 @@ class CachedFunction(Protocol[P, R]):
 
 logger = logging.getLogger(__name__)
 
-_refresh_tasks: set[asyncio.Task[None]] = set()
-"""Strong references to in-flight background refresh tasks.
-
-The event loop holds only weak references, so a task with no other
-referent can be collected before it finishes and would then report
-nothing at all.
-"""
-
 _SENTINEL = object()
 
 _PER_KEY_LOCK_BUDGET = 1024
@@ -600,6 +592,12 @@ def _build_async_wrapper(  # noqa: C901
 ) -> Any:  # noqa: ANN401
     """Build async wrapper for cached decorator."""
     guard = AsyncStampedeGuard()
+    # Strong references to in-flight background refreshes. The event loop
+    # holds only weak references, so a task with no other referent can be
+    # collected before it finishes and would then report nothing at all.
+    # Scoped to this decoration so it dies with the wrapper, rather than
+    # pinning tasks from a closed loop for the life of the process.
+    refresh_tasks: set[asyncio.Task[None]] = set()
 
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -618,6 +616,7 @@ def _build_async_wrapper(  # noqa: C901
                     stale_ttl,
                     guard,
                     tag_spec,
+                    refresh_tasks,
                 )
             return result
 
@@ -692,7 +691,7 @@ def _build_async_wrapper(  # noqa: C901
     return wrapper
 
 
-async def _maybe_refresh_async(
+async def _maybe_refresh_async(  # noqa: PLR0913, PLR0917
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -703,6 +702,7 @@ async def _maybe_refresh_async(
     stale_ttl: float | None,
     guard: AsyncStampedeGuard,
     tag_spec: _TagSpec,
+    refresh_tasks: set[asyncio.Task[None]],
 ) -> None:
     """Schedule a background recompute when an entry is due for refresh."""
     meta = await _read_meta(cache, key)
@@ -730,8 +730,8 @@ async def _maybe_refresh_async(
             )
 
     task = asyncio.create_task(refresh())
-    _refresh_tasks.add(task)
-    task.add_done_callback(_refresh_tasks.discard)
+    refresh_tasks.add(task)
+    task.add_done_callback(refresh_tasks.discard)
     task.add_done_callback(functools.partial(_report_refresh_failure, key))
 
 

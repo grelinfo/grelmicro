@@ -293,6 +293,12 @@ class PostgresOutboxAdapter(OutboxBackend):
         self._listener_up = False
         if conn is None:
             return
+        # Drop the termination listener first. asyncpg calls it on any close,
+        # graceful included, and a pool `reset` does not clear it, so leaving
+        # it attached warns about a "lost" connection on every clean shutdown
+        # and again whenever the pool later recycles this connection.
+        with contextlib.suppress(Exception):
+            conn.remove_termination_listener(self._on_listener_lost)
         with contextlib.suppress(Exception):
             await conn.remove_listener(self._channel, self._on_notify)
         with contextlib.suppress(Exception):
