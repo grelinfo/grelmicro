@@ -141,12 +141,15 @@ jobs:
     name: Tests
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' || github.event_name != 'pull_request' }}
-    # PRs and pushes to main run the light tier (unit, Python 3.12). The
-    # nightly schedule and manual dispatch run the full tier (matrix, slow,
-    # integration, demo). Release runs the full tier before publishing.
+    # PRs and pushes to main run the unit tier on Python 3.12, plus the slow
+    # and integration tiers whenever code changed, because the 100% coverage
+    # total is only measurable once all three have run. The nightly schedule
+    # and manual dispatch run the full tier (matrix, demo). Release runs the
+    # full tier before publishing.
     uses: ./.github/workflows/reusable-tests.yml
     with:
       full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+      coverage: ${{ needs.changes.outputs.code == 'true' }}
     permissions:
       contents: read
     secrets:

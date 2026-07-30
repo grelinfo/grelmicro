@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Internal
+
+* 👷 Enforce the coverage total on the pull request that changes code, not in the next nightly. The slow and integration tiers now run on a code-touching pull request or push, on the primary Python only, so the combined 100% total is measurable there. The Python matrix and the demo tier stay on the nightly, dispatch, and release paths. About two minutes per pull request. ([#602](https://github.com/grelinfo/grelmicro/issues/602))
+
+* 👷 Stop a Codecov upload from failing CI. The test-results action crashed on a transient network error, which fails the step whatever `fail_ci_if_error` says, so a green test run with a passing coverage gate was reported as a failure. Uploads are telemetry and now cannot gate a build. ([#602](https://github.com/grelinfo/grelmicro/issues/602))
+
 ### Docs
 
 * 📝 Add a [migration page](migration.md), one note per minor from 0.30 onward, listing only what an upgrade requires. It leads with a symptom table, so an adopter several versions behind can match the error they see instead of reconstructing the path from every release's notes. ([#608](https://github.com/grelinfo/grelmicro/issues/608))

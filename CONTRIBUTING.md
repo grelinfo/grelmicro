@@ -426,10 +426,12 @@ class RateLimiter:
 - **100 % line + branch coverage** across unit + slow + integration is
   enforced twice: locally by the pre-commit `coverage-report` hook, and
   in CI by the `Enforce Combined Coverage` step, both running
-  `coverage report --fail-under=100`. Pull requests and pushes to `main`
-  run the unit tier, so they cannot check the total. The nightly schedule
-  and releases run all three tiers and do. The CI step is pinned to the
-  primary Python, because a version-split module such as
+  `coverage report --fail-under=100`. A pull request or push that touches
+  code runs all three tiers and enforces the total, so a regression fails
+  there rather than in the next nightly. The nightly schedule, a manual
+  dispatch, and a release add the Python matrix and the demo tier. The CI
+  step is pinned to the primary Python, because a version-split module
+  such as
   `outbox/_uuid.py` leaves dead code on the other interpreters and the
   total is below 100 % there by design.
 - Codecov's project status is **advisory**. A pull request measures the
@@ -574,11 +576,12 @@ fixed cadence.
 - **Resolve every conversation** before merge.
 - Merges are **squash** only, so `main` keeps a linear history.
 
-CI is tiered to keep feedback fast. Pull requests and pushes to `main`
-run the light tier (unit tests on the current Python). The nightly
-schedule and every release run the full tier (the Python matrix plus
-the slow, integration, and demo tiers), so a release is always tested
-against everything before it publishes.
+CI is tiered to keep feedback fast. A pull request or push that touches
+code runs the unit, slow, and integration tiers on the current Python and
+enforces the 100 % coverage total. A docs-only change skips the test job
+entirely. The nightly schedule and every release add the Python matrix and
+the demo tier, so a release is always tested against everything before it
+publishes.
 
 ### When a required check is missing
 
