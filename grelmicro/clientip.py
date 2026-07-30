@@ -100,6 +100,21 @@ class ClientAddress:
         return self.reason is ClientAddressReason.RESOLVED
 
     @property
+    def degraded(self) -> bool:
+        """Whether this is a fallback rather than the caller's own address.
+
+        True when the forwarded chain could not be believed, so `ip` holds
+        the connecting peer instead. Behind a proxy that peer is the proxy,
+        so any check that treats it as the caller (an allowlist, a private
+        network test) must refuse when this is True.
+        """
+        return self.reason not in (
+            ClientAddressReason.RESOLVED,
+            ClientAddressReason.NO_FORWARDED_HEADER,
+            ClientAddressReason.UNTRUSTED_PEER,
+        )
+
+    @property
     def key(self) -> str:
         """Canonical form, safe to use as a rate limiter key.
 
@@ -196,6 +211,12 @@ def _compile_entry(entry: str | IPAddress | IPNetwork) -> IPNetwork:
         return _canonical_network(entry)
     if isinstance(entry, (IPv4Address, IPv6Address)):
         return _canonical_network(ip_network(_canonical(entry)))
+    if not isinstance(entry, str):
+        msg = (
+            f"TrustedProxies got {entry!r} of type {type(entry).__name__}. "
+            f"Pass a string, an ip_address, or an ip_network."
+        )
+        raise TypeError(msg)
     try:
         return _canonical_network(ip_network(entry))
     except ValueError as error:
@@ -237,7 +258,8 @@ def _split_host_port(  # noqa: PLR0911
 
 def _with_port(host: str, port: str) -> tuple[str, int | None] | None:
     """Attach a numeric port to `host`, or None when it is not one."""
-    if not port.isdigit() or not 0 <= int(port) <= _MAX_PORT:
+    # `isdigit` alone is true for Latin-1 superscripts, which `int` rejects.
+    if not (port.isascii() and port.isdigit()) or int(port) > _MAX_PORT:
         return None
     return host, int(port)
 
@@ -251,7 +273,7 @@ def _collect_header(
     for name, value in headers:
         if name.lower() != _FORWARDED_FOR:
             continue
-        total += len(value)
+        total += len(value) + 1
         if total > limit:
             return None
         parts.append(value)
@@ -309,7 +331,10 @@ def resolve_client_address(  # noqa: C901, PLR0911
     if not entries:
         return from_peer(ClientAddressReason.NO_FORWARDED_HEADER)
     if len(entries) > trusted._max_entries:  # noqa: SLF001
-        return from_peer(ClientAddressReason.TOO_MANY_ENTRIES)
+        # Keep the rightmost entries, the ones our own proxies wrote.
+        # Discarding the header instead would let prepended padding force
+        # every caller onto the proxy's key.
+        entries = entries[-trusted._max_entries :]  # noqa: SLF001
 
     hops = 0
     for entry in reversed(entries):
@@ -330,7 +355,7 @@ def resolve_client_address(  # noqa: C901, PLR0911
             )
         hops += 1
         max_hops = trusted._max_hops  # noqa: SLF001
-        if max_hops is not None and hops >= max_hops:
+        if max_hops is not None and hops > max_hops:
             return from_peer(ClientAddressReason.HOP_LIMIT, hops)
     return from_peer(ClientAddressReason.CHAIN_EXHAUSTED, hops)
 

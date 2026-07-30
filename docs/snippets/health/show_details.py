@@ -12,7 +12,11 @@ def from_private_network(request: Request) -> bool:
     # raw peer is the proxy's own private address, so checking it directly
     # reports every caller as private and shows details to the public.
     client = resolve_client_address(request.scope, trusted)
-    return bool(client and client.ip.is_private)
+    # `degraded` means the chain could not be believed, so the address is
+    # the proxy's again. Refuse, or a forged chain reopens the same hole.
+    if client is None or client.degraded:
+        return False
+    return client.ip.is_private
 
 
 # Hide details from everyone (default).

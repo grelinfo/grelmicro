@@ -287,14 +287,29 @@ class TestDualStack:
 class TestLimits:
     """Bounds that keep a hostile header from costing anything."""
 
-    def test_too_many_entries(self) -> None:
-        """A huge chain is refused rather than truncated."""
+    def test_long_chain_keeps_the_trusted_end(self) -> None:
+        """The rightmost entries are the ones our own proxies wrote."""
         # Arrange
         header = ", ".join(["10.0.0.1"] * 200)
         # Act
         result = resolve(forwarded=header, max_entries=64)
         # Assert
-        assert result.reason is ClientAddressReason.TOO_MANY_ENTRIES
+        assert result.reason is ClientAddressReason.CHAIN_EXHAUSTED
+
+    def test_padding_cannot_force_the_proxy_bucket(self) -> None:
+        """Prepended padding must not discard the real entry.
+
+        Rejecting the whole header would key every padded request on the
+        proxy, letting an attacker both evade a per-IP limit and drain the
+        bucket every other caller behind that proxy shares.
+        """
+        # Arrange
+        header = ", ".join(["9.9.9.9"] * 200 + ["8.8.8.8", "10.0.0.6"])
+        # Act
+        result = resolve(forwarded=header, max_entries=64)
+        # Assert
+        assert result.key == "8.8.8.8"
+        assert result.reason is ClientAddressReason.RESOLVED
 
     def test_header_too_large(self) -> None:
         """An oversized header is refused before any entry is parsed."""
@@ -303,15 +318,22 @@ class TestLimits:
         # Assert
         assert result.reason is ClientAddressReason.HEADER_TOO_LARGE
 
-    def test_hop_limit(self) -> None:
-        """A cap bounds how far a forged chain can be walked."""
+    def test_hop_limit_bounds_a_forged_chain(self) -> None:
+        """A cap stops the walk once too many proxies have been passed."""
         # Arrange
         header = ", ".join(["10.0.0.1"] * 10)
         # Act
         result = resolve(forwarded=header, max_hops=2)
         # Assert
         assert result.reason is ClientAddressReason.HOP_LIMIT
-        assert result.hops == EXPECTED_HOPS
+
+    def test_hop_limit_permits_exactly_that_many(self) -> None:
+        """`max_hops=2` allows a real two-proxy chain to resolve."""
+        # Arrange / Act
+        result = resolve(forwarded="1.2.3.4, 10.0.0.6, 10.0.0.7", max_hops=2)
+        # Assert
+        assert result.key == "1.2.3.4"
+        assert result.reason is ClientAddressReason.RESOLVED
 
 
 class TestTrustedProxiesConfig:
@@ -439,3 +461,60 @@ class TestMiddleware:
         await middleware(scope(peer=None), _receive, _send)
         # Assert
         assert "client_address" not in seen
+
+
+class TestHostilePorts:
+    """A port that is digit-like but not an integer used to crash."""
+
+    @pytest.mark.parametrize(
+        "entry",
+        ["1.2.3.4:\xb2", "1.2.3.4:8\xb2", "[2001:db8::1]:\xb9"],
+    )
+    def test_superscript_port_does_not_raise(self, entry: str) -> None:
+        """`str.isdigit()` is true for these, but `int()` rejects them."""
+        # Arrange / Act
+        result = resolve(forwarded=entry)
+        # Assert
+        assert result.reason is ClientAddressReason.MALFORMED_ENTRY
+
+
+class TestDegraded:
+    """`degraded` marks a fallback, so callers need not list reasons."""
+
+    @pytest.mark.parametrize(
+        ("forwarded", "expected"),
+        [
+            ("1.2.3.4", False),
+            (None, False),
+            ("10.1.1.1, 10.2.2.2", True),
+            ("1.2.3.4, junk, 10.0.0.6", True),
+        ],
+    )
+    def test_flags_fallbacks(
+        self,
+        forwarded: str | None,
+        expected: bool,  # noqa: FBT001
+    ) -> None:
+        """A fallback holds the proxy address, not the caller's."""
+        # Arrange / Act
+        result = resolve(forwarded=forwarded)
+        # Assert
+        assert result.degraded is expected
+
+    def test_untrusted_peer_is_not_degraded(self) -> None:
+        """A direct caller's own address is the caller's address."""
+        # Arrange / Act
+        result = resolve(peer="9.9.9.9")
+        # Assert
+        assert result.degraded is False
+
+
+class TestConfigTypes:
+    """The trusted set rejects what the docs say it rejects."""
+
+    @pytest.mark.parametrize("entry", [16909060, b"\x01\x02\x03\x04", None])
+    def test_rejects_non_string_scalars(self, entry: object) -> None:
+        """`ip_network` accepts ints and bytes, which is not what we mean."""
+        # Act / Assert
+        with pytest.raises(TypeError, match="Pass a string"):
+            TrustedProxies([entry])  # ty: ignore[invalid-argument-type]

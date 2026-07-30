@@ -12,6 +12,17 @@ entries your own proxies appended can be believed.
 --8<-- "clientip/clientip.py"
 ```
 
+!!! danger "Turn off your server's own proxy handling first"
+    Uvicorn rewrites `scope["client"]` from `X-Forwarded-For` **by default**,
+    before any application middleware runs. If you leave it on, the address
+    this module treats as the verified peer is itself header-derived, and
+    every guarantee below is void: a caller who writes
+    `X-Forwarded-For: 6.6.6.6, 10.0.0.1` gets `6.6.6.6` back as `RESOLVED`.
+
+    Run uvicorn with `--no-proxy-headers`, or `Config(..., proxy_headers=False)`.
+    Hypercorn and granian only apply theirs when you wrap the app, so leave
+    those wrappers off.
+
 `TrustedProxies` takes your proxies' addresses. It is required, and there
 is no wildcard. To trust every peer, pass `["0.0.0.0/0", "::/0"]`, which
 someone reviewing a config will notice.
@@ -58,10 +69,22 @@ believed, so the verified peer was used instead.
 | `MALFORMED_ENTRY` | An entry was not a valid address. |
 | `HOP_LIMIT`, `TOO_MANY_ENTRIES`, `HEADER_TOO_LARGE` | A bound was hit. |
 
-A rate limiter can use `.key` whatever the reason. An audit log should
-record the reason, and a rising `CHAIN_EXHAUSTED` or `MALFORMED_ENTRY`
-rate is worth an alert: both mean something is sending chains your
-topology does not explain.
+A rate limiter can use `.key` whatever the reason, because every value is
+an address the caller cannot choose. Anything that treats the address as
+the caller's identity must check `degraded` first:
+
+```python
+if client is None or client.degraded:
+    return False  # the address is the proxy's, not the caller's
+```
+
+`degraded` is True whenever the chain could not be believed, so `ip` holds
+the connecting peer. Behind a proxy that peer is the proxy, whose address
+is private, which is how an allowlist accidentally admits everyone.
+
+An audit log should record the reason. A rising `CHAIN_EXHAUSTED` or
+`MALFORMED_ENTRY` rate is worth an alert, since both mean something is
+sending chains your topology does not explain.
 
 !!! warning "A missing trusted set is not a safe default"
     `resolve_client_address(scope)` does not exist. The trusted set is a
@@ -83,8 +106,9 @@ app.add_middleware(
 )
 ```
 
-Handlers then read `request.state.client_address`. It is pure ASGI, so it
-works on any ASGI server.
+Handlers then read `getattr(request.state, "client_address", None)`,
+which is None when the peer could not be resolved at all. It is pure ASGI,
+so it works on any ASGI server.
 
 `overwrite_scope_client=True` additionally rewrites `scope["client"]`, for
 code that reads `request.client.host` and cannot be changed. It is off by
@@ -92,9 +116,13 @@ default, because it discards the verified peer an audit record wants.
 
 ## If you only run uvicorn
 
-Uvicorn implements the same algorithm, enabled with `--proxy-headers` and
-`--forwarded-allow-ips`. If that is your only deployment target, that is a
-fine answer and you do not need this module.
+Uvicorn does something similar, controlled by `--forwarded-allow-ips`, and
+it is **on unless you disable it**. If uvicorn is your only deployment
+target, configuring it is a fine answer and you do not need this module.
+
+It is not the same algorithm. Under `--forwarded-allow-ips='*'` uvicorn
+returns the leftmost entry, it accepts values that are not addresses at
+all, and it reports port `0`.
 
 Reach for this when you want the trusted set required rather than
 defaulted, the verified peer kept alongside the resolved address, a reason
@@ -110,6 +138,10 @@ which is exactly the value that must not become a rate limiter key.
 
 **A malformed entry stops the walk.** It is not skipped. Skipping lets an
 attacker insert padding to shift which entry gets chosen.
+
+**A zone id is dropped.** `fe80::1%eth0` keys as `fe80::1`, so two hosts
+reached over different interfaces share one key. Link-local addresses are
+rarely a client identity, but it is worth knowing.
 
 **Configuration fails loudly.** `TrustedProxies(["10.0.0.1/8"])` raises,
 because it has host bits set. Some servers silently downgrade an entry
