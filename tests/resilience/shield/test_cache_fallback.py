@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
@@ -161,8 +162,14 @@ async def test_cache_key_callable_override() -> None:
     assert "static:AAPL" in keys
 
 
-async def test_cache_set_failure_is_swallowed() -> None:
-    """A failing cache write does not propagate."""
+async def test_cache_set_failure_is_swallowed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failing cache write does not propagate, but it is reported.
+
+    The written copy is what the shield serves when the primary fails, so
+    a store that silently stops accepting writes must not look healthy.
+    """
 
     class _BadCache:
         async def get(self, _key: str) -> Any:  # noqa: ANN401
@@ -177,8 +184,15 @@ async def test_cache_set_failure_is_swallowed() -> None:
     async def fn() -> str:
         return "ok"
 
-    assert await s.run(fn) == "ok"
-    await _flush_pending_tasks()
+    with caplog.at_level(
+        logging.WARNING, logger="grelmicro.resilience.shield._shield"
+    ):
+        assert await s.run(fn) == "ok"
+        await _flush_pending_tasks()
+
+    failures = [r for r in caplog.records if "cache write failed" in r.message]
+    assert failures
+    assert failures[0].levelno == logging.WARNING
 
 
 async def test_cache_get_failure_falls_through() -> None:

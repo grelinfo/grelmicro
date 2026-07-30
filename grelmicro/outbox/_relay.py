@@ -26,6 +26,24 @@ if TYPE_CHECKING:
 
 logger = getLogger("grelmicro.outbox")
 
+
+def _report_task_crash(task: asyncio.Task[None], what: str) -> None:
+    """Log a background task that ended on an exception.
+
+    `asyncio.wait` never re-raises, so a crashed loop would otherwise stop
+    the relay for the life of the process without saying so.
+    """
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.error(
+            "Outbox %s crashed, messages stopped being delivered",
+            what,
+            exc_info=error,
+        )
+
+
 _RANDOM = secrets.SystemRandom()
 _MAX_BACKOFF_EXPONENT = 63
 
@@ -85,9 +103,11 @@ class Relay:
             # task's own error or cancellation. An external cancellation of
             # this await still propagates, as it should.
             await asyncio.wait({self._loop_task})
+            _report_task_crash(self._loop_task, "relay loop")
             self._loop_task = None
         if self._purge_task is not None:
             await asyncio.wait({self._purge_task})
+            _report_task_crash(self._purge_task, "purge loop")
             self._purge_task = None
         await self._drain()
 
@@ -327,7 +347,9 @@ class Relay:
                     # Retrieve any exception so it is not reported as never
                     # retrieved.
                     if not task.cancelled() and task.exception() is not None:
-                        logger.debug(
+                        # A wait that keeps raising makes the relay spin, so
+                        # this is not debug-level noise.
+                        logger.warning(
                             "Outbox relay wait task errored",
                             exc_info=task.exception(),
                         )

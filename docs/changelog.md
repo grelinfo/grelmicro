@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* 🐛 Report a failed background cache refresh. The task's exception was discarded, so a permanently failing recompute silently degraded every hot key back to a cold miss. It now logs a warning naming the key and records `grelmicro.cache.early_refreshes` with `outcome` and `error.type`. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+* 🐛 Hold a strong reference to a background cache refresh task. The event loop keeps only weak references, so the task could be collected before finishing and would then report nothing at all. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+* 🐛 Report a failed `Shield` cache write. It was logged at debug with no counter, so the copy the shield serves when the primary fails could stop being written and nothing said so until the incident it exists for. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+* 🐛 Report a lost Postgres outbox listener connection. Delivery silently fell back to polling, bounded by `poll_interval`, until the process restarted. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+* 🐛 Report a crashed outbox relay or purge loop. `asyncio.wait` never re-raises, so a crash stopped delivery for the life of the process with no signal. Relay wait errors moved from debug to warning, since a wait that keeps raising makes the relay spin. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+
+### Docs
+
+* 📝 State the background-failure contract: work with no caller to raise into always becomes observable through a counter, a warning, or a health degradation, never a silent suppression. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+
 ## 0.32.8 - 2026-07-30
 
 ### Internal

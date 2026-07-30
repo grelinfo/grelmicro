@@ -21,6 +21,7 @@ from grelmicro._config import (
     env_load_default,
 )
 from grelmicro.clock import monotonic, sleep
+from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import ResilienceError
 from grelmicro.resilience.shield._adaptive_gate import _AdaptiveGate
 from grelmicro.resilience.shield._api import ApiShieldConfig
@@ -189,14 +190,29 @@ async def _maybe_await(value: Any) -> Any:  # noqa: ANN401
 async def _safe_cache_set(cache: Any, key: str, value: Any) -> None:  # noqa: ANN401
     """Write `value` to `cache` under `key`.
 
-    Swallow every `Exception` at debug. `BaseException` (notably
-    `asyncio.CancelledError`) propagates so task cancellation during
-    shutdown reaches the asyncio scheduler unchanged.
+    A failed write never breaks the call it rode along with, but it is
+    reported: this is the copy the shield serves when the primary fails,
+    so a store that silently stops accepting writes leaves nothing to
+    fall back to. `BaseException` (notably `asyncio.CancelledError`)
+    propagates so task cancellation during shutdown reaches the asyncio
+    scheduler unchanged.
     """
     try:
         await cache.set(key, value)
-    except Exception:
-        logger.debug("shield: cache write failed", exc_info=True)
+    except Exception as error:
+        _emit.incr(
+            "grelmicro.shield.cache_writes",
+            outcome="error",
+            **{"error.type": type(error).__name__},
+        )
+        logger.warning(
+            "Shield cache write failed for key %r, there will be no "
+            "fallback copy to serve",
+            key,
+            exc_info=True,
+        )
+    else:
+        _emit.incr("grelmicro.shield.cache_writes", outcome="success")
 
 
 class Shield(Reconfigurable[_BaseShieldConfig]):

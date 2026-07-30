@@ -4,6 +4,7 @@ import asyncio
 import functools
 import inspect
 import json
+import logging
 import math
 import random
 import threading
@@ -118,6 +119,16 @@ class CachedFunction(Protocol[P, R]):
         """
         ...
 
+
+logger = logging.getLogger(__name__)
+
+_refresh_tasks: set[asyncio.Task[None]] = set()
+"""Strong references to in-flight background refresh tasks.
+
+The event loop holds only weak references, so a task with no other
+referent can be collected before it finishes and would then report
+nothing at all.
+"""
 
 _SENTINEL = object()
 
@@ -719,9 +730,35 @@ async def _maybe_refresh_async(
             )
 
     task = asyncio.create_task(refresh())
-    # Drop the lookup table reference once done; surfacing failures is
-    # the caller's job via the cache, not this best-effort refresh.
-    task.add_done_callback(lambda _: None)
+    _refresh_tasks.add(task)
+    task.add_done_callback(_refresh_tasks.discard)
+    task.add_done_callback(functools.partial(_report_refresh_failure, key))
+
+
+def _report_refresh_failure(key: str, task: asyncio.Task[None]) -> None:
+    """Surface a failed background refresh instead of discarding it.
+
+    An early refresh runs with no caller to raise into. Left silent, a
+    permanently failing recompute degrades every hot key back to a cold
+    miss while the cache still reports hits.
+    """
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is None:
+        _emit.incr("grelmicro.cache.early_refreshes", outcome="success")
+        return
+    _emit.incr(
+        "grelmicro.cache.early_refreshes",
+        outcome="error",
+        **{"error.type": type(error).__name__},
+    )
+    logger.warning(
+        "Cache early refresh failed for key %r, the entry will expire "
+        "instead of refreshing",
+        key,
+        exc_info=error,
+    )
 
 
 async def _compute_and_cache(
@@ -999,6 +1036,20 @@ def _maybe_refresh_sync(  # noqa: PLR0913, PLR0917
                 stale_ttl=stale_ttl,
                 tag_spec=tag_spec,
             )
+        except Exception as error:
+            _emit.incr(
+                "grelmicro.cache.early_refreshes",
+                outcome="error",
+                **{"error.type": type(error).__name__},
+            )
+            logger.warning(
+                "Cache early refresh failed for key %r, the entry will "
+                "expire instead of refreshing",
+                key,
+                exc_info=True,
+            )
+        else:
+            _emit.incr("grelmicro.cache.early_refreshes", outcome="success")
         finally:
             the_lock.release()
 

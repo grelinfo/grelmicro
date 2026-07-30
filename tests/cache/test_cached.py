@@ -2,6 +2,7 @@
 
 import asyncio
 import inspect
+import logging
 import threading
 import time
 from contextlib import suppress
@@ -2172,3 +2173,113 @@ class TestCachedRefreshPrivateCache:
         assert first == EXPECTED_CALL_COUNT_1
         assert refreshed == EXPECTED_CALL_COUNT_2
         assert after == EXPECTED_CALL_COUNT_2
+
+
+class TestEarlyRefreshFailureIsObservable:
+    """A failed background refresh must never pass silently."""
+
+    async def test_async_refresh_failure_is_logged(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An async early refresh that raises reports the key and the error."""
+        # Arrange
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: True
+        )
+        cache = _make_cache(ttl=60)
+        fail = False
+
+        @cached(cache, key="k", early=0.5)
+        async def compute() -> int:
+            if fail:
+                msg = "upstream down"
+                raise RuntimeError(msg)
+            return 1
+
+        await compute()  # miss, writes meta at t=1000
+        fail = True
+        clock.t = 1040  # inside the early-refresh window
+
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.cache.cached"):
+            await compute()  # hit, schedules the background refresh
+            await asyncio.sleep(0.05)  # let the task settle
+
+        # Assert
+        failures = [
+            r for r in caplog.records if "early refresh failed" in r.message
+        ]
+        assert failures
+        assert failures[0].exc_info is not None
+        assert isinstance(failures[0].exc_info[1], RuntimeError)
+
+    async def test_sync_refresh_failure_is_logged(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A sync early refresh that raises reports instead of dying quietly."""
+        # Arrange
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+        clock = _Clock()
+        monkeypatch.setattr(cached_mod, "_now", clock)
+        monkeypatch.setattr(
+            cached_mod, "_xfetch_should_refresh", lambda *_: True
+        )
+        cache = _make_cache(ttl=60)
+        fail = False
+
+        @cached(cache, key="k", early=0.5)
+        def compute() -> int:
+            if fail:
+                msg = "upstream down"
+                raise RuntimeError(msg)
+            return 1
+
+        await asyncio.to_thread(compute)
+        fail = True
+        clock.t = 1040
+
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.cache.cached"):
+            await asyncio.to_thread(compute)
+            await asyncio.sleep(0.1)  # the sync path refreshes on a thread
+
+        # Assert
+        failures = [
+            r for r in caplog.records if "early refresh failed" in r.message
+        ]
+        assert failures
+
+    async def test_cancelled_refresh_is_not_reported(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A refresh cancelled at shutdown is not a failure to report."""
+        # Arrange
+        import sys  # noqa: PLC0415
+
+        cached_mod = sys.modules["grelmicro.cache.cached"]
+
+        async def never() -> None:
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(never())
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.cache.cached"):
+            cached_mod._report_refresh_failure("k", task)
+
+        # Assert
+        assert not caplog.records

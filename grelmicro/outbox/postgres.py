@@ -7,6 +7,7 @@ import contextlib
 import re
 from datetime import UTC, datetime
 from functools import partial
+from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
 
 import asyncpg
@@ -17,6 +18,8 @@ from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._protocol import OutboxBackend
 from grelmicro.outbox.errors import OutboxHandleError, OutboxTransactionError
 from grelmicro.providers.postgres import PostgresProvider
+
+logger = getLogger("grelmicro.outbox")
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -307,10 +310,17 @@ class PostgresOutboxAdapter(OutboxBackend):
         The connection reference is kept so `_close_listener` can still
         release it on shutdown. Polling stays the source of truth, so a
         dropped listener degrades latency until the next restart, never
-        correctness.
+        correctness. It is logged because that degradation is otherwise
+        invisible: delivery keeps working, just no faster than
+        `poll_interval`.
         """
         self._listener_up = False
         self._wake.set()
+        logger.warning(
+            "Outbox listener connection lost, falling back to polling. "
+            "Delivery latency is now bounded by poll_interval until this "
+            "process restarts."
+        )
 
     async def enqueue(self, handle: Any, record: OutboxRecord) -> bool:  # noqa: ANN401
         """Stage a record inside the caller's transaction."""
