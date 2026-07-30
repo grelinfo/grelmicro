@@ -428,7 +428,10 @@ class RateLimiter:
   in CI by the `Enforce Combined Coverage` step, both running
   `coverage report --fail-under=100`. Pull requests and pushes to `main`
   run the unit tier, so they cannot check the total. The nightly schedule
-  and releases run all three tiers and do.
+  and releases run all three tiers and do. The CI step is pinned to the
+  primary Python, because a version-split module such as
+  `outbox/_uuid.py` leaves dead code on the other interpreters and the
+  total is below 100 % there by design.
 - Codecov's project status is **advisory**. A pull request measures the
   unit tier alone and a full run measures all three, so comparing a head
   against a base built from a different tier flip-flops. Trust the

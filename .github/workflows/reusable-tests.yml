@@ -94,9 +94,13 @@ jobs:
           flags: "integration,python${{ matrix.python }}"
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Enforce Combined Coverage
-        # The 100% claim is about unit + slow + integration together. Only
-        # the full path runs all three, so only it can check the total.
-        if: ${{ inputs.full }}
+        # The 100% claim is about unit + slow + integration together, so only
+        # the full path can check it. It is also pinned to 3.12, the version
+        # the local hook uses: a version-split module leaves dead code on the
+        # others (`outbox/_uuid.py` vendors UUIDv7 for 3.12 and 3.13 and
+        # re-exports the stdlib on 3.14), so the total is below 100 there by
+        # design.
+        if: ${{ inputs.full && matrix.python == '3.12' }}
         run: coverage report --fail-under=100
 
   demo:
