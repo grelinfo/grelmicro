@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 from contextlib import AsyncExitStack, suppress
-from typing import TYPE_CHECKING, Annotated, Self
+from typing import TYPE_CHECKING, Annotated, Self, cast
 
 from typing_extensions import Doc
 
@@ -55,7 +55,12 @@ def _coerce_source(value: ConfigBackend | str | PathLike[str]) -> ConfigBackend:
             not installed (for example a URL without the matching extra).
     """
     if isinstance(value, (str, os.PathLike)):
-        text = os.fspath(value)
+        # `isinstance` narrows to a bare `PathLike`, dropping the `[str]`
+        # the signature already guarantees and `os.fspath` needs. mypy
+        # narrows it correctly, so only ty needs the cast.
+        text = os.fspath(
+            cast("str | os.PathLike[str]", value)  # type: ignore[redundant-cast]
+        )
         scheme = _detect_scheme(text)
         if scheme == "file":
             return FileConfigAdapter(text)

@@ -60,8 +60,10 @@ def validate_directive(directive: InstrumentDirective, known: set[str]) -> None:
     )
 
     if isinstance(directive, Mapping):
+        # `str(key)` keeps the sort well defined: `isinstance` narrows the
+        # mapping to unknown key types, and the names only feed a message.
         bad_values = sorted(
-            key
+            str(key)
             for key, value in directive.items()
             if not isinstance(value, bool)
         )
