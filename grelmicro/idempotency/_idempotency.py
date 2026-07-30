@@ -513,8 +513,9 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
 
                 A duplicate arriving mid-flight waits for the first
                 execution to finish, then replays its response. When the
-                wait exceeds this many seconds, `TimeoutError` is raised
-                instead. When None (the default), the wait is unbounded.
+                wait exceeds this many seconds,
+                `IdempotencyWaitTimeoutError` is raised instead. When None
+                (the default), the wait is unbounded.
                 """,
             ),
         ] = None,
