@@ -10,6 +10,7 @@
 
 ### Docs
 
+* 📝 Write down the pre-1.0 deprecation policy. A rename before 1.0 is a clean cut, with the reasoning recorded so the question does not get re-litigated per rename. ([#613](https://github.com/grelinfo/grelmicro/issues/613))
 * 📝 Add a [migration page](migration.md), one note per minor from 0.30 onward, listing only what an upgrade requires. It leads with a symptom table, so an adopter several versions behind can match the error they see instead of reconstructing the path from every release's notes. ([#608](https://github.com/grelinfo/grelmicro/issues/608))
 
 ## 0.32.9 - 2026-07-30
