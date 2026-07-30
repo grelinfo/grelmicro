@@ -59,6 +59,7 @@ validation:
 nav:
 - grelmicro: index.md
 - installation.md
+- migration.md
 - User Guide:
     - first-steps.md
     - wiring.md
@@ -159,6 +160,9 @@ extra_css:
 
 markdown_extensions:
   - admonition
+  # Explicit heading ids, so the migration page's symptom table can link
+  # to stable anchors instead of slugs that drift when a heading is reworded.
+  - attr_list
   - pymdownx.details
   - pymdownx.highlight
   - pymdownx.superfences:
