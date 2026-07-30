@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
@@ -161,8 +162,14 @@ async def test_cache_key_callable_override() -> None:
     assert "static:AAPL" in keys
 
 
-async def test_cache_set_failure_is_swallowed() -> None:
-    """A failing cache write does not propagate."""
+async def test_cache_set_failure_is_swallowed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failing cache write does not propagate, but it is reported.
+
+    The written copy is what the shield serves when the primary fails, so
+    a store that silently stops accepting writes must not look healthy.
+    """
 
     class _BadCache:
         async def get(self, _key: str) -> Any:  # noqa: ANN401
@@ -177,8 +184,15 @@ async def test_cache_set_failure_is_swallowed() -> None:
     async def fn() -> str:
         return "ok"
 
-    assert await s.run(fn) == "ok"
-    await _flush_pending_tasks()
+    with caplog.at_level(
+        logging.WARNING, logger="grelmicro.resilience.shield._shield"
+    ):
+        assert await s.run(fn) == "ok"
+        await _flush_pending_tasks()
+
+    failures = [r for r in caplog.records if "cache write failed" in r.message]
+    assert failures
+    assert failures[0].levelno == logging.WARNING
 
 
 async def test_cache_get_failure_falls_through() -> None:
@@ -201,3 +215,34 @@ async def test_cache_get_failure_falls_through() -> None:
         raise _SignalError
 
     assert await s.run(always_fails) == "fallback"
+
+
+async def test_repeated_cache_failures_log_once_per_interval(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A down cache must not log once per request for as long as it is down."""
+
+    class _BadCache:
+        async def get(self, _key: str) -> Any:  # noqa: ANN401
+            return None
+
+        async def set(self, _key: str, _value: Any) -> None:  # noqa: ANN401
+            msg = "nope"
+            raise RuntimeError(msg)
+
+    s = _shield(cache=_BadCache())
+
+    async def fn() -> str:
+        return "ok"
+
+    with caplog.at_level(
+        logging.WARNING, logger="grelmicro.resilience.shield._shield"
+    ):
+        for _ in range(25):
+            assert await s.run(fn) == "ok"
+        await _flush_pending_tasks()
+
+    failures = [r for r in caplog.records if "cache write failed" in r.message]
+    assert len(failures) == 1, (
+        f"25 failing writes logged {len(failures)} warnings, expected 1"
+    )

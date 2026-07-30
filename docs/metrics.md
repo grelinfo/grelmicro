@@ -122,8 +122,48 @@ When a `Metrics` component is active, grelmicro emits these metrics from its own
 | `grelmicro.timeout.exceeded`            | counter         | 1    | `timeout.name`                          |
 | `grelmicro.cache.operations`            | counter         | 1    | `result` (`hit` or `miss`)              |
 | `grelmicro.cache.stale_serves`          | counter         | 1    | none                                    |
+| `grelmicro.cache.early_refreshes`       | counter         | 1    | `outcome`, `error.type`                 |
+| `grelmicro.shield.cache_writes`         | counter         | 1    | `outcome`, `error.type`                 |
 | `grelmicro.task.runs`                   | counter         | 1    | `task.name`, `outcome`, `error.type`    |
 | `grelmicro.task.duration`               | histogram       | s    | `task.name`                             |
 | `grelmicro.task.active`                 | up_down_counter | 1    | `task.name`                             |
 
 The `grelmicro.circuit_breaker.state` gauge maps states to codes: `CLOSED` is 0, `OPEN` is 1, `HALF_OPEN` is 2, `FORCED_OPEN` is 3, `FORCED_CLOSED` is 4.
+
+## Background work always reports its failure
+
+Work that runs outside your call stack has nowhere to raise. A cache
+cleanup sweep, an outbox relay, a lease renewal or a background refresh
+cannot hand you an exception, so grelmicro guarantees that each one
+instead becomes **observable**, through at least one of:
+
+- a counter you can alert on,
+- a log record at `WARNING` or above,
+- a health check that degrades.
+
+None of them is ever suppressed silently. A component that stops working
+while still reporting success is worse than one that fails loudly, so the
+two counters above exist precisely for the cases with no caller to tell.
+
+`grelmicro.cache.early_refreshes` counts the background refresh `early=`
+schedules, not the `refresh()` method and not a cold-miss recompute, which
+both have a caller to raise into.
+
+Both counters carry `outcome` and, on a failure, `error.type`, so an
+error **rate** is derivable rather than only an absolute count. That
+follows the same shape as `grelmicro.task.runs`, and it is why success and
+failure share one counter instead of having their own.
+
+Watch the `outcome="error"` series on `grelmicro.cache.early_refreshes` and
+`grelmicro.shield.cache_writes`. Neither failure shows up in your latency
+or error rate, because neither has a caller to fail:
+
+- a failing early refresh means every hot key falls back to a cold miss
+  when its entry expires,
+- a failing shield cache write means there is no stored copy to serve when
+  the primary next fails, which you would otherwise discover during the
+  incident the shield exists for.
+
+Both warnings name the cache key. A default key is a hash, but a `key=`
+template or a custom `key_maker` puts argument values in it, so those
+values reach the log line.

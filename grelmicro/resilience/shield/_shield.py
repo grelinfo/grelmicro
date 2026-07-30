@@ -21,6 +21,7 @@ from grelmicro._config import (
     env_load_default,
 )
 from grelmicro.clock import monotonic, sleep
+from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import ResilienceError
 from grelmicro.resilience.shield._adaptive_gate import _AdaptiveGate
 from grelmicro.resilience.shield._api import ApiShieldConfig
@@ -186,17 +187,41 @@ async def _maybe_await(value: Any) -> Any:  # noqa: ANN401
     return value
 
 
-async def _safe_cache_set(cache: Any, key: str, value: Any) -> None:  # noqa: ANN401
+_CACHE_ERROR_LOG_INTERVAL = 60.0
+"""Seconds between two cache-failure warnings from one shield.
+
+A cache write rides along with every successful call, so an unreachable
+store would otherwise log once per request for as long as it stays down.
+The counter carries the volume, the log carries the diagnosis.
+"""
+
+
+async def _safe_cache_set(
+    cache: Any,  # noqa: ANN401
+    key: str,
+    value: Any,  # noqa: ANN401
+    report: Callable[[str, str], None],
+) -> None:
     """Write `value` to `cache` under `key`.
 
-    Swallow every `Exception` at debug. `BaseException` (notably
-    `asyncio.CancelledError`) propagates so task cancellation during
-    shutdown reaches the asyncio scheduler unchanged.
+    A failed write never breaks the call it rode along with, but it is
+    reported: this is the copy the shield serves when the primary fails,
+    so a store that silently stops accepting writes leaves nothing to
+    fall back to. `BaseException` (notably `asyncio.CancelledError`)
+    propagates so task cancellation during shutdown reaches the asyncio
+    scheduler unchanged.
     """
     try:
         await cache.set(key, value)
-    except Exception:
-        logger.debug("shield: cache write failed", exc_info=True)
+    except Exception as error:  # noqa: BLE001 - reported, never propagated
+        _emit.incr(
+            "grelmicro.shield.cache_writes",
+            outcome="error",
+            **{"error.type": type(error).__name__},
+        )
+        report(key, type(error).__name__)
+    else:
+        _emit.incr("grelmicro.shield.cache_writes", outcome="success")
 
 
 class Shield(Reconfigurable[_BaseShieldConfig]):
@@ -336,6 +361,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         self._time = time_source or monotonic
         self._random = random_source or random.random
         self._pending_tasks: set[asyncio.Task[Any]] = set()
+        self._cache_error_logged_at: float | None = None
         self._state = self._build_state(config)
 
     @property
@@ -609,8 +635,11 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             key = self._compute_key(state, args, kwargs)
             try:
                 value = await cache.get(key)
-            except Exception:
-                logger.debug("shield: cache read failed", exc_info=True)
+            except Exception as error:  # noqa: BLE001 - reported, never propagated
+                # Same broken-cache condition the write path reports, and it
+                # matters more here: this is the give-up path, so a silent
+                # read failure means no fallback at the moment it is needed.
+                self._report_cache_error(key, type(error).__name__)
                 value = None
             if value is not None:
                 return value
@@ -653,9 +682,32 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         if cache is None:  # pragma: no cover
             return
         key = self._compute_key(state, args, kwargs)
-        task = asyncio.create_task(_safe_cache_set(cache, key, value))
+        task = asyncio.create_task(
+            _safe_cache_set(cache, key, value, self._report_cache_error)
+        )
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
+
+    def _report_cache_error(self, key: str, error_type: str) -> None:
+        """Warn about a failing cache, at most once per interval.
+
+        The counter records every failure. This log exists to name the key
+        and the error once, not once per request.
+        """
+        now = self._time()
+        last = self._cache_error_logged_at
+        if last is not None and (now - last) < _CACHE_ERROR_LOG_INTERVAL:
+            return
+        self._cache_error_logged_at = now
+        logger.warning(
+            "Shield %r cache write failed for key %r with %s, there will be "
+            "no fallback copy to serve. Further failures are counted on "
+            "grelmicro.shield.cache_writes and logged at most every %.0fs.",
+            self.name,
+            key,
+            error_type,
+            _CACHE_ERROR_LOG_INTERVAL,
+        )
 
     async def _apply_reconfigure(self, new_config: _BaseShieldConfig) -> None:
         """Rebuild derived state from `new_config`.

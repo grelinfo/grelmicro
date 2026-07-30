@@ -173,3 +173,39 @@ async def test_timeout_no_emit_when_within_deadline(
     async with timeout:
         pass
     assert metrics_reader.points("grelmicro.timeout.exceeded") == []
+
+
+async def test_shield_cache_write_emits_both_outcomes(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A shield cache write records success and failure on one counter."""
+    import asyncio  # noqa: PLC0415
+    from typing import Any  # noqa: PLC0415
+
+    from grelmicro.resilience import Shield  # noqa: PLC0415
+
+    class _Cache:
+        async def get(self, _key: str) -> Any:  # noqa: ANN401
+            return None
+
+        async def set(self, _key: str, _value: Any) -> None:  # noqa: ANN401
+            return None
+
+    class _BadCache(_Cache):
+        async def set(self, _key: str, _value: Any) -> None:  # noqa: ANN401
+            msg = "nope"
+            raise RuntimeError(msg)
+
+    async def fn() -> str:
+        return "ok"
+
+    assert await Shield("ok", cache=_Cache()).run(fn) == "ok"
+    assert await Shield("bad", cache=_BadCache()).run(fn) == "ok"
+    for _ in range(20):  # let the fire-and-forget writes settle
+        await asyncio.sleep(0)
+
+    points = metrics_reader.points("grelmicro.shield.cache_writes")
+    outcomes = {attrs["outcome"] for _, attrs in points}
+    assert outcomes == {"success", "error"}
+    errors = [attrs for _, attrs in points if attrs["outcome"] == "error"]
+    assert errors[0]["error.type"] == "RuntimeError"

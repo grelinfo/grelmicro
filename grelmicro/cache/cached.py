@@ -4,6 +4,7 @@ import asyncio
 import functools
 import inspect
 import json
+import logging
 import math
 import random
 import threading
@@ -118,6 +119,8 @@ class CachedFunction(Protocol[P, R]):
         """
         ...
 
+
+logger = logging.getLogger(__name__)
 
 _SENTINEL = object()
 
@@ -589,6 +592,12 @@ def _build_async_wrapper(  # noqa: C901
 ) -> Any:  # noqa: ANN401
     """Build async wrapper for cached decorator."""
     guard = AsyncStampedeGuard()
+    # Strong references to in-flight background refreshes. The event loop
+    # holds only weak references, so a task with no other referent can be
+    # collected before it finishes and would then report nothing at all.
+    # Scoped to this decoration so it dies with the wrapper, rather than
+    # pinning tasks from a closed loop for the life of the process.
+    refresh_tasks: set[asyncio.Task[None]] = set()
 
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -607,6 +616,7 @@ def _build_async_wrapper(  # noqa: C901
                     stale_ttl,
                     guard,
                     tag_spec,
+                    refresh_tasks,
                 )
             return result
 
@@ -681,7 +691,7 @@ def _build_async_wrapper(  # noqa: C901
     return wrapper
 
 
-async def _maybe_refresh_async(
+async def _maybe_refresh_async(  # noqa: PLR0913, PLR0917
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -692,6 +702,7 @@ async def _maybe_refresh_async(
     stale_ttl: float | None,
     guard: AsyncStampedeGuard,
     tag_spec: _TagSpec,
+    refresh_tasks: set[asyncio.Task[None]],
 ) -> None:
     """Schedule a background recompute when an entry is due for refresh."""
     meta = await _read_meta(cache, key)
@@ -719,9 +730,35 @@ async def _maybe_refresh_async(
             )
 
     task = asyncio.create_task(refresh())
-    # Drop the lookup table reference once done; surfacing failures is
-    # the caller's job via the cache, not this best-effort refresh.
-    task.add_done_callback(lambda _: None)
+    refresh_tasks.add(task)
+    task.add_done_callback(refresh_tasks.discard)
+    task.add_done_callback(functools.partial(_report_refresh_failure, key))
+
+
+def _report_refresh_failure(key: str, task: asyncio.Task[None]) -> None:
+    """Surface a failed background refresh instead of discarding it.
+
+    An early refresh runs with no caller to raise into. Left silent, a
+    permanently failing recompute degrades every hot key back to a cold
+    miss while the cache still reports hits.
+    """
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is None:
+        _emit.incr("grelmicro.cache.early_refreshes", outcome="success")
+        return
+    _emit.incr(
+        "grelmicro.cache.early_refreshes",
+        outcome="error",
+        **{"error.type": type(error).__name__},
+    )
+    logger.warning(
+        "Cache early refresh failed for key %r, the entry will expire "
+        "instead of refreshing",
+        key,
+        exc_info=error,
+    )
 
 
 async def _compute_and_cache(
@@ -999,6 +1036,20 @@ def _maybe_refresh_sync(  # noqa: PLR0913, PLR0917
                 stale_ttl=stale_ttl,
                 tag_spec=tag_spec,
             )
+        except Exception as error:
+            _emit.incr(
+                "grelmicro.cache.early_refreshes",
+                outcome="error",
+                **{"error.type": type(error).__name__},
+            )
+            logger.warning(
+                "Cache early refresh failed for key %r, the entry will "
+                "expire instead of refreshing",
+                key,
+                exc_info=True,
+            )
+        else:
+            _emit.incr("grelmicro.cache.early_refreshes", outcome="success")
         finally:
             the_lock.release()
 

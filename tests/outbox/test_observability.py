@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 import pytest
@@ -134,3 +135,96 @@ async def test_trace_helpers_are_noop_without_otel(
     assert headers == {}
     with _otel.consumer_span(topic="job", message_id=uuid7(), headers={}):
         pass
+
+
+class TestBackgroundCrashIsObservable:
+    """A crashed relay task must never stop delivery quietly."""
+
+    async def test_crash_is_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A task that ended on an exception reports what stopped working."""
+        # Arrange
+        from grelmicro.outbox._relay import (  # noqa: PLC0415
+            _report_task_crash,
+        )
+
+        async def boom() -> None:
+            msg = "relay died"
+            raise RuntimeError(msg)
+
+        task = asyncio.create_task(boom())
+        await asyncio.wait({task})
+
+        # Act
+        with caplog.at_level(logging.ERROR, logger="grelmicro.outbox"):
+            _report_task_crash(task, what="relay loop")
+
+        # Assert
+        assert any("relay loop crashed" in r.message for r in caplog.records)
+        assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+    async def test_cancellation_is_not_a_crash(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A task cancelled at shutdown is not reported as a failure."""
+        # Arrange
+        from contextlib import suppress  # noqa: PLC0415
+
+        from grelmicro.outbox._relay import (  # noqa: PLC0415
+            _report_task_crash,
+        )
+
+        async def never() -> None:
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(never())
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+        # Act
+        with caplog.at_level(logging.ERROR, logger="grelmicro.outbox"):
+            _report_task_crash(task, what="relay loop")
+
+        # Assert
+        assert not caplog.records
+
+    async def test_relay_loop_crash_is_logged_when_it_happens(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A crashed relay loop reports at crash time, not at shutdown."""
+        # Arrange
+        from grelmicro.outbox._config import OutboxConfig  # noqa: PLC0415
+        from grelmicro.outbox._registry import (  # noqa: PLC0415
+            OutboxRegistry,
+        )
+        from grelmicro.outbox._relay import Relay  # noqa: PLC0415
+
+        async def boom(_self: object) -> None:
+            msg = "relay died"
+            raise RuntimeError(msg)
+
+        monkeypatch.setattr(Relay, "_run", boom)
+        relay = Relay(
+            backend=MemoryOutboxAdapter(),
+            registry=OutboxRegistry(),
+            config=OutboxConfig(),
+        )
+
+        # Act
+        with caplog.at_level(logging.ERROR, logger="grelmicro.outbox"):
+            async with relay:
+                # Still inside the context: the crash must already be logged,
+                # which is the whole point of reporting at crash time.
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                crashed = [
+                    r
+                    for r in caplog.records
+                    if "relay loop crashed" in r.message
+                ]
+
+        # Assert
+        assert crashed
+        assert crashed[0].levelno == logging.ERROR
