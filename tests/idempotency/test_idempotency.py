@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from grelmicro import Grelmicro
 from grelmicro._config import reconfigurable_instances, reconfigure_all
+from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
@@ -27,6 +28,7 @@ from grelmicro.idempotency import (
     IdempotencyConflictError,
     IdempotencySettingsValidationError,
     IdempotencyStateError,
+    IdempotencyWaitTimeoutError,
     idempotent,
 )
 
@@ -658,3 +660,88 @@ def test_settings_error_is_settings_validation_error() -> None:
     assert issubclass(
         IdempotencySettingsValidationError, SettingsValidationError
     )
+
+
+async def test_idempotency_block_waits_out_the_timeout() -> None:
+    """A duplicate past `wait_timeout` raises the wait error."""
+    # Arrange
+    wait_timeout = 0.05
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    idem: Idempotency = Idempotency("charge", ttl=60)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def first() -> None:
+        async with idem("key-1") as operation:
+            started.set()
+            await release.wait()
+            operation.store({"ok": True})
+
+    # Act
+    async with micro:
+        task = asyncio.create_task(first())
+        await started.wait()
+        with pytest.raises(IdempotencyWaitTimeoutError) as exc_info:
+            async with idem("key-1", wait_timeout=wait_timeout):
+                pass  # pragma: no cover
+        release.set()
+        await task
+
+    # Assert
+    assert exc_info.value.timeout == wait_timeout
+    assert isinstance(exc_info.value, TimeoutError)
+
+
+async def test_idempotency_block_propagates_a_backend_timeout() -> None:
+    """A `TimeoutError` from inside the block is not a wait timeout."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    idem: Idempotency = Idempotency("charge", ttl=60)
+    calls = 0
+    original = idem._replay
+
+    async def flaky(key: str, fingerprint: str | None) -> object:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise TimeoutError
+        return await original(key, fingerprint)
+
+    # Act
+    async with micro:
+        with (
+            patch.object(idem, "_replay", flaky),
+            pytest.raises(TimeoutError) as exc_info,
+        ):
+            async with idem("key-1", wait_timeout=5):
+                pass  # pragma: no cover
+
+    # Assert
+    assert not isinstance(exc_info.value, IdempotencyWaitTimeoutError)
+
+
+async def test_idempotency_run_waits_out_the_timeout() -> None:
+    """`run` bounds the wait the same way the block does."""
+    # Arrange
+    wait_timeout = 0.05
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    idem: Idempotency = Idempotency("charge", ttl=60)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow() -> dict[str, bool]:
+        started.set()
+        await release.wait()
+        return {"ok": True}
+
+    # Act
+    async with micro:
+        task = asyncio.create_task(idem.run("key-1", slow))
+        await started.wait()
+        with pytest.raises(IdempotencyWaitTimeoutError):
+            await idem.run("key-1", slow, wait_timeout=wait_timeout)
+        release.set()
+        result = await task
+
+    # Assert
+    assert result == {"ok": True}
