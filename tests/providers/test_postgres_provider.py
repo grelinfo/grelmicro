@@ -676,6 +676,18 @@ class TestSQLAlchemyDsn:
         # Assert
         assert provider.url == url
 
+    @pytest.mark.parametrize(
+        "scheme", ["POSTGRESQL+ASYNCPG", "PostgreSQL+AsyncPG"]
+    )
+    def test_an_uppercase_driver_scheme_is_dropped(self, scheme: str) -> None:
+        """A URL scheme is case-insensitive, so the suffix still goes."""
+        # Arrange
+        url = f"{scheme}://test_user:test_password@test_host:1234/test_db"
+        # Act
+        provider = PostgresProvider(url=url)
+        # Assert
+        assert provider.url == URL
+
     def test_multi_host_url_keeps_every_host(self) -> None:
         """Normalising the scheme leaves a multi-host URL intact."""
         # Arrange

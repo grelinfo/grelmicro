@@ -89,6 +89,16 @@ A request without the header passes straight through. Adding the middleware chan
 
 Every response the app returns is stored, `4xx` and `5xx` included. A handler that writes to the database and then fails on the way out leaves a stored failure, so the retry gets that instead of running the write again.
 
+Store only what you want replayed. A transient `503` stored for the whole `ttl` keeps answering `503` long after the dependency recovers, so exclude the statuses that mean "try again later":
+
+```python
+app.add_middleware(
+    IdempotencyMiddleware,
+    idempotency=Idempotency("http"),
+    skip=lambda response: response["status"] in (429, 502, 503, 504),
+)
+```
+
 A handler that raises an unhandled exception is different. The framework turns it into a `500` outside the middleware, so nothing is stored and a retry runs fresh. A raised `HTTPException` is not an unhandled exception. The framework turns it into a response inside the middleware, so it is stored and replayed like any other.
 
 ### What is never stored

@@ -533,7 +533,9 @@ def _normalize_scheme(url: str) -> str:
     unrelated `+`.
     """
     scheme, separator, rest = url.partition("://")
-    if not separator or not scheme.startswith(_DRIVER_PREFIX):
+    # A URL scheme is case-insensitive, so match on the folded form and
+    # emit the lowercase spelling asyncpg expects.
+    if not separator or not scheme.lower().startswith(_DRIVER_PREFIX):
         return url
     return f"{_POSTGRESQL_SCHEME}{separator}{rest}"
 
