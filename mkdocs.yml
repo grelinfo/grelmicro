@@ -79,6 +79,7 @@ nav:
         - resilience/timeout.md
         - resilience/composition.md
     - health.md
+    - clientip.md
     - logging.md
     - tracing.md
     - metrics.md
@@ -93,6 +94,7 @@ nav:
     - benchmarks.md
 - API Reference:
     - reference/cache.md
+    - reference/clientip.md
     - reference/clock.md
     - reference/config.md
     - reference/fastapi.md
