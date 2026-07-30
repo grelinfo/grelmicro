@@ -1,12 +1,22 @@
-from ipaddress import ip_address
-
 from fastapi import Depends, Request
 
+from grelmicro.clientip import TrustedProxies, resolve_client_address
 from grelmicro.integrations.fastapi import health_router
+
+# Your own proxies. Required: without it a caller's own header is believed.
+trusted = TrustedProxies(["10.0.0.0/8"])
 
 
 def from_private_network(request: Request) -> bool:
-    return bool(request.client and ip_address(request.client.host).is_private)
+    # Resolve rather than reading `request.client.host`. Behind a proxy the
+    # raw peer is the proxy's own private address, so checking it directly
+    # reports every caller as private and shows details to the public.
+    client = resolve_client_address(request.scope, trusted)
+    # `degraded` means the chain could not be believed, so the address is
+    # the proxy's again. Refuse, or a forged chain reopens the same hole.
+    if client is None or client.degraded:
+        return False
+    return client.ip.is_private
 
 
 # Hide details from everyone (default).

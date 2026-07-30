@@ -170,6 +170,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache, cached
+from grelmicro.clientip import TrustedProxies, resolve_client_address
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider
@@ -241,10 +242,21 @@ async def read_root():
 
 
 # --- Rate Limiter: protect endpoints from overload ---
+# Behind a proxy, `request.client.host` is the proxy, so every caller would
+# share one bucket. Resolve the real client instead, trusting only your own
+# proxies. Drop the `trusted`/`client_key` lines if nothing fronts the app.
+trusted = TrustedProxies(["10.0.0.0/8"])
+
+
+def client_key(request: Request) -> str:
+    client = resolve_client_address(request.scope, trusted)
+    return client.key if client else "unknown"
+
+
 @app.get("/api")
 async def api_endpoint(request: Request):
     try:
-        await api_limiter.acquire_or_raise(key=request.client.host)
+        await api_limiter.acquire_or_raise(key=client_key(request))
     except RateLimitExceededError as exc:
         raise HTTPException(
             status_code=429,

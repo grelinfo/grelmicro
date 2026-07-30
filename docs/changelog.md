@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Features
+
+* ✨ Add `ClientAddress.degraded`, which marks a result whose address is the connecting peer rather than the caller. Anything treating the address as an identity must refuse when it is set. ([#609](https://github.com/grelinfo/grelmicro/issues/609))
+* ✨ Add `grelmicro.clientip`, which resolves the real client address behind a reverse proxy. `X-Forwarded-For` is append-only, so its leftmost entry is attacker-controlled. The resolver reads the header only when the connecting peer is a trusted proxy, walks right to left, and returns the first entry no trusted proxy wrote. The trusted set is required and there is no wildcard. ([#609](https://github.com/grelinfo/grelmicro/issues/609))
+
+### Security
+
+* 🔒 Refuse to show health details when the client address is a fallback. Resolving alone was not enough: a forged chain that could not be believed still returned the proxy's own private address, so the `is_private` check admitted everyone again. `ClientAddress.degraded` marks every such case. ([#609](https://github.com/grelinfo/grelmicro/issues/609))
+
+* 🔒 Stop the health-detail example from showing details to everyone behind a proxy. It gated on `request.client.host` being private, which is the proxy's own address for every external caller, so `is_private` was true for all of them. It now resolves the client. The rate limiter example keyed on the same value, giving every caller one shared bucket. ([#609](https://github.com/grelinfo/grelmicro/issues/609))
+
 ### Internal
 
 * 👷 Enforce the coverage total on the pull request that changes code, not in the next nightly. The slow and integration tiers now run on a code-touching pull request or push, on the primary Python only, so the combined 100% total is measurable there. The Python matrix and the demo tier stay on the nightly, dispatch, and release paths. About two minutes per pull request. ([#602](https://github.com/grelinfo/grelmicro/issues/602))
