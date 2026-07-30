@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.32.8 - 2026-07-30
 
 ### Internal
 
