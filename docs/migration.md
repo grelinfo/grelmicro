@@ -9,7 +9,9 @@ sections in the [changelog](changelog.md), newest first.
 
 In `0.x` the minor is the breaking position: a `0.x.0` release may change the
 public API, and a `0.x.y` release is a safe patch. So an upgrade within one
-minor never needs this page.
+minor rarely needs this page. The one exception so far is
+[0.32.2](#0-32-2-circuit-breaker-state), which changes no API but does change
+what an already-open circuit does once.
 
 ## Find your symptom
 
@@ -18,7 +20,7 @@ minor never needs this page.
 | `AttributeError: 'Operation' object has no attribute 'response'` | 0.30 | [Use `result()`](#0-30-operation-result) |
 | A password or URL reads back as `SecretStr(...)` or `***` | 0.31, 0.32 | [Call `.get_secret_value()`](#0-31-secret-credentials) |
 | Metrics stopped arriving after upgrading, with no error | 0.31 | [Set an endpoint](#0-31-metrics-auto-exporter) |
-| `TypeError: ... unexpected keyword argument 'path'` on a SQLite adapter | 0.32 | [Pass `provider=`](#0-32-sqlite-provider) |
+| `TypeError` on a SQLite adapter, either `unexpected keyword argument 'path'` or `takes 1 positional argument` | 0.32 | [Pass `provider=`](#0-32-sqlite-provider) |
 | `SettingsValidationError` where you caught `CoordinationSettingsValidationError` | 0.32 | [Catch the base error](#0-32-sqlite-provider) |
 | An open circuit closed once, just after upgrading | 0.32.2 | [Expected, happens once](#0-32-2-circuit-breaker-state) |
 
