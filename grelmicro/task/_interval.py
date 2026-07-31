@@ -17,7 +17,7 @@ from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
-from grelmicro.task._cron import FireInfo, FireOutcome
+from grelmicro.task._cron import FireInfo, FireOutcome, _report_unrun_fire
 from grelmicro.task._protocol import Task
 from grelmicro.task._utils import validate_and_generate_reference
 
@@ -83,6 +83,9 @@ class IntervalTask(Task):
 
         self._last_fire: FireInfo | None = None
         self._last_loop_start: float | None = None
+        # Whether the body started on the current iteration. A failure
+        # raised after it started is already counted by `_run_with_sync`.
+        self._body_started = False
 
     def _resolve_task_lock(
         self, lock: TaskLock | None, seconds: float
@@ -146,27 +149,36 @@ class IntervalTask(Task):
             ready.set_result(None)
         try:
             while True:
+                self._body_started = False
                 try:
                     await self._run_with_sync(self._sync_primitives)
                 except asyncio.CancelledError:
                     raise
                 except WouldBlockError as exc:
-                    self._last_fire = FireInfo(
-                        started_at=datetime.now(UTC),
-                        outcome=FireOutcome.SKIPPED,
-                        duration=0.0,
+                    self._last_fire = _report_unrun_fire(
+                        self.name, datetime.now(UTC), FireOutcome.SKIPPED
                     )
                     logger.debug("Task skipped: %s (%s)", self.name, exc)
                 except LockNotOwnedError:
+                    # The lock expired on release, so the body already ran
+                    # and already reported its own outcome. Counting it
+                    # again would double the fire.
                     logger.warning(
                         "Task took too long and lock expired: %s."
                         " Consider increasing lease_duration.",
                         self.name,
                     )
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         "Task synchronization error: %s", self.name
                     )
+                    if not self._body_started:
+                        self._last_fire = _report_unrun_fire(
+                            self.name,
+                            datetime.now(UTC),
+                            FireOutcome.COORDINATION_ERROR,
+                            exc,
+                        )
                 # Re-raise pending cancellation that an inner cleanup
                 # may have shadowed with a regular Exception.
                 task = asyncio.current_task()
@@ -191,6 +203,7 @@ class IntervalTask(Task):
         overhead on every iteration.
         """
         if index >= len(primitives):
+            self._body_started = True
             _emit.add_up_down(
                 "grelmicro.task.active", 1, **{"task.name": self.name}
             )

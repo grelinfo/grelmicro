@@ -236,9 +236,16 @@ Each task exposes two read-only properties for observability:
   computed from the last loop instant. For cron tasks, it comes from the
   parsed expression.
 - **`last_fire`**: a `FireInfo` with the `started_at` timestamp, outcome (a
-  `FireOutcome` enum: `SUCCESS`, `ERROR`, or `SKIPPED`), and duration in
-  seconds. `None` before the first fire. `FireOutcome` is a `StrEnum`, so each
-  member compares equal to its string value (`outcome == "success"`).
+  `FireOutcome` enum: `SUCCESS`, `ERROR`, `SKIPPED`, `MISSED`, or
+  `COORDINATION_ERROR`), and duration in seconds. `None` before the first
+  fire. `FireOutcome` is a `StrEnum`, so each member compares equal to its
+  string value (`outcome == "success"`).
+
+  A fire that never reached the body sets `last_fire` too, with a duration
+  of `0.0`. So a task whose schedule backend went down reads as
+  `COORDINATION_ERROR` rather than keeping yesterday's success on display.
+  The same outcomes are counted on
+  [`grelmicro.task.runs`](metrics.md#every-fire-lands-on-grelmicrotaskruns).
 
 Access the task object via `tasks.tasks`:
 

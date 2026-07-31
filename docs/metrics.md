@@ -130,6 +130,35 @@ When a `Metrics` component is active, grelmicro emits these metrics from its own
 
 The `grelmicro.circuit_breaker.state` gauge maps states to codes: `CLOSED` is 0, `OPEN` is 1, `HALF_OPEN` is 2, `FORCED_OPEN` is 3, `FORCED_CLOSED` is 4.
 
+### Every fire lands on `grelmicro.task.runs`
+
+Every fire a worker evaluates is counted once, whatever happens to it.
+The `outcome` attribute says what:
+
+| `outcome` | What happened |
+|---|---|
+| `success` | the body ran and returned |
+| `error` | the body raised, `error.type` names the exception |
+| `skipped` | another worker handled this fire, so this one stood down |
+| `missed` | the fire was dropped and no worker ran it, either because it came back too late to replay or because the worker that claimed it could not admit the body |
+| `coordination_error` | the fire never reached the body because coordination failed, `error.type` names the exception |
+
+`coordination_error` is the one to alert on. It means the schedule backend
+or the lock is unreachable, so the task is not running anywhere and its
+own error rate stays at zero because the body never ran.
+
+Watch `missed` too. A fire dropped past its grace budget ran on no worker
+at all, which a `skipped` series cannot tell you.
+
+Filter on `outcome="success"` for "how often does my task actually run".
+The bare total counts every fire each worker saw, so on a fleet of N
+workers sharing a lock it is roughly N times the number of fires.
+
+The startup catch-up tick is silent when it finds nothing to replay, and
+so is the first sight of a schedule, which records a baseline once so
+that later fires can be told apart from fires that never happened.
+Neither is a fire the worker had to act on.
+
 ## Background work always reports its failure
 
 Work that runs outside your call stack has nowhere to raise. A cache
@@ -153,6 +182,12 @@ Both counters carry `outcome` and, on a failure, `error.type`, so an
 error **rate** is derivable rather than only an absolute count. That
 follows the same shape as `grelmicro.task.runs`, and it is why success and
 failure share one counter instead of having their own.
+
+A task fire that never reaches the body follows the same rule. A
+coordination failure counts as `coordination_error` and a dropped fire as
+`missed`, both on `grelmicro.task.runs`, so a task that stopped running
+because its backend is down is never mistaken for a task with nothing to
+do.
 
 Watch the `outcome="error"` series on `grelmicro.cache.early_refreshes` and
 `grelmicro.shield.cache_writes`. Neither failure shows up in your latency
