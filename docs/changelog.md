@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* 🐛 Report a task fire that never ran. `grelmicro.task.runs` only counted fires that reached the body, so a schedule backend or a lock that stopped answering left no metric at all and looked exactly like a task with nothing due. A fire now always lands on the counter: `coordination_error` when coordination failed, `missed` when no worker ran it, and `skipped` when a peer handled it. The bare total counts more than it did, so read the [migration note](migration.md#0-33-1-task-run-outcomes) if a chart treats it as the run rate. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+* 🐛 Warn when a cron fire is dropped for coming back too late. Past `misfire_grace_seconds` the fire was skipped with no log and no metric, so a task that never replayed said nothing at all. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+* 🐛 Record a fire that never reached the body on `last_fire`. An introspection endpoint reading it during a coordination outage reported the previous successful fire and looked healthy. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+
 ## 0.33.0 - 2026-07-31
 
 ### Features

@@ -35,13 +35,21 @@ class FireOutcome(StrEnum):
 
     - ``SUCCESS``: the body ran and returned without raising.
     - ``ERROR``: the body raised an exception.
-    - ``SKIPPED``: the fire was skipped because acquiring a lock would
-      block (a ``WouldBlockError``).
+    - ``SKIPPED``: another worker handled the fire, so this one stood
+      down. The peer either ran it or recorded it as missed.
+    - ``MISSED``: the fire was dropped and no worker ran it. Either it
+      came back too late to replay, past ``misfire_grace_seconds``, or
+      this worker claimed it and then could not admit the body.
+    - ``COORDINATION_ERROR``: the fire never reached the body because
+      coordination itself failed, such as an unreachable schedule backend
+      or a lock acquire that raised.
     """
 
     SUCCESS = "success"
     ERROR = "error"
     SKIPPED = "skipped"
+    MISSED = "missed"
+    COORDINATION_ERROR = "coordination_error"
 
 
 @dataclass(frozen=True)
@@ -57,6 +65,26 @@ class FireInfo:
 # cron matching is deterministic and never straddles a real minute boundary.
 # Mirrors the `_now` seam in the cache.
 _now = datetime.now
+
+
+def _report_unrun_fire(
+    name: str,
+    started_at: datetime,
+    outcome: FireOutcome,
+    error: Exception | None = None,
+) -> FireInfo:
+    """Record a fire that never reached the body and return its `FireInfo`.
+
+    Emits one `grelmicro.task.runs` point and builds the matching
+    `FireInfo` together, so the counter and `last_fire` cannot disagree
+    about a fire. The caller assigns the return value to `_last_fire`.
+    """
+    attributes: dict[str, Any] = {"task.name": name, "outcome": outcome}
+    if error is not None:
+        attributes["error.type"] = type(error).__name__
+    _emit.incr("grelmicro.task.runs", **attributes)
+    return FireInfo(started_at=started_at, outcome=outcome, duration=0.0)
+
 
 # Maximum number of years to search for the next matching datetime before
 # giving up. Covers Feb-29 schedules (every 4 years) with margin so an
@@ -348,6 +376,9 @@ class CronTask(Task):
 
         self._next_fire_time: datetime | None = None
         self._last_fire: FireInfo | None = None
+        # Whether the body started on the current tick. A failure raised
+        # after it started is already counted by `_run_body`.
+        self._body_started = False
 
     @property
     def name(self) -> str:
@@ -439,23 +470,32 @@ class CronTask(Task):
 
     async def _tick_guarded(self, *, catchup: bool) -> None:
         """Run one tick, catching the errors a single fire may raise."""
+        self._body_started = False
         try:
             await self._tick(catchup=catchup)
         except asyncio.CancelledError:
             raise
         except WouldBlockError as exc:
-            self._last_fire = FireInfo(
-                started_at=_now(self._tz),
-                outcome=FireOutcome.SKIPPED,
-                duration=0.0,
+            self._last_fire = _report_unrun_fire(
+                self.name, _now(self._tz), FireOutcome.SKIPPED
             )
             logger.debug("Task skipped: %s (%s)", self.name, exc)
         except LockNotOwnedError:
+            # The lock expired on release, so the body already ran and
+            # already reported its own outcome. Counting it again would
+            # double the fire.
             logger.warning(
                 "Task took too long and lock expired: %s.", self.name
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Task synchronization error: %s", self.name)
+            if not self._body_started:
+                self._last_fire = _report_unrun_fire(
+                    self.name,
+                    _now(self._tz),
+                    FireOutcome.COORDINATION_ERROR,
+                    exc,
+                )
         # Re-raise pending cancellation that an inner cleanup may have
         # shadowed with a regular Exception.
         task = asyncio.current_task()
@@ -489,22 +529,68 @@ class CronTask(Task):
         last = await backend.last_fired(self.name)
         if last is None:
             # First sight of this schedule: establish the baseline without
-            # running, so only later fires count as missed and replay.
+            # running, so only later fires count as missed and replay. No
+            # fire was ever due here, so nothing is reported.
             await backend.claim(self.name, due)
             return
         if due <= last:
             # Already handled (coalesce: only the most recent fire matters).
+            # On a scheduled tick that means a peer claimed this fire while
+            # this worker was reading, which is where most losers land.
+            if not catchup:
+                self._last_fire = _report_unrun_fire(
+                    self.name, now, FireOutcome.SKIPPED
+                )
             return
         if (
             self._misfire_grace_seconds is not None
             and (now.timestamp() - due) > self._misfire_grace_seconds
         ):
-            # Too late to replay this missed fire: skip but advance the
-            # baseline so it is not retried forever.
-            await backend.claim(self.name, due)
+            await self._drop_late_fire(backend, due, now)
             return
+        await self._claim_and_run(backend, due, now)
+
+    async def _drop_late_fire(
+        self, backend: ScheduleBackend, due: float, now: datetime
+    ) -> None:
+        """Drop a fire that came back too late to replay.
+
+        Advances the baseline so the fire is not retried forever. Only the
+        worker that wins the claim reports the drop, so one dropped fire
+        counts once however many workers saw it.
+        """
         if await backend.claim(self.name, due):
+            logger.warning(
+                "Task fire missed, too late to replay: %s (%.0fs late)",
+                self.name,
+                now.timestamp() - due,
+            )
+            outcome = FireOutcome.MISSED
+        else:
+            outcome = FireOutcome.SKIPPED
+        self._last_fire = _report_unrun_fire(self.name, now, outcome)
+
+    async def _claim_and_run(
+        self, backend: ScheduleBackend, due: float, now: datetime
+    ) -> None:
+        """Run the body when this worker wins the claim for `due`."""
+        if not await backend.claim(self.name, due):
+            self._last_fire = _report_unrun_fire(
+                self.name, now, FireOutcome.SKIPPED
+            )
+            return
+        try:
             await self._run()
+        except WouldBlockError:
+            # The claim advanced the baseline, so no peer replays this
+            # fire. A `sync` primitive that refuses to admit the body
+            # loses it outright, which is a miss and not a skip.
+            logger.warning(
+                "Task fire missed, claimed but not admitted: %s", self.name
+            )
+            self._last_fire = _report_unrun_fire(
+                self.name, now, FireOutcome.MISSED
+            )
 
     async def _run(self) -> None:
         """Run the body, optionally under the resource sync lock, with metrics."""
@@ -516,6 +602,7 @@ class CronTask(Task):
 
     async def _run_body(self) -> None:
         """Run the task body and emit metrics."""
+        self._body_started = True
         _emit.add_up_down(
             "grelmicro.task.active", 1, **{"task.name": self.name}
         )

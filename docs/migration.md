@@ -9,9 +9,10 @@ sections in the [changelog](changelog.md), newest first.
 
 In `0.x` the minor is the breaking position: a `0.x.0` release may change the
 public API, and a `0.x.y` release is a safe patch. So an upgrade within one
-minor rarely needs this page. The one exception so far is
-[0.32.2](#0-32-2-circuit-breaker-state), which changes no API but does change
-what an already-open circuit does once.
+minor rarely needs this page. Two patches are exceptions, and neither changes
+an API: [0.32.2](#0-32-2-circuit-breaker-state) changes what an already-open
+circuit does once, and [0.33.1](#0-33-1-task-run-outcomes) changes what a task
+metric counts.
 
 ## Find your symptom
 
@@ -23,6 +24,7 @@ what an already-open circuit does once.
 | `TypeError` on a SQLite adapter, either `unexpected keyword argument 'path'` or `takes 1 positional argument` | 0.32 | [Pass `provider=`](#0-32-sqlite-provider) |
 | `SettingsValidationError` where you caught `CoordinationSettingsValidationError` | 0.32 | [Catch the base error](#0-32-sqlite-provider) |
 | An open circuit closed once, just after upgrading | 0.32.2 | [Expected, happens once](#0-32-2-circuit-breaker-state) |
+| Task run totals jumped after upgrading, with no new failures | 0.33.1 | [Filter on `outcome`](#0-33-1-task-run-outcomes) |
 
 ## 0.32
 
@@ -117,6 +119,32 @@ async with idem(key) as op:
 
 It is valid **only** on a replay. Calling it on a first execution raises
 `IdempotencyStateError`, so keep it behind `if op.replayed:`.
+
+## 0.33.1, not breaking but worth knowing {#0-33-1-task-run-outcomes}
+
+`grelmicro.task.runs` now counts every fire, not only the fires that ran
+the body. A fire a peer took counts as `skipped`, a fire dropped past its
+grace budget as `missed`, and a fire that never got there because
+coordination failed as `coordination_error`.
+
+That makes the bare total larger. On a fleet of N workers sharing a lock
+it is now roughly N times the number of fires, because the N-1 workers
+that stand down each count their fire.
+
+If a chart or an alert reads the total as "how often does my task run",
+filter it:
+
+```promql
+# Before
+rate(grelmicro_task_runs_total[5m])
+
+# After
+rate(grelmicro_task_runs_total{outcome="success"}[5m])
+```
+
+Nothing else changes. `outcome="success"` and `outcome="error"` keep the
+meanings they had, so an alert already filtering on either is correct as
+it stands.
 
 ## 0.32.2, not breaking but worth knowing {#0-32-2-circuit-breaker-state}
 
