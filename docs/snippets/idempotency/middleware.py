@@ -9,11 +9,10 @@ from grelmicro.integrations.fastapi import IdempotencyMiddleware
 micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
 app = FastAPI()
 
+micro.install(app)
 app.add_middleware(
     IdempotencyMiddleware, idempotency=Idempotency("http", ttl=3600)
 )
-# Install last, so the grelmicro request scope wraps the middleware.
-micro.install(app)
 
 
 @app.post("/charge")

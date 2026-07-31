@@ -52,7 +52,7 @@ The quick start reads the key and opens a block in every handler that needs one.
 
 Handlers stay as they are. There is no key parameter to thread through and no block to open.
 
-Add the middleware before `micro.install(app)`. The framework runs the last middleware added first, so installing last puts the grelmicro request scope outside the middleware, which is what lets it resolve the `Cache` backend.
+Add the middleware before or after `micro.install(app)`. It resolves its `Cache` through the grelmicro request scope, and `install` keeps that scope outside every other middleware.
 
 ### What a client sees
 
@@ -197,8 +197,8 @@ from grelmicro.integrations.fastapi import (
     document_idempotency,
 )
 
-app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
 micro.install(app)
+app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
 document_idempotency(app)
 ```
 

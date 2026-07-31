@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.status import HTTP_200_OK
 
 from grelmicro import AmbientBindingError, Grelmicro
@@ -26,6 +29,14 @@ if TYPE_CHECKING:
     from typing import Any
 
 pytestmark = [pytest.mark.timeout(5)]
+
+
+def _stack_names(app: FastAPI) -> list[str]:
+    """Return the registered middleware class names, outermost first."""
+    return [
+        getattr(middleware.cls, "__name__", "unnamed")
+        for middleware in app.user_middleware
+    ]
 
 
 def _build_app(*, with_middleware: bool) -> FastAPI:
@@ -164,6 +175,72 @@ def test_install_chains_existing_lifespan() -> None:
     assert response.status_code == HTTP_200_OK
     assert response.json() == {"allowed": True}
     assert events == ["enter", "exit"]
+
+
+def test_install_keeps_binding_outermost_whatever_the_add_order() -> None:
+    """The binding middleware is built outside the ones added around it."""
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    app = FastAPI()
+    app.add_middleware(GZipMiddleware)
+    micro.install(app)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+    app.build_middleware_stack()
+
+    assert _stack_names(app) == [
+        "GrelmicroMiddleware",
+        "TrustedHostMiddleware",
+        "GZipMiddleware",
+    ]
+
+
+def test_install_ambient_false_leaves_the_stack_order_alone() -> None:
+    """Without the binding middleware there is nothing to keep outermost."""
+    micro = Grelmicro()
+    app = FastAPI()
+    micro.install(app, ambient=False)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+    app.build_middleware_stack()
+
+    assert _stack_names(app) == ["TrustedHostMiddleware"]
+
+
+def test_install_ambient_false_raises_when_hand_wiring_is_wrapped() -> None:
+    """`ambient=False` leaves placement to the reader, and reports it wrong."""
+    # A sibling test reimports the integration module, so resolve the class
+    # through the live module rather than the one bound at import time.
+    binding = importlib.import_module(
+        "grelmicro.integrations.fastapi"
+    ).GrelmicroMiddleware
+    micro = Grelmicro()
+    app = FastAPI()
+    micro.install(app, ambient=False)
+    app.add_middleware(binding, micro=micro)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+    with (
+        pytest.raises(AmbientBindingError, match="TrustedHostMiddleware"),
+        TestClient(app),
+    ):
+        pass
+
+
+def test_install_raises_at_startup_when_the_placement_did_not_hold() -> None:
+    """A binding middleware left wrapped fails on startup, not on a request."""
+    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    app = FastAPI()
+    micro.install(app)
+    # Drop the placement hook, as a framework that built its stack another
+    # way would, and leave the binding middleware wrapped.
+    del app.build_middleware_stack
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+    with (
+        pytest.raises(AmbientBindingError, match="TrustedHostMiddleware"),
+        TestClient(app),
+    ):
+        pass
 
 
 def test_install_rejects_unknown_app() -> None:
