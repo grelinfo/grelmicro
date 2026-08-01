@@ -5,6 +5,8 @@
 ### Docs
 
 * 📝 Name the hazard `env_load=False` guards against. Env reads fill every field the caller did not pass, so a config half taken from a `Settings` object silently gets the rest from the environment. A `Settings` default that differs from the environment is dropped without a word. ([#606](https://github.com/grelinfo/grelmicro/issues/606))
+* 📝 Treat outbox retention as a decision the caller makes. A payload sits in the database until its row is deleted, so a single-use secret is at rest for as long as the row lives. The default deletes a delivered row, which is the safe end, but a default is not a guarantee. Pin `keep_delivered` rather than inherit it, and note that dead rows are never purged automatically. ([#607](https://github.com/grelinfo/grelmicro/issues/607))
+* 📝 Say that a stored idempotent response sits at rest for `ttl`. The same audit: the middleware stores the whole response, so `ttl` is a retention window and not only a replay window. ([#607](https://github.com/grelinfo/grelmicro/issues/607))
 
 ### Fixed
 

@@ -118,6 +118,20 @@ Everything else is stored whatever its content type, so a `201 Created` with an 
 
 The response streams to the client as the handler produces it. The copy is buffered alongside and written to the cache after the last chunk is sent.
 
+### Stored responses sit at rest
+
+A stored response is the whole response, headers and body, held in the cache
+backend for `ttl`. A body carrying a token, a signed URL, or personal data is at
+rest there for that long, on whatever backend the `Cache` component points at.
+
+`ttl` is therefore a retention decision, not only a replay window. Set it to the
+shortest window that still catches the retries you care about, rather than the
+longest one the cache will tolerate. Use `skip` to keep a response out of the
+cache entirely when its body should never be written down.
+
+Responses carrying `Set-Cookie` are already never stored, because replaying one
+hands a caller another caller's session.
+
 ### Custom rules with `skip`
 
 `skip` receives the finished response and returns `True` to leave it unstored. It mirrors [`skip` on `@cached`](cache.md#decorator-parameters).
