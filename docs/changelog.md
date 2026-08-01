@@ -7,6 +7,7 @@
 * 📝 Name the hazard `env_load=False` guards against. Env reads fill every field the caller did not pass, so a config half taken from a `Settings` object silently gets the rest from the environment. A `Settings` default that differs from the environment is dropped without a word. ([#606](https://github.com/grelinfo/grelmicro/issues/606))
 * 📝 Treat outbox retention as a decision the caller makes. A payload sits in the database until its row is deleted, so a single-use secret is at rest for as long as the row lives. The default deletes a delivered row, which is the safe end, but a default is not a guarantee. Pin `keep_delivered` rather than inherit it, and note that dead rows are never purged automatically. ([#607](https://github.com/grelinfo/grelmicro/issues/607))
 * 📝 Say that a stored idempotent response sits at rest for `ttl`. The same audit: the middleware stores the whole response, so `ttl` is a retention window and not only a replay window. ([#607](https://github.com/grelinfo/grelmicro/issues/607))
+
 ### Internal
 
 * 👷 Add `just` recipes for the release path. `just release-check <version>` runs what the Release workflow runs, before the tag exists, so a failure costs nothing rather than burning an immutable tag. `just verify-release <version>` downloads a published wheel and sdist and verifies build provenance for each, which turns the SLSA Build Level 2 badge into something anyone can check. `just release-notes <version>` prints the changelog section the GitHub Release body should hold. ([#584](https://github.com/grelinfo/grelmicro/issues/584))
@@ -603,7 +604,6 @@ Re-cut of 0.32.0, which never reached PyPI. A flaky test failed the release run,
 ### Internal
 
 * ⚡ Defer the `opentelemetry` import in `grelmicro.trace`. `import grelmicro.trace` no longer loads `opentelemetry` (was 16 modules). The package is resolved lazily on first call to `instrument`, `span`, or `add_context` and cached. Issue [#189](https://github.com/grelinfo/grelmicro/issues/189).
-
 
 ## 0.21.0 - 2026-05-06
 

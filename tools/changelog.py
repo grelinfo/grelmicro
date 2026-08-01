@@ -48,7 +48,7 @@ def sections(text: str) -> dict[str, tuple[str | None, str]]:
 
 def check(version: str, today: str) -> int:
     """Report whether `version` is ready to tag. Returns an exit code."""
-    found = sections(CHANGELOG.read_text())
+    found = sections(CHANGELOG.read_text(encoding="utf-8"))
     if version not in found:
         print(f"changelog has no section for {version}", file=sys.stderr)
         released = [v for v, (d, _) in found.items() if d]
@@ -79,7 +79,7 @@ def check(version: str, today: str) -> int:
 
 def notes(version: str) -> int:
     """Print the body of `version`'s section. Returns an exit code."""
-    found = sections(CHANGELOG.read_text())
+    found = sections(CHANGELOG.read_text(encoding="utf-8"))
     if version not in found:
         print(f"changelog has no section for {version}", file=sys.stderr)
         return 1

@@ -11,6 +11,7 @@ runs against the downloaded files with `gh` before anything is installed.
 from __future__ import annotations
 
 import sys
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as installed_version
 
 DOCUMENTATION_URL = "https://grelmicro.grel.info"
@@ -20,7 +21,10 @@ PYPI_JSON = "https://pypi.org/pypi/grelmicro/{version}/json"
 def check_installed(expected: str) -> list[str]:
     """Return failures from resolving and importing the published version."""
     failures: list[str] = []
-    found = installed_version("grelmicro")
+    try:
+        found = installed_version("grelmicro")
+    except PackageNotFoundError:
+        return [f"grelmicro=={expected} is not installed in this environment"]
     if found != expected:
         failures.append(f"resolved grelmicro=={found}, expected {expected}")
     try:
@@ -34,10 +38,17 @@ def check_metadata(expected: str) -> list[str]:
     """Return failures from the project URLs PyPI serves for the version."""
     import httpx  # noqa: PLC0415
 
-    response = httpx.get(PYPI_JSON.format(version=expected), timeout=30)
+    try:
+        response = httpx.get(PYPI_JSON.format(version=expected), timeout=30)
+    except httpx.HTTPError as error:
+        return [f"could not reach PyPI: {error!r}"]
     if response.status_code != httpx.codes.OK:
         return [f"PyPI returned {response.status_code} for {expected}"]
-    urls = response.json()["info"].get("project_urls") or {}
+    try:
+        info = response.json()["info"]
+    except (ValueError, KeyError) as error:
+        return [f"PyPI returned unreadable metadata: {error!r}"]
+    urls = info.get("project_urls") or {}
     found = urls.get("Documentation")
     if found != DOCUMENTATION_URL:
         return [
