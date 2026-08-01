@@ -275,11 +275,6 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 Env reads fill every field not passed, so a config
                 half taken from somewhere else silently gets the rest
                 from the environment.
-
-                Pass False when the values here are the whole truth.
-                Env reads fill every field not passed, so a config
-                half taken from somewhere else silently gets the rest
-                from the environment.
                 """,
             ),
         ] = None,

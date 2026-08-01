@@ -399,7 +399,7 @@ class Fallback(Reconfigurable[FallbackConfig]):
             bool | None,
             Doc(
                 "Whether to read environment variables. Defaults to "
-                "the process-wide ``GREL_ENV_LOAD`` flag."
+                "the process-wide ``GREL_ENV_LOAD`` flag. "
                 "Pass False when the values here are the whole "
                 "truth, because env reads fill every field not passed."
             ),
