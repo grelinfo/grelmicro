@@ -182,7 +182,7 @@ async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
 
     assert stub.enter_count == 1
     assert stub.exit_count == 1
-    assert stub.client.connection.execute.await_count
+    assert stub.client.connection.execute.await_count > 0
 
 
 @pytest.mark.timeout(1)

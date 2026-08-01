@@ -52,32 +52,36 @@ def run_workers(
     """
     context = multiprocessing.get_context(start_method)
     barrier = context.Barrier(count)
-    results = context.Manager().list()
-    processes = [
-        # Typeshed types `get_context` as the abstract base, which does not
-        # carry `Process`, but every concrete start-method context does.
-        context.Process(target=worker, args=(barrier, results, *args))  # ty: ignore[unresolved-attribute]
-        for _ in range(count)
-    ]
-    for process in processes:
-        process.start()
-    try:
+    # The manager runs in its own process. Hold it for the whole call and
+    # shut it down here, rather than leaving a server process per call for
+    # the collector to reap somewhere later in the session.
+    with context.Manager() as manager:
+        results = manager.list()
+        processes = [
+            # Typeshed types `get_context` as the abstract base, which does
+            # not carry `Process`, but every concrete context does.
+            context.Process(target=worker, args=(barrier, results, *args))  # ty: ignore[unresolved-attribute]
+            for _ in range(count)
+        ]
         for process in processes:
-            process.join(timeout)
-        stragglers = [p for p in processes if p.is_alive()]
-        if stragglers:
-            msg = (
-                f"{len(stragglers)} of {count} workers did not finish "
-                f"within {timeout}s"
-            )
-            raise WorkerFailedError(msg)
-        failed = [p.exitcode for p in processes if p.exitcode]
-        if failed:
-            msg = f"workers exited with {failed}"
-            raise WorkerFailedError(msg)
-    finally:
-        for process in processes:
-            if process.is_alive():  # pragma: no cover
-                process.kill()
+            process.start()
+        try:
+            for process in processes:
                 process.join(timeout)
-    return list(results)
+            stragglers = [p for p in processes if p.is_alive()]
+            if stragglers:
+                msg = (
+                    f"{len(stragglers)} of {count} workers did not finish "
+                    f"within {timeout}s"
+                )
+                raise WorkerFailedError(msg)
+            failed = [p.exitcode for p in processes if p.exitcode]
+            if failed:
+                msg = f"workers exited with {failed}"
+                raise WorkerFailedError(msg)
+        finally:
+            for process in processes:
+                if process.is_alive():  # pragma: no cover
+                    process.kill()
+                    process.join(timeout)
+        return list(results)
