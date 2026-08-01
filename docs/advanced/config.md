@@ -99,6 +99,30 @@ source that has it:
    `env_load` is unset and `GREL_ENV_LOAD` is truthy).
 3. `Config` class default.
 
+### The hazard in step 2
+
+Step 2 fills every field the caller did not pass, not only the fields that have
+no default anywhere. Passing some fields and leaving others therefore splits the
+config across two sources.
+
+That is the trap for config held in your own `Settings` object. The fields you
+hand over win, and the rest come from the environment. A `Settings` default that
+differs from the environment is dropped, and nothing says so.
+
+```python
+class AppSettings(BaseSettings):
+    lease: float = 30.0  # your default
+
+
+settings = AppSettings()
+lock = Lock("cart", retry_interval=0.5)  # lease_duration not passed
+```
+
+With `GREL_LOCK_CART_LEASE_DURATION=99` in the environment, that lock leases for
+99 seconds. Not 30, and not the library default either. The failure is silent
+and only shows up when the two sources disagree, which is the case nobody
+tests.
+
 ## Recipes
 
 ### Custom env prefix
@@ -112,6 +136,14 @@ lock = Lock("cart", env_prefix="MYAPP_LOCK_CART_")
 ```python
 lock = Lock("cart", env_load=False, lease_duration=10)
 ```
+
+`env_load=False` says the values passed here are the whole truth. Every field
+not passed falls back to the `Config` default, and step 2 is skipped, so the
+environment cannot fill the gaps.
+
+Reach for it whenever the values come from somewhere that is already the source
+of truth. `from_config` says the same thing positively and reads better when the
+config already exists as an object.
 
 ### Wire from `pydantic-settings`
 

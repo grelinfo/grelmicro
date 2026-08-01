@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Docs
+
+* 📝 Name the hazard `env_load=False` guards against. Env reads fill every field the caller did not pass, so a config half taken from a `Settings` object silently gets the rest from the environment. A `Settings` default that differs from the environment is dropped without a word. ([#606](https://github.com/grelinfo/grelmicro/issues/606))
+
 ### Fixed
 
 * 🐛 Report a task fire that never ran. `grelmicro.task.runs` only counted fires that reached the body, so a schedule backend or a lock that stopped answering left no metric at all and looked exactly like a task with nothing due. A fire now always lands on the counter: `coordination_error` when coordination failed, `missed` when no worker ran it, and `skipped` when a peer handled it. The bare total counts more than it did, so read the [migration note](migration.md#0-33-1-task-run-outcomes) if a chart treats it as the run rate. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
