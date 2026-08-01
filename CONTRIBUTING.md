@@ -452,7 +452,45 @@ uv run pytest -m integration
 uv run pytest -m "not integration" --cov
 uv run pytest -m integration --cov --cov-append
 uv run coverage report --fail-under=100
+
+# The tier the Release workflow runs, which adds the slow marker
+just test-full
 ```
+
+### Before cutting a release
+
+A release tag is immutable, so a failure found after tagging burns the
+version and forces a patch bump. Run the preflight first, which runs what
+the Release workflow will run:
+
+```bash
+just release-check 0.33.1
+```
+
+It refuses unless the working tree is clean and `HEAD` is `origin/main`,
+because anything else is not what would be tagged. It then checks that
+`docs/changelog.md` has a section for the version dated today, runs the
+full test tier, builds the docs with `--strict`, and smoke-tests the demo
+stack. Use `just release-check-fast` to skip the demo tier while
+iterating.
+
+`just release-notes 0.33.1` prints that version's changelog section, which
+is what the GitHub Release body should hold.
+
+### Verifying a published release
+
+The README advertises SLSA Build Level 2. That claim holds only while
+provenance keeps being produced and keeps verifying, so it is checkable
+in one command:
+
+```bash
+just verify-release 0.33.0
+```
+
+It downloads the wheel and the sdist from PyPI, verifies build provenance
+for each with `gh attestation verify`, then resolves and imports the
+published version and checks its `Documentation` URL. Verification is
+bound to the file digest, so a tampered artifact finds no attestation.
 
 ## Documentation
 
