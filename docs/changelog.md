@@ -5,9 +5,20 @@
 ### Fixed
 
 * 🐛 Keep the grelmicro request scope outside every other middleware. `IdempotencyMiddleware` had to be added before `micro.install(app)`, and the wrong order raised nothing at setup, so the first failure arrived in production from a client that actually sent `Idempotency-Key`. `install` now places the binding middleware outermost when the stack is built, so either order works, and reads the placement back on startup so a stack that still ends up wrong raises `AmbientBindingError` at boot. ([#599](https://github.com/grelinfo/grelmicro/issues/599))
+* 🐛 Start more than one worker against a fresh Postgres. `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so two workers starting together both passed the check and one crashed on the row type the table creates. Every Postgres adapter now installs its schema under an advisory lock, as the outbox already did. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
+* 🐛 Give each worker of a pre-fork server its own coordination identity. `gunicorn --preload` builds the application once and forks, so every child inherited the identity generated in the parent. Two workers presented the same lock token, and every child read the leader record holder as itself, so all of them led at once. A child now appends its own random suffix. `uvicorn --workers N` spawns instead of forking and is unaffected. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
 * 🐛 Report a task fire that never ran. `grelmicro.task.runs` only counted fires that reached the body, so a schedule backend or a lock that stopped answering left no metric at all and looked exactly like a task with nothing due. A fire now always lands on the counter: `coordination_error` when coordination failed, `missed` when no worker ran it, and `skipped` when a peer handled it. The bare total counts more than it did, so read the [migration note](migration.md#0-33-1-task-run-outcomes) if a chart treats it as the run rate. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
 * 🐛 Warn when a cron fire is dropped for coming back too late. Past `misfire_grace_seconds` the fire was skipped with no log and no metric, so a task that never replayed said nothing at all. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
 * 🐛 Record a fire that never reached the body on `last_fire`. An introspection endpoint reading it during a coordination outage reported the previous successful fire and looked healthy. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+
+### Internal
+
+* 🧪 Verify the Patterns across real process boundaries. A new multiprocess tier races worker processes against Redis, so cross-process exclusion, single leadership, and the per-worker memory adapters are asserted rather than read off the code. The demo smoke stack now runs two uvicorn workers and checks the rate limit holds across both. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
+
+### Docs
+
+* 📝 Correct the pre-fork guidance for coordination. It told the reader to pass an explicit `worker` identity, which every child inherits just the same, so the advice turned a likely collision into a certain one. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
+* 📝 Say that `Bulkhead.max_concurrent` and `Shield.max_rate` are per worker process. Both read as a deployment-wide ceiling, so four workers quietly gave the dependency four times the configured number. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
 
 ## 0.33.0 - 2026-07-31
 

@@ -15,6 +15,7 @@ from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
+from tests._postgres import mock_pool as make_pool
 
 
 @pytest.fixture
@@ -54,8 +55,7 @@ async def test_sync_postgres_async_with(
 ) -> None:
     """The Postgres sync adapter opens and closes cleanly."""
     monkeypatch.setenv("POSTGRES_URL", "postgresql://localhost/db")
-    mock_pool = MagicMock()
-    mock_pool.execute = AsyncMock()
+    mock_pool = make_pool()
     mock_pool.close = AsyncMock()
     mocker.patch(
         "grelmicro.providers.postgres.create_pool",
@@ -113,8 +113,7 @@ async def test_rate_limiter_postgres_async_with(
 ) -> None:
     """The Postgres rate limiter adapter opens and closes cleanly."""
     monkeypatch.setenv("POSTGRES_URL", "postgresql://localhost/db")
-    mock_pool = MagicMock()
-    mock_pool.execute = AsyncMock()
+    mock_pool = make_pool()
     mock_pool.close = AsyncMock()
     mocker.patch(
         "grelmicro.providers.postgres.create_pool",

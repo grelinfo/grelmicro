@@ -30,6 +30,7 @@ from grelmicro.coordination._protocol import (
     LockPrimitive,
     Seconds,
 )
+from grelmicro.coordination._tokens import resolve_worker
 from grelmicro.errors import WouldBlockError
 from grelmicro.task._protocol import Task
 
@@ -691,7 +692,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             async with asyncio.timeout(config.backend_timeout):
                 record = await backend.acquire_or_renew(
                     name=self._lock_name,
-                    token=str(config.worker),
+                    token=resolve_worker(config.worker),
                     duration=config.lease_duration,
                     metadata=self._metadata,
                 )
@@ -708,7 +709,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         else:
             self._record = record
             await self._update_state(
-                is_leader=record.holder == str(config.worker),
+                is_leader=record.holder == resolve_worker(config.worker),
                 reason_if_no_more_leader="lock not acquired",
             )
 
@@ -761,7 +762,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         try:
             async with asyncio.timeout(config.backend_timeout):
                 released = await backend.release(
-                    name=self._lock_name, token=str(config.worker)
+                    name=self._lock_name, token=resolve_worker(config.worker)
                 )
             if not released:
                 logger.info(

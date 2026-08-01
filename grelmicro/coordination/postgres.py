@@ -154,12 +154,28 @@ class PostgresLockAdapter(LockBackend):
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
-        await self._provider.client.execute(
-            self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
-                table_name=self._table_name
-            ),
-        )
+        await self._migrate()
         return self
+
+    async def _migrate(self) -> None:
+        """Install the schema, guarded so replicas do not race.
+
+        `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so
+        two workers starting together can both pass the check and one then
+        fails on the row type the table creates.
+        """
+        async with (
+            self._provider.client.acquire() as conn,
+            conn.transaction(),
+        ):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", self._table_name
+            )
+            await conn.execute(
+                self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
+                    table_name=self._table_name
+                ),
+            )
 
     async def __aexit__(
         self,
@@ -296,12 +312,28 @@ class PostgresScheduleAdapter(ScheduleBackend):
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
-        await self._provider.client.execute(
-            self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
-                table_name=self._table_name
-            ),
-        )
+        await self._migrate()
         return self
+
+    async def _migrate(self) -> None:
+        """Install the schema, guarded so replicas do not race.
+
+        `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so
+        two workers starting together can both pass the check and one then
+        fails on the row type the table creates.
+        """
+        async with (
+            self._provider.client.acquire() as conn,
+            conn.transaction(),
+        ):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", self._table_name
+            )
+            await conn.execute(
+                self._SQL_CREATE_TABLE_IF_NOT_EXISTS.format(
+                    table_name=self._table_name
+                ),
+            )
 
     async def __aexit__(
         self,
@@ -560,18 +592,33 @@ class PostgresLeaderElectionAdapter:
         if self._owns_provider:
             await self._provider.__aenter__()
         if self._auto_migrate:  # pragma: no branch
-            pool = self._provider.client
+            await self._migrate()
+        return self
+
+    async def _migrate(self) -> None:
+        """Install the schema, guarded so replicas do not race.
+
+        `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so
+        two workers starting together can both pass the check and one then
+        fails on the row type the table creates.
+        """
+        async with (
+            self._provider.client.acquire() as conn,
+            conn.transaction(),
+        ):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", self._table_name
+            )
             for sql in (
                 self._SQL_CREATE_TABLE,
                 self._SQL_CREATE_FN_ACQUIRE_OR_RENEW,
             ):
-                await pool.execute(
+                await conn.execute(
                     sql.format(
                         table_name=self._table_name,
                         lock_namespace=_LEADER_ELECTION_ADVISORY_NAMESPACE,
                     )
                 )
-        return self
 
     async def __aexit__(
         self,

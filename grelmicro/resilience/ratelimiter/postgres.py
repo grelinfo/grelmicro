@@ -356,7 +356,23 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
         if self._owns_provider:
             await self._provider.__aenter__()
         if self._auto_migrate:  # pragma: no branch
-            pool = self._provider.client
+            await self._migrate()
+        return self
+
+    async def _migrate(self) -> None:
+        """Install the schema, guarded so replicas do not race.
+
+        `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so
+        two workers starting together can both pass the check and one then
+        fails on the row type the table creates.
+        """
+        async with (
+            self._provider.client.acquire() as conn,
+            conn.transaction(),
+        ):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", self._table_name
+            )
             for sql in (
                 self._SQL_CREATE_TABLE,
                 self._SQL_CREATE_FN_TB_ACQUIRE,
@@ -364,13 +380,12 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                 self._SQL_CREATE_FN_GCRA_ACQUIRE,
                 self._SQL_CREATE_FN_GCRA_PEEK,
             ):
-                await pool.execute(
+                await conn.execute(
                     sql.format(
                         table_name=self._table_name,
                         lock_namespace=_RATE_LIMITER_ADVISORY_NAMESPACE,
                     )
                 )
-        return self
 
     async def __aexit__(
         self,

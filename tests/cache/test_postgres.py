@@ -328,15 +328,18 @@ class TestAsyncMethods:
     async def test_aenter_runs_migration(self) -> None:
         """`__aenter__` runs the create-table SQL when `auto_migrate=True`."""
         backend, pool = _build_with_mock_pool()
-        pool.execute = AsyncMock()
+        conn = _mock_conn()
+        pool.acquire = lambda: _acquire_cm(conn)
 
         async with backend:
             pass
 
-        pool.execute.assert_awaited_once()
-        call = pool.execute.await_args
-        assert call is not None
-        assert "CREATE TABLE IF NOT EXISTS grelmicro_cache" in call.args[0]
+        statements = [call.args[0] for call in conn.execute.await_args_list]
+        assert "pg_advisory_xact_lock" in statements[0]
+        assert any(
+            "CREATE TABLE IF NOT EXISTS grelmicro_cache" in sql
+            for sql in statements
+        )
 
     async def test_aenter_skips_migration_when_disabled(self) -> None:
         """`auto_migrate=False` skips schema installation."""

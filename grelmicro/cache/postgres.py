@@ -241,12 +241,28 @@ class PostgresCacheAdapter(CacheBackend):
         if self._owns_provider:
             await self._provider.__aenter__()
         if self._auto_migrate:
-            await self._provider.client.execute(
-                self._SQL_CREATE_TABLE.format(table_name=self._table_name)
-            )
+            await self._migrate()
         if self._cleanup_interval is not None:
             self._janitor_task = asyncio.create_task(self._janitor_loop())
         return self
+
+    async def _migrate(self) -> None:
+        """Install the schema, guarded so replicas do not race.
+
+        `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so
+        two workers starting together can both pass the check and one then
+        fails on the row type the table creates.
+        """
+        async with (
+            self._provider.client.acquire() as conn,
+            conn.transaction(),
+        ):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", self._table_name
+            )
+            await conn.execute(
+                self._SQL_CREATE_TABLE.format(table_name=self._table_name)
+            )
 
     async def __aexit__(
         self,

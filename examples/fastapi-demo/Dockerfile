@@ -16,4 +16,4 @@ RUN uv pip install --system --no-cache \
 COPY examples/fastapi-demo/app.py ./app.py
 
 EXPOSE 8000
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

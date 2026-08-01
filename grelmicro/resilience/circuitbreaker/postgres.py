@@ -517,7 +517,27 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
         if self._auto_migrate:  # pragma: no branch
-            pool = self._provider.client
+            await self._migrate()
+        if self._cleanup_interval is not None:
+            self._janitor_task = asyncio.create_task(self._janitor_loop())
+        return self
+
+    async def _migrate(self) -> None:
+        """Install the schema, guarded so replicas do not race.
+
+        `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so
+        two workers starting together can both pass the check and one then
+        fails on the row type the table creates. The advisory lock is held
+        to the end of the transaction, so the second worker finds the
+        table already there.
+        """
+        async with (
+            self._provider.client.acquire() as conn,
+            conn.transaction(),
+        ):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", self._table_name
+            )
             for sql in (
                 self._SQL_CREATE_TABLE,
                 self._SQL_CREATE_FN_TRY_ACQUIRE,
@@ -527,7 +547,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 self._SQL_CREATE_FN_CLEANUP,
                 self._SQL_CREATE_FN_GET_STATE,
             ):
-                await pool.execute(
+                await conn.execute(
                     sql.format(
                         table_name=self._table_name,
                         lock_namespace=_CIRCUIT_BREAKER_ADVISORY_NAMESPACE,
@@ -535,9 +555,6 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                         state_ttl_factor=_STATE_TTL_RESET_FACTOR,
                     )
                 )
-        if self._cleanup_interval is not None:
-            self._janitor_task = asyncio.create_task(self._janitor_loop())
-        return self
 
     async def __aexit__(
         self,
