@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+* ✅ Stop the release matrix failing on tests that were racing their own lease. Two runs of the 0.34.0 release failed on Python 3.14, each on a different test. A leader election test tripped a 5s per-test timeout, and a lock test asserting `extend()` keeps its fencing token got a fresh one instead, because the 10 ms lease had already lapsed and `extend` re-acquired. Neither was a product bug: 3.14 runs the modules about twice as slow as 3.12, on a runner already oversubscribed by `-n auto`. The affected tests now use the generous-lease fixture the file already had for this, and the timeout that only guards against hangs is generous enough to survive the matrix.
+
 ## 0.34.0 - 2026-08-02
 
 ### Breaking
