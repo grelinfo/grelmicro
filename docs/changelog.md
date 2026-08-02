@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+* 👷 Run the Python matrix in the release preflight. `just release-check` tested only the primary Python, so 0.34.0 passed every check it ran and still failed its release on 3.14, which burned the version. The new `just test-matrix` runs the unit and integration tiers on every other Python in the matrix, and reads that list out of the workflow so the preflight cannot drift away from what CI runs.
+
 ## 0.34.1 - 2026-08-02
 
 ### Internal
