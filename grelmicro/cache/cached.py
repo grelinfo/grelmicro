@@ -225,6 +225,19 @@ def _resolve_cache(
     )
 
 
+def _takes_self(func: Callable[..., Any]) -> bool:
+    """Return whether `func` receives an instance as its first argument.
+
+    Matches the parameter name rather than the enclosing class, because a
+    `staticmethod` carries no instance and a `classmethod` receives a class,
+    whose `repr()` is stable. Only an instance drags an unstable `repr()`
+    into the key.
+    """
+    parameters = iter(inspect.signature(func).parameters.values())
+    first = next(parameters, None)
+    return first is not None and first.name == "self"
+
+
 def cached(  # noqa: PLR0913, C901
     cache: Annotated[
         TTLCache | None,
@@ -431,6 +444,18 @@ def cached(  # noqa: PLR0913, C901
     def decorator(
         func: Callable[P, R],
     ) -> CachedFunction[P, R]:
+        if key is None and key_maker is None and _takes_self(func):
+            name = getattr(func, "__qualname__", repr(func))
+            msg = (
+                f"@cached on {name} needs an explicit key= or key_maker=, "
+                f"because the default key is built from repr() of every "
+                f"argument, and here that includes self. Two instances "
+                f"whose repr matches then share one entry, and a default "
+                f"repr carries a memory address, so the key changes on "
+                f"every restart. Name what identifies the entry, for "
+                f"example key='user:{{user_id}}'."
+            )
+            raise TypeError(msg)
         is_async_func = inspect.iscoroutinefunction(func)
         if is_private_cache and not is_async_func:
             msg = (
