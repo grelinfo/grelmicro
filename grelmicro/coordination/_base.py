@@ -33,6 +33,12 @@ class BaseLockConfig(BaseModel, frozen=True, extra="forbid"):
             The worker identity.
 
             By default, a random 16-character hex token is generated.
+
+            A process that inherited this identity across a fork appends
+            its own suffix, so what reaches the backend is `{worker}.{suffix}`
+            there. Set an identity for readability, and read the effective
+            one back rather than assuming it, because a pre-fork server
+            hands the same configured value to every child.
             """),
         Field(default_factory=generate_worker_id),
     ]

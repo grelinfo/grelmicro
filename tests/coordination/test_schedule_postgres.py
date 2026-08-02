@@ -3,7 +3,6 @@
 from collections.abc import AsyncGenerator
 from types import TracebackType
 from typing import Self
-from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -15,6 +14,7 @@ from grelmicro.providers.postgres import (
     PostgresProvider,
     PostgresProviderConfigError,
 )
+from tests._postgres import mock_pool
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 
@@ -153,8 +153,7 @@ class _StubProvider:
     """Minimal `PostgresProvider`-shaped stub tracking enter/exit calls."""
 
     def __init__(self) -> None:
-        self.client = MagicMock()
-        self.client.execute = AsyncMock()
+        self.client = mock_pool()
         self.enter_count = 0
         self.exit_count = 0
 
@@ -183,7 +182,7 @@ async def test_aenter_aexit_owned_provider_opens_and_closes_it() -> None:
 
     assert stub.enter_count == 1
     assert stub.exit_count == 1
-    stub.client.execute.assert_awaited()
+    assert stub.client.connection.execute.await_count > 0
 
 
 @pytest.mark.timeout(1)

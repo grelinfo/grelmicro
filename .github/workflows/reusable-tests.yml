@@ -137,6 +137,29 @@ jobs:
           curl -fsS http://localhost:8000/livez
           curl -fsS http://localhost:8000/readyz
           curl -fsS http://localhost:8000/healthz
+      - name: Check the rate limit holds across both workers
+        # The demo runs two uvicorn workers and the limiter is Redis backed,
+        # so the burst capacity of 5 is the whole deployment's budget. A
+        # per-worker limiter would admit about twice as many.
+        #
+        # The requests go out in parallel. Sent one after another the kernel
+        # can hand every one to the same worker, and a per-worker limiter
+        # would then admit exactly the capacity too, so the check would pass
+        # without ever testing what it claims to.
+        run: |
+          allowed=$(seq 1 12 | xargs -P 12 -I{} \
+            curl -s -o /dev/null -w '%{http_code}\n' \
+              "http://localhost:8000/quote?client=smoke" \
+            | grep -c '^200$' || true)
+          echo "allowed=$allowed of 12"
+          if [ "$allowed" -gt 8 ]; then
+            echo "::error::rate limit did not hold across workers"
+            exit 1
+          fi
+          if [ "$allowed" -lt 1 ]; then
+            echo "::error::rate limiter rejected everything"
+            exit 1
+          fi
       - name: Dump app logs on failure
         if: failure()
         run: docker compose -f examples/fastapi-demo/compose.yml logs app

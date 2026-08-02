@@ -11,8 +11,15 @@ This provides uniqueness across:
 - **Multiple processes** (e.g., `uvicorn --workers N`): Each worker process imports the application independently, so `token_hex(8)` is called separately per process with independent randomness.
 - **Multiple instances** within the same process: Each `Lock(...)` or `TaskLock(...)` call generates its own `token_hex(8)`, producing a different worker identity.
 
-!!! warning "Pre-fork servers"
-    If the ASGI server uses a pre-fork model (forking after the application is loaded), worker identities generated before the fork will be duplicated across child processes. Uvicorn does **not** pre-fork. It spawns workers via `subprocess.Popen`, so each worker imports the application independently. If using a pre-fork server, pass an explicit `worker` identity to avoid collisions.
+- **Pre-fork servers** (e.g., `gunicorn --preload`): the application is built once and then forked, so every child inherits the same identity. A process whose pid is not the one that minted the identity appends its own random suffix, giving `{worker}.{suffix}`. This covers an explicit `worker` too, because one explicit value is inherited by every child just the same.
+
+The pid is compared on every token build rather than hooked with `os.register_at_fork`. A hook only fires for a fork taken through Python after the module was imported, so comparing also covers a process restored from a checkpoint or duplicated from an image that already carried the identity. The suffix is minted once per process and reused, because two suffixes in one process would leave a holder unable to release its own lock.
+
+!!! note "Uvicorn does not pre-fork"
+    `uvicorn --workers N` starts each worker with the `spawn` start method, so a worker imports the application itself and generates its own identity. No suffix is added there, and the identity is exactly the one that was generated.
+
+!!! warning "Read the identity back, do not assume it"
+    An operator matching on a configured `worker` sees the suffix in `record.holder` under a pre-fork server. Treat `worker` as the readable part of the identity rather than the whole of it.
 
 ## Token Generation
 

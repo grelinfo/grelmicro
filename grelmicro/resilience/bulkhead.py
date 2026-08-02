@@ -55,8 +55,10 @@ class BulkheadConfig(BaseModel, frozen=True, extra="forbid"):
     max_concurrent: Annotated[
         PositiveInt | None,
         Doc(
-            "Maximum concurrent calls admitted to the bulkhead. `None` "
-            "(the default) leaves concurrency unbounded."
+            "Maximum concurrent calls admitted to the bulkhead, per "
+            "worker process. Four workers each admit this many, so the "
+            "dependency sees four times it. `None` (the default) leaves "
+            "concurrency unbounded."
         ),
     ] = None
 
@@ -116,7 +118,10 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         *,
         max_concurrent: Annotated[
             PositiveInt | None,
-            Doc("Maximum concurrent calls. `None` leaves it unbounded."),
+            Doc(
+                "Maximum concurrent calls, per worker process. `None` "
+                "leaves it unbounded."
+            ),
         ] = None,
         max_wait: Annotated[
             NonNegativeFloat | None,

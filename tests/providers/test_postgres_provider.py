@@ -18,6 +18,7 @@ from grelmicro.resilience.circuitbreaker.postgres import (
     PostgresCircuitBreakerAdapter,
 )
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
+from tests._postgres import mock_pool as make_pool
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -472,8 +473,7 @@ class TestBreakerOwnedLifecycle:
         adapter = PostgresCircuitBreakerAdapter()
         assert adapter._owns_provider is True
 
-        pool = MagicMock()
-        pool.execute = AsyncMock()
+        pool = make_pool()
         pool.close = AsyncMock()
         adapter.provider._pool = pool
 
@@ -500,8 +500,7 @@ class TestSharingCache:
             Coordination,
         )
 
-        pool = MagicMock()
-        pool.execute = AsyncMock()
+        pool = make_pool()
         pool.close = AsyncMock()
         for ad in (first, second):
             ad.provider._pool = pool
@@ -534,8 +533,7 @@ class TestSharingCache:
         )
 
         for ad in (write, read):
-            pool = MagicMock()
-            pool.execute = AsyncMock()
+            pool = make_pool()
             pool.close = AsyncMock()
             ad.provider._pool = pool
 

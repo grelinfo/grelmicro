@@ -104,7 +104,9 @@ class _BaseShieldConfig(
         PositiveFloat | None,
         Doc(
             "Optional hard ceiling on the adaptive bucket's rate in "
-            "tokens per second. `None` disables the cap."
+            "tokens per second, per worker process. Four workers each "
+            "hold this ceiling, so the dependency sees four times it. "
+            "`None` disables the cap."
         ),
     ] = None
 
