@@ -293,6 +293,35 @@ Arguments not named in the template do not affect the key, so calls that differ 
 --8<-- "cache/key.py"
 ```
 
+### On a method
+
+A method must name its key. Decorating one without `key=` or `key_maker=` raises `TypeError` at decoration time:
+
+```python
+class Repo:
+    @cached(cache, key="repo:{user_id}")
+    async def load(self, user_id: int) -> dict:
+        return await self.db.fetch_user(user_id)
+```
+
+The default key is the `repr()` of every argument, and on a method the first one is `self`. That reads two ways, both wrong. Two instances whose `repr()` matches share one entry, so a call on one returns the other's value. An instance using the default `repr()` carries a memory address, so its key changes on every restart and the entry is never found again.
+
+Only you know what identifies the entry, so the decorator asks rather than guesses. Name the fields that matter and leave `self` out. When the result does depend on instance state, fold that state into the key:
+
+```python
+class Repo:
+    @cached(cache, key="repo:{self.region}:{user_id}")
+    async def load(self, user_id: int) -> dict: ...
+```
+
+A `staticmethod` and a `classmethod` are untouched. Neither receives an instance, and a class `repr()` is stable, so their default key is sound.
+
+`refresh()` on a method is reached through the class, because attribute access on an instance returns the helper unbound:
+
+```python
+await Repo.load.refresh(repo, 42)
+```
+
 ### On-demand refresh
 
 `refresh()` recomputes for the given arguments, overwrites the stored entry, and returns the new value. It skips the read, so a live entry is replaced rather than served.

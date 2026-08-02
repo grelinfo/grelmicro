@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Refuse `@cached` on a method unless it names its key. The default key is the `repr()` of every argument, and on a method that includes `self`, which was wrong in both directions: two instances whose `repr()` matched shared one entry, so a call on one returned the other's value, and an instance using the default `repr()` carried a memory address, so its key changed on every restart. Neither said anything. Decorating a method without `key=` or `key_maker=` now raises `TypeError` at decoration time. Pass a key naming what identifies the entry, such as `key="repo:{user_id}"`. ([#600](https://github.com/grelinfo/grelmicro/issues/600))
+
 ### Docs
 
 * 📝 Name the hazard `env_load=False` guards against. Env reads fill every field the caller did not pass, so a config half taken from a `Settings` object silently gets the rest from the environment. A `Settings` default that differs from the environment is dropped without a word. ([#606](https://github.com/grelinfo/grelmicro/issues/606))
