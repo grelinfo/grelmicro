@@ -271,6 +271,11 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 When None (the default), follow the process-wide
                 ``GREL_ENV_LOAD`` flag. Pass True or False to
                 override the flag for this construction.
+
+                Pass False when the values here are the whole truth.
+                Env reads fill every field not passed, so a config
+                half taken from somewhere else silently gets the rest
+                from the environment.
                 """,
             ),
         ] = None,

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Docs
+
+* 📝 Name the hazard `env_load=False` guards against. Env reads fill every field the caller did not pass, so a config half taken from a `Settings` object silently gets the rest from the environment. A `Settings` default that differs from the environment is dropped without a word. ([#606](https://github.com/grelinfo/grelmicro/issues/606))
+
 ### Fixed
 
 * 🐛 Keep the grelmicro request scope outside every other middleware. `IdempotencyMiddleware` had to be added before `micro.install(app)`, and the wrong order raised nothing at setup, so the first failure arrived in production from a client that actually sent `Idempotency-Key`. `install` now places the binding middleware outermost when the stack is built, so either order works, and reads the placement back on startup so a stack that still ends up wrong raises `AmbientBindingError` at boot. ([#599](https://github.com/grelinfo/grelmicro/issues/599))
