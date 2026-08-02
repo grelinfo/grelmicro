@@ -339,6 +339,33 @@ await outbox.purge()                              # all delivered and dead rows
 await outbox.purge(older_than=timedelta(days=7))  # only those older than 7 days
 ```
 
+### Retention is your decision, not a default
+
+A message payload sits in your database until the row is deleted. Whatever you
+publish is stored, so a payload carrying a password reset token, a signed URL, or
+a one-time code is at rest in the outbox table for as long as the row lives.
+
+The default deletes a delivered row immediately, which is the safe end of the
+range. Do not rely on that. Pin the value you want:
+
+```python
+micro = Grelmicro(uses=[Outbox(postgres, keep_delivered=False)])
+```
+
+Pinning it says the choice was made, and a later release cannot move it under
+you. Two things are worth separating when you choose:
+
+- **Delivered rows** follow `keep_delivered`. A window keeps them for
+  replay and audit, and the relay purges them once they age out.
+- **Dead rows are never purged automatically**, whatever `keep_delivered`
+  says, because a dead-letter exists to be inspected. A payload that failed
+  to deliver therefore stays until you call `purge`. That is the case people
+  miss.
+
+Keep single-use secrets out of the payload where you can. Publish a reference
+and let the consumer fetch the secret, so the outbox holds an identifier rather
+than the credential itself.
+
 Pending and in-flight messages are never touched. Run `purge` from a scheduled [task](task.md) when you keep delivered rows for good and still want dead rows trimmed.
 
 ## Observability
