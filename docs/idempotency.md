@@ -168,6 +168,16 @@ The stored key combines the method, the path, the query string, and the header v
 
     Read the identity from wherever your authentication puts it. `scope["user"]` works only when an authentication middleware runs outside this one.
 
+    Anything else the key reads out of the scope has the same requirement, including `ClientAddressMiddleware`. Add it **after** `IdempotencyMiddleware`, so it ends up outside and has resolved the address before the key is built:
+
+    ```python
+    micro.install(app)
+    app.add_middleware(IdempotencyMiddleware, idempotency=idem, key_maker=by_caller)
+    app.add_middleware(ClientAddressMiddleware, trusted=TrustedProxies([...]))
+    ```
+
+    Get that backwards and `scope["state"]["client_address"]` is not set yet. The key folds in `None` for every caller, they all share one entry, and the request still answers `200`. A key that looks like it separates callers and does not is worse than no `key_maker` at all.
+
 `key_maker` receives the ASGI scope and the client's key, and returns the whole stored key. It mirrors [`key_maker` on `@cached`](cache.md#custom-keys).
 
 ### Duplicates in flight

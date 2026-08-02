@@ -4,6 +4,7 @@
 
 ### Docs
 
+* 📝 Say that a `key_maker` reading the scope needs its source middleware outside `IdempotencyMiddleware`. `ClientAddressMiddleware` added the wrong way round leaves `client_address` unset when the key is built, so the key folds in `None`, every caller shares one entry, and the request still answers `200`. A key that looks like it separates callers and does not is worse than no `key_maker` at all.
 * 📝 Warn that a mounted sub-application does not fail loudly. A mount is an ordinary call in the same task, so the host's request scope is still bound inside it. A sub-application that forgot `install` therefore resolves against the host's components rather than raising, and two applications that look isolated share one store with nothing reporting it. `check_ambient_binding` catches it, per app.
 
 ### Internal
