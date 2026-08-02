@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Security
+
+* 🔒 Refuse an idempotency key that cannot separate one caller from another. A `key_maker` reading a value that was not set yet folded `None` into the key, so every caller shared one entry and could replay each other's stored response, while the request still answered `200`. A key that is partly missing does not fail, it merges, and the widening was invisible. `IdempotencyMiddleware` now raises `IdempotencyKeyMakerError` when the key is empty, drops the client's key, or carries an unresolved `None`.
+* 🔒 Stop the multi-tenant `key_maker` example reading an unauthenticated header. It took the tenant from `X-Tenant`, which the client sets, so a caller could name the tenant whose entry they read. It now folds in an authenticated identity, uses a separator an identity cannot contain, and raises rather than building a partial key. The docs also say plainly that a client address is not a tenant identity, because carrier-grade NAT puts many subscribers behind one.
+
 ### Docs
 
 * 📝 Say that a `key_maker` reading the scope needs its source middleware outside `IdempotencyMiddleware`. `ClientAddressMiddleware` added the wrong way round leaves `client_address` unset when the key is built, so the key folds in `None`, every caller shares one entry, and the request still answers `200`. A key that looks like it separates callers and does not is worse than no `key_maker` at all.

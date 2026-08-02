@@ -153,10 +153,17 @@ The stored key combines the method, the path, the query string, and the header v
 !!! warning "Set `key_maker` in a multi-tenant app"
     Without it, any client that learns another client's key replays their response, body included. Fold the caller identity into the key.
 
+    Fold in an **authenticated** identity. Anything the client sends is chosen by the client, so a key built from a raw header lets a caller name the tenant whose entry they read.
+
     ```python
+    SEP = "\x1f"  # not a byte an identity can contain
+
+
     def tenant_key(scope, key):
-        tenant = dict(scope["headers"])[b"x-tenant"].decode()
-        return f"{tenant}|{scope['path']}|{key}"
+        user = scope.get("user")
+        if user is None or not user.is_authenticated:
+            raise PermissionError("idempotency needs an authenticated caller")
+        return SEP.join((str(user.tenant_id), scope["path"], key))
 
 
     app.add_middleware(
@@ -166,17 +173,22 @@ The stored key combines the method, the path, the query string, and the header v
     )
     ```
 
-    Read the identity from wherever your authentication puts it. `scope["user"]` works only when an authentication middleware runs outside this one.
+    Three things carry the isolation here. The identity comes from authentication rather than from the request. The separator is one an identity cannot contain, so `a` plus `b|c` cannot collide with `a|b` plus `c`. And a missing identity raises instead of returning a partial key.
 
-    Anything else the key reads out of the scope has the same requirement, including `ClientAddressMiddleware`. Add it **after** `IdempotencyMiddleware`, so it ends up outside and has resolved the address before the key is built:
+    That last one is the general rule: **a key that is partly missing does not fail, it merges.** Callers whose key lost the same component land in one entry and replay each other, while the request still answers normally.
+
+    `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
 
     ```python
     micro.install(app)
-    app.add_middleware(IdempotencyMiddleware, idempotency=idem, key_maker=by_caller)
-    app.add_middleware(ClientAddressMiddleware, trusted=TrustedProxies([...]))
+    app.add_middleware(IdempotencyMiddleware, idempotency=idem, key_maker=tenant_key)
+    app.add_middleware(AuthenticationMiddleware, backend=...)
     ```
 
-    Get that backwards and `scope["state"]["client_address"]` is not set yet. The key folds in `None` for every caller, they all share one entry, and the request still answers `200`. A key that looks like it separates callers and does not is worse than no `key_maker` at all.
+    Get that backwards and the value is not set yet. `IdempotencyMiddleware` refuses a key carrying an unresolved `None` rather than storing under it, so the mistake surfaces on the first request instead of quietly merging callers.
+
+!!! warning "A client address is not a tenant identity"
+    `ClientAddressMiddleware` resolves who connected, not who they are. Carrier-grade NAT puts many subscribers behind one address, so they would share an idempotency entry, and a caller moving between networks changes address mid-retry and loses the replay. Use it to rate limit, not to separate tenants.
 
 `key_maker` receives the ASGI scope and the client's key, and returns the whole stored key. It mirrors [`key_maker` on `@cached`](cache.md#custom-keys).
 
