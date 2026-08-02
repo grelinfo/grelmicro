@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Docs
+
+* 📝 Warn that a mounted sub-application does not fail loudly. A mount is an ordinary call in the same task, so the host's request scope is still bound inside it. A sub-application that forgot `install` therefore resolves against the host's components rather than raising, and two applications that look isolated share one store with nothing reporting it. `check_ambient_binding` catches it, per app.
+
 ### Internal
 
 * 👷 Run the Python matrix in the release preflight. `just release-check` tested only the primary Python, so 0.34.0 passed every check it ran and still failed its release on 3.14, which burned the version. The new `just test-matrix` runs the unit and integration tiers on every other Python in the matrix, and reads that list out of the workflow so the preflight cannot drift away from what CI runs.
