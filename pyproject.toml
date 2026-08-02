@@ -272,6 +272,7 @@ ignore = [
 [tool.ruff.lint.extend-per-file-ignores]
 "tools/*" = [
     "INP001",  # standalone dev scripts, not an importable package
+    "T201",    # these are command-line tools, so stdout is the interface
 ]
 "tests/typechecking/*" = [
     "INP001",  # static type assertions, never imported or collected
