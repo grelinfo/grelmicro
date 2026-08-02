@@ -78,6 +78,36 @@ micro.install(app, ambient=False)
         assert micro.check_ambient_binding(app)
     ```
 
+!!! danger "A mounted sub-application does not fail loudly"
+    Install every app that owns components, mounted ones included. A mount is
+    an ordinary call in the same task, so the host's request scope is still
+    bound inside the sub-application. A sub-application that forgot `install`
+    therefore resolves against the **host's** components instead of raising:
+
+    ```python
+    host_micro = Grelmicro(uses=[Cache(host_backend)])
+    sub_micro = Grelmicro(uses=[Cache(sub_backend)])
+
+    host = FastAPI()
+    host_micro.install(host)
+
+    sub = FastAPI()  # install(sub) forgotten
+    host.mount("/sub", sub)
+    ```
+
+    A write from `sub` lands in `host_backend`. `sub_backend` stays empty, and
+    nothing reports it. Two applications that look isolated share one store.
+
+    This is the one case where a forgotten `install` does not raise
+    `OutOfContextError`, because a binding is present, just the wrong one.
+    Assert each app separately:
+
+    ```python
+    def test_every_app_is_wired() -> None:
+        assert host_micro.check_ambient_binding(host)
+        assert sub_micro.check_ambient_binding(sub)  # False when install is missing
+    ```
+
 ## FastStream
 
 The same call wires a FastStream app:

@@ -288,6 +288,29 @@ def test_check_ambient_binding_false_without_middleware() -> None:
     assert micro.check_ambient_binding(app) is False
 
 
+def test_check_ambient_binding_catches_an_uninstalled_mounted_app() -> None:
+    """A mounted sub-app that forgot `install` is caught by the check.
+
+    The mount is the one place a forgotten `install` does not raise on the
+    first request. The host's request scope is still bound inside the
+    sub-application, so it resolves against the host's components instead of
+    its own, silently. The check is what turns that back into a signal.
+    """
+    host_micro = Grelmicro(
+        uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())]
+    )
+    sub_micro = Grelmicro(
+        uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())]
+    )
+    host = FastAPI()
+    host_micro.install(host)
+    sub = FastAPI()  # install(sub) deliberately forgotten
+    host.mount("/sub", sub)
+
+    assert host_micro.check_ambient_binding(host) is True
+    assert sub_micro.check_ambient_binding(sub) is False
+
+
 def test_check_ambient_binding_true_without_ambient_components() -> None:
     """Nothing needs binding, so the check passes regardless of middleware."""
     micro = Grelmicro()
