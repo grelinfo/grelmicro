@@ -6,7 +6,7 @@ Maintainer planning doc (not published to the docs site). Tracks the launch task
 
 The launch ships on the current `0.x` line. It is not gated on a 1.0 bump.
 
-- [ ] Tag and publish the launch release on PyPI. Confirm `pip install grelmicro` resolves it.
+- [x] Tag and publish the launch release on PyPI. Confirm `pip install grelmicro` resolves it. Verified 2026-08-02: 0.34.1 is published, `pip install grelmicro` resolves it in a clean environment, and `just verify-release 0.34.1` confirms build provenance on both the wheel and the sdist. 0.34.0 was tagged the same day but never reached PyPI, because its release run failed on the Python 3.14 matrix before the publish step.
 - [ ] `docs/benchmarks.md` numbers re-run on a clean machine and dated. Most rows date from 2026-06-14 and the circuit breaker rows from 2026-07-29 (Apple Silicon, macOS, CPython 3.12). Both runs shared the machine with other work, so neither meets the clean-machine bar.
 - [x] The [FastAPI demo](examples/fastapi-demo) starts from a fresh clone in three commands. Verified 2026-07-28: `cd examples/fastapi-demo`, `docker compose up --wait`, `open http://localhost:8000/docs`.
 - [x] Record the demo asset (see below) and embed it in the README. `docs/img/demo.gif`, 840K, embedded at the top of `README.md`.
