@@ -1,37 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.34.0 - 2026-08-02
 
 ### Breaking
 
 * 💥 Refuse `@cached` on a method unless it names its key. The default key is the `repr()` of every argument, and on a method that includes `self`, which was wrong in both directions: two instances whose `repr()` matched shared one entry, so a call on one returned the other's value, and an instance using the default `repr()` carried a memory address, so its key changed on every restart. Neither said anything. Decorating a method without `key=` or `key_maker=` now raises `TypeError` at decoration time. Pass a key naming what identifies the entry, such as `key="repo:{user_id}"`. ([#600](https://github.com/grelinfo/grelmicro/issues/600))
-
-### Docs
-
-* 📝 Name the hazard `env_load=False` guards against. Env reads fill every field the caller did not pass, so a config half taken from a `Settings` object silently gets the rest from the environment. A `Settings` default that differs from the environment is dropped without a word. ([#606](https://github.com/grelinfo/grelmicro/issues/606))
-* 📝 Treat outbox retention as a decision the caller makes. A payload sits in the database until its row is deleted, so a single-use secret is at rest for as long as the row lives. The default deletes a delivered row, which is the safe end, but a default is not a guarantee. Pin `keep_delivered` rather than inherit it, and note that dead rows are never purged automatically. ([#607](https://github.com/grelinfo/grelmicro/issues/607))
-* 📝 Say that a stored idempotent response sits at rest for `ttl`. The same audit: the middleware stores the whole response, so `ttl` is a retention window and not only a replay window. ([#607](https://github.com/grelinfo/grelmicro/issues/607))
-
-### Internal
-
-* 👷 Add `just` recipes for the release path. `just release-check <version>` runs what the Release workflow runs, before the tag exists, so a failure costs nothing rather than burning an immutable tag. `just verify-release <version>` downloads a published wheel and sdist and verifies build provenance for each, which turns the SLSA Build Level 2 badge into something anyone can check. `just release-notes <version>` prints the changelog section the GitHub Release body should hold. ([#584](https://github.com/grelinfo/grelmicro/issues/584))
-* ✅ Pin both sides of the span exception check, so the coverage gate stops failing at random. Only one side had a test of its own. The other was covered whenever some unrelated test happened to raise inside a non-recording span, which depends on the order `pytest-randomly` picks, so a run could report `_span.py` at 96% and fail `--fail-under=100` on a pull request that changed nothing near it.
 
 ### Fixed
 
 * 🐛 Keep the grelmicro request scope outside every other middleware. `IdempotencyMiddleware` had to be added before `micro.install(app)`, and the wrong order raised nothing at setup, so the first failure arrived in production from a client that actually sent `Idempotency-Key`. `install` now places the binding middleware outermost when the stack is built, so either order works, and reads the placement back on startup so a stack that still ends up wrong raises `AmbientBindingError` at boot. ([#599](https://github.com/grelinfo/grelmicro/issues/599))
 * 🐛 Start more than one worker against a fresh Postgres. `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so two workers starting together both passed the check and one crashed on the row type the table creates. Every Postgres adapter now installs its schema under an advisory lock, as the outbox already did. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
 * 🐛 Give each worker of a pre-fork server its own coordination identity. `gunicorn --preload` builds the application once and forks, so every child inherited the identity generated in the parent. Two workers presented the same lock token, and every child read the leader record holder as itself, so all of them led at once. A child now appends its own random suffix. `uvicorn --workers N` spawns instead of forking and is unaffected. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
-* 🐛 Report a task fire that never ran. `grelmicro.task.runs` only counted fires that reached the body, so a schedule backend or a lock that stopped answering left no metric at all and looked exactly like a task with nothing due. A fire now always lands on the counter: `coordination_error` when coordination failed, `missed` when no worker ran it, and `skipped` when a peer handled it. The bare total counts more than it did, so read the [migration note](migration.md#0-33-1-task-run-outcomes) if a chart treats it as the run rate. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
+* 🐛 Report a task fire that never ran. `grelmicro.task.runs` only counted fires that reached the body, so a schedule backend or a lock that stopped answering left no metric at all and looked exactly like a task with nothing due. A fire now always lands on the counter: `coordination_error` when coordination failed, `missed` when no worker ran it, and `skipped` when a peer handled it. The bare total counts more than it did, so read the [migration note](migration.md#0-34-task-run-outcomes) if a chart treats it as the run rate. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
 * 🐛 Warn when a cron fire is dropped for coming back too late. Past `misfire_grace_seconds` the fire was skipped with no log and no metric, so a task that never replayed said nothing at all. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
 * 🐛 Record a fire that never reached the body on `last_fire`. An introspection endpoint reading it during a coordination outage reported the previous successful fire and looked healthy. ([#605](https://github.com/grelinfo/grelmicro/issues/605))
 
 ### Internal
 
+* 👷 Add `just` recipes for the release path. `just release-check <version>` runs what the Release workflow runs, before the tag exists, so a failure costs nothing rather than burning an immutable tag. `just verify-release <version>` downloads a published wheel and sdist and verifies build provenance for each, which turns the SLSA Build Level 2 badge into something anyone can check. `just release-notes <version>` prints the changelog section the GitHub Release body should hold. ([#584](https://github.com/grelinfo/grelmicro/issues/584))
+* ✅ Pin both sides of the span exception check, so the coverage gate stops failing at random. Only one side had a test of its own. The other was covered whenever some unrelated test happened to raise inside a non-recording span, which depends on the order `pytest-randomly` picks, so a run could report `_span.py` at 96% and fail `--fail-under=100` on a pull request that changed nothing near it.
 * 🧪 Verify the Patterns across real process boundaries. A new multiprocess tier races worker processes against Redis, so cross-process exclusion, single leadership, and the per-worker memory adapters are asserted rather than read off the code. The demo smoke stack now runs two uvicorn workers and checks the rate limit holds across both. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
 
 ### Docs
 
+* 📝 Name the hazard `env_load=False` guards against. Env reads fill every field the caller did not pass, so a config half taken from a `Settings` object silently gets the rest from the environment. A `Settings` default that differs from the environment is dropped without a word. ([#606](https://github.com/grelinfo/grelmicro/issues/606))
+* 📝 Treat outbox retention as a decision the caller makes. A payload sits in the database until its row is deleted, so a single-use secret is at rest for as long as the row lives. The default deletes a delivered row, which is the safe end, but a default is not a guarantee. Pin `keep_delivered` rather than inherit it, and note that dead rows are never purged automatically. ([#607](https://github.com/grelinfo/grelmicro/issues/607))
+* 📝 Say that a stored idempotent response sits at rest for `ttl`. The same audit: the middleware stores the whole response, so `ttl` is a retention window and not only a replay window. ([#607](https://github.com/grelinfo/grelmicro/issues/607))
 * 📝 Correct the pre-fork guidance for coordination. It told the reader to pass an explicit `worker` identity, which every child inherits just the same, so the advice turned a likely collision into a certain one. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
 * 📝 Say that `Bulkhead.max_concurrent` and `Shield.max_rate` are per worker process. Both read as a deployment-wide ceiling, so four workers quietly gave the dependency four times the configured number. ([#595](https://github.com/grelinfo/grelmicro/issues/595))
 

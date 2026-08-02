@@ -9,10 +9,9 @@ sections in the [changelog](changelog.md), newest first.
 
 In `0.x` the minor is the breaking position: a `0.x.0` release may change the
 public API, and a `0.x.y` release is a safe patch. So an upgrade within one
-minor rarely needs this page. Two patches are exceptions, and neither changes
-an API: [0.32.2](#0-32-2-circuit-breaker-state) changes what an already-open
-circuit does once, and [0.33.1](#0-33-1-task-run-outcomes) changes what a task
-metric counts.
+minor rarely needs this page. One patch is an exception, and it changes no
+API: [0.32.2](#0-32-2-circuit-breaker-state) changes what an already-open
+circuit does once.
 
 ## Find your symptom
 
@@ -24,7 +23,49 @@ metric counts.
 | `TypeError` on a SQLite adapter, either `unexpected keyword argument 'path'` or `takes 1 positional argument` | 0.32 | [Pass `provider=`](#0-32-sqlite-provider) |
 | `SettingsValidationError` where you caught `CoordinationSettingsValidationError` | 0.32 | [Catch the base error](#0-32-sqlite-provider) |
 | An open circuit closed once, just after upgrading | 0.32.2 | [Expected, happens once](#0-32-2-circuit-breaker-state) |
-| Task run totals jumped after upgrading, with no new failures | 0.33.1 | [Filter on `outcome`](#0-33-1-task-run-outcomes) |
+| `TypeError: @cached on ... needs an explicit key=` | 0.34 | [Name the key](#0-34-cached-method-key) |
+| Task run totals jumped after upgrading, with no new failures | 0.34 | [Filter on `outcome`](#0-34-task-run-outcomes) |
+
+## 0.34
+
+### `@cached` on a method needs an explicit key {#0-34-cached-method-key}
+
+Decorating a method without `key=` or `key_maker=` now raises `TypeError` at
+decoration time, so the failure lands at import rather than on a request.
+
+The default key is the `repr()` of every argument, and on a method the first
+one is `self`. That read two ways, both wrong. Two instances whose `repr()`
+matched shared one entry, so a call on one returned the other's value. An
+instance using the default `repr()` carried a memory address, so its key
+changed on every restart and the entry was never found again.
+
+Name what identifies the entry and leave `self` out:
+
+```python
+# Before
+class Repo:
+    @cached(cache)
+    async def load(self, user_id: int) -> dict: ...
+
+
+# After
+class Repo:
+    @cached(cache, key="repo:{user_id}")
+    async def load(self, user_id: int) -> dict: ...
+```
+
+When the result does depend on instance state, fold that state into the key:
+
+```python
+@cached(cache, key="repo:{self.region}:{user_id}")
+async def load(self, user_id: int) -> dict: ...
+```
+
+A `staticmethod` and a `classmethod` are untouched. Neither receives an
+instance, so their default key was already sound.
+
+Entries written before the upgrade are not reachable under the new key, so
+expect one cold period for the functions you change.
 
 ## 0.32
 
@@ -120,7 +161,7 @@ async with idem(key) as op:
 It is valid **only** on a replay. Calling it on a first execution raises
 `IdempotencyStateError`, so keep it behind `if op.replayed:`.
 
-## 0.33.1, not breaking but worth knowing {#0-33-1-task-run-outcomes}
+## 0.34, not breaking but worth knowing {#0-34-task-run-outcomes}
 
 `grelmicro.task.runs` now counts every fire, not only the fires that ran
 the body. A fire a peer took counts as `skipped`, a fire dropped past its
