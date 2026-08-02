@@ -13,6 +13,16 @@ class IdempotencySettingsValidationError(
     """Idempotency Settings Validation Error."""
 
 
+class IdempotencyKeyMakerError(IdempotencyError, ValueError):
+    """Raised when a `key_maker` returns a key that cannot separate callers.
+
+    A key that is partly missing does not fail, it merges. Callers whose key
+    lost the same component share one entry and can replay each other's
+    response, while the request still answers normally. The middleware
+    refuses the key instead of widening the boundary silently.
+    """
+
+
 class IdempotencyStateError(IdempotencyError, RuntimeError):
     """Raised when an `Operation` value is read in the wrong state.
 

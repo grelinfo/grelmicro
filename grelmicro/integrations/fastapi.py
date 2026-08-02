@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import re
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict, cast
 
@@ -15,6 +16,7 @@ from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import HealthStatus
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
+    IdempotencyKeyMakerError,
     IdempotencyWaitTimeoutError,
 )
 
@@ -585,7 +587,7 @@ class IdempotencyMiddleware:
     def _storage_key(self, scope: "Scope", key: str) -> str:
         """Build the stored key, scoped by route unless `key_maker` says otherwise."""
         if self._key_maker is not None:
-            return self._key_maker(scope, key)
+            return _checked_key(self._key_maker(scope, key), key)
         parts = [scope["method"], scope["path"]]
         query = scope.get("query_string", b"")
         if query:
@@ -774,6 +776,44 @@ def _merge_response(
     current = existing.get("description", "")
     if description not in current:
         existing["description"] = f"{current}\n\n{description}".strip()
+
+
+_UNRESOLVED_TOKEN = re.compile(r"(?:^|[^0-9A-Za-z_])None(?:$|[^0-9A-Za-z_])")
+"""A formatted `None` sitting on its own between separators in a key."""
+
+
+def _checked_key(built: object, client_key: str) -> str:
+    """Return `built`, or raise when it cannot separate one caller from another.
+
+    A key that is partly missing does not fail, it merges. Every caller whose
+    key lost the same component lands in one entry, and the request still
+    answers normally, so the widening is invisible. That is a confidentiality
+    boundary quietly removed, which is worth refusing over.
+
+    Raises:
+        IdempotencyKeyMakerError: If the key is not a non-empty string, drops
+            the client's key, or carries an unresolved `None`.
+    """
+    if not isinstance(built, str) or not built:
+        msg = f"key_maker returned {built!r}, expected a non-empty string."
+        raise IdempotencyKeyMakerError(msg)
+    if client_key not in built:
+        msg = (
+            f"key_maker returned {built!r}, which drops the client's "
+            f"idempotency key. Every request to this route would then share "
+            f"one entry. Include the key it was given."
+        )
+        raise IdempotencyKeyMakerError(msg)
+    if _UNRESOLVED_TOKEN.search(built):
+        msg = (
+            f"key_maker returned {built!r}, which carries an unresolved None. "
+            f"Something the key reads was not set yet, so that component is "
+            f"the same for every caller and they share one entry. A middleware "
+            f"the key depends on must run outside IdempotencyMiddleware, which "
+            f"means adding it after."
+        )
+        raise IdempotencyKeyMakerError(msg)
+    return built
 
 
 _OUT_OF_CONTEXT_HINT = (
