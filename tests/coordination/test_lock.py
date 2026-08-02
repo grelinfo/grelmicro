@@ -70,19 +70,21 @@ async def lock(locks: list[Lock]) -> Lock:
 
 
 # A lease long enough that it never expires mid-test, even under heavy
-# parallel load. Two shapes need it. A `from_thread` call is a thread<->loop
+# parallel load. Three shapes need it. A `from_thread` call is a thread<->loop
 # round-trip, and the shared session loop can be starved by parallel
 # neighbors. A contention test needs the first worker to still hold the lock
-# when the second one tries. Either way the default 10 ms lease would lapse
-# mid-sequence and flake. The 5 s module timeout still catches a genuine hang.
-# Tests that assert lease *expiry* keep the short-lease `lock`/`locks`
-# fixtures.
+# when the second one tries. A test that asserts a lease was *renewed* needs
+# that lease still held when it renews, or `extend` re-acquires and mints a
+# fresh fencing token. Either way the default 10 ms lease would lapse
+# mid-sequence and flake, which is what tripped the release matrix on Python
+# 3.14. The module timeout still catches a genuine hang. Tests that assert
+# lease *expiry* keep the short-lease `lock`/`locks` fixtures.
 LONG_LEASE_DURATION = 30.0
 
 
 @pytest.fixture
-async def thread_locks(backend: LockBackend) -> list[Lock]:
-    """Locks whose lease outlives thread<->loop round-trip jitter."""
+async def long_lease_locks(backend: LockBackend) -> list[Lock]:
+    """Locks whose lease never lapses mid-test, whatever the load."""
     return [
         Lock(
             backend=backend,
@@ -96,9 +98,15 @@ async def thread_locks(backend: LockBackend) -> list[Lock]:
 
 
 @pytest.fixture
-async def thread_lock(thread_locks: list[Lock]) -> Lock:
+async def held_lock(long_lease_locks: list[Lock]) -> Lock:
+    """Lock whose lease is still held when the test asserts about it."""
+    return long_lease_locks[WORKER_1]
+
+
+@pytest.fixture
+async def thread_lock(long_lease_locks: list[Lock]) -> Lock:
     """Single generous-lease lock for from-thread tests."""
-    return thread_locks[WORKER_1]
+    return long_lease_locks[WORKER_1]
 
 
 @pytest.fixture
@@ -146,8 +154,10 @@ async def test_lock_key_prefix(backend: LockBackend, lock: Lock) -> None:
     assert await backend.locked(name=LOCK_NAME) is False
 
 
-async def test_lock_owned(locks: list[Lock]) -> None:
+async def test_lock_owned(long_lease_locks: list[Lock]) -> None:
     """Test Lock owned."""
+    # Arrange
+    locks = long_lease_locks
     # Act
     worker_1_owned_before = await locks[WORKER_1].owned()
     worker_2_owned_before = await locks[WORKER_2].owned()
@@ -162,9 +172,9 @@ async def test_lock_owned(locks: list[Lock]) -> None:
     assert worker_2_owned_after is False
 
 
-async def test_lock_from_thread_owned(thread_locks: list[Lock]) -> None:
+async def test_lock_from_thread_owned(long_lease_locks: list[Lock]) -> None:
     """Test Lock from thread owned."""
-    locks = thread_locks
+    locks = long_lease_locks
     # Arrange
     worker_1_owned_before = None
     worker_2_owned_before = None
@@ -443,10 +453,10 @@ async def test_lock_acquire_nowait_would_block(
 
 
 async def test_lock_from_thread_acquire_nowait_would_block(
-    thread_locks: list[Lock],
+    long_lease_locks: list[Lock],
 ) -> None:
     """Test Lock from thread wait acquire would block."""
-    locks = thread_locks
+    locks = long_lease_locks
     # Arrange
     await locks[WORKER_1].acquire()
 
@@ -1079,11 +1089,13 @@ async def test_lock_acquire_timeout_none_waits_forever(
 # --- extend ---
 
 
-async def test_lock_extend_renews_same_fencing_token(lock: Lock) -> None:
+async def test_lock_extend_renews_same_fencing_token(
+    held_lock: Lock,
+) -> None:
     """`extend()` renews the lease and returns the same fencing token."""
-    first = await lock.acquire()
+    first = await held_lock.acquire()
 
-    extended = await lock.extend()
+    extended = await held_lock.extend()
 
     assert extended.name == LOCK_NAME
     assert extended.fencing_token == first.fencing_token

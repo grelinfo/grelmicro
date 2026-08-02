@@ -27,9 +27,13 @@ BACKEND_LOCK_NAME = f"leader:{LEADER_NAME}"
 WORKERS = 4
 WORKER_1 = 0
 WORKER_2 = 1
-# 5s, not 1s: under CPU-oversubscribed parallel CI a correct test can still be
-# starved well past a 1s budget. The timeout only guards against genuine hangs.
-TEST_TIMEOUT = 5
+# 15s, not 1s: under CPU-oversubscribed parallel CI a correct test can still be
+# starved well past a short budget. The timeout only guards against genuine
+# hangs, and a hang never finishes, so a generous budget costs nothing.
+# 5s was still too tight. `test_leader_reconfigure_takes_effect_on_next_iteration`
+# tripped it on Python 3.14 in the release matrix, where the whole module runs
+# about twice as slow as on 3.12 and the runner is oversubscribed by `-n auto`.
+TEST_TIMEOUT = 15
 # Lease and renew deadline are sized for CPU-oversubscribed CI. `is_leader()`
 # lapses once `monotonic() - last_confirmation >= renew_deadline`, and the OS can
 # preempt the whole process (so the renew loop cannot refresh) between a
