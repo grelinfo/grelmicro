@@ -289,6 +289,67 @@ class TestSpanExceptionRecording:
         mock_span.set_status.assert_called_once()
         mock_span.record_exception.assert_called_once()
 
+    def test_span_exception_is_not_recorded_when_not_recording(
+        self,
+        mocker: pytest_mock.MockerFixture,
+    ) -> None:
+        """A span that is not recording gets no status and no exception.
+
+        Pins the other side of the recording check. Without this the branch
+        is covered only when some unrelated test happens to raise inside a
+        non-recording span, which depends on test order and on whichever
+        tracer provider is installed at the time.
+        """
+        # Arrange
+        mock_span = MagicMock()
+        mock_span.is_recording.return_value = False
+
+        mock_tracer = MagicMock()
+        mock_tracer.start_as_current_span.return_value.__enter__ = MagicMock(
+            return_value=mock_span
+        )
+        mock_tracer.start_as_current_span.return_value.__exit__ = MagicMock(
+            return_value=False
+        )
+
+        mock_trace = MagicMock()
+        mock_trace.get_tracer.return_value = mock_tracer
+        mocker.patch(
+            "grelmicro.trace._span._get_otel",
+            return_value=OTel(mock_trace, MagicMock()),
+        )
+
+        def _raise_in_span() -> None:
+            with tracing_span("test", key="val"):
+                msg = "not recorded"
+                raise ValueError(msg)
+
+        # Act / Assert
+        with pytest.raises(ValueError, match="not recorded"):
+            _raise_in_span()
+
+        mock_span.set_status.assert_not_called()
+        mock_span.record_exception.assert_not_called()
+
+    def test_span_exception_propagates_without_otel(
+        self,
+        mocker: pytest_mock.MockerFixture,
+    ) -> None:
+        """Without opentelemetry the span is a no-op and the error still raises."""
+        # Arrange
+        mocker.patch("grelmicro.trace._span._get_otel", return_value=None)
+
+        def _raise_in_span() -> None:
+            with tracing_span("test", key="val"):
+                msg = "no otel"
+                raise ValueError(msg)
+
+        # Act / Assert
+        with pytest.raises(ValueError, match="no otel"):
+            _raise_in_span()
+
+        assert get_context() == {}
+
 
 class TestInstrumentNoOtel:
     """Test @instrument when OTel tracer is None."""

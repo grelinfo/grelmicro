@@ -11,6 +11,7 @@
 ### Internal
 
 * 👷 Add `just` recipes for the release path. `just release-check <version>` runs what the Release workflow runs, before the tag exists, so a failure costs nothing rather than burning an immutable tag. `just verify-release <version>` downloads a published wheel and sdist and verifies build provenance for each, which turns the SLSA Build Level 2 badge into something anyone can check. `just release-notes <version>` prints the changelog section the GitHub Release body should hold. ([#584](https://github.com/grelinfo/grelmicro/issues/584))
+* ✅ Pin both sides of the span exception check, so the coverage gate stops failing at random. Only one side had a test of its own. The other was covered whenever some unrelated test happened to raise inside a non-recording span, which depends on the order `pytest-randomly` picks, so a run could report `_span.py` at 96% and fail `--fail-under=100` on a pull request that changed nothing near it.
 
 ### Fixed
 
