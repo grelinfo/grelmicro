@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, TypedDict, cast
 from pydantic import BaseModel
 from typing_extensions import Doc
 
+from grelmicro._app import AmbientBindingError
 from grelmicro._json import json_dumps_bytes
 from grelmicro.errors import OutOfContextError
 from grelmicro.health._checks import HealthChecks
@@ -199,7 +200,11 @@ def install(
     lifespan already passed to the framework keeps running and the components
     are open before the first request. When `ambient` is `True`, adds
     `GrelmicroMiddleware` so patterns resolve through `Grelmicro.current()`
-    inside request handlers.
+    inside request handlers, and keeps it outside every other middleware
+    however they were added, so one that resolves a backend ambiently, such
+    as `IdempotencyMiddleware`, always runs inside the request scope. The
+    placement is read back on startup and raises `AmbientBindingError` if it
+    did not hold.
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
@@ -208,15 +213,71 @@ def install(
 
     @asynccontextmanager
     async def lifespan(app: "Starlette") -> "AsyncIterator[Any]":
+        _check_binding_outermost(app)
         async with previous(app) as state, micro:
             yield state
 
     app.router.lifespan_context = lifespan
     if ambient:
         app.add_middleware(GrelmicroMiddleware, micro=micro)
+        _keep_binding_outermost(app)
     else:
         micro._on_ambient_disabled()  # noqa: SLF001
     _instrument_app(app, micro)
+
+
+def _is_binding(middleware: object) -> bool:
+    """Return whether a `user_middleware` entry is `GrelmicroMiddleware`.
+
+    Matches the class itself and not a subclass, so only a middleware whose
+    whole body is the binding is moved.
+    """
+    return getattr(middleware, "cls", None) is GrelmicroMiddleware
+
+
+def _check_binding_outermost(app: "Starlette") -> None:
+    """Raise when a registered `GrelmicroMiddleware` is not the outermost one.
+
+    Runs once the stack is built. Reading the order back turns a placement
+    that did not hold into a failure at startup, rather than an
+    `OutOfContextError` on the first request that resolves a backend.
+    """
+    binding = [
+        index
+        for index, middleware in enumerate(app.user_middleware)
+        if _is_binding(middleware)
+    ]
+    if binding and binding[0] != 0:
+        outer = getattr(app.user_middleware[0].cls, "__name__", "A middleware")
+        msg = (
+            f"{outer} wraps GrelmicroMiddleware, so a middleware that "
+            f"resolves a backend ambiently, such as IdempotencyMiddleware, "
+            f"raises OutOfContextError on every request that reaches it. "
+            f"Add GrelmicroMiddleware last, or let micro.install(app) "
+            f"place it."
+        )
+        raise AmbientBindingError(msg)
+
+
+def _keep_binding_outermost(app: "Starlette") -> None:
+    """Move `GrelmicroMiddleware` to the front of the stack as it is built.
+
+    The framework builds its middleware stack once, on the first request or
+    lifespan event, from `app.user_middleware`. Reordering that list at build
+    time puts the binding middleware outside every other one, so a middleware
+    added after `install` still runs inside the grelmicro request scope.
+    """
+    build = app.build_middleware_stack
+
+    def build_middleware_stack() -> "ASGIApp":
+        current = app.user_middleware
+        app.user_middleware = [
+            *(m for m in current if _is_binding(m)),
+            *(m for m in current if not _is_binding(m)),
+        ]
+        return build()
+
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 _MAX_KEY_LENGTH = 255
@@ -282,17 +343,16 @@ class IdempotencyMiddleware:
 
     micro = Grelmicro(uses=[...])
     app = FastAPI()
+    micro.install(app)
 
     app.add_middleware(
         IdempotencyMiddleware, idempotency=Idempotency("http", ttl=3600)
     )
-    micro.install(app)
     ```
 
-    Add it before `micro.install(app)`. The framework runs the last
-    middleware added first, so installing last puts the grelmicro request
-    scope outside this middleware, which is what lets it resolve the
-    `Cache` backend.
+    Add it before or after `micro.install(app)`. It resolves its `Cache`
+    through the grelmicro request scope, which `install` keeps outside
+    every other middleware.
 
     A duplicate that arrives while the first execution is in flight waits
     for it and replays its response. The wait folds across replicas when
@@ -717,9 +777,9 @@ def _merge_response(
 
 
 _OUT_OF_CONTEXT_HINT = (
-    "IdempotencyMiddleware resolved no cache backend. Add it before "
-    "micro.install(app) so the grelmicro request scope wraps it, register "
-    "a Cache component, or pass an explicit cache= to Idempotency."
+    "IdempotencyMiddleware resolved no cache backend. Call micro.install(app) "
+    "so the grelmicro request scope wraps it, register a Cache component, or "
+    "pass an explicit cache= to Idempotency."
 )
 
 

@@ -1179,7 +1179,12 @@ class LifecycleOrderError(GrelmicroError, ValueError):
 
 
 class AmbientBindingError(GrelmicroError, RuntimeError):
-    """Raised when `strict=True` and `install(ambient=False)` leaves ambient patterns unbound."""
+    """Raised when ambient pattern resolution is not wired for an app.
+
+    Covers `strict=True` with `install(ambient=False)`, which leaves ambient
+    patterns unbound, and a `GrelmicroMiddleware` that another middleware
+    wraps, which leaves it unable to bind before that middleware runs.
+    """
 
 
 class AmbiguousProviderError(GrelmicroError, ValueError):

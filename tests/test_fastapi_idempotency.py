@@ -11,10 +11,14 @@ from typing import TYPE_CHECKING, Annotated, Any
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI, Header, Response
+from fastapi import FastAPI, Header, Request, Response
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.background import BackgroundTasks
+from starlette.middleware.base import (
+    BaseHTTPMiddleware,
+    RequestResponseEndpoint,
+)
 from starlette.responses import StreamingResponse
 from starlette.status import (
     HTTP_200_OK,
@@ -55,6 +59,16 @@ pytestmark = [pytest.mark.timeout(10)]
 
 KEY = {"Idempotency-Key": "key-1"}
 LARGE_BODY = b"x" * 4096
+
+
+class _Forking(BaseHTTPMiddleware):
+    """A middleware whose task group runs the rest in a copied context."""
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        """Pass the request through untouched."""
+        return await call_next(request)
 
 
 def _register_result_routes(app: FastAPI, calls: dict[str, int]) -> None:
@@ -537,8 +551,65 @@ def test_middleware_streaming_response_is_replayed(
     assert calls == {"count": 1}
 
 
+def test_middleware_added_after_install_still_resolves_the_cache() -> None:
+    """Adding the middleware after `install` replays as adding it before does."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    micro.install(app)
+    app.add_middleware(
+        IdempotencyMiddleware, idempotency=Idempotency("http", ttl=60)
+    )
+    calls = {"count": 0}
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        calls["count"] += 1
+        return {"call": calls["count"]}
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/charge", headers=KEY)
+        second = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert first.json() == {"call": 1}
+    assert second.json() == {"call": 1}
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == {"count": 1}
+
+
+def test_middleware_resolves_the_cache_under_a_forking_middleware() -> None:
+    """A `BaseHTTPMiddleware` in between copies the context, and binding holds."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    micro.install(app)
+    app.add_middleware(
+        IdempotencyMiddleware, idempotency=Idempotency("http", ttl=60)
+    )
+    app.add_middleware(_Forking)
+    calls = {"count": 0}
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        calls["count"] += 1
+        return {"call": calls["count"]}
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/charge", headers=KEY)
+        second = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert first.json() == {"call": 1}
+    assert second.json() == {"call": 1}
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == {"count": 1}
+
+
 def test_middleware_without_grelmicro_scope_names_the_fix() -> None:
-    """The out-of-context error tells the reader about the install order."""
+    """The out-of-context error tells the reader to call `micro.install`."""
     # Arrange
     app = FastAPI()
     app.add_middleware(
