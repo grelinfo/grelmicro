@@ -55,11 +55,34 @@ demo-smoke:
     curl -fsS http://localhost:8000/healthz > /dev/null
     echo "demo smoke passed"
 
+# Run the unit and integration tiers on every Python the release matrix uses.
+# The version list comes from the workflow, so this cannot drift away from
+# what CI runs. `test-full` already covers the primary Python with coverage,
+# so this skips it and spends the time on the others.
+[doc("Run the tests on every Python in the release matrix")]
+test-matrix:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    primary="$(uv run python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    for version in $(uv run --no-project -- python tools/matrix_versions.py); do
+        if [ "$version" = "$primary" ]; then
+            echo "== Python $version covered by test-full, skipping"
+            continue
+        fi
+        echo "== Python $version"
+        uv run --isolated --python "$version" --all-extras --group dev \
+            pytest -x -m "not integration and not slow"
+        uv run --isolated --python "$version" --all-extras --group dev \
+            pytest -x -m integration
+    done
+
 # Everything the Release workflow will run, before the tag exists.
 # A release tag is immutable, so a failure found here costs nothing and the
-# same failure found after tagging burns the version.
+# same failure found after tagging burns the version. The matrix is part of
+# that: 0.34.0 passed every check this recipe ran and still failed the
+# release, because the only Python it tested was the primary one.
 [doc("Run everything the Release workflow will run, before the tag exists")]
-release-check version: (release-check-fast version) demo-smoke
+release-check version: (release-check-fast version) test-matrix demo-smoke
     @echo "release-check passed for {{version}}"
 
 # `release-check` without the demo tier, for iterating.

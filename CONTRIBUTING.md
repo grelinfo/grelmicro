@@ -470,9 +470,16 @@ just release-check 0.33.1
 It refuses unless the working tree is clean and `HEAD` is `origin/main`,
 because anything else is not what would be tagged. It then checks that
 `docs/changelog.md` has a section for the version dated today, runs the
-full test tier, builds the docs with `--strict`, and smoke-tests the demo
-stack. Use `just release-check-fast` to skip the demo tier while
+full test tier, builds the docs with `--strict`, runs the tests on every
+other Python in the release matrix, and smoke-tests the demo stack. Use
+`just release-check-fast` to skip the matrix and the demo tier while
 iterating.
+
+The matrix step matters more than it looks. 0.34.0 passed every other check
+and still failed its release on Python 3.14, which burns the version,
+because the preflight tested only the primary interpreter. `just
+test-matrix` reads its version list out of `reusable-tests.yml`, so it
+cannot drift away from what CI runs.
 
 `just release-notes 0.33.1` prints that version's changelog section, which
 is what the GitHub Release body should hold.
