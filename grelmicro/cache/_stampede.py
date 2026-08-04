@@ -19,7 +19,7 @@ from grelmicro._app import Grelmicro
 from grelmicro.coordination.lock import Lock
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from grelmicro.cache.ttl import TTLCache
 
@@ -127,3 +127,46 @@ async def compute_with_stampede(
                     return result
                 return await compute()
         return await compute()
+
+
+async def stream_with_stampede(
+    cache: TTLCache,
+    key: str,
+    produce: Callable[[], AsyncIterator[Any]],
+    guard: AsyncStampedeGuard,
+    *,
+    per_key: bool,
+    auto_distributed: bool,
+) -> AsyncIterator[Any]:
+    """Stream ``produce`` once for ``key`` under stampede protection.
+
+    The streaming twin of `compute_with_stampede`, holding the same locks
+    for the whole stream. A second caller therefore waits, then replays
+    the stored entry from the double-check rather than producing it a
+    second time. A caller that stops reading closes ``produce`` without
+    storing anything, and releases the locks on its way out.
+    """
+    if not per_key:
+        async for item in produce():
+            yield item
+        return
+
+    the_lock = await guard.get_lock(key)
+    async with the_lock:
+        result: Any = await cache._peek(key, _SENTINEL)  # noqa: SLF001
+        if result is not _SENTINEL:
+            for item in result:
+                yield item
+            return
+        if auto_distributed and _has_lock_backend():
+            async with Lock(_stampede_lock_name(key)):
+                shared: Any = await cache._peek(key, _SENTINEL)  # noqa: SLF001
+                if shared is not _SENTINEL:
+                    for item in shared:
+                        yield item
+                    return
+                async for item in produce():
+                    yield item
+                return
+        async for item in produce():
+            yield item

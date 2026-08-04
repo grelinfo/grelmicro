@@ -10,7 +10,14 @@ import random
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Sequence,
+)
 from typing import (
     Annotated,
     Any,
@@ -19,7 +26,7 @@ from typing import (
     ParamSpec,
     Protocol,
     TypeVar,
-    cast,
+    overload,
 )
 
 from typing_extensions import Doc
@@ -31,6 +38,7 @@ from grelmicro.cache._stampede import (
     _has_lock_backend,
     _stampede_lock_name,
     compute_with_stampede,
+    stream_with_stampede,
 )
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
@@ -49,6 +57,7 @@ from grelmicro.metrics import _emit
 # ``ParamSpec``/``TypeVar`` is the working pattern.
 P = ParamSpec("P")
 R = TypeVar("R")
+T = TypeVar("T")
 
 
 class CachedFunction(Protocol[P, R]):
@@ -117,6 +126,92 @@ class CachedFunction(Protocol[P, R]):
         Typed as `Any` because a signature carrying `ParamSpec` cannot
         also express descriptor binding.
         """
+        ...
+
+
+class CachedStream(Protocol[P, T]):
+    """An async generator producer wrapped by `@cached`.
+
+    Iterating it streams the items. On a miss they arrive live from the
+    producer and the assembled list is stored once the producer runs to
+    completion. On a hit the stored list is replayed. A caller that stops
+    reading early stores nothing, so a truncated stream never becomes the
+    entry every later caller reads.
+
+    `collect` reads the same entry as a whole, so a streaming endpoint
+    and a buffered one share one producer, one key, and one execution.
+    """
+
+    __wrapped__: Callable[P, AsyncIterator[T]]
+    """The undecorated producer."""
+
+    __name__: str
+    """The undecorated producer's name."""
+
+    def __call__(
+        self, *args: P.args, **kwargs: P.kwargs
+    ) -> AsyncGenerator[T, None]:
+        """Stream the items, producing them on a miss."""
+        ...
+
+    def collect(
+        self, *args: P.args, **kwargs: P.kwargs
+    ) -> Coroutine[Any, Any, list[T]]:
+        """Return the whole sequence, producing it on a miss.
+
+        The buffered read of the entry `__call__` streams. Both share the
+        key, so whichever runs first populates it and the other serves it.
+        """
+        ...
+
+    def refresh(
+        self, *args: P.args, **kwargs: P.kwargs
+    ) -> Coroutine[Any, Any, list[T]]:
+        """Produce the sequence again, store it, and return it whole.
+
+        Skips the read, so a live entry is replaced rather than served.
+        """
+        ...
+
+    def cache_info(self) -> CacheInfo:
+        """Return statistics for the whole cache backing this producer."""
+        ...
+
+    def cache_clear(self) -> Awaitable[None]:
+        """Remove every entry from the cache backing this producer."""
+        ...
+
+    def __get__(
+        self,
+        instance: Any,  # noqa: ANN401
+        owner: Any = None,  # noqa: ANN401
+        /,
+    ) -> Any:  # noqa: ANN401
+        """Bind as a method.
+
+        Typed as `Any` because a signature carrying `ParamSpec` cannot
+        also express descriptor binding.
+        """
+        ...
+
+
+class _CachedDecorator(Protocol):
+    """The decorator `cached()` returns.
+
+    An async generator producer becomes a `CachedStream`, and anything
+    else a `CachedFunction`.
+    """
+
+    @overload
+    def __call__(  # type: ignore[overload-overlap]
+        self, func: Callable[P, AsyncIterator[T]], /
+    ) -> CachedStream[P, T]: ...
+
+    @overload
+    def __call__(self, func: Callable[P, R], /) -> CachedFunction[P, R]: ...
+
+    def __call__(self, func: Any, /) -> Any:
+        """Wrap the decorated function."""
         ...
 
 
@@ -393,11 +488,17 @@ def cached(  # noqa: PLR0913, C901
             """,
         ),
     ] = (),
-) -> Callable[[Callable[P, R]], CachedFunction[P, R]]:
+) -> _CachedDecorator:
     """Cache decorator for sync and async functions.
 
     Automatically detects whether the decorated function is sync or
     async and wraps it accordingly.
+
+    An async generator producer is wrapped as a
+    [`CachedStream`][grelmicro.cache.CachedStream]: iterating it streams
+    the items and stores the assembled list once the producer completes,
+    and `collect()` reads that same entry whole. A sync generator is not
+    supported and raises.
 
     The decorated function exposes ``refresh()``, which recomputes for
     the given arguments and overwrites the stored entry, plus
@@ -414,7 +515,8 @@ def cached(  # noqa: PLR0913, C901
 
     Raises:
         TypeError: If both ``cache`` and ``ttl`` are given, if neither is
-            given, or if both ``key`` and ``key_maker`` are given.
+            given, if both ``key`` and ``key_maker`` are given, or if the
+            decorated function is a sync generator.
         ValueError: If ``lock`` is not ``True``, ``False``, or ``"local"``,
             if ``early`` is outside ``[0, 1)``, or if ``stale_ttl`` is not
             positive.
@@ -443,7 +545,16 @@ def cached(  # noqa: PLR0913, C901
 
     def decorator(
         func: Callable[P, R],
-    ) -> CachedFunction[P, R]:
+    ) -> Any:  # noqa: ANN401
+        if inspect.isgeneratorfunction(func):
+            name = getattr(func, "__qualname__", repr(func))
+            msg = (
+                f"@cached does not support the sync generator {name}. A "
+                f"generator yields its items once, so a cached one would "
+                f"replay as empty. Make it an async generator to stream "
+                f"from the cache, or return a list to cache it whole."
+            )
+            raise TypeError(msg)
         if key is None and key_maker is None and _takes_self(func):
             name = getattr(func, "__qualname__", repr(func))
             msg = (
@@ -456,7 +567,8 @@ def cached(  # noqa: PLR0913, C901
                 f"example key='user:{{user_id}}'."
             )
             raise TypeError(msg)
-        is_async_func = inspect.iscoroutinefunction(func)
+        is_async_gen_func = inspect.isasyncgenfunction(func)
+        is_async_func = inspect.iscoroutinefunction(func) or is_async_gen_func
         if is_private_cache and not is_async_func:
             msg = (
                 "@cached(ttl=...) supports async functions only: the "
@@ -487,7 +599,20 @@ def cached(  # noqa: PLR0913, C901
             ) -> str:
                 return key
 
-        if is_async_func:
+        if is_async_gen_func:
+            wrapper = _build_async_gen_wrapper(
+                func,
+                cache,
+                resolved_key_maker,
+                skip,
+                typed=typed,
+                per_key=per_key,
+                auto_distributed=auto_distributed,
+                early=early,
+                stale_ttl=stale_ttl,
+                tag_spec=tag_spec,
+            )
+        elif is_async_func:
             wrapper = _build_async_wrapper(
                 func,
                 cache,
@@ -515,7 +640,7 @@ def cached(  # noqa: PLR0913, C901
             )
         wrapper.cache_info = cache.cache_info
         wrapper.cache_clear = cache.clear
-        return cast("CachedFunction[P, R]", wrapper)
+        return wrapper
 
     return decorator
 
@@ -602,7 +727,7 @@ def _serve_stale_sync(cache: TTLCache, key: str, loop: Any) -> tuple[bool, Any]:
 # --- Async function ---
 
 
-def _build_async_wrapper(  # noqa: C901
+def _build_async_wrapper(  # noqa: C901, PLR0913
     func: Any,  # noqa: ANN401
     cache: TTLCache,
     key_maker: Any,  # noqa: ANN401
@@ -614,9 +739,15 @@ def _build_async_wrapper(  # noqa: C901
     early: float | None,
     stale_ttl: float | None,
     tag_spec: _TagSpec,
+    guard: AsyncStampedeGuard | None = None,
 ) -> Any:  # noqa: ANN401
-    """Build async wrapper for cached decorator."""
-    guard = AsyncStampedeGuard()
+    """Build async wrapper for cached decorator.
+
+    ``guard`` is shared when a streaming producer builds its buffered
+    twin, so both fold onto the same per-key lock instead of running the
+    producer once each.
+    """
+    guard = guard if guard is not None else AsyncStampedeGuard()
     # Strong references to in-flight background refreshes. The event loop
     # holds only weak references, so a task with no other referent can be
     # collected before it finishes and would then report nothing at all.
@@ -812,6 +943,164 @@ async def _compute_and_cache(
         if early is not None:
             await _write_meta(cache, key, _now(), delta)
     return result
+
+
+# --- Async generator producer ---
+
+
+def _build_async_gen_wrapper(
+    func: Any,  # noqa: ANN401
+    cache: TTLCache,
+    key_maker: Any,  # noqa: ANN401
+    skip: Any,  # noqa: ANN401
+    *,
+    typed: bool,
+    per_key: bool,
+    auto_distributed: bool,
+    early: float | None,
+    stale_ttl: float | None,
+    tag_spec: _TagSpec,
+) -> Any:  # noqa: ANN401
+    """Build the wrapper for an async generator producer."""
+    guard = AsyncStampedeGuard()
+    refresh_tasks: set[asyncio.Task[None]] = set()
+
+    @functools.wraps(func)
+    async def collector(*args: Any, **kwargs: Any) -> list[Any]:  # noqa: ANN401
+        return [item async for item in func(*args, **kwargs)]
+
+    # The buffered twin drains the producer into the list the stream
+    # stores, so `collect()` and `refresh()` inherit the stampede
+    # folding, early refresh and stale reserve already built there.
+    buffered = _build_async_wrapper(
+        collector,
+        cache,
+        key_maker,
+        skip,
+        typed=typed,
+        per_key=per_key,
+        auto_distributed=auto_distributed,
+        early=early,
+        stale_ttl=stale_ttl,
+        tag_spec=tag_spec,
+        guard=guard,
+    )
+
+    @functools.wraps(func)
+    async def stream_wrapper(*args: Any, **kwargs: Any) -> AsyncIterator[Any]:  # noqa: ANN401
+        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        result: Any = await cache.get(key, _SENTINEL)
+        if result is not _SENTINEL:
+            if early is not None:
+                await _maybe_refresh_async(
+                    collector,
+                    args,
+                    kwargs,
+                    cache,
+                    key,
+                    skip,
+                    early,
+                    stale_ttl,
+                    guard,
+                    tag_spec,
+                    refresh_tasks,
+                )
+            for item in result:
+                yield item
+            return
+
+        def produce() -> AsyncIterator[Any]:
+            return _stream_and_store(
+                func,
+                args,
+                kwargs,
+                cache,
+                key,
+                skip,
+                early=early,
+                stale_ttl=stale_ttl,
+                tag_spec=tag_spec,
+            )
+
+        stream = stream_with_stampede(
+            cache,
+            key,
+            produce,
+            guard,
+            per_key=per_key,
+            auto_distributed=auto_distributed,
+        )
+        if stale_ttl is not None:
+            stream = _stream_stale_on_error(stream, cache, key)
+        async for item in stream:
+            yield item
+
+    wrapper: Any = stream_wrapper
+    wrapper.collect = buffered
+    wrapper.refresh = buffered.refresh
+    return wrapper
+
+
+async def _stream_stale_on_error(
+    stream: AsyncIterator[Any],
+    cache: TTLCache,
+    key: str,
+) -> AsyncIterator[Any]:
+    """Replay the stale reserve for a stream that failed at the start.
+
+    A reserve can only stand in for a producer that failed before its
+    first item. Past that the caller already holds part of the live
+    sequence, and replaying a stored one would repeat what it just read,
+    so the error propagates instead.
+    """
+    started = False
+    try:
+        async for item in stream:
+            started = True
+            yield item
+    except Exception:
+        if started:
+            raise
+        found, value = await _serve_stale_async(cache, key)
+        if not found:
+            raise
+        for item in value:
+            yield item
+
+
+async def _stream_and_store(
+    func: Callable[..., AsyncIterator[Any]],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    cache: TTLCache,
+    key: str,
+    skip: Callable[[Any], bool] | None,
+    *,
+    early: float | None,
+    stale_ttl: float | None,
+    tag_spec: _TagSpec,
+) -> AsyncIterator[Any]:
+    """Stream a producer live, storing the assembled list at the end.
+
+    Nothing is stored until the producer is exhausted, so a caller that
+    stops reading, and a producer that raises part way, both leave the
+    key untouched rather than publishing a truncated sequence.
+    """
+    started = time.perf_counter()
+    items: list[Any] = []
+    async for item in func(*args, **kwargs):
+        items.append(item)
+        yield item
+    delta = time.perf_counter() - started
+    if skip is None or not skip(items):
+        await cache.set(
+            key,
+            items,
+            tags=tag_spec.render(args, kwargs),
+            stale_ttl=stale_ttl,
+        )
+        if early is not None:
+            await _write_meta(cache, key, _now(), delta)
 
 
 # --- Sync function (delegates to async cache via from_thread) ---
