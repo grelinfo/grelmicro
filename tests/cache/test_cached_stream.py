@@ -519,6 +519,38 @@ class TestStaleOnError:
         with pytest.raises(RuntimeError, match="upstream down"):
             [item async for item in produce()]
 
+    async def test_cancellation_is_not_an_upstream_failure(self) -> None:
+        """A cancelled reader must not be answered with the reserve.
+
+        `CancelledError` derives from `BaseException`, so the stale
+        handler cannot catch it. Widening that clause would turn
+        cancellation into a stale serve and swallow the cancel.
+        """
+        # Arrange
+        cache = _make_cache(ttl=0.05)
+        hang = False
+
+        @cached(cache, key="s", stale_ttl=60)
+        async def produce() -> AsyncIterator[int]:
+            if hang:
+                await asyncio.sleep(10)
+            for item in range(3):
+                yield item
+
+        async def read() -> list[int]:
+            return [item async for item in produce()]
+
+        # Act
+        [item async for item in produce()]
+        await asyncio.sleep(0.1)
+        hang = True
+        task = asyncio.create_task(read())
+        await asyncio.sleep(0.02)
+        task.cancel()
+        # Assert
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
 
 class _Clock:
     """Mutable wall clock standing in for ``cached._now``."""
