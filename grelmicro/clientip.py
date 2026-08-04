@@ -10,6 +10,7 @@ Read more in the [Client IP](../clientip.md) docs.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import (
@@ -50,6 +51,8 @@ __all__ = [
     "resolve_client_address",
 ]
 
+logger = logging.getLogger("grelmicro.clientip")
+
 _FORWARDED_FOR = b"x-forwarded-for"
 
 _MAX_PORT = 65535
@@ -61,19 +64,44 @@ _IPV4_MAPPED_PREFIX = 96
 class ClientAddressReason(StrEnum):
     """Why `ClientAddress.ip` holds the address it holds.
 
-    Only `RESOLVED` means a trusted proxy vouched for the address. Every
-    other value means the header could not be believed and the verified
-    transport peer was used instead, which a caller can log or reject.
+    `RESOLVED` is the one value the library can vouch for on its own: a
+    trusted proxy wrote the entry. Every other value means `ip` is the
+    verified transport peer, and they split in two.
+
+    With `NO_FORWARDED_HEADER` and `UNTRUSTED_PEER` the peer is the
+    caller, as long as nothing sits in front of the app that is missing
+    from the trusted set. That is a claim about your topology, not one
+    this module can check.
+
+    Every remaining value means the peer is itself a trusted proxy whose
+    chain could not be walked to a client, so `ip` is one of your own
+    proxies and never the caller. `ClientAddress.degraded` marks exactly
+    those.
     """
 
     RESOLVED = "resolved"
+    """A trusted proxy vouched for this address."""
+
     NO_FORWARDED_HEADER = "no-forwarded-header"
+    """A trusted peer sent no `X-Forwarded-For`."""
+
     UNTRUSTED_PEER = "untrusted-peer"
+    """The peer is not a trusted proxy, so the header was ignored."""
+
     CHAIN_EXHAUSTED = "chain-exhausted"
+    """Every entry in the chain was a trusted proxy."""
+
     HOP_LIMIT = "hop-limit"
+    """The walk passed more trusted proxies than `max_hops`."""
+
     MALFORMED_ENTRY = "malformed-entry"
+    """An entry was not an address, which stops the walk."""
+
     HEADER_TOO_LARGE = "header-too-large"
+    """The header was longer than `max_header_bytes`."""
+
     TOO_MANY_ENTRIES = "too-many-entries"
+    """More entries than `max_entries`, and every one read was trusted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,17 +124,28 @@ class ClientAddress:
 
     @property
     def forwarded(self) -> bool:
-        """Whether a trusted proxy vouched for this address."""
+        """Whether a trusted proxy vouched for this address.
+
+        The test to use behind a proxy for anything that treats the
+        address as the caller's identity, such as an allowlist or a
+        private network check. It is True for `RESOLVED` alone.
+        """
         return self.reason is ClientAddressReason.RESOLVED
 
     @property
     def degraded(self) -> bool:
-        """Whether this is a fallback rather than the caller's own address.
+        """Whether `ip` is one of your own proxies rather than a caller.
 
-        True when the forwarded chain could not be believed, so `ip` holds
-        the connecting peer instead. Behind a proxy that peer is the proxy,
-        so any check that treats it as the caller (an allowlist, a private
-        network test) must refuse when this is True.
+        True when the peer was a trusted proxy but its chain could not be
+        walked to a client, so `ip` is that proxy's own address and is
+        never the caller's. Any check that treats it as the caller must
+        refuse.
+
+        False is not the same as vouched for. It also covers the two
+        cases where the peer is the caller only if nothing unlisted sits
+        in front of the app: `UNTRUSTED_PEER` and `NO_FORWARDED_HEADER`.
+        Use `forwarded` when the address has to carry an identity behind
+        a proxy.
         """
         return self.reason not in (
             ClientAddressReason.RESOLVED,
@@ -120,6 +159,11 @@ class ClientAddress:
 
         An IPv4-mapped address folds onto its IPv4 form, so one caller
         never occupies two buckets.
+
+        It is a bucket, not an identity. When `degraded` is True every
+        caller behind the proxy shares one key, so anything that has to
+        keep callers apart, such as an idempotency key or an allowlist,
+        checks `forwarded` first.
         """
         return self.ip.compressed
 
@@ -159,7 +203,13 @@ class TrustedProxies:
     which is visible in a configuration review in a way a `*` is not.
     """
 
-    __slots__ = ("_max_entries", "_max_header_bytes", "_max_hops", "_networks")
+    __slots__ = (
+        "_max_entries",
+        "_max_header_bytes",
+        "_max_hops",
+        "_networks",
+        "_warn_untrusted",
+    )
 
     def __init__(
         self,
@@ -198,6 +248,7 @@ class TrustedProxies:
         self._max_hops = max_hops
         self._max_entries = max_entries
         self._max_header_bytes = max_header_bytes
+        self._warn_untrusted = bool(self._networks)
 
     def __contains__(self, address: IPAddress) -> bool:
         """Whether `address` belongs to a trusted proxy."""
@@ -264,6 +315,24 @@ def _with_port(host: str, port: str) -> tuple[str, int | None] | None:
     return host, int(port)
 
 
+def _warn_untrusted_peer(
+    trusted: TrustedProxies,
+    headers: Sequence[tuple[bytes, bytes]],
+    peer: IPAddress,
+) -> None:
+    """Log the first untrusted peer that sent a forwarded header."""
+    if not any(name.lower() == _FORWARDED_FOR for name, _ in headers):
+        return
+    trusted._warn_untrusted = False  # noqa: SLF001
+    logger.warning(
+        "Ignored X-Forwarded-For from %s, which is not a trusted proxy. "
+        "Add it to TrustedProxies if it is one of yours, otherwise a "
+        "caller is sending the header directly. Logged once per "
+        "TrustedProxies.",
+        peer.compressed,
+    )
+
+
 def _collect_header(
     headers: Sequence[tuple[bytes, bytes]], limit: int
 ) -> bytes | None:
@@ -303,7 +372,14 @@ def resolve_client_address(  # noqa: C901, PLR0911
     When every entry is trusted, the peer is returned with
     `CHAIN_EXHAUSTED` rather than the leftmost entry. No trusted proxy
     vouched for that entry against an untrusted peer, so it is exactly
-    the value that must not become a rate limiter key.
+    the value that must not become a rate limiter key. The same walk
+    ending inside a header the `max_entries` cap truncated returns
+    `TOO_MANY_ENTRIES`, since the entries beyond the cap were never read.
+
+    An untrusted peer that sends `X-Forwarded-For` is logged once per
+    `TrustedProxies`, on the `grelmicro.clientip` logger. Nothing is
+    logged when the trusted set is empty, which is the deployment that
+    means trust nothing.
     """
     client = scope.get("client")
     if not client:
@@ -317,11 +393,14 @@ def resolve_client_address(  # noqa: C901, PLR0911
     def from_peer(reason: ClientAddressReason, hops: int = 0) -> ClientAddress:
         return ClientAddress(ip=peer, port=port, reason=reason, hops=hops)
 
+    headers = scope.get("headers", ())
     if peer not in trusted:
+        if trusted._warn_untrusted:  # noqa: SLF001
+            _warn_untrusted_peer(trusted, headers, peer)
         return from_peer(ClientAddressReason.UNTRUSTED_PEER)
 
     raw = _collect_header(
-        scope.get("headers", ()),
+        headers,
         trusted._max_header_bytes,  # noqa: SLF001
     )
     if raw is None:
@@ -330,11 +409,14 @@ def resolve_client_address(  # noqa: C901, PLR0911
     entries = [part for part in entries if part]
     if not entries:
         return from_peer(ClientAddressReason.NO_FORWARDED_HEADER)
+    exhausted = ClientAddressReason.CHAIN_EXHAUSTED
     if len(entries) > trusted._max_entries:  # noqa: SLF001
         # Keep the rightmost entries, the ones our own proxies wrote.
         # Discarding the header instead would let prepended padding force
-        # every caller onto the proxy's key.
+        # every caller onto the proxy's key. The entries dropped were never
+        # read, so running out of them is not an exhausted chain.
         entries = entries[-trusted._max_entries :]  # noqa: SLF001
+        exhausted = ClientAddressReason.TOO_MANY_ENTRIES
 
     hops = 0
     for entry in reversed(entries):
@@ -357,7 +439,7 @@ def resolve_client_address(  # noqa: C901, PLR0911
         max_hops = trusted._max_hops  # noqa: SLF001
         if max_hops is not None and hops > max_hops:
             return from_peer(ClientAddressReason.HOP_LIMIT, hops)
-    return from_peer(ClientAddressReason.CHAIN_EXHAUSTED, hops)
+    return from_peer(exhausted, hops)
 
 
 class ClientAddressMiddleware:

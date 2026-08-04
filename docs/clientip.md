@@ -56,41 +56,73 @@ over a dual-stack socket.
 
 ## Reading the outcome
 
-Every result carries a `reason`. Only `RESOLVED` means a trusted proxy
-vouched for the address, and everything else means the header could not be
-believed, so the verified peer was used instead.
+Every result carries a `reason`. `RESOLVED` is the only one this module
+can vouch for on its own: a trusted proxy wrote that entry. Every other
+value means `ip` is the verified transport peer, and those split in two.
 
-| Reason | What happened |
-|---|---|
-| `RESOLVED` | A trusted proxy vouched for this address. |
-| `NO_FORWARDED_HEADER` | Trusted peer, no header. The peer is the client. |
-| `UNTRUSTED_PEER` | The connecting peer is not a trusted proxy, so the header was ignored. |
-| `CHAIN_EXHAUSTED` | Every entry was a trusted proxy. |
-| `MALFORMED_ENTRY` | An entry was not a valid address. |
-| `HOP_LIMIT`, `TOO_MANY_ENTRIES`, `HEADER_TOO_LARGE` | A bound was hit. |
+| Reason | What happened | Whose address is `ip` |
+|---|---|---|
+| `RESOLVED` | A trusted proxy vouched for this address. | The caller |
+| `UNTRUSTED_PEER` | The peer is not a trusted proxy, so the header was ignored. | The peer, which is the caller only if nothing unlisted fronts the app |
+| `NO_FORWARDED_HEADER` | A trusted peer sent no header. | The peer, which is the caller only if every proxy of yours appends the header |
+| `CHAIN_EXHAUSTED` | Every entry was a trusted proxy. | One of your own proxies |
+| `MALFORMED_ENTRY` | An entry was not a valid address. | One of your own proxies |
+| `HOP_LIMIT`, `TOO_MANY_ENTRIES`, `HEADER_TOO_LARGE` | A bound was hit. | One of your own proxies |
+
+The right-hand column is the part no library can decide for you. Whether
+something sits in front of your app, and whether it appends
+`X-Forwarded-For`, are facts about your deployment.
+
+An audit log should record the reason. A rising `CHAIN_EXHAUSTED`,
+`TOO_MANY_ENTRIES` or `MALFORMED_ENTRY` rate is worth an alert, since all
+three mean something is sending chains your topology does not explain.
+
+### Which check to use
 
 A rate limiter can use `.key` whatever the reason, because every value is
-an address the caller cannot choose. Anything that treats the address as
-the caller's identity must check `degraded` first:
+an address the caller cannot choose.
+
+Anything that treats the address as an identity is different. An
+allowlist, a private network gate, or any check that has to keep callers
+apart needs the address a proxy vouched for:
 
 ```python
-if client is None or client.degraded:
-    return False  # the address is the proxy's, not the caller's
+if client is None or not client.forwarded:
+    return False  # nobody vouched for this address
 ```
 
-`degraded` is True whenever the chain could not be believed, so `ip` holds
-the connecting peer. Behind a proxy that peer is the proxy, whose address
-is private, which is how an allowlist accidentally admits everyone.
+`degraded` is the weaker test. It is True only when `ip` is one of your
+own proxies, so it catches a chain that could not be walked and misses a
+proxy missing from `TrustedProxies`. One mistyped CIDR turns every
+request into `UNTRUSTED_PEER`, where the address is the proxy's and
+`degraded` is False. `forwarded` refuses that request, `degraded` admits
+it, and every caller then looks like the same private client.
 
-An audit log should record the reason. A rising `CHAIN_EXHAUSTED` or
-`MALFORMED_ENTRY` rate is worth an alert, since both mean something is
-sending chains your topology does not explain.
+If nothing fronts your app, `forwarded` is never True and there is
+nothing to gate on. The peer is the caller, verified by the transport,
+and `TrustedProxies([])` says exactly that. One flag cannot serve both
+deployments, so pick the check that matches yours.
 
 !!! warning "A missing trusted set is not a safe default"
     `resolve_client_address(scope)` does not exist. The trusted set is a
     required argument, because the correct value depends on your topology
     and no library can guess it. An empty `TrustedProxies([])` is legal
     and means trust nothing, so the peer is always returned.
+
+## Catching a mistyped trusted set
+
+A proxy left out of the set has no symptom of its own. Every request
+resolves as `UNTRUSTED_PEER` carrying the proxy's own address, which
+looks like a real answer. So the first time an untrusted peer sends
+`X-Forwarded-For`, one line goes to the `grelmicro.clientip` logger:
+
+```text
+Ignored X-Forwarded-For from 192.168.1.10, which is not a trusted proxy.
+```
+
+It fires once per `TrustedProxies` object, so neither a busy proxy nor a
+caller probing the header can flood the log. Nothing is logged when the
+trusted set is empty, since that deployment means trust nothing.
 
 ## One value, read everywhere
 
@@ -138,6 +170,11 @@ which is exactly the value that must not become a rate limiter key.
 
 **A malformed entry stops the walk.** It is not skipped. Skipping lets an
 attacker insert padding to shift which entry gets chosen.
+
+**A capped header says so.** Reading stops at `max_entries`, keeping the
+rightmost entries. If every entry read was a trusted proxy, the reason is
+`TOO_MANY_ENTRIES` rather than `CHAIN_EXHAUSTED`, because the entries
+past the cap were never read.
 
 **A zone id is dropped.** `fe80::1%eth0` keys as `fe80::1`, so two hosts
 reached over different interfaces share one key. Link-local addresses are

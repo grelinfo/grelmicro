@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+* 🔒 Point client address identity checks at `forwarded` instead of `degraded`. `degraded` is False for `UNTRUSTED_PEER`, so one mistyped CIDR in `TrustedProxies` left every request carrying the proxy's own address, and the guard the docs recommended admitted it. The private network gate in the health docs then showed details to everyone, which is the bypass `degraded` was added to close. `forwarded` is True for `RESOLVED` alone, so it refuses that request. The docstrings and the reason table now say which outcomes mean the peer is the caller and which mean the address is one of your own proxies. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
+
+### Features
+
+* ✨ Log the first untrusted peer that sends `X-Forwarded-For` while `TrustedProxies` is not empty. That combination is either a caller sending the header directly or a proxy of yours missing from the trusted set, and the misconfiguration had no other symptom. One line per `TrustedProxies` object goes to the `grelmicro.clientip` logger, so nothing can flood it. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
+
+### Fixed
+
+* 🐛 Report a truncated forwarded chain as `TOO_MANY_ENTRIES`. The reason existed but was never returned. A header longer than `max_entries` whose read window held only trusted proxies came back as `CHAIN_EXHAUSTED`, which claims every entry was seen. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
+
 ## 0.34.2 - 2026-08-02
 
 ### Security
