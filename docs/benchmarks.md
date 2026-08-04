@@ -17,7 +17,7 @@ Each script measures the in-memory backend so the numbers reflect grelmicro's ow
 
 ## Results
 
-Every figure below is one run on one machine, stated so you can judge it.
+Every figure below is a single run rather than an average, and the table combines two measurement dates. The conditions are stated so you can judge them.
 
 | | |
 |---|---|
