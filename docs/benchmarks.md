@@ -17,7 +17,18 @@ Each script measures the in-memory backend so the numbers reflect grelmicro's ow
 
 ## Results
 
-The numbers below were measured on an Apple Silicon machine (macOS, CPython 3.12) and are indicative only. Most rows date from 2026-06-14. The circuit breaker rows were re-measured on 2026-07-29, after per-key state lifetimes landed. Run the scripts yourself for figures that match your hardware and Python build.
+Every figure below is a single run rather than an average, and the table combines two measurement dates. The conditions are stated so you can judge them.
+
+| | |
+|---|---|
+| Hardware | Apple Silicon, macOS |
+| Interpreter | CPython 3.12 |
+| Measured | 2026-06-14, circuit breaker rows 2026-07-29 |
+| Conditions | Developer machine, shared with other work |
+
+The conditions line is the part most published benchmarks leave out. These were not measured on an idle machine, so treat them as the right order of magnitude rather than a precise figure. A quiet machine would move them somewhat, and not evenly across rows.
+
+That is also why the numbers below are not the point. The scripts are. Run them on the hardware you will deploy on, and compare against your own baseline rather than against this table.
 
 | Primitive | Operation | Time per op |
 |---|---|---|
