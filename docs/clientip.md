@@ -113,16 +113,18 @@ deployments, so pick the check that matches yours.
 
 A proxy left out of the set has no symptom of its own. Every request
 resolves as `UNTRUSTED_PEER` carrying the proxy's own address, which
-looks like a real answer. So the first time an untrusted peer sends
-`X-Forwarded-For`, one line goes to the `grelmicro.clientip` logger:
+looks like a real answer. So an untrusted peer that sends a non-empty
+`X-Forwarded-For` gets a line on the `grelmicro.clientip` logger:
 
 ```text
 Ignored X-Forwarded-For from 192.168.1.10, which is not a trusted proxy.
 ```
 
-It fires once per `TrustedProxies` object, so neither a busy proxy nor a
-caller probing the header can flood the log. Nothing is logged when the
-trusted set is empty, since that deployment means trust nothing.
+One line per peer, for at most eight peers, then silence. A busy proxy
+cannot flood the log, and a caller probing the header cannot take the
+line your own proxy needs. An empty header is not counted, so direct
+health checks stay quiet. Nothing is logged at all when the trusted set
+is empty, since that deployment means trust nothing.
 
 ## One value, read everywhere
 

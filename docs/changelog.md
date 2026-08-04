@@ -4,11 +4,11 @@
 
 ### Security
 
-* 🔒 Point client address identity checks at `forwarded` instead of `degraded`. `degraded` is False for `UNTRUSTED_PEER`, so one mistyped CIDR in `TrustedProxies` left every request carrying the proxy's own address, and the guard the docs recommended admitted it. The private network gate in the health docs then showed details to everyone, which is the bypass `degraded` was added to close. `forwarded` is True for `RESOLVED` alone, so it refuses that request. The docstrings and the reason table now say which outcomes mean the peer is the caller and which mean the address is one of your own proxies. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
+* 🔒 Point client address identity checks at `forwarded` instead of `degraded`. `degraded` is False for `UNTRUSTED_PEER`, so one mistyped CIDR in `TrustedProxies` left every request carrying the proxy's own address, and the guard the docs recommended admitted it. The private network gate in the health docs then showed details to everyone, which is the bypass `degraded` was added to close. `forwarded` is True for `RESOLVED` alone, so it refuses that request. The docstrings and the reason table now say which outcomes mean the peer is the caller and which mean the address is one of your own proxies. If nothing fronts your app, `forwarded` is never True and there is nothing to gate on, so read [which check to use](clientip.md#which-check-to-use) before copying the new guard into a direct deployment. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
 
 ### Features
 
-* ✨ Log the first untrusted peer that sends `X-Forwarded-For` while `TrustedProxies` is not empty. That combination is either a caller sending the header directly or a proxy of yours missing from the trusted set, and the misconfiguration had no other symptom. One line per `TrustedProxies` object goes to the `grelmicro.clientip` logger, so nothing can flood it. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
+* ✨ Log an untrusted peer that sends a non-empty `X-Forwarded-For` while `TrustedProxies` is not empty. That combination is either a caller sending the header directly or a proxy of yours missing from the trusted set, and the misconfiguration had no other symptom. The `grelmicro.clientip` logger gets one line per peer, for at most eight peers, so a busy proxy cannot flood it and a caller probing the header cannot take the line your own proxy needs. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
 
 ### Fixed
 

@@ -13,7 +13,8 @@ def from_private_network(request: Request) -> bool:
     # reports every caller as private and shows details to the public.
     client = resolve_client_address(request.scope, trusted)
     # `forwarded` means a trusted proxy vouched for this address. Without
-    # it the address is the proxy's own, and every caller looks private.
+    # it nobody did, and behind a proxy the address is the proxy's own,
+    # which reads as private and shows details to everyone.
     if client is None or not client.forwarded:
         return False
     return client.ip.is_private

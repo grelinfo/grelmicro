@@ -60,6 +60,9 @@ _MAX_PORT = 65535
 _IPV4_MAPPED_PREFIX = 96
 """Prefix length at which an IPv6 network is wholly IPv4-mapped space."""
 
+_MAX_WARNED_PEERS = 8
+"""Distinct untrusted peers reported before the warning goes quiet."""
+
 
 class ClientAddressReason(StrEnum):
     """Why `ClientAddress.ip` holds the address it holds.
@@ -208,7 +211,7 @@ class TrustedProxies:
         "_max_header_bytes",
         "_max_hops",
         "_networks",
-        "_warn_untrusted",
+        "_warned_peers",
     )
 
     def __init__(
@@ -248,7 +251,9 @@ class TrustedProxies:
         self._max_hops = max_hops
         self._max_entries = max_entries
         self._max_header_bytes = max_header_bytes
-        self._warn_untrusted = bool(self._networks)
+        self._warned_peers: set[IPAddress] | None = (
+            set() if self._networks else None
+        )
 
     def __contains__(self, address: IPAddress) -> bool:
         """Whether `address` belongs to a trusted proxy."""
@@ -317,18 +322,28 @@ def _with_port(host: str, port: str) -> tuple[str, int | None] | None:
 
 def _warn_untrusted_peer(
     trusted: TrustedProxies,
+    warned: set[IPAddress],
     headers: Sequence[tuple[bytes, bytes]],
     peer: IPAddress,
 ) -> None:
-    """Log the first untrusted peer that sent a forwarded header."""
-    if not any(name.lower() == _FORWARDED_FOR for name, _ in headers):
+    """Report an untrusted peer that sent a forwarded header, once.
+
+    A peer sending nothing in the header is not making a forwarding
+    attempt, and reporting it would spend the report a misconfigured
+    proxy needs.
+    """
+    if not any(
+        name.lower() == _FORWARDED_FOR and value.strip()
+        for name, value in headers
+    ):
         return
-    trusted._warn_untrusted = False  # noqa: SLF001
+    warned.add(peer)
+    if len(warned) >= _MAX_WARNED_PEERS:
+        trusted._warned_peers = None  # noqa: SLF001
     logger.warning(
         "Ignored X-Forwarded-For from %s, which is not a trusted proxy. "
         "Add it to TrustedProxies if it is one of yours, otherwise a "
-        "caller is sending the header directly. Logged once per "
-        "TrustedProxies.",
+        "caller is sending the header directly. Reported once per peer.",
         peer.compressed,
     )
 
@@ -376,10 +391,12 @@ def resolve_client_address(  # noqa: C901, PLR0911
     ending inside a header the `max_entries` cap truncated returns
     `TOO_MANY_ENTRIES`, since the entries beyond the cap were never read.
 
-    An untrusted peer that sends `X-Forwarded-For` is logged once per
-    `TrustedProxies`, on the `grelmicro.clientip` logger. Nothing is
-    logged when the trusted set is empty, which is the deployment that
-    means trust nothing.
+    An untrusted peer that sends a non-empty `X-Forwarded-For` is logged
+    on the `grelmicro.clientip` logger, once per peer and for at most
+    eight peers. A caller probing the header therefore cannot flood the
+    log, nor take the report a misconfigured proxy of yours needs.
+    Nothing is logged when the trusted set is empty, which is the
+    deployment that means trust nothing.
     """
     client = scope.get("client")
     if not client:
@@ -395,8 +412,9 @@ def resolve_client_address(  # noqa: C901, PLR0911
 
     headers = scope.get("headers", ())
     if peer not in trusted:
-        if trusted._warn_untrusted:  # noqa: SLF001
-            _warn_untrusted_peer(trusted, headers, peer)
+        warned = trusted._warned_peers  # noqa: SLF001
+        if warned is not None and peer not in warned:
+            _warn_untrusted_peer(trusted, warned, headers, peer)
         return from_peer(ClientAddressReason.UNTRUSTED_PEER)
 
     raw = _collect_header(

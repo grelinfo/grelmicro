@@ -29,6 +29,7 @@ from grelmicro.clientip import (
 
 TRUSTED = ["10.0.0.0/8"]
 EXPECTED_HOPS = 2
+EXPECTED_WARNED_PEERS = 8
 PEER = "10.0.0.5"
 
 
@@ -572,7 +573,7 @@ class TestForwarded:
 class TestUntrustedPeerWarning:
     """A proxy missing from the trusted set is otherwise silent."""
 
-    def test_warns_once_for_a_forwarded_header(
+    def test_warns_once_per_peer(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """One line names the peer, and a flood cannot follow it."""
@@ -589,15 +590,51 @@ class TestUntrustedPeerWarning:
         assert caplog.text.count("Ignored X-Forwarded-For") == 1
         assert "9.9.9.9" in caplog.text
 
-    def test_a_headerless_request_keeps_the_warning(
+    def test_a_prober_cannot_mask_a_mistyped_trusted_set(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Direct health checks must not spend the one warning."""
+        """The report a forgotten proxy needs is not one a caller can take."""
         # Arrange
         trusted = TrustedProxies(TRUSTED)
         # Act
         with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
-            resolve_client_address(scope(peer="9.9.9.9"), trusted)
+            for last in range(1, 5):
+                probe = scope(peer=f"203.0.113.{last}", forwarded="1.2.3.4")
+                resolve_client_address(probe, trusted)
+            forgotten = scope(peer="192.168.1.10", forwarded="1.2.3.4")
+            resolve_client_address(forgotten, trusted)
+        # Assert
+        assert "192.168.1.10" in caplog.text
+
+    def test_a_flood_of_peers_goes_quiet(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Remembering every peer that ever probed would be the real leak."""
+        # Arrange
+        trusted = TrustedProxies(TRUSTED)
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+            for last in range(1, 40):
+                probe = scope(peer=f"203.0.113.{last}", forwarded="1.2.3.4")
+                resolve_client_address(probe, trusted)
+        # Assert
+        assert (
+            caplog.text.count("Ignored X-Forwarded-For")
+            == EXPECTED_WARNED_PEERS
+        )
+
+    @pytest.mark.parametrize("forwarded", [None, "", "   "])
+    def test_an_empty_header_is_not_a_forwarding_attempt(
+        self, forwarded: str | None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Direct health checks must not spend another peer's report."""
+        # Arrange
+        trusted = TrustedProxies(TRUSTED)
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+            resolve_client_address(
+                scope(peer="9.9.9.9", forwarded=forwarded), trusted
+            )
             silent = caplog.text
             resolve_client_address(
                 scope(peer="9.9.9.9", forwarded="1.2.3.4"), trusted
