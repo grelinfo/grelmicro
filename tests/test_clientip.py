@@ -6,6 +6,7 @@ spoofing advisory or to a parsing bug found in a widely used server.
 
 from __future__ import annotations
 
+import logging
 from ipaddress import ip_address, ip_network
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +29,7 @@ from grelmicro.clientip import (
 
 TRUSTED = ["10.0.0.0/8"]
 EXPECTED_HOPS = 2
+EXPECTED_WARNED_PEERS = 8
 PEER = "10.0.0.5"
 
 
@@ -294,7 +296,20 @@ class TestLimits:
         # Act
         result = resolve(forwarded=header, max_entries=64)
         # Assert
-        assert result.reason is ClientAddressReason.CHAIN_EXHAUSTED
+        assert result.key == PEER
+        assert result.reason is ClientAddressReason.TOO_MANY_ENTRIES
+
+    def test_truncated_chain_is_not_reported_as_exhausted(self) -> None:
+        """The entries past the cap were never read, so nothing exhausted."""
+        # Arrange
+        untruncated = ", ".join(["10.0.0.1"] * 64)
+        truncated = ", ".join(["10.0.0.1"] * 65)
+        # Act
+        within = resolve(forwarded=untruncated, max_entries=64)
+        beyond = resolve(forwarded=truncated, max_entries=64)
+        # Assert
+        assert within.reason is ClientAddressReason.CHAIN_EXHAUSTED
+        assert beyond.reason is ClientAddressReason.TOO_MANY_ENTRIES
 
     def test_padding_cannot_force_the_proxy_bucket(self) -> None:
         """Prepended padding must not discard the real entry.
@@ -507,6 +522,154 @@ class TestDegraded:
         result = resolve(peer="9.9.9.9")
         # Assert
         assert result.degraded is False
+
+    def test_a_truncated_chain_is_degraded(self) -> None:
+        """A bound leaves the proxy's own address, whichever bound it is."""
+        # Arrange
+        header = ", ".join(["10.0.0.1"] * 65)
+        # Act
+        result = resolve(forwarded=header, max_entries=64)
+        # Assert
+        assert result.reason is ClientAddressReason.TOO_MANY_ENTRIES
+        assert result.degraded is True
+
+
+class TestForwarded:
+    """`forwarded` is the predicate an identity check uses."""
+
+    @pytest.mark.parametrize(
+        ("peer", "forwarded", "expected"),
+        [
+            (PEER, "1.2.3.4", True),
+            (PEER, None, False),
+            (PEER, "10.1.1.1, 10.2.2.2", False),
+            ("9.9.9.9", "1.2.3.4", False),
+        ],
+    )
+    def test_only_a_vouched_address_is_forwarded(
+        self,
+        peer: str,
+        forwarded: str | None,
+        expected: bool,  # noqa: FBT001
+    ) -> None:
+        """Only `RESOLVED` means a trusted proxy wrote the entry."""
+        # Arrange / Act
+        result = resolve(peer=peer, forwarded=forwarded)
+        # Assert
+        assert result.forwarded is expected
+
+    def test_a_mistyped_trusted_set_fails_closed(self) -> None:
+        """The bypass in #636: the guard must refuse, not admit the proxy."""
+        # Arrange / Act
+        result = resolve(
+            peer="10.0.0.5", forwarded="1.2.3.4", trusted=["10.1.0.0/16"]
+        )
+        # Assert
+        assert result.key == "10.0.0.5"
+        assert result.degraded is False
+        assert result.forwarded is False
+
+
+class TestUntrustedPeerWarning:
+    """A proxy missing from the trusted set is otherwise silent."""
+
+    def test_warns_once_per_peer(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """One line names the peer, and a flood cannot follow it."""
+        # Arrange
+        trusted = TrustedProxies(TRUSTED)
+        request = scope(peer="9.9.9.9", forwarded="1.2.3.4")
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+            result = resolve_client_address(request, trusted)
+            resolve_client_address(request, trusted)
+        # Assert
+        assert result is not None
+        assert result.reason is ClientAddressReason.UNTRUSTED_PEER
+        assert caplog.text.count("Ignored X-Forwarded-For") == 1
+        assert "9.9.9.9" in caplog.text
+
+    def test_a_prober_cannot_mask_a_mistyped_trusted_set(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The report a forgotten proxy needs is not one a caller can take."""
+        # Arrange
+        trusted = TrustedProxies(TRUSTED)
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+            for last in range(1, 5):
+                probe = scope(peer=f"203.0.113.{last}", forwarded="1.2.3.4")
+                resolve_client_address(probe, trusted)
+            forgotten = scope(peer="192.168.1.10", forwarded="1.2.3.4")
+            resolve_client_address(forgotten, trusted)
+        # Assert
+        assert "192.168.1.10" in caplog.text
+
+    def test_a_flood_of_peers_goes_quiet(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Remembering every peer that ever probed would be the real leak."""
+        # Arrange
+        trusted = TrustedProxies(TRUSTED)
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+            for last in range(1, 40):
+                probe = scope(peer=f"203.0.113.{last}", forwarded="1.2.3.4")
+                resolve_client_address(probe, trusted)
+        # Assert
+        assert (
+            caplog.text.count("Ignored X-Forwarded-For")
+            == EXPECTED_WARNED_PEERS
+        )
+
+    @pytest.mark.parametrize("forwarded", [None, "", "   "])
+    def test_an_empty_header_is_not_a_forwarding_attempt(
+        self, forwarded: str | None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Direct health checks must not spend another peer's report."""
+        # Arrange
+        trusted = TrustedProxies(TRUSTED)
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+            resolve_client_address(
+                scope(peer="9.9.9.9", forwarded=forwarded), trusted
+            )
+            silent = caplog.text
+            resolve_client_address(
+                scope(peer="9.9.9.9", forwarded="1.2.3.4"), trusted
+            )
+        # Assert
+        assert silent == ""
+        assert caplog.text.count("Ignored X-Forwarded-For") == 1
+
+    def test_an_empty_trusted_set_stays_silent(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Trusting nothing is a deployment, not a misconfiguration."""
+        # Arrange
+        trusted = TrustedProxies([])
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+            resolve_client_address(
+                scope(peer="9.9.9.9", forwarded="1.2.3.4"), trusted
+            )
+        # Assert
+        assert caplog.text == ""
+
+    def test_a_trusted_peer_stays_silent(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The header was believed, so there is nothing to report."""
+        # Arrange
+        trusted = TrustedProxies(TRUSTED)
+        # Act
+        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+            resolve_client_address(
+                scope(peer=PEER, forwarded="1.2.3.4"), trusted
+            )
+        # Assert
+        assert caplog.text == ""
 
 
 class TestConfigTypes:
