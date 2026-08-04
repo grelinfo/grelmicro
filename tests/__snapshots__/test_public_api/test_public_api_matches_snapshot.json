@@ -58,6 +58,9 @@
     "CachedFunction": {
       "()": "(*args, **kwargs)"
     },
+    "CachedStream": {
+      "()": "(*args, **kwargs)"
+    },
     "JsonSerializer": {
       "()": "()"
     },

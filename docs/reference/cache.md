@@ -14,6 +14,7 @@
         - CacheSerializer
         - CacheSettingsValidationError
         - CachedFunction
+        - CachedStream
         - JsonSerializer
         - PickleSerializer
         - PydanticSerializer

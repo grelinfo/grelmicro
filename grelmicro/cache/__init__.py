@@ -2,7 +2,7 @@
 
 from grelmicro.cache._component import Cache
 from grelmicro.cache._protocol import CacheBackend
-from grelmicro.cache.cached import CachedFunction, cached
+from grelmicro.cache.cached import CachedFunction, CachedStream, cached
 from grelmicro.cache.errors import CacheError, CacheSettingsValidationError
 from grelmicro.cache.serializers import (
     CacheSerializer,
@@ -20,6 +20,7 @@ __all__ = [
     "CacheSerializer",
     "CacheSettingsValidationError",
     "CachedFunction",
+    "CachedStream",
     "JsonSerializer",
     "PickleSerializer",
     "PydanticSerializer",
