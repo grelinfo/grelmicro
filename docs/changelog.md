@@ -9,10 +9,12 @@
 ### Features
 
 * ✨ Log an untrusted peer that sends a non-empty `X-Forwarded-For` while `TrustedProxies` is not empty. That combination is either a caller sending the header directly or a proxy of yours missing from the trusted set, and the misconfiguration had no other symptom. The `grelmicro.clientip` logger gets one line per peer, for at most eight peers, so a busy proxy cannot flood it and a caller probing the header cannot take the line your own proxy needs. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
+* ✨ Cache an async generator with `@cached`. Iterating the decorated producer streams its items and stores the assembled list once it finishes, and `collect()` reads that same entry whole, so a streaming endpoint and a buffered one share one producer, one key and one execution. Only a completed sequence is stored, so a reader that stops early and a producer that raises part way both leave the key untouched rather than publishing a truncated result. ([#501](https://github.com/grelinfo/grelmicro/issues/501))
 
 ### Fixed
 
 * 🐛 Report a truncated forwarded chain as `TOO_MANY_ENTRIES`. The reason existed but was never returned. A header longer than `max_entries` whose read window held only trusted proxies came back as `CHAIN_EXHAUSTED`, which claims every entry was seen. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
+* 🐛 Stop `@cached` hanging on a generator function. An async generator is not a coroutine function, so it took the sync wrapper, which blocks its own thread waiting on the cache loop. Decorating one wedged the event loop on the first call, with no error. Async generators are now supported, and a sync generator raises at decoration time, since it yields its items once and a cached one would replay as empty. ([#501](https://github.com/grelinfo/grelmicro/issues/501))
 
 ## 0.34.2 - 2026-08-02
 

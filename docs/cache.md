@@ -359,6 +359,37 @@ Refreshing a key that was never cached simply computes and stores it. A refresh 
 !!! tip "Refreshing one key, not the whole cache"
     `cache_clear()` is bound to the whole `TTLCache`, so on a cache shared between functions it removes every function's entries. `refresh()` touches one key.
 
+### Streaming producers
+
+Decorate an async generator and `@cached` caches what it yields. Iterating the result streams the items, and the assembled list is stored once the producer finishes.
+
+```python title="stream.py"
+--8<-- "cache/stream.py"
+```
+
+This is the shape where one result is served two ways: a streaming endpoint that yields items as they are produced, and a buffered endpoint that returns the whole thing. Both read one entry, so whichever runs first pays for the work:
+
+```python
+@app.get("/answer/{question_id}/stream")
+async def stream(question_id: int) -> EventSourceResponse:
+    return EventSourceResponse(answer(question_id))
+
+
+@app.get("/answer/{question_id}")
+async def whole(question_id: int) -> str:
+    return "".join(await answer.collect(question_id))
+```
+
+**Only a completed sequence is stored.** A reader that stops early, and a producer that raises part way, both leave the key untouched. A truncated sequence is never published, so the next reader gets the whole thing rather than the part the first one happened to read.
+
+**A second reader waits, then replays.** Under the default `lock`, a concurrent miss folds like any other: the second caller waits for the first to finish and then replays the stored entry, rather than running the producer again. It trades incremental output for not paying twice. Use `lock=False` to let both stream live at the cost of two executions.
+
+**The stored form is a plain list**, so `await cache.get(key)` returns the items and anything else reading that key sees an ordinary cached value.
+
+`skip` receives the assembled list, so `skip=lambda items: not items` declines to store an empty sequence. `tags`, `early` and `refresh()` work as they do anywhere else, and `stale_ttl` serves the reserve when the producer fails before its first item. Past that the caller already holds part of the live sequence, so the error propagates rather than replaying items it just read.
+
+A sync generator is not supported and raises at decoration time. It yields its items once, so a cached one would replay as empty.
+
 ### Stampede Protection
 
 A cache stampede (or "dog-pile") happens when many callers miss the same key at once and all recompute it together. By default `@cached` folds those misses in-process (`lock="local"`). Raise it to `lock=True` to fold across replicas, drop it to `lock=False` to opt out, and add `early=` to refresh hot keys before they expire:
@@ -435,6 +466,7 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 | Helper | Returns | Description |
 |---|---|---|
 | `refresh(*args, **kwargs)` | the new value | Recompute for these arguments and overwrite the stored entry. On a method, call it as `Class.method.refresh(obj, ...)`. |
+| `collect(*args, **kwargs)` | awaitable list | Read the whole sequence of a streaming producer. Only on an async generator. |
 | `cache_info()` | `CacheInfo` | Statistics for the whole cache backing this function. |
 | `cache_clear()` | awaitable | Remove every entry from that cache. Always a coroutine, even for a sync function. |
 
