@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import warnings
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from weakref import WeakSet
@@ -31,6 +32,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from grelmicro._json import json_loads
+from grelmicro.errors import GrelmicroConfigWarning
 
 if TYPE_CHECKING:
     import asyncio
@@ -178,11 +180,17 @@ def resolve_config[C: BaseModel](
             raise TypeError(msg)
         return explicit
 
-    if env_load is None:
+    # An explicit `env_load=False` is a deliberate opt-out and is never
+    # reported. Only the process-wide flag being unset is worth a warning,
+    # since that is the state a caller reaches without choosing it.
+    implicit = env_load is None
+    if implicit:
         env_load = env_load_default()
 
     try:
         if not env_load:
+            if implicit:
+                _warn_ignored_env(config_cls, env_prefix, provided)
             return config_cls.model_validate(provided)
 
         settings_cls = _build_settings_cls(config_cls, env_prefix)
@@ -195,6 +203,48 @@ def resolve_config[C: BaseModel](
         if error_type is None:
             raise
         raise error_type(error) from None
+
+
+_warned_ignored_env: set[str] = set()
+"""Variable names already reported by `_warn_ignored_env`, process-wide.
+
+A component is often constructed many times, and the same misconfiguration
+would otherwise be reported on every construction.
+"""
+
+
+def _warn_ignored_env(
+    config_cls: type[BaseModel],
+    env_prefix: str,
+    provided: Mapping[str, object],
+) -> None:
+    """Warn when a variable this config declares is set but will not be read.
+
+    Only the exact names `config_cls` declares are looked up. A prefix scan
+    would match unrelated variables, and Kubernetes injects
+    `{SVCNAME}_SERVICE_HOST` for every Service, so a Service named `grel-log`
+    would produce a warning on every pod start.
+
+    A field the caller passed is skipped: a keyword argument outranks the
+    environment, so that variable would not have applied either way and the
+    caller has already done what the message would ask of them.
+
+    Reported through `warnings` rather than `logging`, because the logging
+    component resolves its own config before logging is configured.
+    """
+    for field in config_cls.model_fields:
+        if field in provided:
+            continue
+        name = f"{env_prefix}{field.upper()}"
+        if name not in os.environ or name in _warned_ignored_env:
+            continue
+        _warned_ignored_env.add(name)
+        msg = (
+            f"{name} is set but was not applied: environment-driven "
+            f"configuration is opt-in. Set {_ENV_LOAD_VAR}=1 to enable it, "
+            f"or pass the value directly."
+        )
+        warnings.warn(msg, GrelmicroConfigWarning, stacklevel=4)
 
 
 @lru_cache(maxsize=256)

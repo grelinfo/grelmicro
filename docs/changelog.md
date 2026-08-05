@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Upgrading
+
+**A misconfigured `GREL_*` variable now warns.** Setting one without `GREL_ENV_LOAD` used to pass silently and now raises `GrelmicroConfigWarning`. A suite running `-W error`, or pytest with `filterwarnings = error`, will fail on it.
+
+Fix the configuration, which is the point of the warning:
+
+```bash
+GREL_ENV_LOAD=1          # read GREL_* variables
+```
+
+or pass the value directly, which never needs the flag:
+
+```python
+configure(format="PRETTY")
+```
+
+To keep the warning visible without failing a build, filter the category rather than the message:
+
+```toml
+filterwarnings = ["error", "ignore::grelmicro.GrelmicroConfigWarning"]
+```
+
+### Fixed
+
+* 🐛 Open a Provider before the Component that borrows it, whatever order they are listed in. A Provider left out of `uses=` was already discovered and inserted ahead of its Component, but one listed *after* it only got a warning and then failed on startup with `OutOfContextError`, so listing a Provider was worse than omitting it. Both cases are now reordered the same way: `uses=` says what the app is made of, and grelmicro opens it in dependency order. `Grelmicro(strict=True)` still raises `LifecycleOrderError`, for callers who want the list they wrote to be the list that runs. ([#665](https://github.com/grelinfo/grelmicro/issues/665))
+* 🐛 Say so when a `GREL_*` variable is set but not applied. Environment-driven configuration is opt-in behind `GREL_ENV_LOAD`, so a documented variable such as `GREL_LOG_FORMAT` was read by nobody and the default applied with nothing reported. It now raises `GrelmicroConfigWarning` once, naming the variable and the flag. It is its own category so it can be filtered precisely, without silencing every `UserWarning` and without matching on message text, the way pytest ships `PytestConfigWarning`. Only the exact names a config declares are matched, never the prefix, because Kubernetes injects `{SVCNAME}_SERVICE_HOST` for every Service and a prefix sweep would warn on every pod start. An explicit `env_load=False` is a decision and stays silent. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
+
+### Docs
+
+* 📝 Teach how a value is resolved, in [Configuration](config.md#how-a-value-is-resolved). Keyword arguments, environment behind `GREL_ENV_LOAD`, and a file through `ExternalConfig`, with a local development recipe that does not need exported variables. Says plainly that `ExternalConfig` reconfigures live components and not `Log`, so log format in local development comes from `configure(...)` or a loaded `.env`. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
+* 📝 Put the opt-in warning above every environment variable table, written once and included, so a reader who lands on a module page from a search engine sees it without following a link. The logging page also no longer claims every knob is an environment variable without saying when they are read. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
+
 ## 0.35.0 - 2026-08-05
 
 ### Upgrading

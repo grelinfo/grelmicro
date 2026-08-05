@@ -468,12 +468,18 @@ The Provider is opened when the `Grelmicro` app enters and closed when
 the app exits. Components borrow the Provider's client without managing
 its lifecycle.
 
-Always **list the Provider before** the Components that depend on it.
-`uses=` opens items in declaration order. `PostgresProvider` builds its
-`asyncpg.Pool` on `__aenter__`, so a Component placed before its
-Provider would access `provider.client` before the pool exists and raise
-`OutOfContextError`. `Grelmicro.__aenter__` warns on this ordering, but
-the correct fix is to list the Provider first.
+**Order does not matter.** A Provider opens before the Components that
+borrow it, wherever you list it, and a Provider you leave out entirely is
+discovered and opened for you. `uses=` says what the app is made of, and
+grelmicro opens it in dependency order.
+
+This matters because the resource is often lazy: `PostgresProvider` builds
+its `asyncpg.Pool` on `__aenter__`, so a Component that opened first would
+reach for `provider.client` before the pool exists.
+
+Listing the Provider first still reads well and is worth doing for a human
+reader. If you want the list you wrote to be exactly the list that runs,
+`Grelmicro(strict=True)` raises `LifecycleOrderError` instead of reordering.
 
 ## Memory
 

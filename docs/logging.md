@@ -4,7 +4,7 @@ Zero-config logging that follows the **12-factor app** methodology. Use it to ge
 
 - **Zero-config**: logs go to stdout, the format is picked automatically.
 - **Structured**: extra fields become flat top-level keys, exceptions become structured error data.
-- **Environment-driven**: every knob is a `GREL_LOG_*` environment variable.
+- **Environment-driven**: every knob is a `GREL_LOG_*` environment variable, read when `GREL_ENV_LOAD` is enabled, or passed straight to `configure()`.
 
 ## Quick Start
 
@@ -394,7 +394,10 @@ State is in-process only, backed by [`MemoryTokenBucket`][grelmicro.resilience.M
 
 ## Settings
 
-All configuration is done via environment variables:
+Every setting can be passed to `configure()` directly, or read from the
+environment:
+
+--8<-- "env_gate.md"
 
 | Variable | Values | Default |
 |----------|--------|---------|
