@@ -10,3 +10,9 @@ lock = Lock("cart")
 async def checkout() -> None:
     async with lock:
         ...
+
+
+async def main() -> None:
+    # The lock resolves its backend inside the app scope.
+    async with micro:
+        await checkout()

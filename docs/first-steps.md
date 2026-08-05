@@ -33,7 +33,12 @@ Three things happen here:
 
 1. `Lock("cart")` builds a lock named `cart` with default settings.
 2. `MemoryProvider()` says where the shared state lives.
-3. `Grelmicro(uses=[...])` wires it into the app, and the lock finds it.
+3. `Grelmicro(uses=[...])` wires it into the app.
+
+The lock carries no backend reference. It finds one when it is used, inside
+`async with micro:`, which is why `checkout()` is called from there. In a web
+app `micro.install(app)` extends that scope to your request handlers, so
+handlers need no `async with`.
 
 One caller holds `cart` at a time. The next caller waits for the release.
 
