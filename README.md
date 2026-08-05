@@ -100,15 +100,12 @@ The smallest grelmicro program: a FastAPI route protected by a process-local rat
 ```python
 from fastapi import FastAPI
 
-from grelmicro.resilience import (
-    MemoryRateLimiterAdapter,
-    RateLimitExceededError,
-    RateLimiter,
-)
+from grelmicro.providers.memory import MemoryProvider
+from grelmicro.resilience import RateLimitExceededError, RateLimiter
 
 app = FastAPI()
 api_limiter = RateLimiter.sliding_window(
-    "api", limit=100, window=60, backend=MemoryRateLimiterAdapter()
+    "api", limit=100, window=60, backend=MemoryProvider().ratelimiter()
 )
 
 
@@ -181,7 +178,6 @@ from grelmicro.resilience import (
     RateLimiter,
     RateLimiterRegistry,
 )
-from grelmicro.resilience.circuitbreaker.memory import MemoryCircuitBreakerAdapter
 from grelmicro.coordination import Coordination, LeaderElection, Lock, TaskLock
 from grelmicro.task import Tasks
 
@@ -191,6 +187,7 @@ logger = logging.getLogger(__name__)
 tasks = Tasks()
 health = HealthChecks()
 
+# One line says where the shared state lives.
 redis = RedisProvider("redis://localhost:6379/0")
 
 leader = LeaderElection("leader-election")
@@ -200,7 +197,7 @@ micro = Grelmicro(uses=[
     Coordination(redis),
     Cache(redis),
     RateLimiterRegistry(redis),
-    CircuitBreakerRegistry(MemoryCircuitBreakerAdapter()),
+    CircuitBreakerRegistry(redis),
     tasks,
     health,
 ])

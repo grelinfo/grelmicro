@@ -1,8 +1,9 @@
-from grelmicro.coordination import Coordination, LeaderElection
-from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
+from grelmicro import Grelmicro
+from grelmicro.providers.memory import MemoryProvider
 from grelmicro.task import Tasks
 
-leader = LeaderElection("cluster_group", backend=MemoryLeaderElectionAdapter())
-coordination = Coordination(election=leader.backend)
 task = Tasks()
+micro = Grelmicro(uses=[MemoryProvider(), task])
+
+leader = micro.coordination.leaderelection("cluster_group")
 task.add_task(leader)

@@ -4,19 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.coordination import (
-    Coordination,
-    LeaderElection,
-    Lock,
-    TaskLock,
-)
-from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
+from grelmicro.coordination import LeaderElection, Lock, TaskLock
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import CircuitBreaker, CircuitBreakerRegistry
-from grelmicro.resilience.circuitbreaker.memory import (
-    MemoryCircuitBreakerAdapter,
-)
+from grelmicro.resilience import CircuitBreaker
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
@@ -26,15 +17,10 @@ tasks = Tasks()
 leader_election = LeaderElection("leader-election")
 tasks.add_task(leader_election)
 
+# One line says where the shared state lives.
 redis = RedisProvider("redis://localhost:6379/0")
 
-micro = Grelmicro(
-    uses=[
-        Coordination(lock=redis.lock(), election=MemoryLeaderElectionAdapter()),
-        CircuitBreakerRegistry(MemoryCircuitBreakerAdapter()),
-        tasks,
-    ]
-)
+micro = Grelmicro(uses=[redis, tasks])
 
 
 # === FastAPI ===

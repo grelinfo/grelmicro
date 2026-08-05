@@ -1,7 +1,7 @@
 import asyncio
 
 from grelmicro.coordination import Lock
-from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.providers.memory import MemoryProvider
 
 
 class Resource:
@@ -21,8 +21,8 @@ class Resource:
 async def main() -> None:
     resource = Resource()
 
-    async with MemoryLockAdapter() as backend:
-        lock = Lock("cart", backend=backend)
+    async with MemoryProvider() as provider:
+        lock = Lock("cart", backend=provider.lock())
 
         # A stale holder writes with an old token.
         stale = await lock.acquire()

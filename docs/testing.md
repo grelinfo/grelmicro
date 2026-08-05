@@ -32,18 +32,12 @@ from collections.abc import AsyncIterator
 import pytest
 
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
-from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.coordination import Coordination
-from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.providers.memory import MemoryProvider
 
 
 @pytest.fixture
 async def micro() -> AsyncIterator[Grelmicro]:
-    app = Grelmicro(uses=[
-        Coordination(lock=MemoryLockAdapter()),
-        Cache(MemoryCacheAdapter()),
-    ])
+    app = Grelmicro(uses=[MemoryProvider()])
     async with app:
         yield app
 ```
@@ -75,12 +69,12 @@ backend keeps its real behavior while the log captures every call for assertions
 ```python
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
-from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.providers.memory import MemoryProvider
 from grelmicro.testing import record
 
 
 async def test_login_takes_the_lock() -> None:
-    backend = MemoryLockAdapter()
+    backend = MemoryProvider().lock()
     log = record(backend)
     micro = Grelmicro(uses=[Coordination(lock=backend)])
 

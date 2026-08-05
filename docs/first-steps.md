@@ -32,8 +32,8 @@ lock state in the process, so this runs with nothing else installed.
 Three things happen here:
 
 1. `Lock("cart")` builds a lock named `cart` with default settings.
-2. `Coordination(lock=MemoryLockAdapter())` gives the lock a backend.
-3. `Grelmicro(uses=[...])` wires the component into the app.
+2. `MemoryProvider()` says where the shared state lives.
+3. `Grelmicro(uses=[...])` wires it into the app, and the lock finds it.
 
 One caller holds `cart` at a time. The next caller waits for the release.
 

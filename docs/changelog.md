@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Upgrading
+
+**`/healthz` stopped sending null fields.** A check that passed no longer carries `error`, and a check with no details no longer carries `details`.
+
+```diff
+-{"status": "ok", "critical": true, "error": null}
++{"status": "ok", "critical": true}
+```
+
+A consumer that reads `error` unconditionally needs to treat it as absent:
+
+```python
+error = check.get("error")  # None when the check passed
+if error is not None:
+    alert(name, error)
+```
+
+A failing check still carries `error`, and `status` and `critical` are still on every entry, so a dashboard reading those needs no change.
+
 ### Breaking
 
 * 💥 Leave `error` and `details` out of a `/healthz` check that has neither. A passing check sent `"error": null` on every poll, and with details enabled it sent `"details": null` too, so the highest-frequency response in the service spent bytes reporting that nothing happened. A passing check is now `{"status": "ok", "critical": true}`, and a failing one still carries its `error`. The OpenAPI schema types both fields as a plain string and object instead of promising a nullable value that never arrives. Read an absent `error` as a pass. A consumer that required the key needs updating. ([#649](https://github.com/grelinfo/grelmicro/issues/649))
@@ -22,6 +41,7 @@
 * 📝 Show how to register a component conditionally, in [Wiring an App](wiring.md#register-something-conditionally). Covers the inline `None` entry, the `Usable`-annotated list, and how a Provider registers differently through `use` than inside `uses=`. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
 * 📝 Add a Providers recipe for taking the managed connection and nothing else. Application state that is not a cache, a lock, or a rate limiter is still yours to read and write through `provider.client`, with the lifecycle already handled. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
 * 📝 Document the `/healthz` report body, with a passing and a failing check side by side. ([#649](https://github.com/grelinfo/grelmicro/issues/649))
+* 📝 Keep adapter classes out of the examples a first-time reader meets. The guide opened with `MemoryLeaderElectionAdapter()` and `Cache(MemoryCacheAdapter())` before the reader had any reason to know what an adapter is. Every quick start now names a provider once, `uses=[MemoryProvider()]` or `uses=[redis]`, and the pattern follows with no wiring in sight. Adapter references in the snippets went from 56 to 8, and the 8 that remain are Kubernetes and the outbox memory backend, where choosing a backend is the subject. Nothing about the API changed, so no code needs updating. ([#644](https://github.com/grelinfo/grelmicro/issues/644))
 
 ## 0.34.3 - 2026-08-05
 

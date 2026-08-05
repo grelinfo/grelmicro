@@ -1,12 +1,9 @@
 from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination
-from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
+from grelmicro.providers.memory import MemoryProvider
 from grelmicro.task import Tasks
 
 tasks = Tasks()
-micro = Grelmicro(
-    uses=[Coordination(election=MemoryLeaderElectionAdapter()), tasks]
-)
+micro = Grelmicro(uses=[MemoryProvider(), tasks])
 
 leader = micro.coordination.leaderelection("worker")
 tasks.add_task(leader)

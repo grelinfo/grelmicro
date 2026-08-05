@@ -11,10 +11,10 @@ Cache an async function's result with `@cached`. The Memory backend needs no ext
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache, JsonSerializer, TTLCache, cached
-from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache import JsonSerializer, TTLCache, cached
+from grelmicro.providers.memory import MemoryProvider
 
-micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+micro = Grelmicro(uses=[MemoryProvider()])
 
 cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
@@ -38,10 +38,9 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
 === "Memory"
     ```python
     from grelmicro import Grelmicro
-    from grelmicro.cache import Cache
-    from grelmicro.cache.memory import MemoryCacheAdapter
+    from grelmicro.providers.memory import MemoryProvider
 
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    micro = Grelmicro(uses=[MemoryProvider()])
     ```
 
 === "Redis"
