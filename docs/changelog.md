@@ -21,6 +21,24 @@ if error is not None:
 
 A failing check still carries `error`, and `status` and `critical` are still on every entry, so a dashboard reading those needs no change.
 
+**Redis credentials split across two variables now work.** `REDIS_PASSWORD` next to a `REDIS_URL` was read and then dropped, so the client connected unauthenticated. If you worked around that by building the provider from explicit settings, the plain form is enough again:
+
+```diff
+-provider = RedisProvider.sentinel(
+-    sentinels=[("host", 26379)], service_name="mymaster", password=settings.password
+-)
++provider = RedisProvider()
+```
+
+```bash
+REDIS_URL=redis+sentinel://a:26379,b:26379/mymaster/0
+REDIS_PASSWORD=...
+```
+
+That URL is the second half: `redis+sentinel://` and `redis+cluster://` are now accepted from the environment and from `RedisConfig`, including the multi-host form, so the topology no longer has to be hard-coded to be expressible.
+
+One combination newly raises instead of passing silently: a URL that already carries credentials **and** a separate `REDIS_PASSWORD`. Keep the password in one place. The same applies to `VALKEY_*`.
+
 ### Breaking
 
 * 💥 Leave `error` and `details` out of a `/healthz` check that has neither. A passing check sent `"error": null` on every poll, and with details enabled it sent `"details": null` too, so the highest-frequency response in the service spent bytes reporting that nothing happened. A passing check is now `{"status": "ok", "critical": true}`, and a failing one still carries its `error`. The OpenAPI schema types both fields as a plain string and object instead of promising a nullable value that never arrives. Read an absent `error` as a pass. A consumer that required the key needs updating. ([#649](https://github.com/grelinfo/grelmicro/issues/649))
