@@ -190,7 +190,7 @@ def resolve_config[C: BaseModel](
     try:
         if not env_load:
             if implicit:
-                _warn_ignored_env(config_cls, env_prefix)
+                _warn_ignored_env(config_cls, env_prefix, provided)
             return config_cls.model_validate(provided)
 
         settings_cls = _build_settings_cls(config_cls, env_prefix)
@@ -213,7 +213,11 @@ would otherwise be reported on every construction.
 """
 
 
-def _warn_ignored_env(config_cls: type[BaseModel], env_prefix: str) -> None:
+def _warn_ignored_env(
+    config_cls: type[BaseModel],
+    env_prefix: str,
+    provided: Mapping[str, object],
+) -> None:
     """Warn when a variable this config declares is set but will not be read.
 
     Only the exact names `config_cls` declares are looked up. A prefix scan
@@ -221,10 +225,16 @@ def _warn_ignored_env(config_cls: type[BaseModel], env_prefix: str) -> None:
     `{SVCNAME}_SERVICE_HOST` for every Service, so a Service named `grel-log`
     would produce a warning on every pod start.
 
+    A field the caller passed is skipped: a keyword argument outranks the
+    environment, so that variable would not have applied either way and the
+    caller has already done what the message would ask of them.
+
     Reported through `warnings` rather than `logging`, because the logging
     component resolves its own config before logging is configured.
     """
     for field in config_cls.model_fields:
+        if field in provided:
+            continue
         name = f"{env_prefix}{field.upper()}"
         if name not in os.environ or name in _warned_ignored_env:
             continue

@@ -111,6 +111,24 @@ def test_unrelated_prefixed_env_is_not_reported(
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
+def test_field_passed_as_kwarg_is_not_reported(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keyword argument outranks the environment, so there is nothing to report."""
+    monkeypatch.setenv(
+        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        lock = Lock("cart", backend=backend, lease_duration=LEASE_FROM_ENV)
+
+    assert caught == []
+    assert lock.config.lease_duration == LEASE_FROM_ENV
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
 def test_explicit_env_load_false_is_not_reported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
