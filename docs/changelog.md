@@ -13,6 +13,7 @@
 
 ### Fixed
 
+* 🐛 Restore the component registry when an `override(...)` component fails to open. The registry was mutated one component at a time before the restore was armed, so a mock that raised on `__aenter__` stayed installed for the rest of the `async with micro:` block. The next lookup resolved the broken mock instead of the real component, with nothing reporting it, which in a session-scoped fixture leaked into every later test. ([#651](https://github.com/grelinfo/grelmicro/issues/651))
 * 🐛 Instantiate a bare class passed to `Bulkhead(uses=[...])`. The parameter documented the same shape as `Grelmicro(uses=[...])`, which accepts a class with no parens, but the bulkhead entered the class object itself and failed on startup. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
 * 🐛 Reject `micro.use(None)` with a message naming the fix. It appended `None` to the item list and failed later inside the app lifecycle, pointing at nothing. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
 

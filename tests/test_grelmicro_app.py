@@ -663,6 +663,46 @@ async def test_override_restores_on_exception() -> None:
         assert micro.rec is real
 
 
+async def test_override_restores_when_a_component_fails_to_open() -> None:
+    """A component that raises on open leaves no override behind."""
+
+    class _FailingComponent(_RecordingComponent):
+        async def __aenter__(self) -> Self:
+            raise RuntimeError(_RAISED)
+
+    real = _RecordingComponent(name="default")
+    micro = Grelmicro(uses=[real])
+    async with micro:
+        with pytest.raises(RuntimeError, match=_RAISED):
+            async with micro.override(_FailingComponent(name="default")):
+                pass  # pragma: no cover
+
+        assert micro.rec is real
+
+
+async def test_override_restores_when_a_later_component_fails_to_open() -> None:
+    """A partial override unwinds the components installed before the failure."""
+
+    class _FailingOther(_OtherComponent):
+        async def __aenter__(self) -> Self:
+            raise RuntimeError(_RAISED)
+
+    real = _RecordingComponent(name="default")
+    other = _OtherComponent(name="default")
+    installed = _RecordingComponent(name="default")
+    micro = Grelmicro(uses=[real, other])
+    async with micro:
+        with pytest.raises(RuntimeError, match=_RAISED):
+            async with micro.override(installed, _FailingOther(name="default")):
+                pass  # pragma: no cover
+
+        # The component that opened before the failure is closed again.
+        assert installed.entered == 1
+        assert installed.exited == 1
+        assert micro.rec is real
+        assert micro.oth is other
+
+
 async def test_provider_public_export() -> None:
     """`grelmicro.providers.Provider` is importable as the base class."""
     from grelmicro.providers import Provider  # noqa: PLC0415
