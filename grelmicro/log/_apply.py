@@ -19,3 +19,10 @@ def apply(config: LogConfig) -> None:
         )
 
     _configure(config)
+
+    if config.uvicorn_enabled:
+        from grelmicro.log.uvicorn import (  # noqa: PLC0415
+            apply as _apply_uvicorn,
+        )
+
+        _apply_uvicorn(config)

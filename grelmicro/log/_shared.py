@@ -23,10 +23,31 @@ try:
 except ImportError:  # pragma: no cover
     trace: Any = None  # type: ignore[no-redef]
 
-from grelmicro._json import has_orjson, json_default, json_dumps_str
+from grelmicro._json import has_orjson
 
 KeyMode = Literal["logger", "level", "global", "template", "rendered"]
 """Shared key strategy vocabulary for the log filters."""
+
+
+def _log_json_default(obj: object) -> str:
+    """Encode a value a log record carried that JSON has no representation for.
+
+    Falls back to ``repr`` rather than raising. A log call must not be able to
+    take down logging: an ``extra={"url": httpx.URL(...)}`` is a record whose
+    author wanted it written down, and rendering it as text keeps the line and
+    every field beside it. Elsewhere `json_default` still raises, because a
+    cache value that cannot round-trip is a real error.
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return repr(obj)
+
+
+def _orjson_log_dumps(obj: Mapping[str, Any]) -> str:
+    """Serialize a log record with orjson, keeping the line on odd values."""
+    import orjson  # noqa: PLC0415
+
+    return orjson.dumps(obj, default=repr).decode("utf-8")
 
 
 def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
@@ -36,7 +57,7 @@ def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
     whether ``orjson`` is installed. Used when the user explicitly
     selects ``LOG_JSON_SERIALIZER=stdlib``.
     """
-    return json.dumps(obj, separators=(",", ":"), default=json_default)
+    return json.dumps(obj, separators=(",", ":"), default=_log_json_default)
 
 
 def has_opentelemetry() -> bool:
@@ -363,7 +384,7 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
     if settings.json_serializer == LogSerializerType.ORJSON:
         if not has_orjson():
             raise DependencyNotFoundError(module="orjson")
-        json_dumps = json_dumps_str
+        json_dumps = _orjson_log_dumps
     else:
         json_dumps = _stdlib_json_dumps
 

@@ -96,3 +96,11 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         bool,
         Doc("Extract OpenTelemetry trace context into log records."),
     ] = opentelemetry is not None
+    uvicorn_enabled: Annotated[
+        bool,
+        Doc(
+            "Reformat uvicorn's own loggers to match this format. Uvicorn "
+            "installs its own handlers with propagation off, so without this "
+            "its lines keep their own format and the process emits two."
+        ),
+    ] = True

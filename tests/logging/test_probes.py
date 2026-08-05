@@ -3,6 +3,7 @@
 import logging
 
 from grelmicro.log import ProbeFilter
+from grelmicro.log._shared import _log_json_default
 
 
 def _access_record(path: str, status: int = 200) -> logging.LogRecord:
@@ -85,3 +86,13 @@ def test_attaches_to_a_logger_like_the_other_filters() -> None:
         assert logger.filter(_access_record("/orders"))
     finally:
         logger.removeFilter(probe_filter)
+
+
+def test_unserializable_extra_does_not_break_the_line() -> None:
+    """A log call must not be able to take down logging."""
+
+    class _Odd:
+        def __repr__(self) -> str:
+            return "<odd>"
+
+    assert _log_json_default(_Odd()) == "<odd>"

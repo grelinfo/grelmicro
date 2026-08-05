@@ -293,7 +293,35 @@ To disable: `GREL_LOG_OTEL_ENABLED=false`
 
 ## Uvicorn Integration
 
-Uvicorn has its own logging system separate from your application. To get consistent output between uvicorn and your app, use the format-aware uvicorn formatters via a log config file:
+Uvicorn has its own logging system separate from your application: it installs its own handlers and turns propagation off, so its lines never reach the handler `configure()` sets up. Left alone, one process emits two formats.
+
+`configure()` fixes that for you. No log config file, no change to how uvicorn is started:
+
+```python
+from grelmicro.log import configure
+
+configure()
+```
+
+```
+time=2026-08-05T13:10:49.805834+00:00 level=INFO msg="Application startup complete." logger=uvicorn.error
+time=2026-08-05T13:10:49.807003+00:00 level=INFO msg="POST /orders 200" logger=uvicorn.access client_addr=127.0.0.1:54321 method=POST full_path=/orders http_version=1.1 status_code=200
+time=2026-08-05T13:10:49.807224+00:00 level=INFO msg="Order created" logger=myapp order_id=a1b2c3
+```
+
+Uvicorn's handlers are kept and only their formatter is replaced, so the stderr/stdout split survives and access lines keep their structured fields.
+
+This works because uvicorn configures logging while building its `Config`, before it imports your application module, so a `configure()` call at import time runs afterwards. A process that configures logging *before* uvicorn starts is not covered.
+
+Pass `uvicorn_enabled=False` when uvicorn's logging is configured elsewhere, such as with `--log-config`:
+
+```python
+configure(uvicorn_enabled=False)
+```
+
+### Configuring uvicorn with a log config file
+
+The file-based route still works, and is the option when you are not calling `configure()` at all:
 
 ```json
 --8<-- "log/uvicorn_log_config.json"
@@ -432,6 +460,7 @@ environment:
 | `GREL_LOG_JSON_SERIALIZER` | `stdlib`, `orjson` | `stdlib` |
 | `GREL_LOG_CALLER_ENABLED` | `true`, `false` | `false` |
 | `GREL_LOG_OTEL_ENABLED` | `true`, `false` | auto-detected |
+| `GREL_LOG_UVICORN_ENABLED` | `true`, `false` | `true` |
 | `NO_COLOR` | any value | (unset) |
 | `FORCE_COLOR` | any value | (unset) |
 

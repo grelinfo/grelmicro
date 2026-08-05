@@ -111,6 +111,11 @@ class _BaseFormatter(logging.Formatter):
         self.otel_enabled = otel_enabled
 
     def _record(self, record: logging.LogRecord) -> dict[str, Any]:
+        # `logging.Formatter.format` sets `record.message` before rendering,
+        # and downstream code relies on it: pytest's `caplog` reads it, and so
+        # does any handler that formats a record twice. These formatters build
+        # their own mapping instead of calling up, so they have to set it too.
+        record.message = record.getMessage()
         return _build_record(
             record,
             self.timezone,
