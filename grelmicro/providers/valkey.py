@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
-from grelmicro.providers.redis import RedisConfig, RedisProvider, _resolve_url
+from grelmicro.providers.redis import (
+    RedisConfig,
+    RedisProvider,
+    _resolve_url,
+    _sentinel_kwargs,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -80,6 +85,16 @@ class ValkeyProvider(RedisProvider):
         port: Annotated[int | None, Doc("Valkey port.")] = None,
         db: Annotated[int | None, Doc("Valkey database index.")] = None,
         password: Annotated[str | None, Doc("Valkey password.")] = None,
+        sentinel_password: Annotated[
+            str | None,
+            Doc(
+                """
+                Password for the Sentinel servers themselves, when they run
+                with `requirepass`. Applies only to a `redis+sentinel://`
+                URL, and only when set.
+                """
+            ),
+        ] = None,
         env_prefix: Annotated[
             str,
             Doc(
@@ -104,17 +119,23 @@ class ValkeyProvider(RedisProvider):
         """Initialize the provider and resolve the connection URL."""
         self._bind_valkey_classes()
         self._env_prefix = env_prefix
-        self._url = _resolve_url(
+        self._url, resolved_sentinel_password = _resolve_url(
             url=url,
             host=host,
             port=port,
             db=db,
             password=password,
+            sentinel_password=sentinel_password,
             env_prefix=env_prefix,
             env_load=env_load,
         )
         self._sentinel = None
-        self._client = self._build_client(self._url)
+        self._client = self._build_client(
+            self._url,
+            sentinel_kwargs=_sentinel_kwargs(
+                self._url, resolved_sentinel_password, env_prefix=env_prefix
+            ),
+        )
         self._own = True
 
     @classmethod

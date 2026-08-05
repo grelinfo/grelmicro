@@ -16,7 +16,10 @@ from redis.asyncio.sentinel import Sentinel
 from typing_extensions import Doc
 
 from grelmicro._redact import redact_url
-from grelmicro.errors import SettingsValidationError
+from grelmicro.errors import (
+    GrelmicroConfigWarning,
+    SettingsValidationError,
+)
 from grelmicro.providers._base import Provider
 from grelmicro.types import SecretUrl
 
@@ -77,6 +80,7 @@ class RedisConfig(BaseModel):
     port: int = 6379
     db: int = 0
     password: SecretStr | None = None
+    sentinel_password: SecretStr | None = None
 
 
 class _RedisEnvSettings(BaseSettings):
@@ -89,6 +93,7 @@ class _RedisEnvSettings(BaseSettings):
     port: int = 6379
     db: int = 0
     password: SecretStr | None = None
+    sentinel_password: SecretStr | None = None
 
 
 class RedisProvider(Provider):
@@ -142,6 +147,18 @@ class RedisProvider(Provider):
         port: Annotated[int | None, Doc("Redis port.")] = None,
         db: Annotated[int | None, Doc("Redis database index.")] = None,
         password: Annotated[str | None, Doc("Redis password.")] = None,
+        sentinel_password: Annotated[
+            str | None,
+            Doc(
+                """
+                Password for the Sentinel servers themselves, when they run
+                with `requirepass`. Applies only to a `redis+sentinel://`
+                URL, and only when set: `AUTH` against a server without
+                `requirepass` fails, so the data password is never reused
+                here.
+                """
+            ),
+        ] = None,
         env_prefix: Annotated[
             str,
             Doc(
@@ -165,17 +182,23 @@ class RedisProvider(Provider):
     ) -> None:
         """Initialize the provider and resolve the connection URL."""
         self._env_prefix = env_prefix
-        self._url = _resolve_url(
+        self._url, resolved_sentinel_password = _resolve_url(
             url=url,
             host=host,
             port=port,
             db=db,
             password=password,
+            sentinel_password=sentinel_password,
             env_prefix=env_prefix,
             env_load=env_load,
         )
         self._sentinel: Sentinel | None = None
-        self._client = self._build_client(self._url)
+        self._client = self._build_client(
+            self._url,
+            sentinel_kwargs=_sentinel_kwargs(
+                self._url, resolved_sentinel_password, env_prefix=env_prefix
+            ),
+        )
         self._instrumentor: Any = None
         self._own = True
 
@@ -252,6 +275,11 @@ class RedisProvider(Provider):
             db=config.db,
             password=(
                 config.password.get_secret_value() if config.password else None
+            ),
+            sentinel_password=(
+                config.sentinel_password.get_secret_value()
+                if config.sentinel_password
+                else None
             ),
             env_prefix=env_prefix,
             env_load=False,
@@ -536,20 +564,27 @@ def _resolve_url(
     port: int | None,
     db: int | None,
     password: str | None,
+    sentinel_password: str | None,
     env_prefix: str,
     env_load: bool,
-) -> str:
-    """Resolve the connection URL from kwargs and (optionally) the environment."""
+) -> tuple[str, str | None]:
+    """Resolve the connection URL and Sentinel password from kwargs and env."""
     if url is not None and host is not None:
         msg = "pass either `url` or `host`, not both"
         raise RedisProviderConfigError(msg)
 
     if url is not None:
-        return _apply_password(str(url), password, source="`password`")
+        return (
+            _apply_password(str(url), password, source="`password`"),
+            sentinel_password,
+        )
 
     if host is not None:
-        return _compose_url(
-            host=host, port=port or 6379, db=db or 0, password=password
+        return (
+            _compose_url(
+                host=host, port=port or 6379, db=db or 0, password=password
+            ),
+            sentinel_password,
         )
 
     if not env_load:
@@ -567,25 +602,67 @@ def _resolve_url(
     if settings.url is not None and settings.host is not None:
         msg = f"set either {env_prefix}URL or {env_prefix}HOST, not both"
         raise RedisProviderConfigError(msg)
+    resolved_sentinel = sentinel_password or (
+        settings.sentinel_password.get_secret_value()
+        if settings.sentinel_password
+        else None
+    )
     if settings.url is not None:
-        return _apply_password(
-            settings.url.get_secret_value().unicode_string(),
-            settings.password.get_secret_value() if settings.password else None,
-            source=f"{env_prefix}PASSWORD",
-        )
-    if settings.host is not None:
-        return _compose_url(
-            host=settings.host,
-            port=settings.port,
-            db=settings.db,
-            password=(
+        return (
+            _apply_password(
+                settings.url.get_secret_value().unicode_string(),
                 settings.password.get_secret_value()
                 if settings.password
-                else None
+                else None,
+                source=f"{env_prefix}PASSWORD",
             ),
+            resolved_sentinel,
+        )
+    if settings.host is not None:
+        return (
+            _compose_url(
+                host=settings.host,
+                port=settings.port,
+                db=settings.db,
+                password=(
+                    settings.password.get_secret_value()
+                    if settings.password
+                    else None
+                ),
+            ),
+            resolved_sentinel,
         )
     msg = f"either {env_prefix}URL or {env_prefix}HOST must be set"
     raise RedisProviderConfigError(msg)
+
+
+def _sentinel_kwargs(
+    url: str, sentinel_password: str | None, *, env_prefix: str
+) -> dict[str, Any] | None:
+    """Build the Sentinel connection kwargs for a resolved URL.
+
+    Returns `None` unless a Sentinel password is configured, so the argument
+    is absent rather than empty for every other deployment.
+
+    A Sentinel password with a non-Sentinel URL is reported rather than
+    dropped. It is a warning and not an error because one environment often
+    serves several services, only some of which talk to Sentinel, and the
+    variable being present is not itself a mistake.
+    """
+    if sentinel_password is None:
+        return None
+    scheme = url.split("://", 1)[0].lower() if "://" in url else ""
+    if scheme != _SENTINEL_SCHEME:
+        import warnings  # noqa: PLC0415
+
+        msg = (
+            f"{env_prefix}SENTINEL_PASSWORD is set but the URL scheme is "
+            f"{scheme!r}, so it was not applied. It configures the Sentinel "
+            f"servers, which only a {_SENTINEL_SCHEME}:// URL connects to."
+        )
+        warnings.warn(msg, GrelmicroConfigWarning, stacklevel=4)
+        return None
+    return {"password": sentinel_password}
 
 
 def _apply_password(url: str, password: str | None, *, source: str) -> str:

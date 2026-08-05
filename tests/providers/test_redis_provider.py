@@ -8,7 +8,7 @@ from redis.asyncio.client import Redis
 from redis.asyncio.cluster import RedisCluster
 from redis.asyncio.sentinel import Sentinel
 
-from grelmicro import Grelmicro
+from grelmicro import Grelmicro, GrelmicroConfigWarning
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.providers.redis import (
@@ -825,3 +825,76 @@ class TestValidationErrors:
             RedisConfig(url="redis://usr:test_password@h:notaport/0")
 
         assert "test_password" not in str(excinfo.value)
+
+
+class TestSentinelPassword:
+    """Tests for authenticating against the Sentinel servers themselves."""
+
+    SENTINEL_URL = "redis+sentinel://a:26379,b:26379/mymaster/0"
+
+    def test_env_sentinel_password_reaches_the_sentinel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`REDIS_SENTINEL_PASSWORD` authenticates the Sentinel connections."""
+        monkeypatch.delenv("REDIS_HOST", raising=False)
+        monkeypatch.setenv("REDIS_URL", self.SENTINEL_URL)
+        monkeypatch.setenv("REDIS_SENTINEL_PASSWORD", "sentinel_password")
+
+        provider = RedisProvider()
+
+        sentinel = provider._sentinel
+        assert sentinel is not None
+        assert sentinel.sentinel_kwargs == {"password": "sentinel_password"}
+
+    def test_kwarg_sentinel_password_reaches_the_sentinel(self) -> None:
+        """The `sentinel_password=` kwarg does the same without the environment."""
+        provider = RedisProvider(
+            self.SENTINEL_URL,
+            sentinel_password="sentinel_password",
+            env_load=False,
+        )
+
+        sentinel = provider._sentinel
+        assert sentinel is not None
+        assert sentinel.sentinel_kwargs == {"password": "sentinel_password"}
+
+    def test_data_password_is_never_reused_for_the_sentinel(self) -> None:
+        """`AUTH` against a Sentinel without `requirepass` fails, so never infer."""
+        provider = RedisProvider(
+            self.SENTINEL_URL, password="data_password", env_load=False
+        )
+
+        sentinel = provider._sentinel
+        assert sentinel is not None
+        assert sentinel.sentinel_kwargs == {}
+
+    def test_from_config_carries_the_sentinel_password(self) -> None:
+        """`from_config` is authoritative and must not drop it."""
+        provider = RedisProvider.from_config(
+            RedisConfig(
+                url=self.SENTINEL_URL, sentinel_password="sentinel_password"
+            )
+        )
+
+        sentinel = provider._sentinel
+        assert sentinel is not None
+        assert sentinel.sentinel_kwargs == {"password": "sentinel_password"}
+
+    def test_non_sentinel_scheme_reports_rather_than_dropping(self) -> None:
+        """A password that cannot apply is said out loud, not discarded."""
+        with pytest.warns(GrelmicroConfigWarning, match="SENTINEL_PASSWORD"):
+            provider = RedisProvider(
+                "redis://host:6379/0",
+                sentinel_password="sentinel_password",
+                env_load=False,
+            )
+
+        assert provider._sentinel is None
+
+    def test_no_sentinel_password_leaves_kwargs_absent(self) -> None:
+        """The argument stays absent for every deployment that does not need it."""
+        provider = RedisProvider(self.SENTINEL_URL, env_load=False)
+
+        sentinel = provider._sentinel
+        assert sentinel is not None
+        assert sentinel.sentinel_kwargs == {}
