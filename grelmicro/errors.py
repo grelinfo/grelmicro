@@ -7,6 +7,18 @@ class GrelmicroError(Exception):
     """Base grelmicro error."""
 
 
+class GrelmicroConfigWarning(UserWarning):
+    """Warned when configuration is set in a way that will not take effect.
+
+    A category of its own so it can be filtered precisely, without silencing
+    every `UserWarning` and without matching on the message text:
+
+    ```toml
+    filterwarnings = ["error", "ignore::grelmicro.GrelmicroConfigWarning"]
+    ```
+    """
+
+
 class AdmissionError(GrelmicroError):
     """Raised when a gatekeeping primitive refuses a call.
 

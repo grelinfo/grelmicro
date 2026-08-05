@@ -32,6 +32,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from grelmicro._json import json_loads
+from grelmicro.errors import GrelmicroConfigWarning
 
 if TYPE_CHECKING:
     import asyncio
@@ -233,7 +234,7 @@ def _warn_ignored_env(config_cls: type[BaseModel], env_prefix: str) -> None:
             f"configuration is opt-in. Set {_ENV_LOAD_VAR}=1 to enable it, "
             f"or pass the value directly."
         )
-        warnings.warn(msg, UserWarning, stacklevel=4)
+        warnings.warn(msg, GrelmicroConfigWarning, stacklevel=4)
 
 
 @lru_cache(maxsize=256)

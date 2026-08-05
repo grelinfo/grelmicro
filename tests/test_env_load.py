@@ -4,6 +4,7 @@ import warnings
 
 import pytest
 
+from grelmicro import GrelmicroConfigWarning
 from grelmicro._config import (
     _warned_ignored_env,
     env_load_default,
@@ -62,7 +63,9 @@ def test_env_ignored_when_flag_off(
     monkeypatch.setenv(
         "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
     )
-    with pytest.warns(UserWarning, match="GREL_LOCK_CART_LEASE_DURATION"):
+    with pytest.warns(
+        GrelmicroConfigWarning, match="GREL_LOCK_CART_LEASE_DURATION"
+    ):
         lock = Lock("cart", backend=backend)
     assert lock.config.lease_duration == DEFAULT_LEASE
 
@@ -76,7 +79,9 @@ def test_ignored_env_is_reported_once(
     monkeypatch.setenv(
         "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
     )
-    with pytest.warns(UserWarning, match="GREL_LOCK_CART_LEASE_DURATION"):
+    with pytest.warns(
+        GrelmicroConfigWarning, match="GREL_LOCK_CART_LEASE_DURATION"
+    ):
         Lock("cart", backend=backend)
 
     with warnings.catch_warnings(record=True) as caught:
@@ -161,7 +166,9 @@ def test_resolve_config_respects_global_flag(
     monkeypatch.setenv(
         "GREL_LOCK_TEST_LEASE_DURATION", str(int(LEASE_FROM_ENV))
     )
-    with pytest.warns(UserWarning, match="GREL_LOCK_TEST_LEASE_DURATION"):
+    with pytest.warns(
+        GrelmicroConfigWarning, match="GREL_LOCK_TEST_LEASE_DURATION"
+    ):
         cfg = resolve_config(
             LockConfig,
             explicit=None,

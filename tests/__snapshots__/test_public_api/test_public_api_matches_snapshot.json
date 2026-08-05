@@ -21,6 +21,7 @@
       "()": "(*, uses=..., strict=..., allow_multiple=...)",
       ".current": "()"
     },
+    "GrelmicroConfigWarning": null,
     "GrelmicroError": null,
     "LifecycleOrderError": null,
     "MultipleActiveAppsError": {
