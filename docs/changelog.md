@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+* 💥 Leave `error` and `details` out of a `/healthz` check that has neither. A passing check sent `"error": null` on every poll, and with details enabled it sent `"details": null` too, so the highest-frequency response in the service spent bytes reporting that nothing happened. A passing check is now `{"status": "ok", "critical": true}`, and a failing one still carries its `error`. The OpenAPI schema types both fields as a plain string and object instead of promising a nullable value that never arrives. Read an absent `error` as a pass. A consumer that required the key needs updating. ([#649](https://github.com/grelinfo/grelmicro/issues/649))
+
+### Features
+
+* ✨ Skip a `None` entry in `Grelmicro(uses=[...])` and `Bulkhead(uses=[...])`. A component registered only for one backend now stays a plain expression, `uses=[Log(), redis if backend == "redis" else None]`, instead of a star-unpacked conditional or a helper function. `micro.use(None)` still raises, because a single call can be guarded with `if`. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
+* ✨ Export `Usable`, the type of everything `uses=` accepts. Building the list in a variable did not type-check, because `Component` was the only exported name and a `Provider` is not a `Component`. Annotate it `list[Usable]` and append either. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
+
+### Fixed
+
+* 🐛 Instantiate a bare class passed to `Bulkhead(uses=[...])`. The parameter documented the same shape as `Grelmicro(uses=[...])`, which accepts a class with no parens, but the bulkhead entered the class object itself and failed on startup. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
+* 🐛 Reject `micro.use(None)` with a message naming the fix. It appended `None` to the item list and failed later inside the app lifecycle, pointing at nothing. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
+
+### Docs
+
+* 📝 Show how to register a component conditionally, in [Wiring an App](wiring.md#register-something-conditionally). Covers the inline `None` entry, the `Usable`-annotated list, and how a Provider registers differently through `use` than inside `uses=`. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
+* 📝 Add a Providers recipe for taking the managed connection and nothing else. Application state that is not a cache, a lock, or a rate limiter is still yours to read and write through `provider.client`, with the lifecycle already handled. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
+* 📝 Document the `/healthz` report body, with a passing and a failing check side by side. ([#649](https://github.com/grelinfo/grelmicro/issues/649))
+
 ## 0.34.3 - 2026-08-05
 
 ### Security

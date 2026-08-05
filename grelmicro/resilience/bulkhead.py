@@ -13,7 +13,7 @@ from pydantic import BaseModel, NonNegativeFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro, _active_bulkhead
-from grelmicro._component import Component
+from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
@@ -24,7 +24,6 @@ from grelmicro.resilience.errors import BulkheadFullError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
-    from contextlib import AbstractAsyncContextManager
     from contextvars import Token
     from types import TracebackType
 
@@ -135,7 +134,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             Doc("Private thread-pool size for `to_thread`."),
         ] = None,
         uses: Annotated[
-            Iterable[AbstractAsyncContextManager[object]],
+            Iterable[Usable | None],
             Doc(
                 """
                 Providers and Components, in the same shape as
@@ -146,6 +145,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 with an explicit `backend=` is unaffected. The bulkhead
                 opens these on first entry and closes them when the app
                 shuts down, so an active `Grelmicro` app is required.
+                A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
         ] = (),
@@ -186,7 +186,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         )
         self._reconfigure_lock = asyncio.Lock()
         self._executor: ThreadPoolExecutor | None = None
-        self._uses = tuple(uses)
+        self._uses = tuple(
+            instantiate_if_class(item) for item in uses if item is not None
+        )
         self._overrides: dict[tuple[str, str], Component] = {
             (item.kind, item.name): item
             for item in self._uses

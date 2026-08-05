@@ -84,3 +84,28 @@ class Component(
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None: ...
+
+
+type Usable = (
+    AbstractAsyncContextManager[object]
+    | type[AbstractAsyncContextManager[object]]
+)
+"""Anything `Grelmicro(uses=[...])`, `Bulkhead(uses=[...])`, and `micro.use()` accept.
+
+Covers `Component` instances, `Provider` instances, first-party backends, the
+bare classes of any of those, and plain async context managers. Name it to
+annotate a list you build before passing it in:
+
+```python
+from grelmicro import Grelmicro, Usable
+
+components: list[Usable] = [Log(), health]
+if settings.store_backend == "redis":
+    components.append(RedisProvider())
+
+micro = Grelmicro(uses=components)
+```
+
+`Component` names a narrower set. It excludes `Provider` instances and plain
+async context managers, both of which `uses=` accepts.
+"""

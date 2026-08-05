@@ -205,6 +205,54 @@ def test_healthz_503_on_critical_failure(
     assert response.json()["status"] == "error"
 
 
+def test_healthz_omits_error_on_passing_check(
+    registry: HealthChecks, client: TestClient
+) -> None:
+    """A passing check reports status and critical alone, with no null error."""
+    registry.add("db", healthy())
+
+    response = client.get("/healthz")
+
+    assert response.json()["checks"]["db"] == {"status": "ok", "critical": True}
+
+
+def test_healthz_keeps_error_on_failing_check(
+    registry: HealthChecks, client: TestClient
+) -> None:
+    """A failing check still carries its error string."""
+    registry.add("db", unhealthy())
+
+    response = client.get("/healthz")
+
+    assert response.json()["checks"]["db"]["error"]
+
+
+def test_healthz_omits_details_when_check_returned_none() -> None:
+    """A check with no details omits the field even when details are shown."""
+    registry = HealthChecks(cache_ttl=0)
+    registry.add("db", healthy())
+    app = FastAPI()
+    app.include_router(health_router(registry=registry, show_details=True))
+    client = TestClient(app)
+
+    response = client.get("/healthz")
+
+    assert response.json()["checks"]["db"] == {"status": "ok", "critical": True}
+
+
+def test_healthz_schema_types_optional_fields_as_absent() -> None:
+    """OpenAPI types the omitted fields as plain values, never as null."""
+    app = FastAPI()
+    app.include_router(health_router(registry=HealthChecks()))
+
+    schema = app.openapi()["components"]["schemas"]["CheckResultResponse"]
+
+    assert schema["properties"]["error"] == {"type": "string", "title": "Error"}
+    assert "null" not in str(schema["properties"]["details"])
+    assert "error" not in schema["required"]
+    assert "details" not in schema["required"]
+
+
 def test_healthz_details_hidden_by_default(
     registry: HealthChecks, client: TestClient
 ) -> None:

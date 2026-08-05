@@ -9,7 +9,7 @@ from grelmicro._app import (
     LifecycleOrderError,
     NoActiveAppError,
 )
-from grelmicro._component import Component
+from grelmicro._component import Component, Usable
 from grelmicro.config import ExternalConfig
 from grelmicro.errors import (
     AdapterNotRegisteredError,
@@ -40,4 +40,5 @@ __all__ = [
     "OutOfContextError",
     "ProviderNotRegisteredError",
     "SettingsValidationError",
+    "Usable",
 ]

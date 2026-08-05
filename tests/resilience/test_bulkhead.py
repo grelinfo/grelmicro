@@ -298,6 +298,17 @@ async def test_uses_overrides_default_backend_in_scope() -> None:
         assert micro.get("coordination", "default").lock_backend is default
 
 
+async def test_uses_skips_none_entries() -> None:
+    """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
+    default = MemoryLockAdapter()
+    dedicated = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead("checkout", uses=[None, Coordination(lock=dedicated)])
+
+    async with micro, bulkhead:
+        assert micro.get("coordination", "default").lock_backend is dedicated
+
+
 async def test_uses_override_only_covers_registered_keys() -> None:
     """A key the bulkhead does not override falls through to the registry."""
     default = MemoryLockAdapter()

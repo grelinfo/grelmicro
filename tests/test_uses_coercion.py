@@ -305,3 +305,44 @@ def test_use_provider_after_component_is_lifecycle_only() -> None:
 
     kinds = {component.kind for component in micro.components}
     assert kinds == {"cache"}
+
+
+# --- conditional registration ---
+
+
+def test_uses_skips_none_entries() -> None:
+    """A `None` entry in `uses=` registers nothing and does not raise."""
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), None])
+
+    assert {component.kind for component in micro.components} == {"cache"}
+
+
+def test_uses_all_none_registers_nothing() -> None:
+    """A list of only `None` leaves an empty app rather than failing."""
+    micro = Grelmicro(uses=[None, None])
+
+    assert micro.components == ()
+
+
+def test_uses_none_does_not_block_provider_defaults() -> None:
+    """A skipped entry still leaves a lone Provider auto-registering its kinds."""
+    micro = Grelmicro(uses=[None, _MemoryProvider()])
+
+    assert isinstance(micro.get("cache"), Cache)
+    assert isinstance(micro.get("coordination"), Coordination)
+
+
+async def test_uses_none_is_not_lifecycled() -> None:
+    """A skipped entry never reaches the exit stack."""
+    micro = Grelmicro(uses=[None, Cache(MemoryCacheAdapter())])
+
+    async with micro:
+        assert isinstance(micro.get("cache"), Cache)
+
+
+def test_use_none_raises_pointing_at_the_alternative() -> None:
+    """`micro.use(None)` is a mistake and says what to write instead."""
+    micro = Grelmicro()
+
+    with pytest.raises(TypeError, match=r"use\(None\) registers nothing"):
+        micro.use(None)  # ty: ignore[invalid-argument-type]

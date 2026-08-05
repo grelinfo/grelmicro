@@ -6,14 +6,15 @@ import re
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Doc
 
 from grelmicro._app import AmbientBindingError
 from grelmicro._json import json_dumps_bytes
 from grelmicro.errors import OutOfContextError
 from grelmicro.health._checks import HealthChecks
-from grelmicro.health._models import HealthStatus
+from grelmicro.health._models import CheckResult, HealthStatus
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyMakerError,
@@ -1030,13 +1031,30 @@ def _always_false() -> bool:
     return False
 
 
+def _omitted_when_absent(schema: dict[str, Any]) -> None:
+    """Drop the `null` default from a field the response omits when unset."""
+    schema.pop("default", None)
+
+
 class CheckResultResponse(BaseModel):
-    """Health status of a single check."""
+    """Health status of a single check.
+
+    `error` is present only on a failing check, and `details` only when the
+    check returned some and the router is showing them. Both are absent
+    otherwise rather than sent as `null`, so the schema types them as a plain
+    string and object.
+    """
 
     status: HealthStatus
     critical: bool = True
-    error: str | None = None
-    details: dict[str, Any] | None = None
+    error: Annotated[
+        str | SkipJsonSchema[None],
+        Field(default=None, json_schema_extra=_omitted_when_absent),
+    ]
+    details: Annotated[
+        dict[str, Any] | SkipJsonSchema[None],
+        Field(default=None, json_schema_extra=_omitted_when_absent),
+    ]
 
 
 class HealthzResponse(BaseModel):
@@ -1195,21 +1213,13 @@ def health_router(
             critical_only=False,
             exclude=_parse_exclude(exclude),
         )
-        body: Any = (
-            report
-            if include_details
-            else {
-                "status": report["status"],
-                "checks": {
-                    name: {
-                        "status": r["status"],
-                        "critical": r["critical"],
-                        "error": r["error"],
-                    }
-                    for name, r in report["checks"].items()
-                },
-            }
-        )
+        body: Any = {
+            "status": report["status"],
+            "checks": {
+                name: _check_body(result, details=include_details)
+                for name, result in report["checks"].items()
+            },
+        }
         status_code = (
             HTTP_200_OK
             if report["status"] == HealthStatus.OK
@@ -1223,6 +1233,27 @@ def health_router(
         )
 
     return router
+
+
+def _check_body(result: CheckResult, *, details: bool) -> dict[str, Any]:
+    """Build one `/healthz` check entry, leaving out what carries no value.
+
+    A passing check reports `status` and `critical` alone. `error` is added
+    only when the check failed, and `details` only when the check returned
+    some and the router is showing them.
+    """
+    body: dict[str, Any] = {
+        "status": result["status"],
+        "critical": result["critical"],
+    }
+    error = result["error"]
+    if error is not None:
+        body["error"] = error
+    if details:
+        check_details = result["details"]
+        if check_details is not None:
+            body["details"] = check_details
+    return body
 
 
 def _resolve_show_details_dep(show_details: Any) -> "Callable[..., Any]":  # noqa: ANN401

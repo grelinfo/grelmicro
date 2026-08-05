@@ -2,8 +2,9 @@
 
 from typing import assert_type
 
-from grelmicro import Grelmicro
+from grelmicro import Grelmicro, Usable
 from grelmicro.health import HealthChecks
+from grelmicro.providers.memory import MemoryProvider
 
 
 def build() -> None:
@@ -11,6 +12,19 @@ def build() -> None:
     assert_type(Grelmicro(), Grelmicro)
     assert_type(Grelmicro(uses=[HealthChecks()]), Grelmicro)
     assert_type(Grelmicro(uses=[HealthChecks]), Grelmicro)
+
+
+def usable_list() -> None:
+    """`Usable` annotates a list mixing Components and Providers."""
+    components: list[Usable] = [HealthChecks()]
+    components.append(MemoryProvider())
+    assert_type(Grelmicro(uses=components), Grelmicro)
+
+
+def conditional() -> None:
+    """Accept a `None` entry in `uses=` for a conditional registration."""
+    provider: MemoryProvider | None = MemoryProvider()
+    assert_type(Grelmicro(uses=[HealthChecks(), provider]), Grelmicro)
 
 
 def current() -> None:

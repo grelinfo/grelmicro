@@ -134,6 +134,27 @@ async def redis_provider(redis_container):
         yield provider
 ```
 
+## Recipe 4: the managed connection, nothing else
+
+Not all of your data is a cache, a lock, or a rate limiter. Plain application
+state in a Redis hash is still yours to read and write, and a Provider gives you
+that connection with the lifecycle already handled. Reach for `provider.client`:
+
+```python
+--8<-- "wiring/provider_client.py"
+```
+
+The client is the native one (`redis.asyncio.Redis`, `asyncpg.Pool`,
+`aiosqlite.Connection`), so every command that library offers is available. The
+app opens it on startup and closes it on shutdown, and a `HealthChecks` can probe
+it with `add_provider(redis)`.
+
+Two things to know. The client exists only inside the app scope, so a call made
+before startup raises `OutOfContextError`. And a lone Provider listed with no
+components also registers a default component per kind it serves, which costs
+nothing if you never use them. List the components you do want to be explicit
+about the wiring.
+
 ## Construction forms
 
 ```python

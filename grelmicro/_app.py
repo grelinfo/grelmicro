@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol, Self, cast
 
 from typing_extensions import Doc
 
-from grelmicro._component import Component, instantiate_if_class
+from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro.errors import (
     GrelmicroError,
     MultipleActiveAppsError,
@@ -138,22 +138,23 @@ class Grelmicro:
         self,
         *,
         uses: Annotated[
-            Iterable[
-                AbstractAsyncContextManager[object]
-                | type[AbstractAsyncContextManager[object]]
-            ]
-            | None,
+            Iterable[Usable | None] | None,
             Doc(
                 """
-                Items registered at construction time. Equivalent to a
-                sequence of `.use(item)` calls in the same order. Accepts
-                `Component` instances (registered with `(kind, name)`
+                Items registered at construction time, in the given order.
+                Accepts `Component` instances (registered with `(kind, name)`
                 lookup, exposed on `micro.<kind>`), bare adapter or component
                 classes (instantiated for you), `Provider` instances (a lone
                 Provider registers a default Component per kind it serves), and
                 plain async context managers (lifecycled only, caller holds the
                 reference). Two bare Providers with no Components raise
                 `AmbiguousProviderError`.
+
+                A `None` entry is skipped, so a component registered only for
+                one backend stays a plain expression:
+                `uses=[Log(), redis if backend == "redis" else None]`.
+
+                Annotate a list you build beforehand with `Usable`.
                 """,
             ),
         ] = None,
@@ -196,7 +197,10 @@ class Grelmicro:
         if uses is not None:
             try:
                 for item in uses:
-                    self.use(item)
+                    # A `None` entry is a conditional registration that did
+                    # not apply.
+                    if item is not None:
+                        self.use(item)
             finally:
                 self._deferring_provider_defaults = False
             self._register_provider_defaults()
@@ -228,8 +232,7 @@ class Grelmicro:
     def use(
         self,
         item: Annotated[
-            AbstractAsyncContextManager[object]
-            | type[AbstractAsyncContextManager[object]],
+            Usable,
             Doc(
                 """
                 The item to register and lifecycle with the app. A `Component`
@@ -289,7 +292,16 @@ class Grelmicro:
             ComponentAlreadyRegisteredError: A different component is already
                 registered under the same `(kind, name)` key. Plain async
                 context managers do not raise. They are appended.
+            TypeError: If `item` is `None`. `Grelmicro(uses=[...])` skips a
+                `None` entry, a single call does not.
         """
+        if item is None:
+            msg = (
+                "use(None) registers nothing. Guard the call with `if`, or "
+                "move the conditional into Grelmicro(uses=[...]), which "
+                "skips None entries."
+            )
+            raise TypeError(msg)
         # A bare class (no parens) is instantiated with no arguments, in the
         # spirit of FastAPI's `Depends(dep)`: pass the reference, the framework
         # calls it. Useful for zero-arg adapters like `MemoryLockAdapter`.
