@@ -689,15 +689,16 @@ async def test_override_restores_when_a_later_component_fails_to_open() -> None:
 
     real = _RecordingComponent(name="default")
     other = _OtherComponent(name="default")
+    installed = _RecordingComponent(name="default")
     micro = Grelmicro(uses=[real, other])
     async with micro:
         with pytest.raises(RuntimeError, match=_RAISED):
-            async with micro.override(
-                _RecordingComponent(name="default"),
-                _FailingOther(name="default"),
-            ):
+            async with micro.override(installed, _FailingOther(name="default")):
                 pass  # pragma: no cover
 
+        # The component that opened before the failure is closed again.
+        assert installed.entered == 1
+        assert installed.exited == 1
         assert micro.rec is real
         assert micro.oth is other
 
