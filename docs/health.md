@@ -147,6 +147,23 @@ All three also accept `HEAD`. All responses set `Cache-Control: no-store`. Probe
 
 Paths follow the z-pages convention (`/livez`, `/readyz`, `/healthz`). The trailing `z` avoids collisions with application routes like `/health`.
 
+### Report Body
+
+`/healthz` reports the aggregate status and one entry per check. A check that passed carries `status` and `critical` alone:
+
+```json
+{
+  "status": "error",
+  "checks": {
+    "store": {"status": "ok", "critical": true},
+    "analytics": {"status": "ok", "critical": false},
+    "database": {"status": "error", "critical": true, "error": "connection refused"}
+  }
+}
+```
+
+A field that has nothing to report is left out rather than sent as `null`. `error` appears only on a failing check, and `details` only when the check returned some and `show_details` allows them. Read an absent `error` as "this check passed".
+
 ### Using with Docker, Compose, and other Orchestrators
 
 Different orchestrators consume different probes. grelmicro exposes all three endpoints, pick the ones that fit:
@@ -204,7 +221,7 @@ With `show_details=Depends(fn)`, `fn` is wired into FastAPI's dependency-injecti
 --8<-- "health/show_details.py"
 ```
 
-With details enabled, each check entry includes a `details` field:
+With details enabled, a check that returned some includes a `details` field:
 
 ```json
 {
@@ -213,7 +230,6 @@ With details enabled, each check entry includes a `details` field:
     "redis": {
       "status": "ok",
       "critical": true,
-      "error": null,
       "details": {"latency_ms": 1.2, "version": "7.2"}
     }
   }

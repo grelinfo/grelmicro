@@ -35,7 +35,8 @@
     },
     "SettingsValidationError": {
       "()": "(error)"
-    }
+    },
+    "Usable": null
   },
   "grelmicro.cache": {
     "Cache": {

@@ -42,6 +42,45 @@ async with micro:
 The lock finds the registered Redis backend through the active app. No `backend=`
 argument needed.
 
+## Register something conditionally
+
+A component that exists only for one backend or one environment stays inline. A
+`None` entry in `uses=` is skipped:
+
+```python
+--8<-- "wiring/conditional.py"
+```
+
+With `STORE_BACKEND` unset, the app registers the health checks alone. Set it to
+`redis` and the provider joins them, with no change to the shape of the list.
+
+When the list is long enough to deserve its own function, annotate it with
+`Usable`. It names everything `uses=` accepts, which `Component` does not: a
+`Provider` is not a `Component`, and neither is a plain async context manager.
+
+```python
+--8<-- "wiring/usable.py"
+```
+
+`Usable` names one item, not the list. Keep the conditional in an `if` and the
+annotation stays `list[Usable]`. A prebuilt list that carries its own `None`
+entries is `list[Usable | None]`, which `uses=` accepts just the same.
+
+`micro.use(item)` registers one item after construction and rejects `None`,
+because a single call can be guarded with `if` instead:
+
+```python
+if os.getenv("STORE_BACKEND") == "redis":
+    micro.use(RedisProvider())
+```
+
+!!! note "A Provider registers differently through `use`"
+    Inside `uses=[...]`, a lone Provider on an app with no components registers
+    a default component for every kind it serves. By the time you call
+    `micro.use(provider)` on an app that already holds a component, the Provider
+    is lifecycled only. Pass the components you want explicitly
+    (`micro.use(Cache(redis))`) when you need them.
+
 ## FastAPI
 
 Call `micro.install(app)`. One call wires both pieces:

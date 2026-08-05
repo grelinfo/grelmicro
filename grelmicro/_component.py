@@ -84,3 +84,32 @@ class Component(
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None: ...
+
+
+type Usable = (
+    AbstractAsyncContextManager[object]
+    | type[AbstractAsyncContextManager[object]]
+)
+"""One item `Grelmicro(uses=[...])`, `Bulkhead(uses=[...])`, or `micro.use()` accepts.
+
+Covers `Component` instances, `Provider` instances, first-party backends, the
+bare classes of any of those, and plain async context managers. Name it to
+annotate a list you build before passing it in:
+
+```python
+from grelmicro import Grelmicro, Usable
+
+components: list[Usable] = [Log(), health]
+if settings.store_backend == "redis":
+    components.append(RedisProvider())
+
+micro = Grelmicro(uses=components)
+```
+
+`Component` names a narrower set. It excludes `Provider` instances and plain
+async context managers, both of which `uses=` accepts.
+
+A `uses=` list also takes `None` entries and skips them, which this alias does
+not cover, since `micro.use(None)` is an error. Annotate a prebuilt list that
+carries its own conditionals as `list[Usable | None]`.
+"""
