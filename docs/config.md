@@ -3,6 +3,68 @@
 You build a pattern with keyword arguments. You tune it in deployment with
 environment variables. No code change between the two.
 
+## How a value is resolved
+
+A field takes the first of these that supplies it:
+
+1. **A keyword argument.** Always wins, always available, needs nothing enabled.
+2. **An environment variable**, when `GREL_ENV_LOAD` is truthy. Off by default.
+3. **A file**, through
+   [`ExternalConfig`](configuration/reconfigure-from-configmap.md), which also
+   reconfigures a running component when the file changes.
+4. The field's default.
+
+Step 2 is the one that surprises people. `GREL_ENV_LOAD` is a single
+process-wide switch, so a variable set without it is ignored and the default
+applies. Since 0.35.1 that situation warns at startup instead of passing
+silently, naming the variable:
+
+```
+UserWarning: GREL_LOG_FORMAT is set but was not applied: environment-driven
+configuration is opt-in. Set GREL_ENV_LOAD=1 to enable it, or pass the value
+directly.
+```
+
+The switch exists because step 2 fills *every* field you did not pass, not only
+the ones with no default. An app that passes some settings from its own config
+object and leaves the rest would otherwise split one component's configuration
+across two sources without saying so. Opting in makes that a decision rather
+than an accident. [Config resolution](advanced/config.md) has the full contract.
+
+### Local development without exporting variables
+
+Two options, and they cover different things.
+
+**Put the variables in a `.env` and load them into the process.** Anything that
+populates `os.environ` works, and relative paths are fine:
+
+```bash
+# .env
+GREL_ENV_LOAD=1
+GREL_LOG_FORMAT=PRETTY
+GREL_LOCK_CART_LEASE_DURATION=60
+```
+
+```bash
+uv run --env-file .env python -m myapp
+```
+
+`GREL_ENV_LOAD=1` has to be in the file too, or nothing else in it is read.
+
+**Or pass the values in code**, which needs no switch at all and is the only
+option for logging:
+
+```python
+from grelmicro.log import configure
+
+configure(format="PRETTY")
+```
+
+`ExternalConfig` reads a `.env` as well, but it feeds *reconfigurable*
+components (locks, retries, timeouts, health checks) and not `Log`, which
+installs logging once at startup. For log format in local development, use
+`configure(...)` or the loaded-environment route above.
+
 ## Build with keyword arguments
 
 Pass the name first, then the settings:
@@ -28,6 +90,8 @@ read and easy to test.
 
 The deployment overrides any field without touching code. Set the environment
 variable for the field and grelmicro reads it at startup.
+
+--8<-- "env_gate.md"
 
 The variable name is built from the pattern and the instance name:
 

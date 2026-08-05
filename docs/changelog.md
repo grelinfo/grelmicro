@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* 🐛 Say so when a `GREL_*` variable is set but not applied. Environment-driven configuration is opt-in behind `GREL_ENV_LOAD`, so a documented variable such as `GREL_LOG_FORMAT` was read by nobody and the default applied with nothing reported. It now warns once, naming the variable and the flag. Only the exact names a config declares are matched, never the prefix, because Kubernetes injects `{SVCNAME}_SERVICE_HOST` for every Service and a prefix sweep would warn on every pod start. An explicit `env_load=False` is a decision and stays silent. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
+
+### Docs
+
+* 📝 Teach how a value is resolved, in [Configuration](config.md#how-a-value-is-resolved). Keyword arguments, environment behind `GREL_ENV_LOAD`, and a file through `ExternalConfig`, with a local development recipe that does not need exported variables. Says plainly that `ExternalConfig` reconfigures live components and not `Log`, so log format in local development comes from `configure(...)` or a loaded `.env`. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
+* 📝 Put the opt-in warning above every environment variable table, written once and included, so a reader who lands on a module page from a search engine sees it without following a link. The logging page also no longer claims every knob is an environment variable without saying when they are read. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
+
 ## 0.35.0 - 2026-08-05
 
 ### Upgrading

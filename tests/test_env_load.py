@@ -1,8 +1,14 @@
 """Tests for the GREL_ENV_LOAD opt-in flag."""
 
+import warnings
+
 import pytest
 
-from grelmicro._config import env_load_default, resolve_config
+from grelmicro._config import (
+    _warned_ignored_env,
+    env_load_default,
+    resolve_config,
+)
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
 
@@ -21,6 +27,12 @@ def backend() -> MemoryLockAdapter:
 def _no_env_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
     """Override the autouse fixture and turn the global flag off."""
     monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_ignored_env_warnings() -> None:
+    """Clear the process-wide dedup set so warnings do not depend on test order."""
+    _warned_ignored_env.clear()
 
 
 @pytest.mark.parametrize("value", ["1", "true", "True", "TRUE", "yes", "on"])
@@ -46,12 +58,73 @@ def test_env_ignored_when_flag_off(
     backend: MemoryLockAdapter,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Without the global flag, env vars are not read."""
+    """Without the global flag, env vars are not read, and that is reported."""
     monkeypatch.setenv(
         "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
     )
-    lock = Lock("cart", backend=backend)
+    with pytest.warns(UserWarning, match="GREL_LOCK_CART_LEASE_DURATION"):
+        lock = Lock("cart", backend=backend)
     assert lock.config.lease_duration == DEFAULT_LEASE
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+def test_ignored_env_is_reported_once(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same ignored variable is reported once, not on every construction."""
+    monkeypatch.setenv(
+        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
+    )
+    with pytest.warns(UserWarning, match="GREL_LOCK_CART_LEASE_DURATION"):
+        Lock("cart", backend=backend)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        Lock("cart", backend=backend)
+
+    assert caught == []
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+def test_unrelated_prefixed_env_is_not_reported(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only declared field names are matched, never a prefix sweep.
+
+    Kubernetes injects `{SVCNAME}_SERVICE_HOST` for every Service, so a
+    prefix sweep would warn on every pod start.
+    """
+    monkeypatch.setenv("GREL_LOCK_CART_SERVICE_HOST", "10.0.0.1")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        Lock("cart", backend=backend)
+
+    assert caught == []
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+def test_explicit_env_load_false_is_not_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit opt-out is a decision, so it is never reported."""
+    monkeypatch.setenv(
+        "GREL_LOCK_TEST_LEASE_DURATION", str(int(LEASE_FROM_ENV))
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        resolve_config(
+            LockConfig,
+            explicit=None,
+            kwargs={},
+            env_prefix="GREL_LOCK_TEST_",
+            env_load=False,
+        )
+
+    assert caught == []
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
@@ -88,13 +161,14 @@ def test_resolve_config_respects_global_flag(
     monkeypatch.setenv(
         "GREL_LOCK_TEST_LEASE_DURATION", str(int(LEASE_FROM_ENV))
     )
-    cfg = resolve_config(
-        LockConfig,
-        explicit=None,
-        kwargs={},
-        env_prefix="GREL_LOCK_TEST_",
-        env_load=None,
-    )
+    with pytest.warns(UserWarning, match="GREL_LOCK_TEST_LEASE_DURATION"):
+        cfg = resolve_config(
+            LockConfig,
+            explicit=None,
+            kwargs={},
+            env_prefix="GREL_LOCK_TEST_",
+            env_load=None,
+        )
     assert cfg.lease_duration == DEFAULT_LEASE  # flag off, env ignored
 
     monkeypatch.setenv("GREL_ENV_LOAD", "true")

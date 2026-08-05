@@ -50,6 +50,7 @@ extra:
 exclude_docs: |
   img/logo/README.md
   img/logo/build_logo.py
+  snippets/env_gate.md
 
 validation:
   omitted_files: warn
