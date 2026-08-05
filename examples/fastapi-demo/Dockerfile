@@ -4,11 +4,7 @@
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 
 WORKDIR /srv
-
-# uv comes from its own image rather than pip, so it is pinned by digest like
-# the base image is. Dependabot bumps both. A version-pinned `pip install` still
-# resolves whatever the index serves for that version.
-COPY --from=ghcr.io/astral-sh/uv:0.11.29@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc /uv /usr/local/bin/uv
+RUN pip install --no-cache-dir uv==0.11.29
 
 # Install grelmicro (current source) plus the demo's runtime deps.
 COPY pyproject.toml README.md ./
