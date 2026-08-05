@@ -74,12 +74,11 @@ if os.getenv("STORE_BACKEND") == "redis":
     micro.use(RedisProvider())
 ```
 
-!!! note "A Provider registers differently through `use`"
-    Inside `uses=[...]`, a lone Provider on an app with no components registers
-    a default component for every kind it serves. By the time you call
-    `micro.use(provider)` on an app that already holds a component, the Provider
-    is lifecycled only. Pass the components you want explicitly
-    (`micro.use(Cache(redis))`) when you need them.
+!!! note "A Provider fills the kinds nothing else claims"
+    A Provider registers a default component for every kind it serves that no
+    component of yours already claims, whether you list it in `uses=` or pass it
+    to `micro.use(provider)`. Both forms behave the same way: explicit wins, the
+    provider fills the rest.
 
 ## FastAPI
 

@@ -34,6 +34,19 @@ from grelmicro.resilience.circuitbreaker.memory import (
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 
+class _HealthLikeComponent:
+    """A Component of a kind no Provider serves, as `HealthChecks` is."""
+
+    kind: ClassVar[str] = "health"
+    name: str = "default"
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
 class _MemoryProvider(Provider):
     """A Provider serving every kind from in-memory adapters.
 
@@ -231,20 +244,34 @@ async def test_provider_auto_registered_components_lifecycle() -> None:
 # --- Explicit wins ---
 
 
-def test_explicit_component_disables_provider_auto_registration() -> None:
-    """Any explicit Component turns provider auto-registration off entirely."""
-    provider = _MemoryProvider()
-    micro = Grelmicro(uses=[provider, Cache(MemoryCacheAdapter())])
+def test_explicit_component_wins_for_its_own_kind() -> None:
+    """An explicit Component keeps its kind, the Provider fills the rest."""
+    backend = MemoryCacheAdapter()
+    micro = Grelmicro(uses=[_MemoryProvider(), Cache(backend)])
 
-    assert isinstance(micro.get("cache"), Cache)
+    assert micro.get("cache").backend is backend
     kinds = {component.kind for component in micro.components}
-    assert kinds == {"cache"}
+    assert kinds == {"cache", "coordination", "ratelimiter", "circuitbreaker"}
+
+
+def test_unrelated_component_does_not_suppress_defaults() -> None:
+    """A Component of a kind no Provider serves leaves the defaults alone."""
+    micro = Grelmicro(uses=[_MemoryProvider(), _HealthLikeComponent()])
+
+    kinds = {component.kind for component in micro.components}
+    assert kinds == {
+        "cache",
+        "coordination",
+        "ratelimiter",
+        "circuitbreaker",
+        "health",
+    }
 
 
 async def test_explicit_provider_listed_with_component_lifecycled_once() -> (
     None
 ):
-    """A Provider listed beside an explicit Component is lifecycle-only."""
+    """A Provider beside an explicit Component still fills the other kinds."""
     provider = _MemoryProvider()
     micro = Grelmicro(uses=[provider, Coordination(lock=MemoryLockAdapter())])
 
@@ -252,7 +279,7 @@ async def test_explicit_provider_listed_with_component_lifecycled_once() -> (
         pass
 
     kinds = {component.kind for component in micro.components}
-    assert kinds == {"coordination"}
+    assert kinds == {"coordination", "cache", "ratelimiter", "circuitbreaker"}
 
 
 # --- Two-provider ambiguity ---
@@ -297,14 +324,16 @@ def test_use_lone_provider_auto_registers() -> None:
     assert isinstance(micro.get("coordination"), Coordination)
 
 
-def test_use_provider_after_component_is_lifecycle_only() -> None:
-    """`use(component)` then `use(provider)` leaves the provider lifecycle-only."""
+def test_use_provider_after_component_fills_the_other_kinds() -> None:
+    """`use(component)` then `use(provider)` matches the `uses=` list form."""
+    backend = MemoryCacheAdapter()
     micro = Grelmicro()
-    micro.use(Cache(MemoryCacheAdapter()))
+    micro.use(Cache(backend))
     micro.use(_MemoryProvider())
 
+    assert micro.get("cache").backend is backend
     kinds = {component.kind for component in micro.components}
-    assert kinds == {"cache"}
+    assert kinds == {"cache", "coordination", "ratelimiter", "circuitbreaker"}
 
 
 # --- conditional registration ---

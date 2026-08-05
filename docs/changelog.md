@@ -21,6 +21,18 @@ if error is not None:
 
 A failing check still carries `error`, and `status` and `critical` are still on every entry, so a dashboard reading those needs no change.
 
+**A `HealthChecks` no longer removes your backends.** Listing any Component used to switch provider auto-registration off entirely, so an app that added health checks lost its cache and locks with no warning. If you listed components explicitly only to work around that, the short form works now:
+
+```diff
+-micro = Grelmicro(uses=[
+-    Coordination(redis), Cache(redis), RateLimiterRegistry(redis),
+-    CircuitBreakerRegistry(redis), tasks, health,
+-])
++micro = Grelmicro(uses=[redis, tasks, health])
+```
+
+Explicit components still win for their own kind, so mixed wiring keeps working untouched. Two or more providers still fill no defaults, so `HealthChecks(auto_health=True)` across several providers is unchanged.
+
 **Redis credentials split across two variables now work.** `REDIS_PASSWORD` next to a `REDIS_URL` was read and then dropped, so the client connected unauthenticated. If you worked around that by building the provider from explicit settings, the plain form is enough again:
 
 ```diff
@@ -41,6 +53,7 @@ One combination newly raises instead of passing silently: a URL that already car
 
 ### Breaking
 
+* 💥 Back off per kind instead of disabling every provider default. Listing any Component used to turn provider auto-registration off entirely, so adding a `HealthChecks` silently removed the cache and the locks and the first `Lock("cart")` raised, naming the lock rather than the health registry that caused it. A Component now claims its own kind and the Provider fills the rest, which reads as one sentence: explicit wins, the Provider fills the rest. A Component of a kind no Provider serves (`HealthChecks`, `Log`, `Trace`) claims nothing and suppresses nothing. Two or more Providers still fill no defaults, since neither can be the default for a kind they both serve, so `HealthChecks(auto_health=True)` across several Providers is unchanged. ([#655](https://github.com/grelinfo/grelmicro/issues/655))
 * 💥 Leave `error` and `details` out of a `/healthz` check that has neither. A passing check sent `"error": null` on every poll, and with details enabled it sent `"details": null` too, so the highest-frequency response in the service spent bytes reporting that nothing happened. A passing check is now `{"status": "ok", "critical": true}`, and a failing one still carries its `error`. The OpenAPI schema types both fields as a plain string and object instead of promising a nullable value that never arrives. Read an absent `error` as a pass. A consumer that required the key needs updating. ([#649](https://github.com/grelinfo/grelmicro/issues/649))
 
 ### Features
