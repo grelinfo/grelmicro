@@ -1,15 +1,4 @@
 from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination
-from grelmicro.coordination.memory import (
-    MemoryLeaderElectionAdapter,
-    MemoryLockAdapter,
-)
+from grelmicro.providers.memory import MemoryProvider
 
-micro = Grelmicro(
-    uses=[
-        Coordination(
-            lock=MemoryLockAdapter(),
-            election=MemoryLeaderElectionAdapter(),
-        )
-    ]
-)
+micro = Grelmicro(uses=[MemoryProvider()])

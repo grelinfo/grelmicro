@@ -1,11 +1,10 @@
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache, JsonSerializer
-from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache import JsonSerializer
+from grelmicro.providers.memory import MemoryProvider
 
-cache = Cache(MemoryCacheAdapter())
-micro = Grelmicro(uses=[cache])
+micro = Grelmicro(uses=[MemoryProvider()])
 
-ttl_cache = cache.ttl(ttl=300, serializer=JsonSerializer())
+ttl_cache = micro.cache.ttl(ttl=300, serializer=JsonSerializer())
 
 
 async def main() -> None:

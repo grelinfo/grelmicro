@@ -1,8 +1,8 @@
 from grelmicro.coordination import LeaderElection
-from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
+from grelmicro.providers.memory import MemoryProvider
 from grelmicro.task import Tasks
 
-leader = LeaderElection("my-service", backend=MemoryLeaderElectionAdapter())
+leader = LeaderElection("my-service", backend=MemoryProvider().leaderelection())
 task = Tasks()
 task.add_task(leader)
 
