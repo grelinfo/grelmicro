@@ -602,10 +602,17 @@ def _resolve_url(
     if settings.url is not None and settings.host is not None:
         msg = f"set either {env_prefix}URL or {env_prefix}HOST, not both"
         raise RedisProviderConfigError(msg)
-    resolved_sentinel = sentinel_password or (
-        settings.sentinel_password.get_secret_value()
-        if settings.sentinel_password
-        else None
+    # `is not None`, not `or`: an explicitly passed empty string is a value
+    # the caller chose, and falling through to the environment would invert
+    # the precedence every other field follows.
+    resolved_sentinel = (
+        sentinel_password
+        if sentinel_password is not None
+        else (
+            settings.sentinel_password.get_secret_value()
+            if settings.sentinel_password
+            else None
+        )
     )
     if settings.url is not None:
         return (
@@ -656,9 +663,11 @@ def _sentinel_kwargs(
         import warnings  # noqa: PLC0415
 
         msg = (
-            f"{env_prefix}SENTINEL_PASSWORD is set but the URL scheme is "
+            f"a Sentinel password is configured but the URL scheme is "
             f"{scheme!r}, so it was not applied. It configures the Sentinel "
-            f"servers, which only a {_SENTINEL_SCHEME}:// URL connects to."
+            f"servers, which only a {_SENTINEL_SCHEME}:// URL connects to. "
+            f"Set it with `sentinel_password=` or "
+            f"{env_prefix}SENTINEL_PASSWORD."
         )
         warnings.warn(msg, GrelmicroConfigWarning, stacklevel=4)
         return None

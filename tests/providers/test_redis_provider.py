@@ -882,7 +882,9 @@ class TestSentinelPassword:
 
     def test_non_sentinel_scheme_reports_rather_than_dropping(self) -> None:
         """A password that cannot apply is said out loud, not discarded."""
-        with pytest.warns(GrelmicroConfigWarning, match="SENTINEL_PASSWORD"):
+        with pytest.warns(
+            GrelmicroConfigWarning, match="Sentinel password is configured"
+        ):
             provider = RedisProvider(
                 "redis://host:6379/0",
                 sentinel_password="sentinel_password",
@@ -890,6 +892,18 @@ class TestSentinelPassword:
             )
 
         assert provider._sentinel is None
+
+    def test_explicit_empty_password_wins_over_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A value the caller passed outranks the environment, empty included."""
+        monkeypatch.setenv("REDIS_SENTINEL_PASSWORD", "from_env")
+
+        provider = RedisProvider(self.SENTINEL_URL, sentinel_password="")
+
+        sentinel = provider._sentinel
+        assert sentinel is not None
+        assert sentinel.sentinel_kwargs == {"password": ""}
 
     def test_no_sentinel_password_leaves_kwargs_absent(self) -> None:
         """The argument stays absent for every deployment that does not need it."""
