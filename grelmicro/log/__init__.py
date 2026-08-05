@@ -65,6 +65,17 @@ def configure(
             """
         ),
     ] = None,
+    uvicorn_enabled: Annotated[
+        bool | None,
+        Doc(
+            """
+            Reformat uvicorn's own loggers to match this format.
+
+            Default: True. Pass False when uvicorn's logging is configured
+            elsewhere, such as with `uvicorn --log-config`.
+            """
+        ),
+    ] = None,
     env_load: Annotated[
         bool | None,
         Doc(
@@ -105,6 +116,7 @@ def configure(
             "json_serializer": json_serializer,
             "caller_enabled": caller_enabled,
             "otel_enabled": otel_enabled,
+            "uvicorn_enabled": uvicorn_enabled,
         },
         env_prefix="GREL_LOG_",
         env_load=env_load,

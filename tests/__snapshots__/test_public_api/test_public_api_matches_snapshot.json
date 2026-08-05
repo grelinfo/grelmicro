@@ -267,7 +267,7 @@
       ".from_config": "(config, *, name=...)"
     },
     "LogConfig": {
-      "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=...)"
+      "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., uvicorn_enabled=...)"
     },
     "LogError": null,
     "LogSettingsValidationError": {
@@ -284,7 +284,7 @@
       "()": "(*, capacity=..., refill_rate=..., key_mode=..., cost=...)"
     },
     "configure": {
-      "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)"
+      "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., uvicorn_enabled=..., env_load=...)"
     },
     "configure_with": {
       "()": "(config)"

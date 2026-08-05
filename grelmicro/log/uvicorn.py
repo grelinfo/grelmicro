@@ -11,7 +11,7 @@ from grelmicro.log._shared import (
     render_text_line,
 )
 from grelmicro.log._stdlib import _STANDARD_LOG_RECORD_ATTRS, _BaseFormatter
-from grelmicro.log.config import LogFormatType
+from grelmicro.log.config import LogConfig, LogFormatType
 
 if TYPE_CHECKING:
     import logging
@@ -25,6 +25,35 @@ _UVICORN_LOG_RECORD_ATTRS = _STANDARD_LOG_RECORD_ATTRS | {
 _MIN_ACCESS_ARGS = 5
 
 
+_UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+
+
+def apply(config: LogConfig) -> None:
+    """Reformat uvicorn's own loggers to match the application format.
+
+    Uvicorn installs its own handlers with ``propagate`` off, so its records
+    never reach the handler `configure()` sets up and the process emits two
+    formats on one stream. Its handlers are kept, so the stderr/stdout split
+    and any custom handler survive, and only the formatter is replaced.
+
+    Uvicorn applies its logging config while building `Config`, before it
+    imports the application module, so a `configure()` call at import time
+    runs afterwards and has handlers to reformat. A process that configures
+    logging before uvicorn starts is not covered, which is why this is a
+    best-effort pass rather than a guarantee.
+    """
+    import logging as _logging  # noqa: PLC0415
+
+    for name in _UVICORN_LOGGERS:
+        logger = _logging.getLogger(name)
+        for handler in logger.handlers:
+            handler.setFormatter(
+                UvicornAccessFormatter(config)
+                if name == "uvicorn.access"
+                else UvicornFormatter(config)
+            )
+
+
 class _UvicornBaseFormatter(_BaseFormatter):
     """Base uvicorn formatter that filters uvicorn-specific record attributes."""
 
@@ -36,12 +65,17 @@ class UvicornFormatter(_UvicornBaseFormatter):
 
     Reads ``LOG_FORMAT`` and produces the matching output (AUTO, JSON, LOGFMT,
     TEXT, PRETTY).  No constructor arguments required.
+
+    Pass ``config`` to format against an already-resolved ``LogConfig``
+    instead of re-reading the environment. ``configure()`` uses that path so
+    uvicorn matches settings passed as keyword arguments, which never reach
+    the environment.
     """
 
-    def __init__(self) -> None:
-        """Initialize with settings from environment variables."""
-        settings, timezone, resolved_format, json_dumps, colors = (
-            load_settings()
+    def __init__(self, config: LogConfig | None = None) -> None:
+        """Initialize from a resolved config, or from the environment."""
+        settings, timezone, resolved_format, json_dumps, colors = load_settings(
+            config
         )
         super().__init__(
             timezone=timezone,

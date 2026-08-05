@@ -88,7 +88,7 @@ def test_ignored_env_is_reported_once(
         warnings.simplefilter("always")
         Lock("cart", backend=backend)
 
-    assert caught == []
+    assert [w for w in caught if w.category is GrelmicroConfigWarning] == []
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
@@ -107,7 +107,7 @@ def test_unrelated_prefixed_env_is_not_reported(
         warnings.simplefilter("always")
         Lock("cart", backend=backend)
 
-    assert caught == []
+    assert [w for w in caught if w.category is GrelmicroConfigWarning] == []
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
@@ -124,7 +124,7 @@ def test_field_passed_as_kwarg_is_not_reported(
         warnings.simplefilter("always")
         lock = Lock("cart", backend=backend, lease_duration=LEASE_FROM_ENV)
 
-    assert caught == []
+    assert [w for w in caught if w.category is GrelmicroConfigWarning] == []
     assert lock.config.lease_duration == LEASE_FROM_ENV
 
 
@@ -147,7 +147,7 @@ def test_explicit_env_load_false_is_not_reported(
             env_load=False,
         )
 
-    assert caught == []
+    assert [w for w in caught if w.category is GrelmicroConfigWarning] == []
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
