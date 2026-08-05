@@ -27,6 +27,12 @@ def conditional() -> None:
     assert_type(Grelmicro(uses=[HealthChecks(), provider]), Grelmicro)
 
 
+def usable_list_with_conditionals() -> None:
+    """Annotate a prebuilt list carrying `None` entries as `list[Usable | None]`."""
+    components: list[Usable | None] = [HealthChecks(), None]
+    assert_type(Grelmicro(uses=components), Grelmicro)
+
+
 def current() -> None:
     """`Grelmicro.current()` returns the app, not `Any`."""
     assert_type(Grelmicro.current(), Grelmicro)

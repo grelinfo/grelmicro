@@ -62,6 +62,10 @@ When the list is long enough to deserve its own function, annotate it with
 --8<-- "wiring/usable.py"
 ```
 
+`Usable` names one item, not the list. Keep the conditional in an `if` and the
+annotation stays `list[Usable]`. A prebuilt list that carries its own `None`
+entries is `list[Usable | None]`, which `uses=` accepts just the same.
+
 `micro.use(item)` registers one item after construction and rejects `None`,
 because a single call can be guarded with `if` instead:
 

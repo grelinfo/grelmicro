@@ -90,7 +90,7 @@ type Usable = (
     AbstractAsyncContextManager[object]
     | type[AbstractAsyncContextManager[object]]
 )
-"""Anything `Grelmicro(uses=[...])`, `Bulkhead(uses=[...])`, and `micro.use()` accept.
+"""One item `Grelmicro(uses=[...])`, `Bulkhead(uses=[...])`, or `micro.use()` accepts.
 
 Covers `Component` instances, `Provider` instances, first-party backends, the
 bare classes of any of those, and plain async context managers. Name it to
@@ -108,4 +108,8 @@ micro = Grelmicro(uses=components)
 
 `Component` names a narrower set. It excludes `Provider` instances and plain
 async context managers, both of which `uses=` accepts.
+
+A `uses=` list also takes `None` entries and skips them, which this alias does
+not cover, since `micro.use(None)` is an error. Annotate a prebuilt list that
+carries its own conditionals as `list[Usable | None]`.
 """
