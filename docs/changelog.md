@@ -24,6 +24,10 @@ To keep the warning visible without failing a build, filter the category rather 
 filterwarnings = ["error", "ignore::grelmicro.GrelmicroConfigWarning"]
 ```
 
+### Features
+
+* ✨ Quiet health probe access logs with `silence_probe_access_logs()`. Kubernetes polls `/livez`, `/readyz` and `/healthz` every few seconds forever, and the access log reported each one, so a healthy pod logged almost nothing else. Suppressing them took a `logging.Filter` that reflected on the shape of uvicorn's access record. Only responses below `400` are dropped, so a readiness check that starts refusing traffic still appears. Paths match by suffix, so `health_router(prefix=...)` needs no configuration, and `paths=` covers other polled endpoints. ([#667](https://github.com/grelinfo/grelmicro/issues/667))
+
 ### Fixed
 
 * 🐛 Open a Provider before the Component that borrows it, whatever order they are listed in. A Provider left out of `uses=` was already discovered and inserted ahead of its Component, but one listed *after* it only got a warning and then failed on startup with `OutOfContextError`, so listing a Provider was worse than omitting it. Both cases are now reordered the same way: `uses=` says what the app is made of, and grelmicro opens it in dependency order. `Grelmicro(strict=True)` still raises `LifecycleOrderError`, for callers who want the list they wrote to be the list that runs. ([#665](https://github.com/grelinfo/grelmicro/issues/665))
@@ -32,6 +36,7 @@ filterwarnings = ["error", "ignore::grelmicro.GrelmicroConfigWarning"]
 ### Docs
 
 * 📝 Teach how a value is resolved, in [Configuration](config.md#how-a-value-is-resolved). Keyword arguments, environment behind `GREL_ENV_LOAD`, and a file through `ExternalConfig`, with a local development recipe that does not need exported variables. Says plainly that `ExternalConfig` reconfigures live components and not `Log`, so log format in local development comes from `configure(...)` or a loaded `.env`. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
+* 📝 Say why orjson is not selected just because it is installed. The two serializers disagree on some payloads: `NaN` and `Infinity` become `null`, and a non-string dict key raises instead of being coerced. Auto-selecting on importability would let an unrelated dependency change what logs say, or turn a working log call into an exception. The choice stays explicit, and the reasoning is now written down. ([#667](https://github.com/grelinfo/grelmicro/issues/667))
 * 📝 Put the opt-in warning above every environment variable table, written once and included, so a reader who lands on a module page from a search engine sees it without following a link. The logging page also no longer claims every knob is an environment variable without saying when they are read. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
 
 ## 0.35.0 - 2026-08-05

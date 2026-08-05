@@ -309,6 +309,37 @@ uvicorn app:app --log-config uvicorn_log_config.json
 
 `UvicornAccessFormatter` additionally parses uvicorn's access log arguments into structured fields: `client_addr`, `method`, `full_path`, `http_version`, `status_code`.
 
+### Quieting health probes
+
+Kubernetes polls `/livez`, `/readyz` and `/healthz` every few seconds for the life of the pod, and the access log reports every one. In a healthy pod they are close to the only thing in the log.
+
+`silence_probe_access_logs()` drops them:
+
+```python
+--8<-- "log/probes.py"
+```
+
+Call it once at startup, after `configure()`.
+
+**A failing probe is still logged.** Only responses below `400` are dropped, so a readiness check that starts refusing traffic still shows up. That line is often the only evidence the kubelet asked and was refused, so hiding it with the noise would remove the one thing worth reading.
+
+**Paths are matched by suffix**, so `health_router(prefix="/api/v1")` is covered with no configuration. A query string is ignored, so `/healthz?exclude=redis` is still recognised as a probe.
+
+Pass `paths=` to cover other polled endpoints, which replaces the defaults rather than adding to them:
+
+```python
+silence_probe_access_logs(paths=("/livez", "/readyz", "/healthz", "/metrics"))
+```
+
+The call returns the `ProbeFilter` it installed, so you can remove it again:
+
+```python
+probe_filter = silence_probe_access_logs()
+logging.getLogger("uvicorn.access").removeFilter(probe_filter)
+```
+
+`ProbeFilter` is a plain `logging.Filter`, so it also works in a `dictConfig` or on another access logger if you are not using uvicorn.
+
 ## Deduplicating Noisy Logs
 
 `DuplicateFilter` is a `logging.Filter` that silences repeated log records.
@@ -514,6 +545,21 @@ Benchmark results (50,000 iterations):
 
 !!! tip "Performance Recommendation"
     For high-throughput applications, use `GREL_LOG_JSON_SERIALIZER=orjson` with `structlog` or `stdlib` backend.
+
+### Why orjson is not selected automatically
+
+Installing orjson does not change anything until you also select it. That is deliberate, and it is the one place in the logging module that is not auto-detected.
+
+The two serializers do not agree on every payload:
+
+| Value in `extra={...}` | `stdlib` | `orjson` |
+|---|---|---|
+| `float("nan")`, `float("inf")` | `NaN`, `Infinity` | `null` |
+| a non-string dict key | coerced to a string | raises `TypeError` |
+
+Picking a serializer because a package happens to be importable would mean an unrelated dependency pulling in orjson could change what your logs say, or turn a working log call into an exception on a payload that used to serialize. A log line that crashes the request is worse than a log line that is slower.
+
+So the choice stays yours. Set `GREL_LOG_JSON_SERIALIZER=orjson`, or pass `json_serializer="orjson"` to `configure()`, once you know your payloads are compatible.
 
 Run the benchmark:
 ```bash
