@@ -325,17 +325,17 @@ class Grelmicro:
     def _use_provider(self, provider: Provider) -> None:
         """Lifecycle a bare Provider and queue its default-Component registration.
 
-        The Provider is always lifecycled here. When the app holds no explicit
-        Component, it also auto-registers one default Component per kind it
-        serves. Inside `Grelmicro(uses=[...])` that registration is deferred to
-        `_register_provider_defaults` so an explicit Component listed anywhere in
-        the list wins. A standalone `use(provider)` call registers right away,
-        against whatever is registered so far.
+        The Provider is always lifecycled here. It also auto-registers one
+        default Component for every kind it serves that no explicit Component
+        already claims. Inside `Grelmicro(uses=[...])` that registration is
+        deferred to `_register_provider_defaults` so a Component listed anywhere
+        in the list wins, whatever the order. A standalone `use(provider)` call
+        registers right away, against whatever is claimed so far.
         """
         self._items.append(provider)
         if self._deferring_provider_defaults:
             self._pending_providers.append(provider)
-        elif not self._by_key:
+        else:
             self._register_one_provider(provider)
 
     def _register_component(self, component: Component) -> None:
@@ -378,24 +378,34 @@ class Grelmicro:
     def _register_provider_defaults(self) -> None:
         """Auto-register default Components from Providers passed bare to `uses=`.
 
-        Runs once after every item in `uses=` is processed. When the app holds
-        no explicit Component, each kind a listed Provider serves (`coordination`,
-        `cache`, `ratelimiter`, `circuitbreaker`) gets one default-named
-        Component wired to that Provider. Listing any explicit Component turns
-        this off entirely, so the `uses=` list reads the same way it runs: a
-        lone Provider is a full default app, a Provider mixed with Components is
-        lifecycle-only and the Components own the wiring.
+        Runs once after every item in `uses=` is processed. Each kind a listed
+        Provider serves (`coordination`, `cache`, `ratelimiter`,
+        `circuitbreaker`) gets one default-named Component wired to that
+        Provider, unless an explicit Component already claims that kind.
+        Explicit wins, the Provider fills the rest.
+
+        Back-off is per kind, so a Component of an unrelated kind
+        (`HealthChecks`, `Log`, `Trace`) leaves the provider defaults alone.
+
+        Two or more Providers never fill defaults, because neither can be the
+        default for a kind they both serve.
 
         Raises:
-            AmbiguousProviderError: Two or more bare Providers are listed with no
-                explicit Component, so the default for a shared kind is
+            AmbiguousProviderError: Two or more bare Providers are listed with
+                no explicit Component, so the default for each kind is
                 ambiguous.
         """
         pending = self._pending_providers
         self._pending_providers = []
-        if not pending or self._by_key:
+        if not pending:
             return
         if len(pending) > 1:
+            # Two Providers cannot both be the default for a shared kind, so
+            # neither fills anything. With Components present the app is
+            # wiring explicitly and they are lifecycle-only, without them
+            # there is no way to guess and it is worth saying so early.
+            if self._by_key:
+                return
             names = ", ".join(type(p).__name__ for p in pending)
             msg = (
                 f"Grelmicro(uses=[...]) lists multiple providers ({names}) "
@@ -408,13 +418,18 @@ class Grelmicro:
         self._register_one_provider(pending[0])
 
     def _register_one_provider(self, provider: Provider) -> None:
-        """Register one default Component per kind `provider` serves.
+        """Register a default Component for every unclaimed kind `provider` serves.
 
         A kind is served when the matching Component builds without the provider
-        raising `NotImplementedError`. The provider stays lifecycled where it was
-        listed, the Components borrow its client and are not lifecycled again.
+        raising `NotImplementedError`. A kind an explicit Component already holds
+        is skipped, so an explicit choice is never overwritten. The provider
+        stays lifecycled where it was listed, the Components borrow its client
+        and are not lifecycled again.
         """
+        claimed = {component.kind for component in self._by_key.values()}
         for component in _default_components_for_provider(provider):
+            if component.kind in claimed:
+                continue
             self._register_component(component)
 
     def get(

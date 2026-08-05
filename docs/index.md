@@ -166,19 +166,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache, JsonSerializer, TTLCache, cached
+from grelmicro.cache import JsonSerializer, TTLCache, cached
 from grelmicro.clientip import TrustedProxies, resolve_client_address
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
-    CircuitBreakerRegistry,
     RateLimitExceededError,
     RateLimiter,
-    RateLimiterRegistry,
 )
-from grelmicro.coordination import Coordination, LeaderElection, Lock, TaskLock
+from grelmicro.coordination import LeaderElection, Lock, TaskLock
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
@@ -193,14 +191,7 @@ redis = RedisProvider("redis://localhost:6379/0")
 leader = LeaderElection("leader-election")
 tasks.add_task(leader)
 
-micro = Grelmicro(uses=[
-    Coordination(redis),
-    Cache(redis),
-    RateLimiterRegistry(redis),
-    CircuitBreakerRegistry(redis),
-    tasks,
-    health,
-])
+micro = Grelmicro(uses=[redis, tasks, health])
 
 # === Patterns declared once at module load, no backend wiring ===
 ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer())

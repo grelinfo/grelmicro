@@ -85,17 +85,22 @@ Grelmicro(uses=[redis])
 
 A Provider serves a kind when its factory for that kind is implemented. `RedisProvider` and `PostgresProvider` serve all four kinds. `SQLiteProvider` skips leader election. An unserved kind (the factory raises `NotImplementedError`) is skipped. Any other factory error propagates, a misconfigured Provider fails loudly instead of registering a partial app.
 
-This auto-registration is all-or-nothing. The moment you list **any** explicit Component, every Provider in the list becomes lifecycle-only and registers nothing. The list then reads the way it runs: a lone Provider is a full default app, a Provider beside Components is just a shared connection the Components wire themselves.
+Back-off is per kind: **explicit wins, the Provider fills the rest.** A Component you list keeps its own kind, and every other kind the Provider serves still gets a default.
 
 ```python
-# auto-registered: one default Component per served kind
+# one default Component per served kind
 Grelmicro(uses=[redis])
 
-# explicit: redis is lifecycle-only, only Cache is registered
+# Cache is yours, coordination / ratelimiter / circuitbreaker come from redis
+Grelmicro(uses=[redis, Cache(other)])
+
+# only Cache is registered, redis is never listed to fill anything else
 Grelmicro(uses=[Cache(redis)])
 ```
 
-Two bare Providers with no Components raise `AmbiguousProviderError`: the default Component for a shared kind could come from either Provider. Wrap each Provider in the Components it should serve to resolve it.
+A Component of a kind no Provider serves (`HealthChecks`, `Log`, `Trace`) claims nothing, so it never suppresses a default. Adding health checks to an app does not remove its cache.
+
+Two bare Providers with no Components raise `AmbiguousProviderError`: the default Component for a shared kind could come from either Provider. Neither fills defaults, so listing any Component alongside them makes both lifecycle-only, which is how `HealthChecks(auto_health=True)` probes several Providers at once. Wrap each Provider in the Components it should serve to resolve the ambiguity.
 
 ```python
 # raises AmbiguousProviderError
