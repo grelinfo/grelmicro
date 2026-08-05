@@ -196,9 +196,38 @@ topology from them.
 RedisProvider("redis+cluster://host1:6379,host2:6379")
 ```
 
+### Authenticated Sentinels
+
+Sentinel servers often run with their own `requirepass`, and the Bitnami
+Redis chart turns that on by default. That password is separate from the
+data password, and both fit in the environment:
+
+```bash
+REDIS_URL=redis+sentinel://sentinel-0:26379,sentinel-1:26379/mymaster/0
+REDIS_PASSWORD=...
+REDIS_SENTINEL_PASSWORD=...
+```
+
+```python
+provider = RedisProvider()
+```
+
+It applies only when set. The data password is never reused for the
+Sentinel connections, because `AUTH` against a server without
+`requirepass` fails, which would break every deployment whose Sentinels
+are unauthenticated.
+
+It also applies only to a `redis+sentinel://` URL. Setting it alongside
+any other scheme warns rather than passing silently, since one
+environment often serves several services and only some of them talk to
+Sentinel.
+
+The same value is available as `sentinel_password=` on the constructor
+and on `RedisConfig`.
+
 Credentials in the URL userinfo apply to both the Sentinel connections
-and the data connections. Use the factory methods when the Sentinel
-password differs from the data password:
+and the data connections. Use the factory methods when you need to pass
+other Sentinel connection settings:
 
 ```python
 RedisProvider.sentinel(
