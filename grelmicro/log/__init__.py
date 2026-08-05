@@ -8,6 +8,7 @@ from grelmicro._config import resolve_config
 from grelmicro.log._apply import apply as _apply
 from grelmicro.log._component import Log
 from grelmicro.log._dedup import DuplicateFilter, DuplicateFilterConfig
+from grelmicro.log._probes import ProbeFilter
 from grelmicro.log._ratelimit import (
     RateLimitFilter,
     RateLimitFilterConfig,
@@ -145,6 +146,7 @@ __all__ = [
     "LogConfig",
     "LogError",
     "LogSettingsValidationError",
+    "ProbeFilter",
     "RateLimitFilter",
     "RateLimitFilterConfig",
     "configure",

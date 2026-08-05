@@ -273,6 +273,9 @@
     "LogSettingsValidationError": {
       "()": "(error)"
     },
+    "ProbeFilter": {
+      "()": "(paths=...)"
+    },
     "RateLimitFilter": {
       "()": "(*, capacity=..., refill_rate=..., key_mode=..., cost=..., key=..., env_name=..., env_prefix=..., env_load=...)",
       ".from_config": "(config, *, key=...)"
