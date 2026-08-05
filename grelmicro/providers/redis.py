@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, RedisDsn, SecretStr, ValidationError
-from pydantic_core import Url
+from pydantic.networks import UrlConstraints
+from pydantic_core import MultiHostUrl, Url
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio.client import Redis
 from redis.asyncio.cluster import RedisCluster
@@ -36,6 +38,27 @@ if TYPE_CHECKING:
     )
 
 
+RedisAnyDsn = Annotated[
+    MultiHostUrl,
+    UrlConstraints(
+        allowed_schemes=[
+            "redis",
+            "rediss",
+            "unix",
+            "redis+sentinel",
+            "redis+cluster",
+        ]
+    ),
+]
+"""Every Redis URL scheme the provider understands.
+
+Multi-host so `redis+sentinel://a:26379,b:26379/mymaster/0` and
+`redis+cluster://a:6379,b:6379` validate, and the same type serves the
+constructor, `RedisConfig`, and the environment so all three accept the same
+URLs.
+"""
+
+
 class RedisConfig(BaseModel):
     """Redis connection settings.
 
@@ -49,7 +72,7 @@ class RedisConfig(BaseModel):
 
     model_config = ConfigDict(hide_input_in_errors=True)
 
-    url: SecretUrl[RedisDsn] | None = None
+    url: SecretUrl[RedisAnyDsn] | None = None
     host: str | None = None
     port: int = 6379
     db: int = 0
@@ -61,7 +84,7 @@ class _RedisEnvSettings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
-    url: SecretUrl[RedisDsn] | None = None
+    url: SecretUrl[RedisAnyDsn] | None = None
     host: str | None = None
     port: int = 6379
     db: int = 0
@@ -522,7 +545,7 @@ def _resolve_url(
         raise RedisProviderConfigError(msg)
 
     if url is not None:
-        return str(url)
+        return _apply_password(str(url), password, source="`password`")
 
     if host is not None:
         return _compose_url(
@@ -545,7 +568,11 @@ def _resolve_url(
         msg = f"set either {env_prefix}URL or {env_prefix}HOST, not both"
         raise RedisProviderConfigError(msg)
     if settings.url is not None:
-        return settings.url.get_secret_value().unicode_string()
+        return _apply_password(
+            settings.url.get_secret_value().unicode_string(),
+            settings.password.get_secret_value() if settings.password else None,
+            source=f"{env_prefix}PASSWORD",
+        )
     if settings.host is not None:
         return _compose_url(
             host=settings.host,
@@ -559,6 +586,34 @@ def _resolve_url(
         )
     msg = f"either {env_prefix}URL or {env_prefix}HOST must be set"
     raise RedisProviderConfigError(msg)
+
+
+def _apply_password(url: str, password: str | None, *, source: str) -> str:
+    """Fold a separately configured password into a URL that carries none.
+
+    A URL in one variable and a password in another is the usual split on
+    Kubernetes, where the host comes from a ConfigMap and the credential from
+    a Secret. Both halves are kept.
+
+    Raises:
+        RedisProviderConfigError: If the URL already carries credentials and a
+            password is configured too, since the two may disagree and picking
+            one silently is how a wrong credential reaches the server.
+    """
+    if password is None:
+        return url
+    scheme, separator, rest = url.partition("://")
+    if not separator:
+        return url
+    authority, slash, tail = rest.partition("/")
+    if "@" in authority:
+        msg = (
+            f"the Redis URL already carries credentials, so {source} is "
+            f"ambiguous. Keep the password in the URL userinfo or drop it "
+            f"from the URL, not both."
+        )
+        raise RedisProviderConfigError(msg)
+    return f"{scheme}://:{quote(password, safe='')}@{authority}{slash}{tail}"
 
 
 def _compose_url(*, host: str, port: int, db: int, password: str | None) -> str:
