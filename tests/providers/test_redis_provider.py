@@ -112,9 +112,23 @@ class TestConstruction:
     ) -> None:
         """`REDIS_URL` accepts every URL the constructor accepts."""
         monkeypatch.delenv("REDIS_HOST", raising=False)
+        # An ambient password would reach the env path and not the kwarg one.
+        monkeypatch.delenv("REDIS_PASSWORD", raising=False)
         monkeypatch.setenv("REDIS_URL", scheme_url)
 
         assert RedisProvider().url == RedisProvider(scheme_url).url
+
+    def test_password_applies_to_url_with_query_and_no_path(self) -> None:
+        """A query string is preserved and never mistaken for userinfo."""
+        provider = RedisProvider(
+            "redis://test_host?client_name=a@b",
+            password="test_password",
+            env_load=False,
+        )
+
+        assert provider.url == (
+            "redis://:test_password@test_host?client_name=a@b"
+        )
 
     def test_env_password_applies_to_url_without_credentials(
         self, monkeypatch: pytest.MonkeyPatch

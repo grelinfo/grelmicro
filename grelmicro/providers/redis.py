@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, RedisDsn, SecretStr, ValidationError
 from pydantic.networks import UrlConstraints
@@ -602,18 +602,21 @@ def _apply_password(url: str, password: str | None, *, source: str) -> str:
     """
     if password is None:
         return url
-    scheme, separator, rest = url.partition("://")
-    if not separator:
+    # Split properly rather than on the first `/`: a URL with a query and no
+    # path would otherwise fold the query into the authority, and a query
+    # value containing `@` would read as userinfo.
+    parts = urlsplit(url)
+    if not parts.netloc:
         return url
-    authority, slash, tail = rest.partition("/")
-    if "@" in authority:
+    if "@" in parts.netloc:
         msg = (
             f"the Redis URL already carries credentials, so {source} is "
             f"ambiguous. Keep the password in the URL userinfo or drop it "
             f"from the URL, not both."
         )
         raise RedisProviderConfigError(msg)
-    return f"{scheme}://:{quote(password, safe='')}@{authority}{slash}{tail}"
+    netloc = f":{quote(password, safe='')}@{parts.netloc}"
+    return urlunsplit(parts._replace(netloc=netloc))
 
 
 def _compose_url(*, host: str, port: int, db: int, password: str | None) -> str:
