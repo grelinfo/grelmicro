@@ -324,6 +324,19 @@ def test_use_lone_provider_auto_registers() -> None:
     assert isinstance(micro.get("coordination"), Coordination)
 
 
+def test_use_two_providers_in_order_lets_the_first_win() -> None:
+    """Sequential `use` is ordered, so it fills rather than raising."""
+    first = _MemoryProvider()
+    micro = Grelmicro()
+    micro.use(first)
+    micro.use(_CacheOnlyProvider())
+
+    # `uses=[first, second]` would raise, the ordered form cannot be ambiguous.
+    assert micro.get("cache").backend is not None
+    kinds = {component.kind for component in micro.components}
+    assert kinds == {"cache", "coordination", "ratelimiter", "circuitbreaker"}
+
+
 def test_use_provider_after_component_fills_the_other_kinds() -> None:
     """`use(component)` then `use(provider)` matches the `uses=` list form."""
     backend = MemoryCacheAdapter()

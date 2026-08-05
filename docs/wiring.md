@@ -76,9 +76,15 @@ if os.getenv("STORE_BACKEND") == "redis":
 
 !!! note "A Provider fills the kinds nothing else claims"
     A Provider registers a default component for every kind it serves that no
-    component of yours already claims, whether you list it in `uses=` or pass it
-    to `micro.use(provider)`. Both forms behave the same way: explicit wins, the
-    provider fills the rest.
+    component already claims, whether you list it in `uses=` or pass it to
+    `micro.use(provider)`. Explicit wins, the provider fills the rest.
+
+    Two providers are the one case where the forms differ. `uses=[p1, p2]` sees
+    both at once and raises `AmbiguousProviderError`, because neither can be the
+    default for a kind they share. `micro.use(p1)` then `micro.use(p2)` is
+    ordered, so `p1` fills its kinds first and `p2` finds them claimed and fills
+    only what is left. Register the components explicitly when you want two
+    providers to serve different kinds.
 
 ## FastAPI
 
