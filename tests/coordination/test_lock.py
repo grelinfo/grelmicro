@@ -486,15 +486,15 @@ async def test_lock_from_thread_release(lock: Lock) -> None:
     await asyncio.to_thread(sync)
 
 
-async def test_lock_release_acquired(lock: Lock) -> None:
+async def test_lock_release_acquired(held_lock: Lock) -> None:
     """Test Lock release acquired."""
     # Arrange
-    await lock.acquire()
+    await held_lock.acquire()
 
     # Act
-    locked_before = await lock.locked()
-    await lock.release()
-    locked_after = await lock.locked()
+    locked_before = await held_lock.locked()
+    await held_lock.release()
+    locked_after = await held_lock.locked()
 
     # Assert
     assert locked_before is True
@@ -739,11 +739,13 @@ async def test_from_thread_context_manager_binds_handle(
     assert isinstance(handles[0], LockHandle)
 
 
-async def test_fencing_token_climbs_across_reacquire(lock: Lock) -> None:
+async def test_fencing_token_climbs_across_reacquire(
+    held_lock: Lock,
+) -> None:
     """Releasing and re-acquiring mints a strictly greater fencing token."""
-    first = await lock.acquire()
-    await lock.release()
-    second = await lock.acquire()
+    first = await held_lock.acquire()
+    await held_lock.release()
+    second = await held_lock.acquire()
 
     assert second.fencing_token > first.fencing_token
 
@@ -798,12 +800,12 @@ async def test_lock_reentrant_acquire_nowait_then_acquire(lock: Lock) -> None:
         await lock.acquire()
 
 
-async def test_lock_reacquire_after_release(lock: Lock) -> None:
+async def test_lock_reacquire_after_release(held_lock: Lock) -> None:
     """Test Lock can be acquired again after release."""
-    await lock.acquire()
-    await lock.release()
-    await lock.acquire()
-    assert await lock.locked() is True
+    await held_lock.acquire()
+    await held_lock.release()
+    await held_lock.acquire()
+    assert await held_lock.locked() is True
 
 
 async def test_lock_reacquire_after_context_manager(lock: Lock) -> None:
@@ -985,15 +987,17 @@ async def test_reconfigure_changes_lease_duration_for_next_acquire(
     assert spy.call_args.kwargs["duration"] == 42  # noqa: PLR2004
 
 
-async def test_reconfigure_while_held_keeps_release_working(lock: Lock) -> None:
+async def test_reconfigure_while_held_keeps_release_working(
+    held_lock: Lock,
+) -> None:
     """A swap during a held lease does not break the release path."""
-    new_config = lock.config.model_copy(update={"lease_duration": 5})
+    new_config = held_lock.config.model_copy(update={"lease_duration": 5})
 
-    await lock.acquire()
-    await lock.reconfigure(new_config)
-    await lock.release()
+    await held_lock.acquire()
+    await held_lock.reconfigure(new_config)
+    await held_lock.release()
 
-    assert await lock.locked() is False
+    assert await held_lock.locked() is False
 
 
 @pytest.mark.parametrize(
