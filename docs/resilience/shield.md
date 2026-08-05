@@ -178,6 +178,8 @@ Pass the profile and knobs as keyword arguments.
 
 Prefix: `GREL_SHIELD_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_SHIELD_*`.
 
+--8<-- "env_gate.md"
+
 | Env var | Field | Type | Default |
 |---|---|---|---|
 | `GREL_SHIELD_{NAME_UPPER}_PROFILE` | profile | `internal` / `api` / `slow` | `api` |

@@ -170,6 +170,8 @@ Tune any field in deployment without code changes.
 
 Prefix: `GREL_LOCK_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_LOCK_*`.
 
+--8<-- "env_gate.md"
+
 | Env var                                      | Config field     | Type            | Default          |
 |----------------------------------------------|------------------|-----------------|------------------|
 | `GREL_LOCK_{NAME_UPPER}_WORKER`              | `worker`         | `str \| UUID`   | generated UUID   |

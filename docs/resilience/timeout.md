@@ -34,6 +34,8 @@ Build the policy with keyword arguments. Set `seconds` to the deadline for the w
 
 Prefix: `GREL_TIMEOUT_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_TIMEOUT_*`.
 
+--8<-- "env_gate.md"
+
 | Env var | Field | Type | Default |
 |---|---|---|---|
 | `GREL_TIMEOUT_{NAME_UPPER}_SECONDS` | `seconds` | `PositiveFloat` | required |

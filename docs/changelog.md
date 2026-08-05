@@ -4,6 +4,18 @@
 
 ### Upgrading
 
+**Uvicorn's own log lines change format.** `configure()` now applies your format to uvicorn's loggers, so lines that used to look like this:
+
+```
+INFO:     127.0.0.1:54321 - "POST /orders HTTP/1.1" 200 OK
+```
+
+now match everything else your app emits, with a timestamp, a level field, and structured request fields. That is the point, but a pipeline parsing uvicorn's plain format needs updating, or the old behaviour back:
+
+```python
+configure(uvicorn_enabled=False)
+```
+
 **A misconfigured `GREL_*` variable now warns.** Setting one without `GREL_ENV_LOAD` used to pass silently and now raises `GrelmicroConfigWarning`. A suite running `-W error`, or pytest with `filterwarnings = error`, will fail on it.
 
 Fix the configuration, which is the point of the warning:
