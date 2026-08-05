@@ -902,7 +902,7 @@ class Grelmicro:
             _active_apps.append(self)
         try:
             self._discover_shared_providers()
-            self._warn_unlifecycled_providers()
+            self._order_providers_before_dependents()
             self._resolve_provider_sharing()
             self._exit_stack = AsyncExitStack()
             await self._exit_stack.__aenter__()
@@ -964,7 +964,7 @@ class Grelmicro:
 
         Providers the user already listed are left untouched, so their declared
         order still applies and the ordering check in
-        `_warn_unlifecycled_providers` still fires on a late listing. Adapters
+        `_order_providers_before_dependents` still repairs a late listing. Adapters
         that own their provider (built from env, no user instance) are handled
         by `_resolve_provider_sharing`.
         """
@@ -1012,57 +1012,50 @@ class Grelmicro:
                 elif shared is not provider:  # pragma: no branch
                     borrower._rebind_provider(shared)  # noqa: SLF001
 
-    def _warn_unlifecycled_providers(self) -> None:
-        """Warn when a user-listed Provider is ordered after its Component.
+    def _order_providers_before_dependents(self) -> None:
+        """Move a listed Provider ahead of the Component that borrows it.
 
         A Component built with `Coordination(provider)` borrows the provider's
-        client but does not lifecycle it. `Grelmicro.__aenter__` enters items in
-        declaration order, so a Provider listed *after* the Component that
-        depends on it opens too late. Providers with lazy resources
-        (`PostgresProvider` builds its pool on `__aenter__`) then raise
-        `OutOfContextError` when the Component opens first.
+        client but does not lifecycle it, and `Grelmicro.__aenter__` enters
+        items in list order. A Provider listed *after* its Component would open
+        too late, and one with lazy resources (`PostgresProvider` builds its
+        pool on `__aenter__`) then raises `OutOfContextError`.
 
-        Providers absent from `uses=` are adopted by
-        `_discover_shared_providers` and inserted ahead of their Component, so
-        only the explicit-but-misordered listing reaches this check.
+        A Provider absent from `uses=` is already adopted and inserted ahead of
+        its Component by `_discover_shared_providers`. Leaving the listed case
+        broken would mean listing a Provider is worse than omitting it, so it is
+        reordered the same way. `uses=` declares what the app is made of, and
+        grelmicro opens it in dependency order.
 
-        Reported as `UserWarning` by default, or as `LifecycleOrderError`
-        when the app was built with `strict=True`.
+        `Grelmicro(strict=True)` still raises `LifecycleOrderError`, for callers
+        who want the list they wrote to be the list that runs.
         """
         for index, item in enumerate(self._items):
             for target in _iter_provider_backends(item):
                 provider = getattr(target, "_provider", None)
-                if provider is None:
+                if provider is None or getattr(target, "_owns_provider", True):
                     continue
-                owns = getattr(target, "_owns_provider", True)
-                if owns:
-                    continue
-                self._report_provider_lifecycle(target, provider, index)
+                self._move_provider_ahead(target, provider, index)
 
-    def _report_provider_lifecycle(
+    def _move_provider_ahead(
         self,
         target: object,
         provider: Provider,
         index: int,
     ) -> None:
-        """Warn or raise when a user-listed Provider is ordered after its Component.
-
-        Discovery adopts Providers missing from `uses=` and inserts them ahead
-        of their Component, so the Provider is always present in `self._items`
-        and only the explicit-but-misordered listing reaches this check.
-        """
-        import warnings  # noqa: PLC0415
-
-        if self._items.index(provider) > index:
+        """Reorder one misplaced Provider, or raise under `strict=True`."""
+        position = self._items.index(provider)
+        if position <= index:
+            return
+        if self._strict:
             msg = (
                 f"{type(provider).__name__} is listed after "
                 f"{type(target).__name__} in Grelmicro(uses=[...]). "
                 f"Providers must be listed before the components that "
                 f"depend on them so they open first."
             )
-            if self._strict:
-                raise LifecycleOrderError(msg)
-            warnings.warn(msg, UserWarning, stacklevel=3)
+            raise LifecycleOrderError(msg)
+        self._items.insert(index, self._items.pop(position))
 
 
 class _ProviderBorrower(Protocol):

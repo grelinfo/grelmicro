@@ -26,6 +26,7 @@ filterwarnings = ["error", "ignore::grelmicro.GrelmicroConfigWarning"]
 
 ### Fixed
 
+* 🐛 Open a Provider before the Component that borrows it, whatever order they are listed in. A Provider left out of `uses=` was already discovered and inserted ahead of its Component, but one listed *after* it only got a warning and then failed on startup with `OutOfContextError`, so listing a Provider was worse than omitting it. Both cases are now reordered the same way: `uses=` says what the app is made of, and grelmicro opens it in dependency order. `Grelmicro(strict=True)` still raises `LifecycleOrderError`, for callers who want the list they wrote to be the list that runs. ([#665](https://github.com/grelinfo/grelmicro/issues/665))
 * 🐛 Say so when a `GREL_*` variable is set but not applied. Environment-driven configuration is opt-in behind `GREL_ENV_LOAD`, so a documented variable such as `GREL_LOG_FORMAT` was read by nobody and the default applied with nothing reported. It now raises `GrelmicroConfigWarning` once, naming the variable and the flag. It is its own category so it can be filtered precisely, without silencing every `UserWarning` and without matching on message text, the way pytest ships `PytestConfigWarning`. Only the exact names a config declares are matched, never the prefix, because Kubernetes injects `{SVCNAME}_SERVICE_HOST` for every Service and a prefix sweep would warn on every pod start. An explicit `env_load=False` is a decision and stays silent. ([#662](https://github.com/grelinfo/grelmicro/issues/662))
 
 ### Docs

@@ -828,10 +828,13 @@ async def test_explicit_provider_takes_precedence_over_discovery() -> None:
     assert provider.exited == 1
 
 
-async def test_warns_when_provider_listed_after_component(
+async def test_provider_listed_after_component_is_reordered(
     recwarn: pytest.WarningsRecorder,
 ) -> None:
-    """A provider listed after the Component triggers the ordering warning."""
+    """A provider listed after its Component is moved ahead of it, quietly.
+
+    Omitting the provider already worked, so listing it must not be worse.
+    """
     from grelmicro.coordination import Coordination  # noqa: PLC0415
     from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
 
@@ -840,10 +843,22 @@ async def test_warns_when_provider_listed_after_component(
     async with micro:
         pass
 
-    assert any(
-        issubclass(w.category, UserWarning) and "listed after" in str(w.message)
-        for w in recwarn
-    )
+    order = [type(item).__name__ for item in micro._items]
+    assert order.index("RedisProvider") < order.index("Coordination")
+    assert not [w for w in recwarn if "listed after" in str(w.message)]
+
+
+async def test_strict_still_reports_a_provider_listed_late() -> None:
+    """`strict=True` means the list you wrote is the list that runs."""
+    from grelmicro.coordination import Coordination  # noqa: PLC0415
+    from grelmicro.providers.redis import RedisProvider  # noqa: PLC0415
+
+    redis = RedisProvider("redis://localhost:6379/0")
+    micro = Grelmicro(uses=[Coordination(redis), redis], strict=True)
+
+    with pytest.raises(LifecycleOrderError, match="listed after"):
+        async with micro:
+            pass
 
 
 async def test_strict_adopts_provider_missing_from_uses() -> None:
