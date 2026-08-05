@@ -476,7 +476,8 @@ class Grelmicro:
                 Components to install for the duration of the block. Each one
                 shadows any component already registered under the same
                 `(kind, name)` key. Original registrations are restored on
-                exit, even if the block raises.
+                exit, even if the block raises and even if one of these
+                components fails to open.
                 """,
             ),
         ],
@@ -509,18 +510,21 @@ class Grelmicro:
         snapshot_items = self._items.copy()
         snapshot_by_kind = self._by_kind.copy()
         async with AsyncExitStack() as stack:
-            for component in components:
-                key = (component.kind, component.name)
-                self._by_key[key] = component
-                if component not in self._items:  # pragma: no branch
-                    self._items.append(component)
-                if component.name == "default":  # pragma: no branch
-                    self._by_kind[component.kind] = component
-                # `Component` is an async context manager; ty misreads the
-                # protocol's `Self`-returning `__aenter__` as incompatible
-                # with its own AbstractAsyncContextManager base.
-                await stack.enter_async_context(component)  # ty: ignore[invalid-argument-type]
+            # The registry is mutated one component at a time, so the restore
+            # has to cover the loop as well as the block. A component that
+            # fails to open leaves the ones before it already installed.
             try:
+                for component in components:
+                    key = (component.kind, component.name)
+                    self._by_key[key] = component
+                    if component not in self._items:  # pragma: no branch
+                        self._items.append(component)
+                    if component.name == "default":  # pragma: no branch
+                        self._by_kind[component.kind] = component
+                    # `Component` is an async context manager; ty misreads the
+                    # protocol's `Self`-returning `__aenter__` as incompatible
+                    # with its own AbstractAsyncContextManager base.
+                    await stack.enter_async_context(component)  # ty: ignore[invalid-argument-type]
                 yield
             finally:
                 self._by_key = snapshot_by_key
