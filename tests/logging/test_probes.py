@@ -2,7 +2,7 @@
 
 import logging
 
-from grelmicro.log import ProbeFilter, silence_probe_access_logs
+from grelmicro.log import ProbeFilter
 
 
 def _access_record(path: str, status: int = 200) -> logging.LogRecord:
@@ -74,13 +74,14 @@ def test_unparsable_status_passes_through() -> None:
     assert ProbeFilter().filter(record) is True
 
 
-def test_silence_attaches_to_the_uvicorn_access_logger() -> None:
-    """The helper wires the filter and hands it back for removal."""
+def test_attaches_to_a_logger_like_the_other_filters() -> None:
+    """It is a plain `logging.Filter`, attached the usual way."""
     logger = logging.getLogger("uvicorn.access")
-    probe_filter = silence_probe_access_logs()
+    probe_filter = ProbeFilter()
+    logger.addFilter(probe_filter)
     try:
-        assert probe_filter in logger.filters
+        # `Logger.filter` returns the record itself when it passes.
+        assert not logger.filter(_access_record("/healthz"))
+        assert logger.filter(_access_record("/orders"))
     finally:
         logger.removeFilter(probe_filter)
-
-    assert probe_filter not in logger.filters

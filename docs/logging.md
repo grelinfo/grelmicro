@@ -313,32 +313,25 @@ uvicorn app:app --log-config uvicorn_log_config.json
 
 Kubernetes polls `/livez`, `/readyz` and `/healthz` every few seconds for the life of the pod, and the access log reports every one. In a healthy pod they are close to the only thing in the log.
 
-`silence_probe_access_logs()` drops them:
+`ProbeFilter` drops them. Attach it to the access logger, the same way as the other filters on this page:
 
 ```python
 --8<-- "log/probes.py"
 ```
 
-Call it once at startup, after `configure()`.
-
 **A failing probe is still logged.** Only responses below `400` are dropped, so a readiness check that starts refusing traffic still shows up. That line is often the only evidence the kubelet asked and was refused, so hiding it with the noise would remove the one thing worth reading.
 
 **Paths are matched by suffix**, so `health_router(prefix="/api/v1")` is covered with no configuration. A query string is ignored, so `/healthz?exclude=redis` is still recognised as a probe.
 
-Pass `paths=` to cover other polled endpoints, which replaces the defaults rather than adding to them:
+Pass `paths=` to cover other polled endpoints. It replaces the defaults rather than adding to them:
 
 ```python
-silence_probe_access_logs(paths=("/livez", "/readyz", "/healthz", "/metrics"))
+logging.getLogger("uvicorn.access").addFilter(
+    ProbeFilter(paths=("/livez", "/readyz", "/healthz", "/metrics"))
+)
 ```
 
-The call returns the `ProbeFilter` it installed, so you can remove it again:
-
-```python
-probe_filter = silence_probe_access_logs()
-logging.getLogger("uvicorn.access").removeFilter(probe_filter)
-```
-
-`ProbeFilter` is a plain `logging.Filter`, so it also works in a `dictConfig` or on another access logger if you are not using uvicorn.
+It is a plain `logging.Filter`, so it also works in a `dictConfig`, on another access logger, or removed again with `removeFilter`.
 
 ## Deduplicating Noisy Logs
 

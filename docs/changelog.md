@@ -26,7 +26,7 @@ filterwarnings = ["error", "ignore::grelmicro.GrelmicroConfigWarning"]
 
 ### Features
 
-* ✨ Quiet health probe access logs with `silence_probe_access_logs()`. Kubernetes polls `/livez`, `/readyz` and `/healthz` every few seconds forever, and the access log reported each one, so a healthy pod logged almost nothing else. Suppressing them took a `logging.Filter` that reflected on the shape of uvicorn's access record. Only responses below `400` are dropped, so a readiness check that starts refusing traffic still appears. Paths match by suffix, so `health_router(prefix=...)` needs no configuration, and `paths=` covers other polled endpoints. ([#667](https://github.com/grelinfo/grelmicro/issues/667))
+* ✨ Quiet health probe access logs with `ProbeFilter`. Attach it to the access logger the same way as `DuplicateFilter` and `RateLimitFilter`. Kubernetes polls `/livez`, `/readyz` and `/healthz` every few seconds forever, and the access log reported each one, so a healthy pod logged almost nothing else. Suppressing them took a `logging.Filter` that reflected on the shape of uvicorn's access record. Only responses below `400` are dropped, so a readiness check that starts refusing traffic still appears. Paths match by suffix, so `health_router(prefix=...)` needs no configuration, and `paths=` covers other polled endpoints. ([#667](https://github.com/grelinfo/grelmicro/issues/667))
 
 ### Fixed
 
