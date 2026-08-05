@@ -21,6 +21,24 @@ if error is not None:
 
 A failing check still carries `error`, and `status` and `critical` are still on every entry, so a dashboard reading those needs no change.
 
+**Redis credentials split across two variables now work.** `REDIS_PASSWORD` next to a `REDIS_URL` was read and then dropped, so the client connected unauthenticated. If you worked around that by building the provider from explicit settings, the plain form is enough again:
+
+```diff
+-provider = RedisProvider.sentinel(
+-    sentinels=[("host", 26379)], service_name="mymaster", password=settings.password
+-)
++provider = RedisProvider()
+```
+
+```bash
+REDIS_URL=redis+sentinel://a:26379,b:26379/mymaster/0
+REDIS_PASSWORD=...
+```
+
+That URL is the second half: `redis+sentinel://` and `redis+cluster://` are now accepted from the environment and from `RedisConfig`, including the multi-host form, so the topology no longer has to be hard-coded to be expressible.
+
+One combination newly raises instead of passing silently: a URL that already carries credentials **and** a separate `REDIS_PASSWORD`. Keep the password in one place. The same applies to `VALKEY_*`.
+
 ### Breaking
 
 * 💥 Leave `error` and `details` out of a `/healthz` check that has neither. A passing check sent `"error": null` on every poll, and with details enabled it sent `"details": null` too, so the highest-frequency response in the service spent bytes reporting that nothing happened. A passing check is now `{"status": "ok", "critical": true}`, and a failing one still carries its `error`. The OpenAPI schema types both fields as a plain string and object instead of promising a nullable value that never arrives. Read an absent `error` as a pass. A consumer that required the key needs updating. ([#649](https://github.com/grelinfo/grelmicro/issues/649))
@@ -32,6 +50,8 @@ A failing check still carries `error`, and `status` and `critical` are still on 
 
 ### Fixed
 
+* 🔒 Apply `REDIS_PASSWORD` to a `REDIS_URL` that carries no credentials. The password was read, validated and then dropped, so the client connected unauthenticated and the first command failed with `NOAUTH`, pointing at Redis rather than at the configuration. Host in a ConfigMap and password in a Secret is the shape the config docs recommend, and it was the one shape that did not work. A URL that already carries credentials plus a separate password now raises instead of silently preferring one, since the two can disagree. ([#653](https://github.com/grelinfo/grelmicro/issues/653))
+* 🐛 Accept `redis+sentinel://` and `redis+cluster://` from `REDIS_URL`, `RedisConfig`, and `VALKEY_URL`. The environment and `from_config` paths validated against a stricter type than the constructor, so the topology that most needs environment configuration was the one that could not be expressed there. Multi-host authorities such as `redis+sentinel://a:26379,b:26379/mymaster/0` validate too. All three paths now share one URL type, so they cannot drift apart again. ([#654](https://github.com/grelinfo/grelmicro/issues/654))
 * 🐛 Restore the component registry when an `override(...)` component fails to open. The registry was mutated one component at a time before the restore was armed, so a mock that raised on `__aenter__` stayed installed for the rest of the `async with micro:` block. The next lookup resolved the broken mock instead of the real component, with nothing reporting it, which in a session-scoped fixture leaked into every later test. ([#651](https://github.com/grelinfo/grelmicro/issues/651))
 * 🐛 Instantiate a bare class passed to `Bulkhead(uses=[...])`. The parameter documented the same shape as `Grelmicro(uses=[...])`, which accepts a class with no parens, but the bulkhead entered the class object itself and failed on startup. ([#646](https://github.com/grelinfo/grelmicro/issues/646))
 * 🐛 Reject `micro.use(None)` with a message naming the fix. It appended `None` to the item list and failed later inside the app lifecycle, pointing at nothing. ([#646](https://github.com/grelinfo/grelmicro/issues/646))

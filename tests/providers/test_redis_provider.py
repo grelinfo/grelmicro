@@ -97,11 +97,73 @@ class TestConstruction:
         assert provider.url == expected_url
 
     @pytest.mark.parametrize(
+        "scheme_url",
+        [
+            "redis://test_host:6379/0",
+            "rediss://test_host:6379/0",
+            "redis+sentinel://a:26379,b:26379/mymaster/0",
+            "redis+cluster://a:6379,b:6379",
+        ],
+    )
+    def test_env_accepts_every_constructor_scheme(
+        self,
+        scheme_url: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """`REDIS_URL` accepts every URL the constructor accepts."""
+        monkeypatch.delenv("REDIS_HOST", raising=False)
+        # An ambient password would reach the env path and not the kwarg one.
+        monkeypatch.delenv("REDIS_PASSWORD", raising=False)
+        monkeypatch.setenv("REDIS_URL", scheme_url)
+
+        assert RedisProvider().url == RedisProvider(scheme_url).url
+
+    def test_password_applies_to_url_with_query_and_no_path(self) -> None:
+        """A query string is preserved and never mistaken for userinfo."""
+        provider = RedisProvider(
+            "redis://test_host?client_name=a@b",
+            password="test_password",
+            env_load=False,
+        )
+
+        assert provider.url == (
+            "redis://:test_password@test_host?client_name=a@b"
+        )
+
+    def test_env_password_applies_to_url_without_credentials(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`REDIS_PASSWORD` next to `REDIS_URL` reaches the connection."""
+        monkeypatch.delenv("REDIS_HOST", raising=False)
+        monkeypatch.setenv("REDIS_URL", "redis://test_host:6379/0")
+        monkeypatch.setenv("REDIS_PASSWORD", "test_password")
+
+        provider = RedisProvider()
+
+        assert provider.url == "redis://:test_password@test_host:6379/0"
+        assert "test_password" not in provider.safe_url
+
+    def test_password_applies_to_url_kwarg_without_credentials(self) -> None:
+        """The `password=` kwarg reaches a URL that carries no userinfo."""
+        provider = RedisProvider(
+            "redis://test_host:6379/0",
+            password="test_password",
+            env_load=False,
+        )
+
+        assert provider.url == "redis://:test_password@test_host:6379/0"
+
+    @pytest.mark.parametrize(
         "environs",
         [
             {},
             {"REDIS_URL": "test://h:1/0"},
             {"REDIS_URL": URL, "REDIS_HOST": "test_host"},
+            # A password in the URL and in its own variable may disagree.
+            {
+                "REDIS_URL": "redis://:in_url@test_host:6379/0",
+                "REDIS_PASSWORD": "test_password",
+            },
         ],
     )
     def test_env_validation_errors(
