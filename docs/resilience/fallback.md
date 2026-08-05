@@ -63,6 +63,8 @@ Build the policy with keyword arguments. Set `when` to choose which exceptions f
 
 Prefix: `GREL_FALLBACK_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_FALLBACK_*`.
 
+--8<-- "env_gate.md"
+
 | Env var | Field | Type | Default |
 |---|---|---|---|
 | `GREL_FALLBACK_{NAME_UPPER}_WHEN` | `when` | CSV or JSON list of FQN strings (e.g. `httpx.HTTPError`). Coerced to `Match.exception(...)`. Predicate forms cannot come from env. | required |

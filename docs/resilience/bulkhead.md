@@ -44,6 +44,8 @@ The bulkhead opens its `uses=` on first entry and closes them when the app shuts
 
 Prefix: `GREL_BULKHEAD_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_BULKHEAD_*`.
 
+--8<-- "env_gate.md"
+
 | Env var | Field | Type | Default |
 |---|---|---|---|
 | `GREL_BULKHEAD_{NAME_UPPER}_MAX_CONCURRENT` | `max_concurrent` | `PositiveInt` | unbounded |

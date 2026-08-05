@@ -163,6 +163,8 @@ Build the policy with keyword arguments. Set `when` to choose which outcomes ret
 
 Prefix: `GREL_RETRY_{NAME_UPPER}_`. The default instance drops the name segment and reads `GREL_RETRY_*`.
 
+--8<-- "env_gate.md"
+
 | Env var | Field | Type | Default |
 |---|---|---|---|
 | `GREL_RETRY_{NAME_UPPER}_ATTEMPTS` | `attempts` | `int` (>= 1) | `3` |
