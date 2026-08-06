@@ -312,7 +312,8 @@ class TestAsyncMethods:
         """`__aenter__` opens the provider when the adapter owns it."""
         stub = _StubProvider()
         backend = PostgresCacheAdapter.__new__(PostgresCacheAdapter)
-        backend._provider = stub
+        # A stand-in for the provider, so only the lifecycle hooks run.
+        backend._provider = stub  # ty: ignore[invalid-assignment]
         backend._owns_provider = True
         backend._auto_migrate = False
         backend._cleanup_interval = None

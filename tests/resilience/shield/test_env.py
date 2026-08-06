@@ -131,7 +131,7 @@ def test_config_accepts_single_exception_class() -> None:
     """A bare exception class is wrapped in a one-tuple."""
     from grelmicro.resilience import ApiShieldConfig  # noqa: PLC0415
 
-    cfg = ApiShieldConfig(timeout_errors=TimeoutError)  # ty: ignore[invalid-argument-type]
+    cfg = ApiShieldConfig(timeout_errors=TimeoutError)
     assert TimeoutError in cfg.timeout_errors
 
 
