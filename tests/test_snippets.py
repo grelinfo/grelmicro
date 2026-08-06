@@ -44,6 +44,9 @@ _ENV = {
     "coordination/postgres.py": {
         "POSTGRES_URL": "postgresql://user:password@localhost:5432/db",
     },
+    "deployment/composition_root.py": {
+        "REDIS_URL": "redis://localhost:6379/0",
+    },
 }
 
 _ALL = sorted(

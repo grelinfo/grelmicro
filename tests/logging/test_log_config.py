@@ -2,14 +2,15 @@
 
 import pytest
 
-from grelmicro.errors import SettingsValidationError
+from grelmicro.errors import GrelmicroConfigWarning, SettingsValidationError
 from grelmicro.log import (
     LogConfig,
     LogSettingsValidationError,
     configure,
     configure_with,
 )
-from grelmicro.log.config import LogBackendType, LogLevelType
+from grelmicro.log.config import LogBackendType, LogFormatType, LogLevelType
+from tests.logging.conftest import parse_json_log
 
 
 def test_configure_returns_resolved_config(
@@ -53,6 +54,24 @@ def test_configure_env_load_false_ignores_env(
     monkeypatch.setenv("GREL_LOG_LEVEL", "ERROR")
     cfg = configure(env_load=False)
     assert cfg.level == LogLevelType.INFO  # default
+
+
+def test_configure_reports_ignored_env_in_the_log_stream(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    reset_backend: None,  # noqa: ARG001
+) -> None:
+    """A variable set without the opt-in is named in the application's format."""
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_LOG_LEVEL", "DEBUG")
+
+    with pytest.warns(GrelmicroConfigWarning):
+        configure(format=LogFormatType.JSON)
+
+    record = parse_json_log(capsys.readouterr().out)
+    assert record["level"] == "WARNING"
+    assert record["variable"] == "GREL_LOG_LEVEL"
+    assert "GREL_ENV_LOAD=1" in record["msg"]
 
 
 def test_configure_invalid_level_raises_settings_error(

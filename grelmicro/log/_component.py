@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
-from grelmicro._config import resolve_config
+from grelmicro._config import (
+    hold_ignored_env_reports,
+    ignored_env_reports_enabled,
+    resolve_config,
+)
 from grelmicro.log._apply import apply as _apply
 from grelmicro.log.config import (
     LogBackendType,
@@ -129,6 +133,7 @@ class Log:
         self._resolved: LogConfig | None = None
         self._snapshot_handlers: list[logging.Handler] | None = None
         self._snapshot_level: int | None = None
+        self._snapshot_reports = False
 
     @classmethod
     def from_config(
@@ -178,6 +183,7 @@ class Log:
             root = logging.getLogger()
             self._snapshot_handlers = list(root.handlers)
             self._snapshot_level = root.level
+            self._snapshot_reports = ignored_env_reports_enabled()
             self._resolved = resolve_config(
                 LogConfig,
                 explicit=self._explicit_config,
@@ -195,7 +201,14 @@ class Log:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool | None:
-        """Restore the snapshotted stdlib root handlers and level."""
+        """Restore the snapshotted stdlib root handlers and level.
+
+        The ignored-variable reports are restored the same way. They queue
+        again when nothing was configured before this lifecycle, so a report
+        made after the restore waits for the next one instead of reaching a
+        root logger with nothing installed. When an earlier `configure()`
+        left logging in place, its handlers come back and reporting with them.
+        """
         with self._lifecycle_lock:
             root = logging.getLogger()
             for handler in list(root.handlers):
@@ -205,6 +218,8 @@ class Log:
                     root.addHandler(handler)
             if self._snapshot_level is not None:  # pragma: no branch
                 root.setLevel(self._snapshot_level)
+            if not self._snapshot_reports:
+                hold_ignored_env_reports()
             self._snapshot_handlers = None
             self._snapshot_level = None
         return None
