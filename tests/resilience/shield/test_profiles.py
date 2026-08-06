@@ -94,7 +94,7 @@ def test_config_extra_forbidden() -> None:
 def test_timeout_errors_rejects_base_exception_class() -> None:
     """`BaseException`-only types cannot be passed as `timeout_errors`."""
     with pytest.raises(TypeError, match="not an Exception subclass"):
-        ApiShieldConfig(timeout_errors=KeyboardInterrupt)  # ty: ignore[invalid-argument-type]
+        ApiShieldConfig(timeout_errors=KeyboardInterrupt)
 
 
 def test_config_frozen() -> None:

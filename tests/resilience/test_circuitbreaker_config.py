@@ -98,7 +98,7 @@ def test_ignore_exceptions_accepts_tuple() -> None:
 
 def test_ignore_exceptions_accepts_fqn_string() -> None:
     """`ignore_exceptions="builtins.ValueError"` resolves via `ImportString`."""
-    cfg = ConsecutiveCountConfig(ignore_exceptions="builtins.ValueError")  # ty: ignore[invalid-argument-type]
+    cfg = ConsecutiveCountConfig(ignore_exceptions="builtins.ValueError")
     assert cfg.ignore_exceptions == (ValueError,)
 
 
@@ -122,7 +122,7 @@ def test_factory_accepts_mixed_class_and_fqn() -> None:
 def test_ignore_exceptions_accepts_tuple_of_fqn_strings() -> None:
     """A tuple of FQN strings resolves to a tuple of classes."""
     cfg = ConsecutiveCountConfig(
-        ignore_exceptions=("builtins.ValueError", "builtins.RuntimeError"),  # ty: ignore[invalid-argument-type]
+        ignore_exceptions=("builtins.ValueError", "builtins.RuntimeError"),
     )
     assert cfg.ignore_exceptions == (ValueError, RuntimeError)
 

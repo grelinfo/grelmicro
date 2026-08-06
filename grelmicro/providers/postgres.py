@@ -443,7 +443,7 @@ def _resolve_command_timeout(
     if not env_load:
         return None
     try:
-        settings = _PostgresTimeoutEnvSettings(_env_prefix=env_prefix)  # ty: ignore[unknown-argument]
+        settings = _PostgresTimeoutEnvSettings(_env_prefix=env_prefix)
     except ValidationError as error:
         raise PostgresProviderConfigError(error) from None
     return settings.command_timeout
@@ -485,7 +485,7 @@ def _resolve_url(
         # `_env_prefix` is a pydantic-settings runtime kwarg that overrides
         # `model_config["env_prefix"]` per call. The stubs do not expose it,
         # so static checkers reject it even though the runtime accepts it.
-        settings = _PostgresEnvSettings(_env_prefix=env_prefix)  # ty: ignore[unknown-argument]
+        settings = _PostgresEnvSettings(_env_prefix=env_prefix)
     except ValidationError as error:
         raise PostgresProviderConfigError(error) from None
 
