@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
+from grelmicro import _config
 from grelmicro.clock import VirtualClock
 
 
@@ -32,3 +33,16 @@ def _opt_in_env_config(monkeypatch: pytest.MonkeyPatch) -> None:
     ``monkeypatch.delenv("GREL_ENV_LOAD", raising=False)``.
     """
     monkeypatch.setenv("GREL_ENV_LOAD", "true")
+
+
+@pytest.fixture(autouse=True)
+def _reset_ignored_env_reports(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reset the process-wide ignored-variable report state.
+
+    A report is deduplicated for the life of the process and queued until
+    logging is configured. Without a reset, a report made in one test would
+    be missing from, or surface in, another.
+    """
+    _config._warned_ignored_env.clear()
+    _config._pending_ignored_env.clear()
+    monkeypatch.setattr(_config, "_logging_configured", False)

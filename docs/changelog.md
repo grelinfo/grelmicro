@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* 🐛 Log the ignored-variable report, so it survives a JSON log stream. A `GREL_*` variable set without `GREL_ENV_LOAD` was reported through `warnings` only, which writes plain text to stderr, so in a pod the one line explaining why `GREL_LOG_LEVEL=DEBUG` did nothing was the one line the log collector could not parse. The report now also goes to the `grelmicro` logger, which the default backend renders like every other record, with the name in a `variable` field an alert can match. A component resolves its config before logging exists, so a report made then waits and goes out as soon as logging is configured. `Log` restores the reporting state on exit along with the handlers it replaced, so a second lifecycle formats its own reports. The `GrelmicroConfigWarning` channel is unchanged. ([#676](https://github.com/grelinfo/grelmicro/issues/676))
+
+### Docs
+
+* 📝 Add a [Deployment](deployment.md) guide, which says `GREL_ENV_LOAD=1` out loud and puts it in the image rather than the manifest, where one copy always forgets it. Covers the log format and the probe noise, the probe endpoints, the shutdown window against `Tasks(shutdown_timeout=...)`, and a Deployment manifest that applies as it stands. ([#676](https://github.com/grelinfo/grelmicro/issues/676))
+* 📝 Scope the resolution order to the `GREL_*` namespace, in [Configuration](config.md#how-a-value-is-resolved). Step 2 read as though `GREL_ENV_LOAD` gated every environment variable, which no Provider has ever obeyed: `RedisProvider()` reads `REDIS_URL` with no flag, since that name belongs to the deployment rather than to grelmicro, and a missing one fails at construction naming the variable it wanted instead of falling back to a default. [Providers](providers.md) says the same where a reader of the env-driven recipe will see it. ([#676](https://github.com/grelinfo/grelmicro/issues/676))
+
 ## 0.35.1 - 2026-08-06
 
 ### Upgrading

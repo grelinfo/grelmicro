@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import warnings
+from collections import deque
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from weakref import WeakSet
@@ -212,13 +213,29 @@ A component is often constructed many times, and the same misconfiguration
 would otherwise be reported on every construction.
 """
 
+_pending_ignored_env: deque[str] = deque()
+"""Reported variable names still waiting for a log record.
+
+A component resolves its config before logging is configured, so the names
+queue here until `flush_ignored_env_reports` drains them.
+"""
+
+_logging_configured = False
+"""True while `grelmicro.log` has its handlers installed."""
+
+_IGNORED_ENV_MESSAGE = (
+    "%s is set but was not applied: environment-driven configuration is "
+    "opt-in. Set %s=1 to enable it, or pass the value directly."
+)
+"""Report text, shared by the `warnings` and the `logging` channel."""
+
 
 def _warn_ignored_env(
     config_cls: type[BaseModel],
     env_prefix: str,
     provided: Mapping[str, object],
 ) -> None:
-    """Warn when a variable this config declares is set but will not be read.
+    """Report a variable this config declares that is set but will not be read.
 
     Only the exact names `config_cls` declares are looked up. A prefix scan
     would match unrelated variables, and Kubernetes injects
@@ -229,8 +246,11 @@ def _warn_ignored_env(
     environment, so that variable would not have applied either way and the
     caller has already done what the message would ask of them.
 
-    Reported through `warnings` rather than `logging`, because the logging
-    component resolves its own config before logging is configured.
+    Each name is reported on both channels. `warnings` carries it under
+    `GrelmicroConfigWarning`, which a test suite can filter or turn into an
+    error. `logging` carries it on the `grelmicro` logger with the name in a
+    `variable` field, so a pipeline can match the field instead of the
+    message text. The log record waits until logging is configured.
     """
     for field in config_cls.model_fields:
         if field in provided:
@@ -239,12 +259,54 @@ def _warn_ignored_env(
         if name not in os.environ or name in _warned_ignored_env:
             continue
         _warned_ignored_env.add(name)
-        msg = (
-            f"{name} is set but was not applied: environment-driven "
-            f"configuration is opt-in. Set {_ENV_LOAD_VAR}=1 to enable it, "
-            f"or pass the value directly."
+        warnings.warn(
+            _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR),
+            GrelmicroConfigWarning,
+            stacklevel=4,
         )
-        warnings.warn(msg, GrelmicroConfigWarning, stacklevel=4)
+        if _logging_configured:
+            _log_ignored_env(name)
+        else:
+            _pending_ignored_env.append(name)
+
+
+def _log_ignored_env(name: str) -> None:
+    """Emit one ignored-variable report on the `grelmicro` logger."""
+    logger.warning(
+        _IGNORED_ENV_MESSAGE,
+        name,
+        _ENV_LOAD_VAR,
+        extra={"variable": name},
+    )
+
+
+def flush_ignored_env_reports() -> None:
+    """Emit the queued ignored-variable reports as log records.
+
+    Called by `grelmicro.log` once the backend has installed its handlers, so
+    a queued report is emitted with logging in place. Later reports go
+    straight to the logger.
+    """
+    global _logging_configured  # noqa: PLW0603
+    _logging_configured = True
+    while _pending_ignored_env:
+        _log_ignored_env(_pending_ignored_env.popleft())
+
+
+def hold_ignored_env_reports() -> None:
+    """Queue the reports again, until logging is configured once more.
+
+    Called by `grelmicro.log` when the `Log` component restores a root logger
+    that had no logging on it. A report made between two lifecycles then waits
+    for the next one instead of reaching a root logger with nothing installed.
+    """
+    global _logging_configured  # noqa: PLW0603
+    _logging_configured = False
+
+
+def ignored_env_reports_enabled() -> bool:
+    """Return True while a report goes straight to the logger."""
+    return _logging_configured
 
 
 @lru_cache(maxsize=256)

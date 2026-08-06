@@ -24,6 +24,7 @@ Each primitive is a protocol, so you can swap Redis for PostgreSQL, SQLite, Kube
 - [Tracing](https://grelmicro.grel.info/tracing/): OpenTelemetry spans and structured log context through `@instrument`.
 - [Metrics](https://grelmicro.grel.info/metrics/): OpenTelemetry metrics with a `@measure` decorator and a Prometheus router.
 - [Configuration](https://grelmicro.grel.info/config/): reconfigure live components from a ConfigMap, Secret, or file.
+- [Deployment](https://grelmicro.grel.info/deployment/): run a grelmicro app in a container, starting with the `GREL_ENV_LOAD` opt-in.
 - [Testing](https://grelmicro.grel.info/testing/): test grelmicro apps with the in-memory backends.
 
 ## API reference

@@ -1,13 +1,14 @@
 """Tests for the GREL_ENV_LOAD opt-in flag."""
 
+import logging
 import warnings
 
 import pytest
 
 from grelmicro import GrelmicroConfigWarning
 from grelmicro._config import (
-    _warned_ignored_env,
     env_load_default,
+    flush_ignored_env_reports,
     resolve_config,
 )
 from grelmicro.coordination.lock import Lock, LockConfig
@@ -28,12 +29,6 @@ def backend() -> MemoryLockAdapter:
 def _no_env_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
     """Override the autouse fixture and turn the global flag off."""
     monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
-
-
-@pytest.fixture(autouse=True)
-def _reset_ignored_env_warnings() -> None:
-    """Clear the process-wide dedup set so warnings do not depend on test order."""
-    _warned_ignored_env.clear()
 
 
 @pytest.mark.parametrize("value", ["1", "true", "True", "TRUE", "yes", "on"])
@@ -89,6 +84,76 @@ def test_ignored_env_is_reported_once(
         Lock("cart", backend=backend)
 
     assert [w for w in caught if w.category is GrelmicroConfigWarning] == []
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+def test_ignored_env_waits_for_logging_then_logs(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The report reaches the `grelmicro` logger once logging is configured."""
+    monkeypatch.setenv(
+        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
+    )
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro"):
+        with pytest.warns(GrelmicroConfigWarning):
+            Lock("cart", backend=backend)
+
+        assert caplog.records == []  # queued, logging is not configured yet
+        flush_ignored_env_reports()
+
+    assert len(caplog.records) == 1
+    record = caplog.records[0]
+    assert record.__dict__["variable"] == "GREL_LOCK_CART_LEASE_DURATION"
+    assert "GREL_ENV_LOAD=1" in record.getMessage()
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+def test_ignored_env_is_logged_once(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Configuring logging twice does not repeat the report."""
+    monkeypatch.setenv(
+        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
+    )
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro"):
+        with pytest.warns(GrelmicroConfigWarning):
+            Lock("cart", backend=backend)
+
+        flush_ignored_env_reports()
+        flush_ignored_env_reports()
+
+    assert len(caplog.records) == 1
+
+
+@pytest.mark.usefixtures("_no_env_opt_in")
+def test_ignored_env_after_logging_is_logged_straight_away(
+    backend: MemoryLockAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A component built after logging is configured reports without waiting."""
+    flush_ignored_env_reports()
+    monkeypatch.setenv(
+        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro"),
+        pytest.warns(GrelmicroConfigWarning),
+    ):
+        Lock("cart", backend=backend)
+
+    assert len(caplog.records) == 1
+    assert (
+        caplog.records[0].__dict__["variable"]
+        == "GREL_LOCK_CART_LEASE_DURATION"
+    )
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")

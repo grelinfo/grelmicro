@@ -8,22 +8,36 @@ environment variables. No code change between the two.
 A field takes the first of these that supplies it:
 
 1. **A keyword argument.** Always wins, always available, needs nothing enabled.
-2. **An environment variable**, when `GREL_ENV_LOAD` is truthy. Off by default.
+2. **A `GREL_*` environment variable**, when `GREL_ENV_LOAD` is truthy. Off by
+   default.
 3. **A file**, through
    [`ExternalConfig`](configuration/reconfigure-from-configmap.md), which also
    reconfigures a running component when the file changes.
 4. The field's default.
 
+The flag gates the `GREL_*` namespace, which is grelmicro's own. It does not
+gate a [Provider](providers.md), and it never did. `RedisProvider()` reads
+`REDIS_URL`, `PostgresProvider()` reads `POSTGRES_URL`, with no flag, because
+those names belong to your environment rather than to grelmicro. A provider
+variable that is missing fails at construction and names the variable it
+wanted, so there is no silent default to protect you from. Pass
+`env_load=False` to a provider to turn its env reads off.
+
 Step 2 is the one that surprises people. `GREL_ENV_LOAD` is a single
 process-wide switch, so a variable set without it is ignored and the default
-applies. Since 0.35.1 that situation warns at startup instead of passing
-silently, naming the variable:
+applies. That situation reports at startup instead of passing silently, naming
+the variable:
 
 ```
 UserWarning: GREL_LOG_FORMAT is set but was not applied: environment-driven
 configuration is opt-in. Set GREL_ENV_LOAD=1 to enable it, or pass the value
 directly.
 ```
+
+The same report is logged on the `grelmicro` logger once logging is configured,
+so on the default backend it also lands in the JSON log stream, where a warning
+on stderr would be lost. [Deployment](deployment.md) covers where to set the
+switch in a container.
 
 The switch exists because step 2 fills *every* field you did not pass, not only
 the ones with no default. An app that passes some settings from its own config

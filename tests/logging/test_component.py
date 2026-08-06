@@ -7,8 +7,11 @@ import logging
 import pytest
 
 from grelmicro import Component, ComponentAlreadyRegisteredError, Grelmicro
-from grelmicro.log import Log, LogConfig
-from grelmicro.log.config import LogLevelType
+from grelmicro._config import resolve_config
+from grelmicro.errors import GrelmicroConfigWarning
+from grelmicro.log import Log, LogConfig, configure
+from grelmicro.log.config import LogFormatType, LogLevelType
+from tests.logging.conftest import parse_json_log
 
 
 def test_log_satisfies_component_protocol() -> None:
@@ -90,6 +93,66 @@ async def test_log_restores_root_handlers_on_exit(
         assert sentinel not in root.handlers
     assert root.handlers == before
     assert root.level == logging.WARNING
+
+
+async def test_log_reports_ignored_env_in_a_second_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    reset_stdlib: None,  # noqa: ARG001
+) -> None:
+    """Exiting queues the reports again, so the next lifecycle formats them.
+
+    Exiting restores the handlers `Log` replaced, which usually means none at
+    all. A report made in between would otherwise reach the root logger with
+    nothing installed and come out as unformatted text.
+    """
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_LOG_LEVEL", "DEBUG")
+
+    with pytest.warns(GrelmicroConfigWarning):
+        async with Log(format=LogFormatType.JSON):
+            pass
+    capsys.readouterr()
+
+    monkeypatch.setenv("GREL_LOG_TIMEZONE", "Europe/Zurich")
+    with pytest.warns(GrelmicroConfigWarning):
+        async with Log(format=LogFormatType.JSON):
+            pass
+
+    record = parse_json_log(capsys.readouterr().out)
+    assert record["variable"] == "GREL_LOG_TIMEZONE"
+
+
+async def test_log_keeps_reporting_when_exit_restores_handlers(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    reset_stdlib: None,  # noqa: ARG001
+) -> None:
+    """A restore that carries handlers keeps the reports going to them.
+
+    `configure()` before the lifecycle leaves its handler in the snapshot, so
+    exiting puts a working logger back. A report after that has somewhere to
+    go and must not wait for a lifecycle that may never come.
+    """
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    configure(format=LogFormatType.JSON)
+
+    async with Log(format=LogFormatType.JSON):
+        pass
+    capsys.readouterr()
+
+    monkeypatch.setenv("GREL_LOG_TIMEZONE", "Europe/Zurich")
+    with pytest.warns(GrelmicroConfigWarning):
+        resolve_config(
+            LogConfig,
+            explicit=None,
+            kwargs={},
+            env_prefix="GREL_LOG_",
+            env_load=None,
+        )
+
+    record = parse_json_log(capsys.readouterr().out)
+    assert record["variable"] == "GREL_LOG_TIMEZONE"
 
 
 async def test_log_use_via_micro_attribute(reset_stdlib: None) -> None:  # noqa: ARG001

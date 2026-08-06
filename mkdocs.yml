@@ -85,6 +85,7 @@ nav:
     - tracing.md
     - metrics.md
     - config.md
+    - deployment.md
     - testing.md
 - Advanced User Guide:
     - advanced/config.md
