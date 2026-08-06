@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import warnings
+from collections import deque
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from weakref import WeakSet
@@ -212,7 +213,7 @@ A component is often constructed many times, and the same misconfiguration
 would otherwise be reported on every construction.
 """
 
-_pending_ignored_env: list[str] = []
+_pending_ignored_env: deque[str] = deque()
 """Reported variable names still waiting for a log record.
 
 A component resolves its config before logging is configured, so the names
@@ -289,7 +290,7 @@ def flush_ignored_env_reports() -> None:
     global _logging_configured  # noqa: PLW0603
     _logging_configured = True
     while _pending_ignored_env:
-        _log_ignored_env(_pending_ignored_env.pop(0))
+        _log_ignored_env(_pending_ignored_env.popleft())
 
 
 def hold_ignored_env_reports() -> None:
