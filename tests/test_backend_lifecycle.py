@@ -8,9 +8,15 @@ from pytest_mock import MockerFixture
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.coordination.kubernetes import KubernetesLockAdapter
-from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.coordination.memory import (
+    MemoryLockAdapter,
+    MemoryReadWriteLockAdapter,
+)
 from grelmicro.coordination.postgres import PostgresLockAdapter
-from grelmicro.coordination.redis import RedisLockAdapter
+from grelmicro.coordination.redis import (
+    RedisLockAdapter,
+    RedisReadWriteLockAdapter,
+)
 from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
@@ -120,4 +126,18 @@ async def test_rate_limiter_postgres_async_with(
         AsyncMock(return_value=mock_pool),
     )
     async with PostgresRateLimiterAdapter():
+        pass
+
+
+async def test_rwlock_memory_async_with() -> None:
+    """Test read-write lock memory backend async with."""
+    async with MemoryReadWriteLockAdapter():
+        pass
+
+
+async def test_rwlock_redis_async_with(mock_redis: MagicMock) -> None:  # noqa: ARG001
+    """Test read-write lock redis backend async with."""
+    async with RedisReadWriteLockAdapter(
+        provider=RedisProvider("redis://localhost")
+    ):
         pass

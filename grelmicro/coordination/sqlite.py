@@ -4,16 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import re
+from contextlib import asynccontextmanager
 from math import ceil
-from typing import TYPE_CHECKING, Annotated, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from typing_extensions import Doc
 
-from grelmicro.coordination._protocol import LockBackend, ScheduleBackend
+from grelmicro.coordination._protocol import (
+    LockBackend,
+    ReadWriteLockBackend,
+    ReadWriteLockState,
+    ScheduleBackend,
+    WriteGrant,
+)
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
     from types import TracebackType
+
+    from aiosqlite import Connection
 
 
 class SQLiteLockAdapter(LockBackend):
@@ -238,6 +248,352 @@ class SQLiteLockAdapter(LockBackend):
         ):
             result = await cursor.fetchone()
         return result is not None
+
+
+class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
+    """SQLite Read-Write Lock Adapter.
+
+    Borrows the connection and a shared lock from a `SQLiteProvider` and
+    implements the `ReadWriteLockBackend` protocol on a single host. One row
+    per lock holds the writer token, the writer's expiry, and the generation
+    counter. A side table holds one row per reader lease and one per writer
+    intent.
+
+    Every operation runs inside a `BEGIN IMMEDIATE` transaction, so the reap,
+    the decision, and the write apply as one step. The provider's lock
+    serializes the single connection within the process, and the
+    transaction's write lock serializes across processes sharing the file.
+
+    Lease durations are rounded up to whole seconds, the resolution SQLite
+    date functions work at.
+    """
+
+    _SQL_CREATE_TABLES = (
+        """
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            name TEXT PRIMARY KEY,
+            writer TEXT,
+            writer_expire_at TEXT,
+            generation INTEGER NOT NULL DEFAULT 0
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS {table_name}_holders (
+            name TEXT NOT NULL,
+            token TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            expire_at TEXT NOT NULL,
+            PRIMARY KEY (name, token, kind)
+        );
+        """,
+    )
+
+    _SQL_REAP = """
+        DELETE FROM {table_name}_holders
+        WHERE name = ? AND expire_at < datetime('now');
+    """
+
+    _SQL_ENSURE_ROW = """
+        INSERT INTO {table_name} (name) VALUES (?)
+        ON CONFLICT (name) DO NOTHING;
+    """
+
+    _SQL_SELECT_LOCK = """
+        SELECT writer, writer_expire_at, generation,
+               (writer IS NOT NULL AND writer_expire_at >= datetime('now'))
+        FROM {table_name} WHERE name = ?;
+    """
+
+    _SQL_COUNT_HOLDERS = """
+        SELECT count(*) FROM {table_name}_holders
+        WHERE name = ? AND kind = ? AND expire_at >= datetime('now');
+    """
+
+    _SQL_HOLDER_EXISTS = """
+        SELECT 1 FROM {table_name}_holders
+        WHERE name = ? AND token = ? AND kind = ?
+          AND expire_at >= datetime('now');
+    """
+
+    _SQL_UPSERT_HOLDER = """
+        INSERT INTO {table_name}_holders (name, token, kind, expire_at)
+        VALUES (?, ?, ?, datetime('now', '+' || ? || ' seconds'))
+        ON CONFLICT (name, token, kind)
+        DO UPDATE SET expire_at = excluded.expire_at;
+    """
+
+    _SQL_DELETE_HOLDER = """
+        DELETE FROM {table_name}_holders
+        WHERE name = ? AND token = ? AND kind = ?
+          AND expire_at >= datetime('now')
+        RETURNING 1;
+    """
+
+    _SQL_SET_WRITER = """
+        UPDATE {table_name}
+        SET writer = ?,
+            writer_expire_at = datetime('now', '+' || ? || ' seconds'),
+            generation = generation + 1
+        WHERE name = ?
+        RETURNING generation;
+    """
+
+    _SQL_RENEW_WRITER = """
+        UPDATE {table_name}
+        SET writer_expire_at = datetime('now', '+' || ? || ' seconds')
+        WHERE name = ?;
+    """
+
+    _SQL_CLEAR_WRITER = """
+        UPDATE {table_name}
+        SET writer = NULL, writer_expire_at = NULL
+        WHERE name = ? AND writer = ? AND writer_expire_at >= datetime('now')
+        RETURNING generation;
+    """
+
+    def __init__(
+        self,
+        *,
+        provider: Annotated[
+            SQLiteProvider | None,
+            Doc(
+                """
+                A pre-built `SQLiteProvider`. When set, the adapter borrows
+                the provider's connection and does not manage its lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `SQLiteProvider` when `provider` is not set. Resolves the
+                path from `SQLITE_PATH` by default.
+                """,
+            ),
+        ] = "SQLITE_",
+        table_name: Annotated[
+            str, Doc("The table name to store the read-write locks.")
+        ] = "rwlocks",
+    ) -> None:
+        """Initialize the read-write lock backend."""
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
+            msg = f"Table name '{table_name}' is not a valid SQL identifier"
+            raise ValueError(msg)
+
+        if provider is None:
+            self._provider = SQLiteProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
+        self._table_name = table_name
+        self._sql = {
+            key: template.format(table_name=table_name)
+            for key, template in {
+                "reap": self._SQL_REAP,
+                "ensure_row": self._SQL_ENSURE_ROW,
+                "select_lock": self._SQL_SELECT_LOCK,
+                "count_holders": self._SQL_COUNT_HOLDERS,
+                "holder_exists": self._SQL_HOLDER_EXISTS,
+                "upsert_holder": self._SQL_UPSERT_HOLDER,
+                "delete_holder": self._SQL_DELETE_HOLDER,
+                "set_writer": self._SQL_SET_WRITER,
+                "renew_writer": self._SQL_RENEW_WRITER,
+                "clear_writer": self._SQL_CLEAR_WRITER,
+            }.items()
+        }
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def provider(self) -> SQLiteProvider:
+        """The bound `SQLiteProvider`."""
+        return self._provider
+
+    def _rebind_provider(self, provider: SQLiteProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+
+    async def __aenter__(self) -> Self:
+        """Open the adapter and its provider when owned."""
+        if self._owns_provider:
+            await self._provider.__aenter__()
+        self._loop = asyncio.get_running_loop()
+        async with self._provider.connection_lock:
+            for sql in self._SQL_CREATE_TABLES:
+                await self._provider.client.execute(
+                    sql.format(table_name=self._table_name)
+                )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the provider when owned. External providers are left alone."""
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
+
+    @asynccontextmanager
+    async def _transaction(self) -> AsyncIterator[Connection]:
+        """Run a body inside `BEGIN IMMEDIATE` on the shared connection."""
+        conn = self._provider.client
+        async with self._provider.connection_lock:
+            await conn.execute("BEGIN IMMEDIATE;")
+            try:
+                yield conn
+            except BaseException:
+                await conn.execute("ROLLBACK;")
+                raise
+            await conn.execute("COMMIT;")
+
+    async def _fetch(
+        self, conn: Connection, key: str, params: tuple[object, ...]
+    ) -> Any:  # noqa: ANN401
+        """Run a statement and return its first row."""
+        async with conn.execute(self._sql[key], params) as cursor:
+            return await cursor.fetchone()
+
+    async def acquire_read(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire a read lease, returning the generation or `None`."""
+        seconds = ceil(duration)
+        async with self._transaction() as conn:
+            await conn.execute(self._sql["reap"], (name,))
+            await conn.execute(self._sql["ensure_row"], (name,))
+            row = await self._fetch(conn, "select_lock", (name,))
+            assert row is not None  # noqa: S101
+            generation, writing = int(row[2]), bool(row[3])
+            held = await self._fetch(conn, "holder_exists", (name, token, "r"))
+            if held is None:
+                if writing:
+                    return None
+                intents = await self._fetch(conn, "count_holders", (name, "i"))
+                assert intents is not None  # noqa: S101
+                if int(intents[0]) > 0:
+                    return None
+            await conn.execute(
+                self._sql["upsert_holder"], (name, token, "r", seconds)
+            )
+            return generation
+
+    async def acquire_write(
+        self, *, name: str, token: str, duration: float, intent: bool = True
+    ) -> WriteGrant | None:
+        """Acquire the write lease, returning the grant or `None`."""
+        seconds = ceil(duration)
+        async with self._transaction() as conn:
+            await conn.execute(self._sql["reap"], (name,))
+            await conn.execute(self._sql["ensure_row"], (name,))
+            row = await self._fetch(conn, "select_lock", (name,))
+            assert row is not None  # noqa: S101
+            writer, generation, writing = row[0], int(row[2]), bool(row[3])
+            if writing and writer == token:
+                await conn.execute(self._sql["renew_writer"], (seconds, name))
+                return WriteGrant(fencing_token=generation, poisoned=False)
+            readers = await self._fetch(conn, "count_holders", (name, "r"))
+            assert readers is not None  # noqa: S101
+            if writing or int(readers[0]) > 0:
+                if intent:
+                    await conn.execute(
+                        self._sql["upsert_holder"],
+                        (name, token, "i", seconds),
+                    )
+                return None
+            await conn.execute(
+                f"DELETE FROM {self._table_name}_holders"  # noqa: S608
+                " WHERE name = ? AND token = ? AND kind = 'i';",
+                (name, token),
+            )
+            granted = await self._fetch(
+                conn, "set_writer", (token, seconds, name)
+            )
+            assert granted is not None  # noqa: S101
+            return WriteGrant(
+                fencing_token=int(granted[0]), poisoned=writer is not None
+            )
+
+    async def release_read(self, *, name: str, token: str) -> bool:
+        """Drop a read lease."""
+        async with self._transaction() as conn:
+            row = await self._fetch(conn, "delete_holder", (name, token, "r"))
+            return row is not None
+
+    async def release_write(self, *, name: str, token: str) -> bool:
+        """Drop the write lease, leaving the lock clean."""
+        async with self._transaction() as conn:
+            row = await self._fetch(conn, "clear_writer", (name, token))
+            return row is not None
+
+    async def cancel_intent(self, *, name: str, token: str) -> bool:
+        """Withdraw a writer intent."""
+        async with self._transaction() as conn:
+            row = await self._fetch(conn, "delete_holder", (name, token, "i"))
+            return row is not None
+
+    async def downgrade(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Turn a held write lease into a read lease."""
+        seconds = ceil(duration)
+        async with self._transaction() as conn:
+            row = await self._fetch(conn, "clear_writer", (name, token))
+            if row is None:
+                return None
+            await conn.execute(
+                self._sql["upsert_holder"], (name, token, "r", seconds)
+            )
+            return int(row[0])
+
+    async def state(self, *, name: str) -> ReadWriteLockState:
+        """Return a point-in-time view of the lock."""
+        async with self._transaction() as conn:
+            await conn.execute(self._sql["reap"], (name,))
+            row = await self._fetch(conn, "select_lock", (name,))
+            if row is None:
+                return ReadWriteLockState(
+                    generation=0,
+                    writing=False,
+                    readers=0,
+                    waiting_writers=0,
+                )
+            readers = await self._fetch(conn, "count_holders", (name, "r"))
+            intents = await self._fetch(conn, "count_holders", (name, "i"))
+            assert readers is not None  # noqa: S101
+            assert intents is not None  # noqa: S101
+            return ReadWriteLockState(
+                generation=int(row[2]),
+                writing=bool(row[3]),
+                readers=int(readers[0]),
+                waiting_writers=int(intents[0]),
+            )
+
+    async def owned_read(self, *, name: str, token: str) -> bool:
+        """Check whether `token` holds a live read lease."""
+        conn = self._provider.client
+        async with (
+            self._provider.connection_lock,
+            conn.execute(
+                self._sql["holder_exists"], (name, token, "r")
+            ) as cursor,
+        ):
+            return await cursor.fetchone() is not None
+
+    async def owned_write(self, *, name: str, token: str) -> bool:
+        """Check whether `token` holds the live write lease."""
+        conn = self._provider.client
+        async with (
+            self._provider.connection_lock,
+            conn.execute(self._sql["select_lock"], (name,)) as cursor,
+        ):
+            row = await cursor.fetchone()
+        return row is not None and row[0] == token and bool(row[3])
 
 
 class SQLiteScheduleAdapter(ScheduleBackend):

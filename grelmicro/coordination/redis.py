@@ -12,7 +12,10 @@ from typing_extensions import Doc
 from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
+    ReadWriteLockBackend,
+    ReadWriteLockState,
     ScheduleBackend,
+    WriteGrant,
 )
 from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
 
@@ -191,6 +194,374 @@ class RedisLockAdapter(LockBackend):
         value = stored.decode() if isinstance(stored, bytes) else stored
         _fence, sep, holder = value.partition(":")
         return sep == ":" and holder == token
+
+
+class RedisReadWriteLockAdapter(ReadWriteLockBackend):
+    """Redis Read-Write Lock Adapter.
+
+    Wraps a `RedisProvider` and implements the `ReadWriteLockBackend`
+    protocol. Every operation is one Lua script, so the reap, the decision,
+    and the write apply atomically across processes and machines.
+
+    Each lock name uses three keys: a hash holding the writer token, the
+    writer's expiry, and the generation counter, a sorted set of reader
+    tokens scored by their lease expiry, and a sorted set of writer intents
+    scored the same way. Expiry is computed inside Lua against the Redis
+    server clock rather than a key TTL, so an expired writer stays readable
+    and the next writer learns that its predecessor died mid-write.
+
+    Individual reader leases are what let a writer in promptly: the writer's
+    own acquire drops the readers that expired instead of waiting for a
+    whole-key TTL.
+    """
+
+    _LUA_NOW = """
+        local t = redis.call('TIME')
+        local now = t[1] * 1000 + math.floor(t[2] / 1000)
+    """
+    _LUA_REAP = """
+        redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+        redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', now)
+    """
+
+    _LUA_ACQUIRE_READ = (
+        _LUA_NOW
+        + _LUA_REAP
+        + """
+        local gen = tonumber(redis.call('HGET', KEYS[1], 'g')) or 0
+        local exp = now + tonumber(ARGV[2])
+        if redis.call('ZSCORE', KEYS[2], ARGV[1]) then
+            redis.call('ZADD', KEYS[2], exp, ARGV[1])
+            return gen
+        end
+        local we = tonumber(redis.call('HGET', KEYS[1], 'we'))
+        if we and we > now then
+            return nil
+        end
+        if redis.call('ZCARD', KEYS[3]) > 0 then
+            return nil
+        end
+        redis.call('ZADD', KEYS[2], exp, ARGV[1])
+        return gen
+    """
+    )
+
+    _LUA_ACQUIRE_WRITE = (
+        _LUA_NOW
+        + _LUA_REAP
+        + """
+        local w = redis.call('HGET', KEYS[1], 'w')
+        local we = tonumber(redis.call('HGET', KEYS[1], 'we'))
+        local gen = tonumber(redis.call('HGET', KEYS[1], 'g')) or 0
+        local exp = now + tonumber(ARGV[2])
+        if w and we and we > now then
+            if w == ARGV[1] then
+                redis.call('HSET', KEYS[1], 'we', exp)
+                return {gen, 0}
+            end
+            if ARGV[3] == '1' then
+                redis.call('ZADD', KEYS[3], exp, ARGV[1])
+            end
+            return nil
+        end
+        if redis.call('ZCARD', KEYS[2]) > 0 then
+            if ARGV[3] == '1' then
+                redis.call('ZADD', KEYS[3], exp, ARGV[1])
+            end
+            return nil
+        end
+        local poisoned = 0
+        if w then
+            poisoned = 1
+        end
+        redis.call('ZREM', KEYS[3], ARGV[1])
+        gen = gen + 1
+        redis.call('HSET', KEYS[1], 'g', gen, 'w', ARGV[1], 'we', exp)
+        return {gen, poisoned}
+    """
+    )
+
+    _LUA_RELEASE_READ = (
+        _LUA_NOW
+        + _LUA_REAP
+        + """
+        return redis.call('ZREM', KEYS[2], ARGV[1])
+    """
+    )
+
+    _LUA_RELEASE_WRITE = (
+        _LUA_NOW
+        + _LUA_REAP
+        + """
+        local w = redis.call('HGET', KEYS[1], 'w')
+        local we = tonumber(redis.call('HGET', KEYS[1], 'we'))
+        if w == ARGV[1] and we and we > now then
+            redis.call('HDEL', KEYS[1], 'w', 'we')
+            return 1
+        end
+        return 0
+    """
+    )
+
+    _LUA_CANCEL_INTENT = (
+        _LUA_NOW
+        + _LUA_REAP
+        + """
+        return redis.call('ZREM', KEYS[3], ARGV[1])
+    """
+    )
+
+    _LUA_DOWNGRADE = (
+        _LUA_NOW
+        + _LUA_REAP
+        + """
+        local w = redis.call('HGET', KEYS[1], 'w')
+        local we = tonumber(redis.call('HGET', KEYS[1], 'we'))
+        if w ~= ARGV[1] or not we or we <= now then
+            return nil
+        end
+        local gen = tonumber(redis.call('HGET', KEYS[1], 'g')) or 0
+        redis.call('HDEL', KEYS[1], 'w', 'we')
+        redis.call('ZADD', KEYS[2], now + tonumber(ARGV[2]), ARGV[1])
+        return gen
+    """
+    )
+
+    _LUA_STATE = (
+        _LUA_NOW
+        + _LUA_REAP
+        + """
+        local gen = tonumber(redis.call('HGET', KEYS[1], 'g')) or 0
+        local we = tonumber(redis.call('HGET', KEYS[1], 'we'))
+        local writing = 0
+        if we and we > now then
+            writing = 1
+        end
+        return {
+            gen, writing,
+            redis.call('ZCARD', KEYS[2]),
+            redis.call('ZCARD', KEYS[3])
+        }
+    """
+    )
+
+    _LUA_OWNED_READ = (
+        _LUA_NOW
+        + _LUA_REAP
+        + """
+        if redis.call('ZSCORE', KEYS[2], ARGV[1]) then
+            return 1
+        end
+        return 0
+    """
+    )
+
+    _LUA_OWNED_WRITE = (
+        _LUA_NOW
+        + """
+        local w = redis.call('HGET', KEYS[1], 'w')
+        local we = tonumber(redis.call('HGET', KEYS[1], 'we'))
+        if w == ARGV[1] and we and we > now then
+            return 1
+        end
+        return 0
+    """
+    )
+
+    def __init__(
+        self,
+        *,
+        provider: Annotated[
+            RedisProvider | None,
+            Doc(
+                """
+                A pre-built `RedisProvider`. When set, the adapter borrows
+                the provider's client and does not manage its lifecycle.
+                """,
+            ),
+        ] = None,
+        env_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Environment variable prefix used by the implicit
+                `RedisProvider` when `provider` is not set. Defaults to
+                `REDIS_`. Use a custom prefix to split pools.
+                """,
+            ),
+        ] = "REDIS_",
+        prefix: Annotated[
+            str,
+            Doc("Prefix prepended to every Redis key (lock isolation)."),
+        ] = "",
+    ) -> None:
+        """Initialize the adapter."""
+        if provider is None:
+            self._provider = RedisProvider(env_prefix=env_prefix)
+            self._owns_provider = True
+        else:
+            self._provider = provider
+            self._owns_provider = False
+        self._env_prefix = env_prefix
+        self._key_prefix = prefix
+        self._bind_scripts()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def provider(self) -> RedisProvider:
+        """The bound `RedisProvider`."""
+        return self._provider
+
+    def _bind_scripts(self) -> None:
+        """(Re)register the Lua scripts against the current client."""
+        require_cluster_hash_tag(
+            self._provider,
+            self._key_prefix,
+            adapter="RedisReadWriteLockAdapter",
+        )
+        client = self._provider.client
+        self._lua_acquire_read = client.register_script(self._LUA_ACQUIRE_READ)
+        self._lua_acquire_write = client.register_script(
+            self._LUA_ACQUIRE_WRITE
+        )
+        self._lua_release_read = client.register_script(self._LUA_RELEASE_READ)
+        self._lua_release_write = client.register_script(
+            self._LUA_RELEASE_WRITE
+        )
+        self._lua_cancel_intent = client.register_script(
+            self._LUA_CANCEL_INTENT
+        )
+        self._lua_downgrade = client.register_script(self._LUA_DOWNGRADE)
+        self._lua_state = client.register_script(self._LUA_STATE)
+        self._lua_owned_read = client.register_script(self._LUA_OWNED_READ)
+        self._lua_owned_write = client.register_script(self._LUA_OWNED_WRITE)
+
+    def _rebind_provider(self, provider: RedisProvider) -> None:
+        """Swap the underlying provider (used by `Grelmicro` for sharing)."""
+        self._provider = provider
+        self._owns_provider = False
+        self._bind_scripts()
+
+    async def __aenter__(self) -> Self:
+        """Open the adapter and its provider when owned."""
+        self._loop = asyncio.get_running_loop()
+        if self._owns_provider:
+            await self._provider.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the provider when owned. External providers are left alone."""
+        if self._owns_provider:
+            await self._provider.__aexit__(exc_type, exc_value, traceback)
+
+    def _keys(self, name: str) -> list[str]:
+        """Return the hash, reader, and intent keys for a lock name."""
+        base = f"{self._key_prefix}{name}"
+        return [base, f"{base}:r", f"{base}:i"]
+
+    async def acquire_read(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire a read lease, returning the generation or `None`."""
+        generation = await self._lua_acquire_read(
+            keys=self._keys(name),
+            args=[token, _duration_ms(duration)],
+            client=self._provider.client,
+        )
+        return int(generation) if generation is not None else None
+
+    async def acquire_write(
+        self, *, name: str, token: str, duration: float, intent: bool = True
+    ) -> WriteGrant | None:
+        """Acquire the write lease, returning the grant or `None`."""
+        result = await self._lua_acquire_write(
+            keys=self._keys(name),
+            args=[token, _duration_ms(duration), "1" if intent else "0"],
+            client=self._provider.client,
+        )
+        if result is None:
+            return None
+        fence, poisoned = result
+        return WriteGrant(fencing_token=int(fence), poisoned=bool(poisoned))
+
+    async def release_read(self, *, name: str, token: str) -> bool:
+        """Drop a read lease."""
+        return bool(
+            await self._lua_release_read(
+                keys=self._keys(name),
+                args=[token],
+                client=self._provider.client,
+            )
+        )
+
+    async def release_write(self, *, name: str, token: str) -> bool:
+        """Drop the write lease, leaving the lock clean."""
+        return bool(
+            await self._lua_release_write(
+                keys=self._keys(name),
+                args=[token],
+                client=self._provider.client,
+            )
+        )
+
+    async def cancel_intent(self, *, name: str, token: str) -> bool:
+        """Withdraw a writer intent."""
+        return bool(
+            await self._lua_cancel_intent(
+                keys=self._keys(name),
+                args=[token],
+                client=self._provider.client,
+            )
+        )
+
+    async def downgrade(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Turn a held write lease into a read lease."""
+        generation = await self._lua_downgrade(
+            keys=self._keys(name),
+            args=[token, _duration_ms(duration)],
+            client=self._provider.client,
+        )
+        return int(generation) if generation is not None else None
+
+    async def state(self, *, name: str) -> ReadWriteLockState:
+        """Return a point-in-time view of the lock."""
+        generation, writing, readers, intents = await self._lua_state(
+            keys=self._keys(name),
+            client=self._provider.client,
+        )
+        return ReadWriteLockState(
+            generation=int(generation),
+            writing=bool(writing),
+            readers=int(readers),
+            waiting_writers=int(intents),
+        )
+
+    async def owned_read(self, *, name: str, token: str) -> bool:
+        """Check whether `token` holds a live read lease."""
+        return bool(
+            await self._lua_owned_read(
+                keys=self._keys(name),
+                args=[token],
+                client=self._provider.client,
+            )
+        )
+
+    async def owned_write(self, *, name: str, token: str) -> bool:
+        """Check whether `token` holds the live write lease."""
+        return bool(
+            await self._lua_owned_write(
+                keys=self._keys(name),
+                args=[token],
+                client=self._provider.client,
+            )
+        )
 
 
 class RedisScheduleAdapter(ScheduleBackend):
@@ -589,6 +960,16 @@ class RedisLeaderElectionAdapter:
         if raw is None:
             return None
         return self._to_record(raw)
+
+
+def _duration_ms(duration: float) -> int:
+    """Return the lease duration in whole milliseconds, never zero.
+
+    A duration under a millisecond would floor to zero, and a lease that
+    expires the moment it is granted is never what a positive duration
+    asked for.
+    """
+    return max(1, int(duration * 1000))
 
 
 def _as_str(value: bytes | str | None) -> str:

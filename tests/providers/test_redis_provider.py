@@ -10,7 +10,10 @@ from redis.asyncio.sentinel import Sentinel
 
 from grelmicro import Grelmicro, GrelmicroConfigWarning
 from grelmicro.cache.redis import RedisCacheAdapter
-from grelmicro.coordination.redis import RedisLockAdapter
+from grelmicro.coordination.redis import (
+    RedisLockAdapter,
+    RedisReadWriteLockAdapter,
+)
 from grelmicro.providers.redis import (
     RedisConfig,
     RedisProvider,
@@ -726,6 +729,25 @@ class TestClusterHashTagGuard:
     ) -> None:
         """A prefix carrying a hash tag is accepted on Cluster."""
         adapter = RedisLockAdapter(provider=cluster_provider, prefix="{app}")
+
+        assert adapter.provider is cluster_provider
+
+    def test_rwlock_without_hash_tag_raises(
+        self, cluster_provider: RedisProvider
+    ) -> None:
+        """The read-write lock adapter rejects a tag-less prefix on Cluster."""
+        with pytest.raises(ValueError, match="hash tag"):
+            RedisReadWriteLockAdapter(
+                provider=cluster_provider, prefix="rwlock:"
+            )
+
+    def test_rwlock_with_hash_tag_passes(
+        self, cluster_provider: RedisProvider
+    ) -> None:
+        """A prefix carrying a hash tag is accepted on Cluster."""
+        adapter = RedisReadWriteLockAdapter(
+            provider=cluster_provider, prefix="{app}"
+        )
 
         assert adapter.provider is cluster_provider
 

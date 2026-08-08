@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* ✨ Add [`ReadWriteLock`](coordination.md#read-write-lock), a distributed lock that lets every reader in at once and keeps writers alone. `lock.read` and `lock.write` are two views of one lock, each with `acquire`, `acquire_nowait`, `extend`, `release`, and a `from_thread` adapter. It is writer-preferring: a writer that finds readers in the way records an intent, so readers arriving after it wait and writers never starve. Every holder has its own lease, so a reader that died is reaped by the next acquire instead of blocking a writer until a shared expiry fires. `ReadGuard` and `WriteGuard` are distinct types, so a function that writes can demand the write guard in its signature, and reading a token from a spent guard raises `LockNotOwnedError` instead of handing back a stale one. `WriteGuard.poisoned` says the previous writer's lease expired without a release, and `await guard.downgrade()` turns a write lease into a read lease with no gap for another writer. Upgrading raises `LockUpgradeError` rather than shipping a deadlock. Redis, Valkey, PostgreSQL, SQLite, Kubernetes, and Memory all ship an adapter and pass one shared conformance suite. ([#686](https://github.com/grelinfo/grelmicro/issues/686))
+
 ## 0.35.2 - 2026-08-06
 
 ### Fixed

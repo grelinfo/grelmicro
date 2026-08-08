@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import TYPE_CHECKING, Self
@@ -11,7 +11,10 @@ from typing import TYPE_CHECKING, Self
 from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
+    ReadWriteLockBackend,
+    ReadWriteLockState,
     ScheduleBackend,
+    WriteGrant,
 )
 
 if TYPE_CHECKING:
@@ -83,6 +86,148 @@ class MemoryLockAdapter(LockBackend):
         """Check if the lock is owned."""
         current_token, expire_at = self._locks.get(name, (None, 0))
         return current_token == token and expire_at >= monotonic()
+
+
+@dataclass(slots=True)
+class _MemoryReadWriteState:
+    """The state of one in-memory read-write lock."""
+
+    generation: int = 0
+    writer: str | None = None
+    writer_expire_at: float = 0.0
+    writer_expired: bool = False
+    readers: dict[str, float] = field(default_factory=dict)
+    intents: dict[str, float] = field(default_factory=dict)
+
+
+class MemoryReadWriteLockAdapter(ReadWriteLockBackend):
+    """Memory Read-Write Lock Adapter.
+
+    Runs the same reader set, writer intent, and reaping algorithm as the
+    distributed backends against a process-local dict. State disappears on
+    restart and does not coordinate across nodes, so every process believes
+    it holds the lock. Use a Redis, Postgres, SQLite, or Kubernetes backend
+    across nodes.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the read-write lock backend."""
+        self._states: dict[str, _MemoryReadWriteState] = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    async def __aenter__(self) -> Self:
+        """Open the read-write lock backend."""
+        self._loop = asyncio.get_running_loop()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the read-write lock backend."""
+        self._states.clear()
+
+    def _reap(self, name: str) -> _MemoryReadWriteState:
+        """Return the state for `name`, with every expired lease dropped."""
+        state = self._states.get(name)
+        if state is None:
+            state = _MemoryReadWriteState()
+            self._states[name] = state
+        now = monotonic()
+        if state.writer is not None and state.writer_expire_at < now:
+            state.writer = None
+            state.writer_expired = True
+        for token, expire_at in list(state.readers.items()):
+            if expire_at < now:
+                del state.readers[token]
+        for token, expire_at in list(state.intents.items()):
+            if expire_at < now:
+                del state.intents[token]
+        return state
+
+    async def acquire_read(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire a read lease, returning the generation or `None`."""
+        state = self._reap(name)
+        if token in state.readers:
+            state.readers[token] = monotonic() + duration
+            return state.generation
+        if state.writer is not None or state.intents:
+            return None
+        state.readers[token] = monotonic() + duration
+        return state.generation
+
+    async def acquire_write(
+        self, *, name: str, token: str, duration: float, intent: bool = True
+    ) -> WriteGrant | None:
+        """Acquire the write lease, returning the grant or `None`."""
+        state = self._reap(name)
+        if state.writer == token:
+            state.writer_expire_at = monotonic() + duration
+            return WriteGrant(fencing_token=state.generation, poisoned=False)
+        if state.writer is not None or state.readers:
+            if intent:
+                state.intents[token] = monotonic() + duration
+            return None
+        state.intents.pop(token, None)
+        state.generation += 1
+        state.writer = token
+        state.writer_expire_at = monotonic() + duration
+        poisoned = state.writer_expired
+        state.writer_expired = False
+        return WriteGrant(fencing_token=state.generation, poisoned=poisoned)
+
+    async def release_read(self, *, name: str, token: str) -> bool:
+        """Drop a read lease."""
+        state = self._reap(name)
+        return state.readers.pop(token, None) is not None
+
+    async def release_write(self, *, name: str, token: str) -> bool:
+        """Drop the write lease, leaving the lock clean."""
+        state = self._reap(name)
+        if state.writer != token:
+            return False
+        state.writer = None
+        state.writer_expired = False
+        return True
+
+    async def cancel_intent(self, *, name: str, token: str) -> bool:
+        """Withdraw a writer intent."""
+        state = self._reap(name)
+        return state.intents.pop(token, None) is not None
+
+    async def downgrade(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Turn a held write lease into a read lease."""
+        state = self._reap(name)
+        if state.writer != token:
+            return None
+        state.writer = None
+        state.writer_expired = False
+        state.readers[token] = monotonic() + duration
+        return state.generation
+
+    async def state(self, *, name: str) -> ReadWriteLockState:
+        """Return a point-in-time view of the lock."""
+        state = self._reap(name)
+        return ReadWriteLockState(
+            generation=state.generation,
+            writing=state.writer is not None,
+            readers=len(state.readers),
+            waiting_writers=len(state.intents),
+        )
+
+    async def owned_read(self, *, name: str, token: str) -> bool:
+        """Check whether `token` holds a live read lease."""
+        return token in self._reap(name).readers
+
+    async def owned_write(self, *, name: str, token: str) -> bool:
+        """Check whether `token` holds the live write lease."""
+        return self._reap(name).writer == token
 
 
 class MemoryScheduleAdapter(ScheduleBackend):

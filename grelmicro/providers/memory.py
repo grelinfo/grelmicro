@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination.memory import (
         MemoryLeaderElectionAdapter,
         MemoryLockAdapter,
+        MemoryReadWriteLockAdapter,
         MemoryScheduleAdapter,
     )
     from grelmicro.resilience.circuitbreaker.memory import (
@@ -57,6 +58,7 @@ class MemoryProvider(Provider):
         self._lock: MemoryLockAdapter | None = None
         self._leaderelection: MemoryLeaderElectionAdapter | None = None
         self._schedule: MemoryScheduleAdapter | None = None
+        self._rwlock: MemoryReadWriteLockAdapter | None = None
         self._cache: MemoryCacheAdapter | None = None
         self._ratelimiter: MemoryRateLimiterAdapter | None = None
         self._circuitbreaker: MemoryCircuitBreakerAdapter | None = None
@@ -74,6 +76,19 @@ class MemoryProvider(Provider):
 
             self._lock = MemoryLockAdapter(**kwargs)
         return self._lock
+
+    def readwritelock(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> MemoryReadWriteLockAdapter:
+        """Return the shared `MemoryReadWriteLockAdapter` for this provider."""
+        if self._rwlock is None:
+            from grelmicro.coordination.memory import (  # noqa: PLC0415
+                MemoryReadWriteLockAdapter,
+            )
+
+            self._rwlock = MemoryReadWriteLockAdapter(**kwargs)
+        return self._rwlock
 
     def leaderelection(
         self,

@@ -45,7 +45,7 @@ _NAME_MAX_LEN = 200
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\-]*$")
 
 
-def _validate_lock_name(name: str) -> None:
+def validate_lock_name(name: str) -> None:
     """Reject lock names that would land as ugly or ambiguous backend keys.
 
     The pattern accepts letters, digits, and the separators ``._:/-`` after
@@ -310,7 +310,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         backend: LockBackend | str | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
-        _validate_lock_name(name)
+        validate_lock_name(name)
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()

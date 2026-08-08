@@ -19,6 +19,7 @@ LOOP_PROTOCOLS = frozenset(
         "CacheBackend",
         "CircuitBreakerBackend",
         "LockBackend",
+        "ReadWriteLockBackend",
         "ScheduleBackend",
     }
 )

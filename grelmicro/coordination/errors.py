@@ -17,6 +17,7 @@ __all__ = [
     "LockOwnedCheckError",
     "LockReentrantError",
     "LockReleaseError",
+    "LockUpgradeError",
     "WouldBlockError",
 ]
 
@@ -49,6 +50,24 @@ class LockReentrantError(CoordinationError):
             f"Lock does not support nested usage: name={name}."
             f" The lock is already acquired by this instance."
             f" Use separate instances if you need independent locks."
+        )
+
+
+class LockUpgradeError(CoordinationError):
+    """Lock Upgrade Error.
+
+    This error is raised when a task that holds a read lock asks for the
+    write lock on the same `ReadWriteLock`. Two readers upgrading at once
+    wait for each other forever, so the upgrade is refused. Take the write
+    lock from the start when the body may write.
+    """
+
+    def __init__(self, *, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(
+            f"Read-write lock does not support upgrade: name={name}."
+            f" This task holds the read lock and asked for the write lock."
+            f" Acquire the write lock first when the body may write."
         )
 
 

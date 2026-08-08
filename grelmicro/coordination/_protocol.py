@@ -153,6 +153,227 @@ class LockPrimitive(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class WriteGrant:
+    """The result of a granted write acquisition."""
+
+    fencing_token: Annotated[
+        int,
+        Doc(
+            "A strictly increasing integer minted for this lock name on"
+            " every free-to-held write transition. A renewal by the same"
+            " holder keeps the same value."
+        ),
+    ]
+    poisoned: Annotated[
+        bool,
+        Doc(
+            "`True` when this acquisition took over from a writer whose"
+            " lease expired without a release, so the resource may hold a"
+            " half-finished write."
+        ),
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class ReadWriteLockState:
+    """A point-in-time view of a read-write lock."""
+
+    generation: Annotated[
+        int,
+        Doc("The fencing token of the most recent write acquisition."),
+    ]
+    writing: Annotated[
+        bool,
+        Doc("`True` when a writer currently holds the lock."),
+    ]
+    readers: Annotated[
+        int,
+        Doc("Number of readers holding a live lease."),
+    ]
+    waiting_writers: Annotated[
+        int,
+        Doc("Number of writers holding a live intent while they wait."),
+    ]
+
+
+@runtime_checkable
+class ReadWriteLockBackend(Protocol):
+    """Read-Write Lock Backend Protocol.
+
+    The low-level API behind `ReadWriteLock`, platform agnostic. Many
+    readers hold the lock at once, one writer holds it alone, and a writer
+    waiting behind readers records an intent that keeps new readers out.
+
+    Every holder, reader or writer, has its own lease under its own token.
+    An acquire reaps the leases and intents that expired, so a holder that
+    died never blocks anyone longer than its lease.
+
+    Implementations capture the running event loop on `__aenter__` in a
+    `_loop` attribute so the `from_thread` adapters can dispatch coroutines
+    back into it, mirroring `LockBackend`.
+    """
+
+    _loop: asyncio.AbstractEventLoop | None
+
+    async def __aenter__(self) -> Self:
+        """Open the read-write lock backend."""
+        ...
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the read-write lock backend."""
+        ...
+
+    async def acquire_read(
+        self,
+        *,
+        name: Annotated[
+            str,
+            Doc("Identifier of the lock to acquire for reading."),
+        ],
+        token: Annotated[
+            str,
+            Doc("Caller-supplied reader token, unique per holder."),
+        ],
+        duration: Annotated[
+            float,
+            Doc("Seconds this reader's lease is held before it expires."),
+        ],
+    ) -> int | None:
+        """Acquire the lock for reading.
+
+        Returns the current generation when granted, `None` when a writer
+        holds the lock or waits for it. A token already in the reader set
+        renews its own lease and is granted even while a writer waits, so
+        a reader can always finish and let the writer in.
+        """
+        ...
+
+    async def acquire_write(
+        self,
+        *,
+        name: Annotated[
+            str,
+            Doc("Identifier of the lock to acquire for writing."),
+        ],
+        token: Annotated[
+            str,
+            Doc("Caller-supplied writer token, unique per holder."),
+        ],
+        duration: Annotated[
+            float,
+            Doc(
+                "Seconds the writer's lease, or its intent while waiting,"
+                " is held before it expires."
+            ),
+        ],
+        intent: Annotated[
+            bool,
+            Doc(
+                "Whether a refused call records an intent that holds new"
+                " readers out. `False` for a non-blocking try."
+            ),
+        ] = True,
+    ) -> WriteGrant | None:
+        """Acquire the lock for writing.
+
+        Returns the `WriteGrant` when granted, `None` when readers or
+        another writer hold the lock. A refused call with `intent=True`
+        records this token's intent, so readers arriving afterwards wait.
+        """
+        ...
+
+    async def release_read(
+        self,
+        *,
+        name: Annotated[str, Doc("Identifier of the lock to release.")],
+        token: Annotated[str, Doc("Reader token previously granted.")],
+    ) -> bool:
+        """Drop this reader's lease.
+
+        Returns `True` when the lease was dropped, `False` when the token
+        held no live lease.
+        """
+        ...
+
+    async def release_write(
+        self,
+        *,
+        name: Annotated[str, Doc("Identifier of the lock to release.")],
+        token: Annotated[str, Doc("Writer token previously granted.")],
+    ) -> bool:
+        """Drop this writer's lease, leaving the lock clean.
+
+        Returns `True` when the lease was dropped, `False` when the token
+        did not hold the lock. The generation counter is kept, so fencing
+        tokens keep climbing across release and re-acquire cycles.
+        """
+        ...
+
+    async def cancel_intent(
+        self,
+        *,
+        name: Annotated[str, Doc("Identifier of the lock to stop waiting on.")],
+        token: Annotated[str, Doc("Writer token that recorded the intent.")],
+    ) -> bool:
+        """Withdraw this writer's intent.
+
+        Returns `True` when an intent was withdrawn. A writer that stops
+        waiting calls this so readers are not held out until the intent
+        lease expires on its own.
+        """
+        ...
+
+    async def downgrade(
+        self,
+        *,
+        name: Annotated[str, Doc("Identifier of the lock to downgrade.")],
+        token: Annotated[str, Doc("Writer token that holds the lock.")],
+        duration: Annotated[
+            float,
+            Doc("Seconds the resulting reader lease is held."),
+        ],
+    ) -> int | None:
+        """Turn a held write lease into a read lease in one step.
+
+        Returns the generation of the resulting read lease, `None` when
+        the token did not hold the write lock. No other writer can take
+        the lock in between.
+        """
+        ...
+
+    async def state(
+        self,
+        *,
+        name: Annotated[str, Doc("Identifier of the lock to inspect.")],
+    ) -> ReadWriteLockState:
+        """Return a point-in-time view, counting live leases only."""
+        ...
+
+    async def owned_read(
+        self,
+        *,
+        name: Annotated[str, Doc("Identifier of the lock to inspect.")],
+        token: Annotated[str, Doc("Reader token to look for.")],
+    ) -> bool:
+        """Return `True` when `token` holds a live read lease."""
+        ...
+
+    async def owned_write(
+        self,
+        *,
+        name: Annotated[str, Doc("Identifier of the lock to inspect.")],
+        token: Annotated[str, Doc("Writer token to compare against.")],
+    ) -> bool:
+        """Return `True` when `token` holds the live write lease."""
+        ...
+
+
 Seconds = PositiveFloat
 
 

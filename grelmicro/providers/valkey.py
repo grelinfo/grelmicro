@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination.redis import (
         RedisLeaderElectionAdapter,
         RedisLockAdapter,
+        RedisReadWriteLockAdapter,
         RedisScheduleAdapter,
     )
     from grelmicro.resilience.circuitbreaker.redis import (
@@ -268,6 +269,13 @@ class ValkeyProvider(RedisProvider):
         )
 
         return RedisLockAdapter(provider=self, **kwargs)
+
+    def readwritelock(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> RedisReadWriteLockAdapter:
+        """Return a `RedisReadWriteLockAdapter` bound to this provider."""
+        return super().readwritelock(**kwargs)
 
     def leaderelection(
         self,

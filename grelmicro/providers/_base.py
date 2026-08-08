@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination._protocol import (
         LeaderElectionBackend,
         LockBackend,
+        ReadWriteLockBackend,
         ScheduleBackend,
     )
     from grelmicro.health._types import HealthDetails
@@ -48,6 +49,23 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         msg = (
             f"{type(self).__name__} has no lock adapter. "
             f"Pass a LockBackend instance to Coordination(lock=...) directly."
+        )
+        raise NotImplementedError(msg)
+
+    def readwritelock(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> ReadWriteLockBackend:
+        """Return the matching `ReadWriteLockBackend` adapter for this Provider.
+
+        Raises:
+            NotImplementedError: If this Provider does not ship a read-write
+                lock adapter.
+        """
+        msg = (
+            f"{type(self).__name__} has no read-write lock adapter. "
+            f"Pass a ReadWriteLockBackend instance to Coordination(rwlock=...) "
+            f"directly."
         )
         raise NotImplementedError(msg)
 
