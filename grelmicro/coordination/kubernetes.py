@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from math import ceil
@@ -440,6 +441,16 @@ class KubernetesLockAdapter(LockBackend):
         return True
 
 
+@dataclass(frozen=True, slots=True)
+class _WriterSpec:
+    """The Lease spec fields that describe the writer."""
+
+    holder: str
+    duration_seconds: int | None
+    acquire_time: datetime | None
+    renew_time: datetime | None
+
+
 _READERS_ANNOTATION = f"{_METADATA_ANNOTATION_PREFIX}readers"
 _INTENTS_ANNOTATION = f"{_METADATA_ANNOTATION_PREFIX}intents"
 _CONFLICT_RETRIES = 5
@@ -570,22 +581,19 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
         lease_name: str,
         lease: Lease | None,
         *,
-        holder: str | None,
-        duration: float | None,
+        writer: _WriterSpec | None,
         transitions: int,
         readers: dict[str, float],
         intents: dict[str, float],
-        acquire_time: datetime | None = None,
-        renew_time: datetime | None = None,
     ) -> bool:
         """Write the Lease back, returning `False` on a conflict.
 
-        `renew_time` carries the writer's stored renewal forward. A reader
-        operation writes the whole Lease, so without it every reader would
-        push the current writer's lease out.
+        Every operation writes the whole Lease, so an operation that only
+        touches readers or intents passes the stored writer back verbatim.
+        Rebuilding it would push a live writer's lease out, and dropping an
+        expired one would lose the poison the next writer needs to see.
         """
         client = self._require_client("write")
-        now = datetime.now(tz=UTC)
         annotations = {
             _READERS_ANNOTATION: json.dumps(readers),
             _INTENTS_ANNOTATION: json.dumps(intents),
@@ -597,10 +605,10 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             annotations=annotations,
         )
         spec = LeaseSpec(
-            holderIdentity=holder,
-            leaseDurationSeconds=ceil(duration) if duration else None,
-            acquireTime=acquire_time if holder else None,
-            renewTime=(renew_time or now) if holder else None,
+            holderIdentity=writer.holder if writer else None,
+            leaseDurationSeconds=writer.duration_seconds if writer else None,
+            acquireTime=writer.acquire_time if writer else None,
+            renewTime=writer.renew_time if writer else None,
             leaseTransitions=transitions,
         )
         try:
@@ -615,6 +623,22 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
                 return False
             raise
         return True
+
+    @staticmethod
+    def _stored_writer(lease: Lease | None) -> _WriterSpec | None:
+        """Return the writer fields exactly as stored, expired or not."""
+        if (
+            lease is None
+            or lease.spec is None
+            or lease.spec.holderIdentity is None
+        ):
+            return None
+        return _WriterSpec(
+            holder=lease.spec.holderIdentity,
+            duration_seconds=lease.spec.leaseDurationSeconds,
+            acquire_time=lease.spec.acquireTime,
+            renew_time=lease.spec.renewTime,
+        )
 
     @staticmethod
     def _writer(lease: Lease | None, now: datetime) -> tuple[str | None, bool]:
@@ -652,7 +676,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
                 if lease
                 else {}
             )
-            holder, writing = self._writer(lease, now)
+            _holder, writing = self._writer(lease, now)
             generation = self._generation(lease)
             if token not in readers and (writing or intents):
                 return None
@@ -660,17 +684,10 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             if await self._write(
                 lease_name,
                 lease,
-                holder=holder if writing else None,
-                duration=duration if writing else None,
+                writer=self._stored_writer(lease),
                 transitions=generation,
                 readers=readers,
                 intents=intents,
-                acquire_time=lease.spec.acquireTime
-                if writing and lease and lease.spec
-                else None,
-                renew_time=lease.spec.renewTime
-                if writing and lease and lease.spec
-                else None,
             ):
                 return generation
         return None
@@ -705,12 +722,15 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
                 if await self._write(
                     lease_name,
                     lease,
-                    holder=token,
-                    duration=duration,
+                    writer=_WriterSpec(
+                        holder=token,
+                        duration_seconds=ceil(duration),
+                        acquire_time=acquired,
+                        renew_time=now,
+                    ),
                     transitions=generation,
                     readers=readers,
                     intents=intents,
-                    acquire_time=acquired,
                 ):
                     return WriteGrant(fencing_token=generation, poisoned=False)
                 continue
@@ -722,17 +742,10 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
                 if await self._write(
                     lease_name,
                     lease,
-                    holder=holder if writing else None,
-                    duration=duration if writing else None,
+                    writer=self._stored_writer(lease),
                     transitions=generation,
                     readers=readers,
                     intents=intents,
-                    acquire_time=lease.spec.acquireTime
-                    if writing and lease and lease.spec
-                    else None,
-                    renew_time=lease.spec.renewTime
-                    if writing and lease and lease.spec
-                    else None,
                 ):
                     return None
                 continue
@@ -741,12 +754,15 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             if await self._write(
                 lease_name,
                 lease,
-                holder=token,
-                duration=duration,
+                writer=_WriterSpec(
+                    holder=token,
+                    duration_seconds=ceil(duration),
+                    acquire_time=now,
+                    renew_time=now,
+                ),
                 transitions=generation + 1,
                 readers=readers,
                 intents=intents,
-                acquire_time=now,
             ):
                 return WriteGrant(
                     fencing_token=generation + 1, poisoned=holder is not None
@@ -769,23 +785,13 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             if token not in target:
                 return False
             del target[token]
-            holder, writing = self._writer(lease, now)
             if await self._write(
                 lease_name,
                 lease,
-                holder=holder if writing else None,
-                duration=lease.spec.leaseDurationSeconds
-                if writing and lease.spec
-                else None,
+                writer=self._stored_writer(lease),
                 transitions=self._generation(lease),
                 readers=readers,
                 intents=intents,
-                acquire_time=lease.spec.acquireTime
-                if writing and lease.spec
-                else None,
-                renew_time=lease.spec.renewTime
-                if writing and lease.spec
-                else None,
             ):
                 return True
         return False
@@ -812,8 +818,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             if await self._write(
                 lease_name,
                 lease,
-                holder=None,
-                duration=None,
+                writer=None,
                 transitions=self._generation(lease),
                 readers=self._live_holders(lease, _READERS_ANNOTATION, now),
                 intents=self._live_holders(lease, _INTENTS_ANNOTATION, now),
@@ -840,8 +845,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             if await self._write(
                 lease_name,
                 lease,
-                holder=None,
-                duration=None,
+                writer=None,
                 transitions=generation,
                 readers=readers,
                 intents=self._live_holders(lease, _INTENTS_ANNOTATION, now),

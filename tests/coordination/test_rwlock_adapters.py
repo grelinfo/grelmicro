@@ -8,7 +8,10 @@ import pytest
 
 from grelmicro.coordination.memory import MemoryReadWriteLockAdapter
 from grelmicro.coordination.postgres import PostgresReadWriteLockAdapter
-from grelmicro.coordination.redis import RedisReadWriteLockAdapter
+from grelmicro.coordination.redis import (
+    RedisReadWriteLockAdapter,
+    _duration_ms,
+)
 from grelmicro.coordination.sqlite import SQLiteReadWriteLockAdapter
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
@@ -100,6 +103,17 @@ def test_valkey_provider_factory() -> None:
 
     assert isinstance(adapter, RedisReadWriteLockAdapter)
     assert adapter.provider is provider
+
+
+@pytest.mark.parametrize(
+    ("duration", "expected"),
+    [(1.5, 1500), (0.001, 1), (0.0001, 1)],
+)
+def test_redis_duration_never_floors_to_zero(
+    duration: float, expected: int
+) -> None:
+    """A positive duration always reaches Redis as at least one millisecond."""
+    assert _duration_ms(duration) == expected
 
 
 # --- Postgres ---

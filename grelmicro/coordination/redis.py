@@ -470,7 +470,7 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
         """Acquire a read lease, returning the generation or `None`."""
         generation = await self._lua_acquire_read(
             keys=self._keys(name),
-            args=[token, int(duration * 1000)],
+            args=[token, _duration_ms(duration)],
             client=self._provider.client,
         )
         return int(generation) if generation is not None else None
@@ -481,7 +481,7 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
         """Acquire the write lease, returning the grant or `None`."""
         result = await self._lua_acquire_write(
             keys=self._keys(name),
-            args=[token, int(duration * 1000), "1" if intent else "0"],
+            args=[token, _duration_ms(duration), "1" if intent else "0"],
             client=self._provider.client,
         )
         if result is None:
@@ -525,7 +525,7 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
         """Turn a held write lease into a read lease."""
         generation = await self._lua_downgrade(
             keys=self._keys(name),
-            args=[token, int(duration * 1000)],
+            args=[token, _duration_ms(duration)],
             client=self._provider.client,
         )
         return int(generation) if generation is not None else None
@@ -960,6 +960,16 @@ class RedisLeaderElectionAdapter:
         if raw is None:
             return None
         return self._to_record(raw)
+
+
+def _duration_ms(duration: float) -> int:
+    """Return the lease duration in whole milliseconds, never zero.
+
+    A duration under a millisecond would floor to zero, and a lease that
+    expires the moment it is granted is never what a positive duration
+    asked for.
+    """
+    return max(1, int(duration * 1000))
 
 
 def _as_str(value: bytes | str | None) -> str:

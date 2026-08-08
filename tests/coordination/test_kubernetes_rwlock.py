@@ -323,3 +323,39 @@ async def test_a_reader_release_does_not_extend_the_writer() -> None:
     written = call.args[0]
     assert written.spec.renewTime == stored_renew
     assert written.spec.holderIdentity == OTHER
+
+
+async def test_a_reader_keeps_an_expired_writer_on_record() -> None:
+    """A reader write leaves the dead writer in place, so poison survives."""
+    lease = _lease(holder=OTHER, expired=True)
+    assert lease.spec is not None
+    stored_renew = lease.spec.renewTime
+    replace = AsyncMock()
+    adapter = _adapter(get=AsyncMock(return_value=lease), replace=replace)
+
+    await adapter.acquire_read(name="catalog", token=TOKEN, duration=1)
+
+    call = replace.await_args
+    assert call is not None
+    written = call.args[0]
+    assert written.spec.holderIdentity == OTHER
+    assert written.spec.renewTime == stored_renew
+
+
+async def test_an_intent_does_not_touch_the_writer_lease() -> None:
+    """Recording an intent leaves the active writer's lease as it stands."""
+    lease = _lease(holder=OTHER, readers={"reader": _live()})
+    assert lease.spec is not None
+    stored_duration = lease.spec.leaseDurationSeconds
+    stored_renew = lease.spec.renewTime
+    replace = AsyncMock()
+    adapter = _adapter(get=AsyncMock(return_value=lease), replace=replace)
+
+    await adapter.acquire_write(name="catalog", token=TOKEN, duration=900)
+
+    call = replace.await_args
+    assert call is not None
+    written = call.args[0]
+    assert written.spec.leaseDurationSeconds == stored_duration
+    assert written.spec.renewTime == stored_renew
+    assert written.spec.holderIdentity == OTHER
