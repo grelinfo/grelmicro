@@ -61,7 +61,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 |---|---|
 | [**Cache**](https://grelmicro.grel.info/cache/) | `@cached` decorator with local and distributed stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
 | [**Idempotency**](https://grelmicro.grel.info/idempotency/) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
-| [**Coordination**](https://grelmicro.grel.info/coordination/) | Distributed `Lock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
+| [**Coordination**](https://grelmicro.grel.info/coordination/) | Distributed `Lock`, `ReadWriteLock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Outbox**](https://grelmicro.grel.info/outbox/) | Transactional outbox. `publish` a message inside your database transaction and a background relay delivers it at least once with retries and dead-lettering. PostgreSQL, in-memory. |
 | [**Task Scheduler**](https://grelmicro.grel.info/task/) | Interval and cron tasks with durable, distributed at-most-once execution. A modern, lightweight alternative to APScheduler and Celery beat. |
 | [**Resilience**](https://grelmicro.grel.info/resilience/) | [Circuit Breaker](https://grelmicro.grel.info/resilience/circuit-breaker/) and [Rate Limiter](https://grelmicro.grel.info/resilience/rate-limiter/) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |

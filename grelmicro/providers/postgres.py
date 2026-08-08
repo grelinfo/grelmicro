@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination.postgres import (
         PostgresLeaderElectionAdapter,
         PostgresLockAdapter,
+        PostgresReadWriteLockAdapter,
         PostgresScheduleAdapter,
     )
     from grelmicro.outbox.postgres import PostgresOutboxAdapter
@@ -320,6 +321,17 @@ class PostgresProvider(Provider):
         )
 
         return PostgresLockAdapter(provider=self, **kwargs)
+
+    def readwritelock(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> PostgresReadWriteLockAdapter:
+        """Build a `PostgresReadWriteLockAdapter` bound to this provider."""
+        from grelmicro.coordination.postgres import (  # noqa: PLC0415
+            PostgresReadWriteLockAdapter,
+        )
+
+        return PostgresReadWriteLockAdapter(provider=self, **kwargs)
 
     def leaderelection(
         self,

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from grelmicro.cache.sqlite import SQLiteCacheAdapter
     from grelmicro.coordination.sqlite import (
         SQLiteLockAdapter,
+        SQLiteReadWriteLockAdapter,
         SQLiteScheduleAdapter,
     )
     from grelmicro.resilience.circuitbreaker.sqlite import (
@@ -217,6 +218,17 @@ class SQLiteProvider(Provider):
         )
 
         return SQLiteLockAdapter(provider=self, **kwargs)
+
+    def readwritelock(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> SQLiteReadWriteLockAdapter:
+        """Build a `SQLiteReadWriteLockAdapter` bound to this provider."""
+        from grelmicro.coordination.sqlite import (  # noqa: PLC0415
+            SQLiteReadWriteLockAdapter,
+        )
+
+        return SQLiteReadWriteLockAdapter(provider=self, **kwargs)
 
     def schedule(self, **kwargs: Any) -> SQLiteScheduleAdapter:  # noqa: ANN401
         """Build a `SQLiteScheduleAdapter` bound to this provider."""

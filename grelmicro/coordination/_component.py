@@ -10,6 +10,7 @@ from grelmicro._component import instantiate_if_class
 from grelmicro.coordination.errors import CoordinationBackendError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.lock import Lock
+from grelmicro.coordination.readwritelock import ReadWriteLock
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.providers._base import Provider
 
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination._protocol import (
         LeaderElectionBackend,
         LockBackend,
+        ReadWriteLockBackend,
         ScheduleBackend,
     )
 
@@ -98,6 +100,21 @@ class Coordination:
                 """,
             ),
         ] = None,
+        rwlock: Annotated[
+            Provider
+            | ReadWriteLockBackend
+            | type[Provider | ReadWriteLockBackend]
+            | None,
+            Doc(
+                """
+                The read-write lock backend. A `Provider` resolves it via
+                `provider.readwritelock()`, a `ReadWriteLockBackend` instance
+                is used directly, and a zero-arg class is instantiated for
+                you. Overrides the read-write lock backend resolved from
+                `source`.
+                """,
+            ),
+        ] = None,
         schedule: Annotated[
             Provider
             | ScheduleBackend
@@ -125,6 +142,7 @@ class Coordination:
         """Initialize the component with the wrapped backends."""
         self._name = name
         self._lock_backend: LockBackend | None = None
+        self._rwlock_backend: ReadWriteLockBackend | None = None
         self._election_backend: LeaderElectionBackend | None = None
         self._schedule_backend: ScheduleBackend | None = None
 
@@ -137,6 +155,10 @@ class Coordination:
                 self._lock_backend = provider.lock()
             except (AttributeError, NotImplementedError):
                 self._lock_backend = None
+            try:
+                self._rwlock_backend = provider.readwritelock()
+            except (AttributeError, NotImplementedError):
+                self._rwlock_backend = None
             try:
                 self._election_backend = provider.leaderelection()
             except (AttributeError, NotImplementedError):
@@ -155,6 +177,17 @@ class Coordination:
                 resolved_lock.lock()
                 if isinstance(resolved_lock, Provider)
                 else resolved_lock
+            )
+
+        if rwlock is not None:
+            resolved_rwlock = cast(
+                "Provider | ReadWriteLockBackend",
+                instantiate_if_class(rwlock),
+            )
+            self._rwlock_backend = (
+                resolved_rwlock.readwritelock()
+                if isinstance(resolved_rwlock, Provider)
+                else resolved_rwlock
             )
 
         if election is not None:
@@ -199,6 +232,22 @@ class Coordination:
             )
             raise CoordinationBackendError(msg)
         return self._lock_backend
+
+    @property
+    def rwlock_backend(self) -> ReadWriteLockBackend:
+        """The underlying `ReadWriteLockBackend`.
+
+        Raises:
+            CoordinationBackendError: If no read-write lock backend is wired.
+        """
+        if self._rwlock_backend is None:
+            msg = (
+                "Coordination has no read-write lock backend. "
+                "Pass a read-write lock provider as Coordination(provider) or "
+                "Coordination(rwlock=...)."
+            )
+            raise CoordinationBackendError(msg)
+        return self._rwlock_backend
 
     @property
     def election_backend(self) -> LeaderElectionBackend:
@@ -248,6 +297,14 @@ class Coordination:
         """
         return TaskLock(name, backend=self.lock_backend, **kwargs)
 
+    def readwritelock(self, name: str, **kwargs: Any) -> ReadWriteLock:  # noqa: ANN401
+        """Construct a `ReadWriteLock` bound to this component's backend.
+
+        Raises:
+            CoordinationBackendError: If no read-write lock backend is wired.
+        """
+        return ReadWriteLock(name, backend=self.rwlock_backend, **kwargs)
+
     def leaderelection(
         self,
         name: str,
@@ -264,6 +321,8 @@ class Coordination:
         """Open whichever backends are set."""
         if self._lock_backend is not None:
             await self._lock_backend.__aenter__()
+        if self._rwlock_backend is not None:
+            await self._rwlock_backend.__aenter__()
         if self._election_backend is not None:
             await self._election_backend.__aenter__()
         if self._schedule_backend is not None:
@@ -282,8 +341,16 @@ class Coordination:
                 await self._lock_backend.__aexit__(exc_type, exc, tb)
         finally:
             try:
-                if self._election_backend is not None:
-                    await self._election_backend.__aexit__(exc_type, exc, tb)
+                if self._rwlock_backend is not None:
+                    await self._rwlock_backend.__aexit__(exc_type, exc, tb)
             finally:
-                if self._schedule_backend is not None:
-                    await self._schedule_backend.__aexit__(exc_type, exc, tb)
+                try:
+                    if self._election_backend is not None:
+                        await self._election_backend.__aexit__(
+                            exc_type, exc, tb
+                        )
+                finally:
+                    if self._schedule_backend is not None:
+                        await self._schedule_backend.__aexit__(
+                            exc_type, exc, tb
+                        )

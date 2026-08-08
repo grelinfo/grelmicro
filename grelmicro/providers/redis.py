@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination.redis import (
         RedisLeaderElectionAdapter,
         RedisLockAdapter,
+        RedisReadWriteLockAdapter,
         RedisScheduleAdapter,
     )
     from grelmicro.resilience.circuitbreaker.redis import (
@@ -468,6 +469,17 @@ class RedisProvider(Provider):
         )
 
         return RedisLockAdapter(provider=self, **kwargs)
+
+    def readwritelock(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> RedisReadWriteLockAdapter:
+        """Return a `RedisReadWriteLockAdapter` bound to this provider."""
+        from grelmicro.coordination.redis import (  # noqa: PLC0415
+            RedisReadWriteLockAdapter,
+        )
+
+        return RedisReadWriteLockAdapter(provider=self, **kwargs)
 
     def leaderelection(
         self,

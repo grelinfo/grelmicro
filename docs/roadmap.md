@@ -18,7 +18,7 @@ Demand-gated. Built when a concrete need shows up.
 
 - **Fleet-wide retry budgets**: cap the retry-to-call ratio across replicas through distributed backends.
 - **Request hedging on Shield**: fire a backup attempt after a latency threshold, take the fastest, cancel the loser.
-- **Distributed `Semaphore`, then read-write locks**: new classes on `LockBackend`. No hooks needed.
+- **Distributed `Semaphore`**: a new class alongside `Lock` and `ReadWriteLock`. No hooks needed.
 - **Adaptive `Bulkhead`**: the CUBIC machinery inside Shield, exposed as `Bulkhead.adaptive()`.
 - **Deadline propagation**: a contextvar deadline that `Timeout`, `Retry`, and `Shield` respect.
 - **Resilience composition**: a horizontal `compose()` for assembling a policy list at runtime, plus slow-call rate as a trip input to the failure-rate breaker.

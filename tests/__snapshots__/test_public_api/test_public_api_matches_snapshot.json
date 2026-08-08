@@ -112,7 +112,7 @@
   },
   "grelmicro.coordination": {
     "Coordination": {
-      "()": "(source=..., *, lock=..., election=..., schedule=..., name=...)"
+      "()": "(source=..., *, lock=..., election=..., rwlock=..., schedule=..., name=...)"
     },
     "CoordinationBackendError": null,
     "CoordinationError": null,
@@ -164,6 +164,25 @@
     "LockReleaseError": {
       "()": "(*, name, reason=...)"
     },
+    "LockUpgradeError": {
+      "()": "(*, name)"
+    },
+    "ReadGuard": {
+      "()": "(*, owner, name, token, generation, expires_at)"
+    },
+    "ReadWriteLock": {
+      "()": "(name, *, backend=..., worker=..., lease_duration=..., retry_interval=..., retry_jitter=..., env_prefix=..., env_load=...)",
+      ".from_config": "(name, config, *, backend=...)"
+    },
+    "ReadWriteLockBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "ReadWriteLockConfig": {
+      "()": "(*, worker=..., lease_duration=..., retry_interval=..., retry_jitter=...)"
+    },
+    "ReadWriteLockState": {
+      "()": "(generation, writing, readers, waiting_writers)"
+    },
     "ScheduleBackend": {
       "()": "(*args, **kwargs)"
     },
@@ -171,7 +190,13 @@
       "()": "(name=..., *, backend=..., worker=..., min_hold_duration=..., lease_duration=..., env_prefix=..., env_load=...)",
       ".from_config": "(name, config, *, backend=...)"
     },
-    "WouldBlockError": null
+    "WouldBlockError": null,
+    "WriteGrant": {
+      "()": "(fencing_token, poisoned)"
+    },
+    "WriteGuard": {
+      "()": "(*, owner, name, token, fencing_token, poisoned, expires_at)"
+    }
   },
   "grelmicro.health": {
     "CheckResult": null,
