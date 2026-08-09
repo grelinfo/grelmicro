@@ -78,16 +78,15 @@ def normalize_timezone_name(value: str) -> str:
 def resolve_timezone(name: str) -> tzinfo:
     """Return the `tzinfo` for a timezone name.
 
-    ``UTC`` resolves without touching the timezone database, so the
-    default works on an image that carries no timezone files.
+    Accepts the same names as `normalize_timezone_name`, in any casing,
+    so a name that validates anywhere resolves here. ``UTC`` resolves
+    without touching the timezone database, so the default works on an
+    image that carries no timezone files.
 
     Raises:
         ValueError: If no timezone of that name can be loaded.
     """
-    if name == UTC_NAME:
+    normalized = normalize_timezone_name(name)
+    if normalized == UTC_NAME:
         return UTC
-    try:
-        return ZoneInfo(name)
-    except (ValueError, ZoneInfoNotFoundError):
-        msg = f"unknown timezone name {name!r}, {_TZDATA_HINT}"
-        raise ValueError(msg) from None
+    return ZoneInfo(normalized)
