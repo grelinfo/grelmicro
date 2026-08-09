@@ -660,10 +660,23 @@
     },
     "TaskError": null,
     "TaskRouter": {
-      "()": "(*, tasks=...)"
+      "()": "(*, tasks=..., timezone=...)"
+    },
+    "TaskSettingsValidationError": {
+      "()": "(error)"
+    },
+    "TaskStartOperationError": {
+      "()": "()"
     },
     "Tasks": {
-      "()": "(*, auto_start=..., tasks=..., shutdown_timeout=...)"
+      "()": "(*, auto_start=..., tasks=..., timezone=..., shutdown_timeout=..., env_prefix=..., env_load=...)",
+      ".from_config": "(config, *, auto_start=..., tasks=...)"
+    },
+    "TasksConfig": {
+      "()": "(*, timezone=..., shutdown_timeout=...)"
+    },
+    "TimezoneError": {
+      "()": "(reason)"
     }
   },
   "grelmicro.testing": {

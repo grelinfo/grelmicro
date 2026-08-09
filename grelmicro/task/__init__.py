@@ -1,12 +1,15 @@
 """Task."""
 
 from grelmicro.task._cron import FireInfo, FireOutcome
-from grelmicro.task._tasks import Tasks
+from grelmicro.task._tasks import Tasks, TasksConfig
 from grelmicro.task.errors import (
     CronError,
     FunctionTypeError,
     TaskAddOperationError,
     TaskError,
+    TaskSettingsValidationError,
+    TaskStartOperationError,
+    TimezoneError,
 )
 from grelmicro.task.router import TaskRouter
 
@@ -18,5 +21,9 @@ __all__ = [
     "TaskAddOperationError",
     "TaskError",
     "TaskRouter",
+    "TaskSettingsValidationError",
+    "TaskStartOperationError",
     "Tasks",
+    "TasksConfig",
+    "TimezoneError",
 ]

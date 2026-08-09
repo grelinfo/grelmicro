@@ -45,6 +45,7 @@ Choose the entry point by the job:
 |---|---|
 | Simple recurring function | `@tasks.every(...)` |
 | Group tasks across modules | `TaskRouter` |
+| Run every cron task on one wall clock | `Tasks(timezone=...)` |
 | Add an object that already implements the task protocol | `tasks.add_task(...)` |
 | Run an interval task at most once across replicas | `@tasks.every(..., lock=TaskLock(...))` |
 | Run a cron task at most once across replicas | `@tasks.cron(...)` with a [`Coordination`](coordination.md) component |
@@ -165,7 +166,7 @@ Use the `cron` decorator to run a task on a cron schedule:
 
     Pass `sync=` to hold a [`Lock`](coordination.md#lock) around a shared resource during the run.
 
-The expression has five fields: `minute hour day-of-month month day-of-week`. The example above runs every day at 02:00 in the `Europe/Zurich` timezone. The `timezone` defaults to `"UTC"`.
+The expression has five fields: `minute hour day-of-month month day-of-week`. The example above runs every day at 02:00.
 
 Each field accepts:
 
@@ -182,6 +183,39 @@ Field ranges are minute `0-59`, hour `0-23`, day-of-month `1-31`, month `1-12`, 
 
 !!! note "Day-of-month and day-of-week"
     When both `day-of-month` and `day-of-week` are restricted (neither is `*`), a day matches if it matches **either** field. For example, `0 0 15 * 1` runs on the 15th of the month and on every Monday. When only one is restricted, only that one applies.
+
+### Timezone
+
+Cron fires on wall-clock time, so it needs to know which clock. Set it once on
+the `Tasks`, and every cron task uses it:
+
+```python
+--8<-- "task/cron_timezone.py"
+```
+
+The default is `UTC`. A deployment sets it without touching code through
+`GREL_TIMEZONE`, the one variable that says what wall clock the whole service
+runs on. See [Configuration](config.md#one-timezone-for-the-whole-service).
+
+A `TaskRouter` takes the timezone of the `Tasks` that includes it, whatever
+order the wiring happens in. Pass `TaskRouter(timezone=...)` to give one group
+of tasks a different clock. Nearest declaration wins: the task, then its
+router, then the `Tasks`.
+
+Names are IANA names such as `Europe/Zurich`, in any casing. A name that no
+timezone matches is rejected where you write it, not at the first fire.
+grelmicro ignores the POSIX `TZ` variable on purpose, though `TZ` still decides
+what a naive `datetime.now()` returns inside your task body. Prefer
+`datetime.now(UTC)` there.
+
+!!! note "Daylight saving"
+    Every wall-clock match fires once. When the clocks go forward and 02:30
+    never happens, a `30 2 * * *` task fires once just after the jump. When
+    they go back and 02:30 happens twice, it fires on the first pass only.
+
+    A sub-hourly schedule such as `*/15 * * * *` is quiet for the repeated
+    hour rather than running through it twice. Use UTC for a task that must
+    keep a steady interval across a transition.
 
 ### Distributed cron
 
@@ -231,6 +265,8 @@ Use grelmicro `@cron` when you want the task to run inside the live service with
 
 Each task exposes two read-only properties for observability:
 
+- **`timezone`**: the IANA timezone name a cron task fires on. `None` until
+  the tasks start, unless the task declared one itself.
 - **`next_fire_time`**: the next scheduled fire as a timezone-aware `datetime`,
   or `None` when the task has not started yet. For interval tasks, this is
   computed from the last loop instant. For cron tasks, it comes from the

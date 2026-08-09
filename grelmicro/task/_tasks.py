@@ -4,23 +4,65 @@ import asyncio
 from contextlib import AsyncExitStack
 from logging import getLogger
 from types import TracebackType
-from typing import Annotated, Self
+from typing import Annotated, ClassVar, Self
 
+from pydantic import BaseModel, NonNegativeFloat
 from typing_extensions import Doc
 
+from grelmicro._config import (
+    Reconfigurable,
+    default_env_prefix,
+    resolve_config,
+)
+from grelmicro._timezone import SHARED_TIMEZONE_ENV, UTC_NAME
 from grelmicro.errors import OutOfContextError
 from grelmicro.task._protocol import Task
-from grelmicro.task.errors import TaskAddOperationError
+from grelmicro.task.errors import (
+    TaskSettingsValidationError,
+    TaskStartOperationError,
+)
 from grelmicro.task.router import TaskRouter
+from grelmicro.types import TimeZoneName
 
 logger = getLogger("grelmicro.task")
 
 
-class Tasks(TaskRouter):
+class TasksConfig(BaseModel, frozen=True, extra="forbid"):
+    """Tasks Config."""
+
+    timezone: Annotated[
+        TimeZoneName,
+        Doc(
+            "IANA timezone every cron task uses unless it, or the "
+            "`TaskRouter` holding it, sets its own."
+        ),
+    ] = TimeZoneName(UTC_NAME)
+    shutdown_timeout: Annotated[
+        NonNegativeFloat,
+        Doc(
+            "Seconds to let running tasks finish their current unit of "
+            "work on shutdown before they are force-cancelled."
+        ),
+    ] = 30.0
+
+
+class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
     """Tasks.
 
     `Tasks` class, the main entrypoint to manage scheduled tasks.
+
+    Supports live reconfiguration of `shutdown_timeout` via
+    `reconfigure(new_config)`. A swap applies to the next shutdown, not
+    to a drain already under way. `timezone` is startup-only: changing
+    the zone under a running cron task would move which wall-clock fire
+    counts as due, and the durable last-fire state would either replay a
+    fire or swallow one. See
+    [Live reconfiguration](../architecture/reconfigure.md).
     """
+
+    _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"timezone"}
+    )
 
     def __init__(
         self,
@@ -41,8 +83,24 @@ class Tasks(TaskRouter):
                 """,
             ),
         ] = None,
+        timezone: Annotated[
+            str | None,
+            Doc(
+                """
+                The IANA timezone name every cron task uses.
+
+                A cron task that passes its own ``timezone=``, and a
+                `TaskRouter` that declares one, keep theirs.
+
+                Default: ``"UTC"``. When unset and env reads are enabled
+                (see ``env_load`` and ``GREL_ENV_LOAD``), resolves from
+                ``GREL_TASK_TIMEZONE``, then from the app-wide
+                ``GREL_TIMEZONE``, before falling back to the default.
+                """,
+            ),
+        ] = None,
         shutdown_timeout: Annotated[
-            float,
+            float | None,
             Doc(
                 """
                 Seconds to let running tasks finish their current unit of
@@ -55,26 +113,110 @@ class Tasks(TaskRouter):
                 `terminationGracePeriodSeconds`. Keep it at or below the
                 pod grace period so draining finishes before `SIGKILL`.
                 Set to `0` to cancel immediately without draining.
+
+                When unset and env reads are enabled, resolves from
+                ``GREL_TASK_SHUTDOWN_TIMEOUT``.
                 """,
             ),
-        ] = 30.0,
+        ] = None,
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                """
+                Override the auto-derived environment variable prefix.
+
+                Default: ``GREL_TASK_``. `Tasks` takes no registration
+                name, so two instances in one process read the same
+                variables. Pass a prefix here to separate them.
+                """
+            ),
+        ] = None,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                """
+                Whether to read environment variables.
+
+                When None (the default), follow the process-wide
+                ``GREL_ENV_LOAD`` flag. Pass True or False to override
+                the flag for this construction.
+                """
+            ),
+        ] = None,
     ) -> None:
         """Initialize Tasks.
 
         Raises:
-            ValueError: If `shutdown_timeout` is negative.
+            TaskSettingsValidationError: If a setting fails validation.
         """
-        TaskRouter.__init__(self, tasks=tasks)
+        config = resolve_config(
+            TasksConfig,
+            explicit=None,
+            kwargs={
+                "timezone": timezone,
+                "shutdown_timeout": shutdown_timeout,
+            },
+            env_prefix=env_prefix or default_env_prefix("TASK", "default"),
+            env_load=env_load,
+            shared_env=SHARED_TIMEZONE_ENV,
+            error_type=TaskSettingsValidationError,
+        )
+        self._setup(config, auto_start=auto_start, tasks=tasks)
+        self._track_reconfigure(
+            env_prefix or default_env_prefix("TASK", "default")
+        )
 
-        if shutdown_timeout < 0:
-            msg = "shutdown_timeout must be greater than or equal to 0"
-            raise ValueError(msg)
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            TasksConfig,
+            Doc(
+                """
+                The pre-built tasks configuration.
 
+                Use this path when the configuration is assembled at
+                startup from a settings tree (for example YAML, Vault,
+                or a ``pydantic-settings`` aggregator). The environment
+                path is bypassed and the config is used as-is.
+                """
+            ),
+        ],
+        *,
+        auto_start: Annotated[
+            bool,
+            Doc("Automatically start all tasks."),
+        ] = True,
+        tasks: Annotated[
+            list[Task] | None,
+            Doc("A list of tasks to be started."),
+        ] = None,
+    ) -> Self:
+        """Construct a `Tasks` from a pre-built `TasksConfig`."""
+        instance = cls.__new__(cls)
+        instance._setup(config, auto_start=auto_start, tasks=tasks)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        config: TasksConfig,
+        *,
+        auto_start: bool,
+        tasks: list[Task] | None,
+    ) -> None:
+        """Wire the validated config and runtime state onto the instance."""
+        TaskRouter.__init__(self, tasks=tasks, timezone=config.timezone)
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
         self._auto_start = auto_start
-        self._shutdown_timeout = shutdown_timeout
         self._task_group: asyncio.TaskGroup | None = None
         self._task_handles: list[asyncio.Task[None]] = []
         self._stop = asyncio.Event()
+
+    @property
+    def timezone(self) -> str:
+        """The IANA timezone name cron tasks use unless they set their own."""
+        return self._config.timezone
 
     async def __aenter__(self) -> Self:
         """Enter the context manager."""
@@ -109,9 +251,9 @@ class Tasks(TaskRouter):
         """
         self._stop.set()
         handles = self._task_handles
-        if handles and self._shutdown_timeout > 0:
+        if handles and self._config.shutdown_timeout > 0:
             _, pending = await asyncio.wait(
-                handles, timeout=self._shutdown_timeout
+                handles, timeout=self._config.shutdown_timeout
             )
         else:
             pending = set(handles)
@@ -125,8 +267,11 @@ class Tasks(TaskRouter):
             raise OutOfContextError(self, "start")
 
         if self._started:
-            raise TaskAddOperationError
+            raise TaskStartOperationError
 
+        # Resolve before marking as started: `_set_default_timezone`
+        # refuses to move a task that is already running.
+        self._resolve_timezones(self._config.timezone)
         self.do_mark_as_started()
 
         loop = asyncio.get_running_loop()

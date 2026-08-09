@@ -5,6 +5,7 @@ from typing import Annotated
 from typing_extensions import Doc
 
 from grelmicro._config import resolve_config
+from grelmicro._timezone import SHARED_TIMEZONE_ENV
 from grelmicro.log._apply import apply as _apply
 from grelmicro.log._component import Log
 from grelmicro.log._dedup import DuplicateFilter, DuplicateFilterConfig
@@ -19,10 +20,10 @@ from grelmicro.log.config import (
     LogFormatType,
     LogLevelType,
     LogSerializerType,
-    LogTimeZoneType,
 )
 from grelmicro.log.errors import LogError, LogSettingsValidationError
 from grelmicro.log.types import ErrorDict, JSONRecordDict
+from grelmicro.types import TimeZoneName
 
 
 def configure(
@@ -42,7 +43,7 @@ def configure(
         Doc("Log format. Default: `AUTO`."),
     ] = None,
     timezone: Annotated[
-        LogTimeZoneType | None,
+        TimeZoneName | None,
         Doc("IANA timezone for timestamps. Default: `UTC`."),
     ] = None,
     json_serializer: Annotated[
@@ -119,6 +120,7 @@ def configure(
             "uvicorn_enabled": uvicorn_enabled,
         },
         env_prefix="GREL_LOG_",
+        shared_env=SHARED_TIMEZONE_ENV,
         env_load=env_load,
         error_type=LogSettingsValidationError,
     )

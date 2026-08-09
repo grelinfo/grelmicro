@@ -6,7 +6,9 @@ import pytest
 
 from grelmicro.errors import OutOfContextError
 from grelmicro.task import Tasks
-from grelmicro.task.errors import TaskAddOperationError
+from grelmicro.task.errors import (
+    TaskStartOperationError,
+)
 from tests.task.samples import EventTask
 
 pytestmark = [pytest.mark.timeout(10)]
@@ -80,13 +82,13 @@ async def test_tasks_auto_start_disabled(*, auto_start: bool) -> None:
 
 
 async def test_tasks_already_started_error() -> None:
-    """Test Tasks Already Started Warning."""
+    """Starting twice reports the start mistake, not an add mistake."""
     # Arrange
     app = Tasks()
 
     # Act / Assert
     async with app:
-        with pytest.raises(TaskAddOperationError):
+        with pytest.raises(TaskStartOperationError, match="twice"):
             await app.start()
 
 

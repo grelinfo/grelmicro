@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro.task._utils import normalize_timezone
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
@@ -37,11 +38,31 @@ class TaskRouter:
                 """,
             ),
         ] = None,
+        timezone: Annotated[
+            str | None,
+            Doc(
+                """
+                The IANA timezone name every cron task in this router uses.
+
+                A cron task that passes its own ``timezone=`` keeps it.
+                When None (the default), the router takes the timezone of
+                the `Tasks` or `TaskRouter` that includes it, and falls
+                back to ``"UTC"`` when nothing sets one.
+                """,
+            ),
+        ] = None,
     ) -> None:
-        """Initialize the task router."""
+        """Initialize the task router.
+
+        Raises:
+            TimezoneError: If no timezone of that name can be loaded.
+        """
         self._started = False
         self._tasks: list[Any] = tasks or []
         self._routers: list[TaskRouter] = []
+        self._timezone = (
+            normalize_timezone(timezone) if timezone is not None else None
+        )
 
     @property
     def tasks(self) -> list["Task"]:
@@ -50,12 +71,39 @@ class TaskRouter:
             task for router in self._routers for task in router.tasks
         ]
 
+    @property
+    def timezone(self) -> str | None:
+        """The timezone this router declares, or None when it declares none.
+
+        A router reports only what it was given. The timezone its tasks
+        end up using is resolved by the owning `Tasks` when it starts, and
+        a router does not read the value it would inherit.
+        """
+        return self._timezone
+
     def add_task(self, task: "Task") -> None:
         """Add a task to the scheduler."""
         if self._started:
             raise TaskAddOperationError
 
         self._tasks.append(task)
+
+    def _resolve_timezones(self, inherited: str) -> None:
+        """Give every cron task below this router its effective timezone.
+
+        Walks the tree once, so the result does not depend on the order
+        the routers were included or the tasks were added. A router that
+        declares a timezone overrides the inherited one for its own
+        subtree, and a task that declares one keeps it.
+        """
+        from grelmicro.task._cron import CronTask  # noqa: PLC0415
+
+        effective = self._timezone or inherited
+        for task in self._tasks:
+            if isinstance(task, CronTask):
+                task._set_default_timezone(effective)  # noqa: SLF001
+        for router in self._routers:
+            router._resolve_timezones(effective)  # noqa: SLF001
 
     def every(
         self,
@@ -181,15 +229,19 @@ class TaskRouter:
         ],
         *,
         timezone: Annotated[
-            str,
+            str | None,
             Doc(
                 """
                 The IANA timezone name used to compute fire times.
 
-                Defaults to ``"UTC"``. Resolved with ``zoneinfo.ZoneInfo``.
+                When None (the default), the task takes the timezone
+                configured on the `Tasks` or `TaskRouter` it belongs to,
+                and falls back to ``"UTC"`` when nothing sets one. Pass a
+                name here to pin one task to a different timezone than
+                the rest.
                 """,
             ),
-        ] = "UTC",
+        ] = None,
         name: Annotated[
             str | None,
             Doc(
@@ -263,6 +315,7 @@ class TaskRouter:
         Raises:
             FunctionTypeError: If the task name generation fails.
             CronError: If the cron expression is invalid.
+            TimezoneError: If the timezone is not an IANA timezone name.
         """
         from grelmicro.task._cron import CronTask  # noqa: PLC0415
 
@@ -285,7 +338,11 @@ class TaskRouter:
         return decorator
 
     def include_router(self, router: "TaskRouter") -> None:
-        """Include another router in this router."""
+        """Include another router in this router.
+
+        Raises:
+            TaskAddOperationError: If the tasks have already started.
+        """
         if self._started:
             raise TaskAddOperationError
 

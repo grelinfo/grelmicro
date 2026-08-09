@@ -10,17 +10,21 @@ from enum import StrEnum
 from functools import partial
 from logging import getLogger
 from typing import TYPE_CHECKING, Any
-from zoneinfo import ZoneInfo
 
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
+from grelmicro._timezone import UTC_NAME
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
 from grelmicro.task._protocol import Task
-from grelmicro.task._utils import validate_and_generate_reference
-from grelmicro.task.errors import CronError
+from grelmicro.task._utils import (
+    normalize_timezone,
+    resolve_timezone,
+    validate_and_generate_reference,
+)
+from grelmicro.task.errors import CronError, TaskAddOperationError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -90,6 +94,23 @@ def _report_unrun_fire(
 # giving up. Covers Feb-29 schedules (every 4 years) with margin so an
 # impossible date such as ``30 2 31 2 *`` (Feb 31) raises instead of looping.
 _MAX_SEARCH_YEARS = 5
+
+_SECONDS_PER_MINUTE = 60
+_MIN_DELAY = 0.05
+"""Floor on a computed wait, so a boundary already reached is not a busy loop."""
+
+
+def _delay_to_next_minute(now: datetime) -> float:
+    """Return the seconds left until the next whole minute.
+
+    Used when the computed next fire is not in the future. Inside the
+    hour a fall-back transition repeats, wall-clock arithmetic resolves
+    the next matching minute to the first pass, which has already gone
+    by, and waiting on a past instant would spin for the whole hour.
+    """
+    elapsed = now.second + now.microsecond / 1_000_000
+    return max(_SECONDS_PER_MINUTE - elapsed, _MIN_DELAY)
+
 
 _FIELD_NAMES = ("minute", "hour", "day of month", "month", "day of week")
 _FIELD_COUNT = 5
@@ -283,8 +304,13 @@ class CronExpression:
         The result is timezone-aware with the same ``tzinfo`` as ``dt`` and
         truncated to whole minutes. Returns ``None`` when no match falls
         within five years before ``dt``.
+
+        An ambiguous wall time, the hour a fall-back transition repeats,
+        always resolves to its first occurrence. A wall-clock match is a
+        single fire whether or not the clock passes it twice, so the
+        second pass never claims a fire the first pass already took.
         """
-        candidate = dt.replace(second=0, microsecond=0)
+        candidate = dt.replace(second=0, microsecond=0, fold=0)
         # A timedelta bound, not `replace(year=...)`, so a Feb 29 candidate
         # never lands on a non-leap year and raises.
         limit = candidate - timedelta(days=_MAX_SEARCH_YEARS * 366)
@@ -349,7 +375,7 @@ class CronTask(Task):
         *,
         function: Callable[..., Any],
         expr: str,
-        timezone: str = "UTC",
+        timezone: str | None = None,
         name: str | None = None,
         misfire_grace_seconds: float | None = None,
         backend: ScheduleBackend | None = None,
@@ -360,11 +386,19 @@ class CronTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             CronError: If the cron expression is invalid.
+            TimezoneError: If the timezone is not an IANA timezone name.
         """
         self._expr = CronExpression(expr)
         self._expr_source = expr
-        self._tz = ZoneInfo(timezone)
-        self._timezone = timezone
+        # `None` leaves the task open to the timezone of the `Tasks` that
+        # owns it, applied in one pass when the tasks start. Until then,
+        # and for a task no `Tasks` ever resolves, fires compute in UTC.
+        self._declared_timezone = (
+            normalize_timezone(timezone) if timezone is not None else None
+        )
+        self._timezone = self._declared_timezone
+        self._tz = resolve_timezone(self._timezone or UTC_NAME)
+        self._running = False
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
@@ -384,6 +418,33 @@ class CronTask(Task):
     def name(self) -> str:
         """Return the task name."""
         return self._name
+
+    @property
+    def timezone(self) -> str | None:
+        """The IANA timezone name used to compute fire times.
+
+        The name passed to the decorator, or the one the owning `Tasks`
+        resolved when it started. `None` while neither applies, which
+        computes fire times in UTC.
+        """
+        return self._timezone
+
+    def _set_default_timezone(self, timezone: str) -> None:
+        """Apply ``timezone`` unless the task was given one of its own.
+
+        Called once by the owning `Tasks` as it starts. A task built with
+        an explicit ``timezone=`` keeps it.
+
+        Raises:
+            TaskAddOperationError: If the task is already running.
+            TimezoneError: If no timezone of that name can be loaded.
+        """
+        if self._running:
+            raise TaskAddOperationError
+        if self._declared_timezone is not None:
+            return
+        self._tz = resolve_timezone(timezone)
+        self._timezone = timezone
 
     @property
     def next_fire_time(self) -> datetime | None:
@@ -443,10 +504,11 @@ class CronTask(Task):
         stop: asyncio.Event | None = None,
     ) -> None:
         """Run the cron task loop."""
+        self._running = True
         logger.info(
             "Task started (cron: %s, timezone: %s): %s",
             self._expr_source,
-            self._timezone,
+            self._timezone or UTC_NAME,
             self.name,
         )
         if ready is not None and not ready.done():  # pragma: no branch
@@ -461,11 +523,21 @@ class CronTask(Task):
                 next_fire = self._expr.next_after(now)
                 self._next_fire_time = next_fire
                 delay = next_fire.timestamp() - now.timestamp()
+                if delay <= 0:
+                    # The next match resolved to an instant already gone by,
+                    # which happens inside the hour a fall-back transition
+                    # repeats. Wait for the next minute and compute again.
+                    # No tick: nothing is due, and a tick would run the body
+                    # in local mode, where every tick is a fire.
+                    if await sleep_or_stop(_delay_to_next_minute(now), stop):
+                        break
+                    continue
                 # Wait until the next fire instant, waking early on stop.
                 if await sleep_or_stop(delay, stop):
                     break
                 await self._tick_guarded(catchup=False)
         finally:
+            self._running = False
             logger.info("Task stopped: %s", self.name)
 
     async def _tick_guarded(self, *, catchup: bool) -> None:

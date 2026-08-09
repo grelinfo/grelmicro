@@ -25,11 +25,12 @@ import os
 import re
 import warnings
 from collections import deque
+from copy import copy
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from weakref import WeakSet
 
-from pydantic import BaseModel, ValidationError
+from pydantic import AliasChoices, BaseModel, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from grelmicro._json import json_loads
@@ -144,6 +145,7 @@ def resolve_config[C: BaseModel](
     kwargs: Mapping[str, object | None],
     env_prefix: str,
     env_load: bool | None = None,
+    shared_env: Mapping[str, str] | None = None,
     error_type: type[SettingsValidationError] | None = None,
 ) -> C:
     """Build a validated ``config_cls`` from an explicit instance or kwargs and env.
@@ -164,6 +166,12 @@ def resolve_config[C: BaseModel](
     The env path constructs a one-off ``BaseSettings`` subclass that
     inherits ``config_cls`` so its validators, ``frozen``, and
     ``extra`` flags are preserved. Only the ``env_prefix`` is added.
+
+    ``shared_env`` maps a field name to an app-wide variable that fills
+    it when the component's own variable is unset, as
+    ``{"timezone": "GREL_TIMEZONE"}`` does. The component variable
+    always wins, and a keyword argument still wins over both. See
+    `docs/architecture/config.md` for what qualifies as app-wide.
 
     Pass ``error_type`` to wrap a ``pydantic.ValidationError`` into a
     component-specific ``SettingsValidationError``. Without it, the
@@ -191,10 +199,14 @@ def resolve_config[C: BaseModel](
     try:
         if not env_load:
             if implicit:
-                _warn_ignored_env(config_cls, env_prefix, provided)
+                _warn_ignored_env(config_cls, env_prefix, provided, shared_env)
             return config_cls.model_validate(provided)
 
-        settings_cls = _build_settings_cls(config_cls, env_prefix)
+        settings_cls = _build_settings_cls(
+            config_cls,
+            env_prefix,
+            tuple(sorted(shared_env.items())) if shared_env else (),
+        )
         # The dynamic subclass is built at runtime via `type(...)` below, so
         # ty cannot prove that `settings_cls` accepts the kwargs declared on
         # `config_cls` or that it returns `C`. Pydantic's runtime validation
@@ -234,10 +246,12 @@ def _warn_ignored_env(
     config_cls: type[BaseModel],
     env_prefix: str,
     provided: Mapping[str, object],
+    shared_env: Mapping[str, str] | None = None,
 ) -> None:
     """Report a variable this config declares that is set but will not be read.
 
-    Only the exact names `config_cls` declares are looked up. A prefix scan
+    Only the exact names `config_cls` declares are looked up, plus the
+    app-wide name each `shared_env` field falls back to. A prefix scan
     would match unrelated variables, and Kubernetes injects
     `{SVCNAME}_SERVICE_HOST` for every Service, so a Service named `grel-log`
     would produce a warning on every pod start.
@@ -255,19 +269,22 @@ def _warn_ignored_env(
     for field in config_cls.model_fields:
         if field in provided:
             continue
-        name = f"{env_prefix}{field.upper()}"
-        if name not in os.environ or name in _warned_ignored_env:
-            continue
-        _warned_ignored_env.add(name)
-        warnings.warn(
-            _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR),
-            GrelmicroConfigWarning,
-            stacklevel=4,
-        )
-        if _logging_configured:
-            _log_ignored_env(name)
-        else:
-            _pending_ignored_env.append(name)
+        names = [f"{env_prefix}{field.upper()}"]
+        if shared_env and field in shared_env:
+            names.append(shared_env[field])
+        for name in names:
+            if name not in os.environ or name in _warned_ignored_env:
+                continue
+            _warned_ignored_env.add(name)
+            warnings.warn(
+                _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR),
+                GrelmicroConfigWarning,
+                stacklevel=4,
+            )
+            if _logging_configured:
+                _log_ignored_env(name)
+            else:
+                _pending_ignored_env.append(name)
 
 
 def _log_ignored_env(name: str) -> None:
@@ -313,6 +330,7 @@ def ignored_env_reports_enabled() -> bool:
 def _build_settings_cls[C: BaseModel](
     config_cls: type[C],
     env_prefix: str,
+    shared_env: tuple[tuple[str, str], ...] = (),
 ) -> type[BaseSettings]:
     """Create a one-off BaseSettings subclass that reads env vars.
 
@@ -320,9 +338,18 @@ def _build_settings_cls[C: BaseModel](
     validators, and ``model_config`` flags (``frozen``, ``extra``)
     are preserved. Only the ``env_prefix`` is added.
 
-    Cached on ``(config_cls, env_prefix)`` with a bounded LRU. The
-    expected keyspace is small (one entry per declared component
-    instance per process); the bound is a safety net for long-
+    Each ``shared_env`` field is redeclared with an ``AliasChoices``
+    naming the component's own variable first and the app-wide one
+    second, so the component variable wins and pydantic-settings keeps
+    doing the matching. The prefix is composed into the alias rather
+    than assumed, so a caller-supplied ``env_prefix`` still applies.
+    Redeclaring a field replaces its name for population, hence
+    ``populate_by_name`` so keyword arguments keep working under
+    ``extra="forbid"``.
+
+    Cached on ``(config_cls, env_prefix, shared_env)`` with a bounded
+    LRU. The expected keyspace is small (one entry per declared
+    component instance per process); the bound is a safety net for long-
     running processes that derive prefixes from runtime inputs.
     """
     # `model_config` is a TypedDict (`SettingsConfigDict`/`ConfigDict`).
@@ -330,10 +357,34 @@ def _build_settings_cls[C: BaseModel](
     # type to `dict[str, object]`.
     merged_config: dict[str, object] = {**(config_cls.model_config or {})}
     merged_config["env_prefix"] = env_prefix
+    namespace: dict[str, Any] = {}
+    if shared_env:
+        # A redeclared field is populated by its alias only, so the field
+        # name itself would read as an extra input and the keyword path
+        # would stop working under `extra="forbid"`. `populate_by_name`
+        # is the spelling that works on the whole supported pydantic
+        # range; `validate_by_name` needs 2.11.
+        merged_config["populate_by_name"] = True
+        annotations: dict[str, Any] = {}
+        for field, shared_var in shared_env:
+            info = config_cls.model_fields[field]
+            # Copy the original `FieldInfo` rather than building a new one,
+            # so a default factory, a description, or any other attribute
+            # carries over. The annotation is taken bare, because the
+            # copied `FieldInfo` already holds the metadata and passing
+            # both would embed it twice.
+            aliased = copy(info)
+            aliased.validation_alias = AliasChoices(
+                f"{env_prefix}{field.upper()}", shared_var
+            )
+            annotations[field] = info.annotation
+            namespace[field] = aliased
+        namespace["__annotations__"] = annotations
+    namespace["model_config"] = SettingsConfigDict(**merged_config)
     return type(
         f"_{config_cls.__name__}Settings",
         (config_cls, BaseSettings),
-        {"model_config": SettingsConfigDict(**merged_config)},
+        namespace,
     )
 
 
@@ -476,6 +527,7 @@ def resolve_config_from_mapping[C: BaseModel](
             continue
         field = key[prefix_len:].lower()
         if field in immutable_fields:
+            _warn_immutable_skipped(current, env_prefix, field, value)
             continue
         if field in fields:
             overrides[field] = value
@@ -499,6 +551,56 @@ def resolve_config_from_mapping[C: BaseModel](
         if error_type is None:
             raise
         raise error_type(error) from None
+
+
+_warned_immutable_skipped: set[str] = set()
+"""Immutable-field keys already reported by `_warn_immutable_skipped`.
+
+The same mounted source is re-read on every resync, so a key that stays
+put would otherwise be reported for as long as the process runs.
+"""
+
+
+def _warn_immutable_skipped(
+    current: BaseModel,
+    env_prefix: str,
+    field: str,
+    value: str,
+) -> None:
+    """Report an attempt to live-change a field that only applies at startup.
+
+    Only a value that differs from the running one is reported. The usual
+    deployment mounts the same source that seeded the environment at
+    startup, so every startup-only key in it arrives on each resync
+    carrying the value already in effect. Reporting those would drown the
+    one case worth seeing, which is an operator editing a field that
+    cannot take effect until the next restart.
+
+    The value is never logged: a mounted Secret can carry one under any
+    field name.
+    """
+    cls = type(current)
+    if field not in cls.model_fields:
+        return
+    try:
+        candidate = cls.model_validate({**current.model_dump(), field: value})
+    except ValidationError:
+        # A value the model rejects cannot be the one already running, so
+        # it is an attempted change and worth reporting.
+        pass
+    else:
+        if getattr(candidate, field) == getattr(current, field):
+            return
+    marker = f"{env_prefix}{field.upper()}"
+    if marker in _warned_immutable_skipped:
+        return
+    _warned_immutable_skipped.add(marker)
+    logger.warning(
+        "External config changes %s, which only applies at startup. "
+        "The running value is kept until the process restarts.",
+        marker,
+        extra={"variable": marker},
+    )
 
 
 def _redact_validation_error(exc: ValidationError) -> str:

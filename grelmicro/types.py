@@ -2,17 +2,64 @@
 
 from typing import Any, Generic, Literal
 
-from pydantic import AnyUrl, GetJsonSchemaHandler, Secret
+from pydantic import AnyUrl, GetCoreSchemaHandler, GetJsonSchemaHandler, Secret
 from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema
+from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 from typing_extensions import TypeVar
 
 from grelmicro._redact import redact_url
+from grelmicro._timezone import normalize_timezone_name
 
-__all__ = ["LogLevel", "SecretUrl"]
+__all__ = ["LogLevel", "SecretUrl", "TimeZoneName"]
+
+_TZ_ERROR_CODE = "time_zone_name"
+"""Error code pydantic reports for an unusable timezone name."""
+
+_TZ_ERROR_TEMPLATE = "{reason}"
+"""Error template rendering the reason `normalize_timezone_name` reported."""
 
 type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 """Standard logging level names, matching `logging.getLevelName` output."""
+
+
+class TimeZoneName(str):
+    """An IANA timezone name, such as `UTC` or `Europe/Zurich`.
+
+    Validation accepts any casing and stores the name in the casing the
+    timezone database uses, so `europe/zurich` and `Europe/Zurich` behave
+    the same on every filesystem.
+
+    A name is accepted only when `zoneinfo` can load it. An abbreviation
+    that names no zone, such as `PST`, is rejected where it is written
+    rather than at the first use of the value.
+    """
+
+    __slots__ = ()
+
+    @classmethod
+    def _validate(cls, value: str) -> "TimeZoneName":
+        """Return the validated timezone name.
+
+        Raises:
+            PydanticCustomError: If no timezone of that name can be loaded.
+        """
+        try:
+            return cls(normalize_timezone_name(value))
+        except ValueError as error:
+            raise PydanticCustomError(
+                _TZ_ERROR_CODE, _TZ_ERROR_TEMPLATE, {"reason": str(error)}
+            ) from None
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source: type[Any], handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        """Return the core schema that validates the timezone name."""
+        return core_schema.no_info_after_validator_function(
+            cls._validate,
+            core_schema.str_schema(min_length=1),
+        )
+
 
 UrlType = TypeVar("UrlType", default=AnyUrl)
 """The URL type carried by a `SecretUrl`, defaulting to `AnyUrl`."""

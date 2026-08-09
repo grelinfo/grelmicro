@@ -7,4 +7,5 @@
     options:
       members:
         - SecretUrl
+        - TimeZoneName
         - LogLevel

@@ -4,8 +4,10 @@ from enum import StrEnum
 from typing import Annotated, Any, Self
 
 from pydantic import BaseModel, Field
-from pydantic_extra_types.timezone_name import TimeZoneName
 from typing_extensions import Doc
+
+from grelmicro._timezone import UTC_NAME
+from grelmicro.types import TimeZoneName
 
 try:
     import opentelemetry
@@ -58,12 +60,6 @@ class LogSerializerType(_CaseInsensitiveEnum):
     ORJSON = "orjson"
 
 
-class LogTimeZoneType(TimeZoneName):
-    """Timezone name."""
-
-    strict = False
-
-
 class LogConfig(BaseModel, frozen=True, extra="forbid"):
     """Log Config."""
 
@@ -81,9 +77,9 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
         Field(union_mode="left_to_right"),
     ] = LogFormatType.AUTO
     timezone: Annotated[
-        LogTimeZoneType,
+        TimeZoneName,
         Doc("IANA timezone for timestamps."),
-    ] = LogTimeZoneType("UTC")
+    ] = TimeZoneName(UTC_NAME)
     json_serializer: Annotated[
         LogSerializerType,
         Doc("JSON serializer used for structured output."),

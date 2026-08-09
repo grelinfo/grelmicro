@@ -479,13 +479,18 @@ GREL_LOG_TIMEZONE=Europe/Zurich
 
 **JSON / LOGFMT**: ISO 8601 with timezone offset
 ```
-"time":"2026-04-01T15:56:36.066922+01:00"
+"time":"2026-04-01T15:56:36.066922+02:00"
 ```
 
-**TEXT / PRETTY**: Localized time
+**TEXT / PRETTY**: local time with its offset, `Z` when that is UTC
 ```
-2026-04-01 15:56:36.066
+2026-04-01 15:56:36.066+02:00
+2026-04-01 13:56:36.066Z
 ```
+
+Leave it unset to follow [`GREL_TIMEZONE`](config.md#one-timezone-for-the-whole-service),
+the wall clock the whole service runs on. Set it to `UTC` to keep log
+timestamps on UTC under a service that schedules on local time.
 
 ## Custom Format (Loguru only)
 
