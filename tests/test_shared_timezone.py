@@ -18,6 +18,20 @@ from grelmicro.task import Tasks, TasksConfig
 SHUTDOWN_TIMEOUT = 5
 
 
+def _reported(caplog: pytest.LogCaptureFixture, variable: str) -> int:
+    """Count the startup-only reports naming ``variable``.
+
+    Counts records rather than occurrences in the rendered text: the
+    configured format carries the name in a ``variable`` field as well as
+    in the message, so one report renders it more than once.
+    """
+    return sum(
+        1
+        for record in caplog.records
+        if getattr(record, "variable", None) == variable
+    )
+
+
 @pytest.fixture(autouse=True)
 def _enable_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Turn the environment path on for the whole module."""
@@ -282,7 +296,7 @@ class TestStartupOnlyReconfigure:
         # Assert
         assert patched.timezone == "UTC"
         assert patched.shutdown_timeout == SHUTDOWN_TIMEOUT
-        assert "GREL_TASK_TIMEZONE" in caplog.text
+        assert _reported(caplog, "GREL_TASK_TIMEZONE") == 1
 
     def test_the_running_value_is_not_reported(
         self, caplog: pytest.LogCaptureFixture
@@ -301,7 +315,7 @@ class TestStartupOnlyReconfigure:
             )
 
         # Assert
-        assert caplog.text == ""
+        assert _reported(caplog, "GREL_TASK_TIMEZONE") == 0
 
     def test_an_unusable_value_is_reported(
         self, caplog: pytest.LogCaptureFixture
@@ -320,7 +334,7 @@ class TestStartupOnlyReconfigure:
             )
 
         # Assert
-        assert "GREL_TASK_TIMEZONE" in caplog.text
+        assert _reported(caplog, "GREL_TASK_TIMEZONE") == 1
 
     def test_a_key_naming_no_field_is_ignored(
         self, caplog: pytest.LogCaptureFixture
@@ -339,7 +353,7 @@ class TestStartupOnlyReconfigure:
             )
 
         # Assert
-        assert caplog.text == ""
+        assert _reported(caplog, "GREL_TASK_WORKER") == 0
 
     def test_it_is_reported_once_per_process(
         self, caplog: pytest.LogCaptureFixture
@@ -361,4 +375,4 @@ class TestStartupOnlyReconfigure:
                 )
 
         # Assert
-        assert caplog.text.count("GREL_DEDUPE_TIMEZONE") == 1
+        assert _reported(caplog, "GREL_DEDUPE_TIMEZONE") == 1
