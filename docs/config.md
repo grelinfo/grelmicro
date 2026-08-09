@@ -148,8 +148,49 @@ a field out of the constructor to let the deployment set it.
 | `DuplicateFilter(env_name="audit")` | `GREL_DUPLICATEFILTER_AUDIT_` |
 | `HealthChecks()` | `GREL_HEALTH_` |
 | `log.configure()` | `GREL_LOG_` |
+| `Tasks()` | `GREL_TASK_` |
 
 Each pattern page lists its own fields and the exact variable names.
+
+### One timezone for the whole service
+
+Most services run on a single wall clock. `GREL_TIMEZONE` says which one:
+
+```bash
+export GREL_ENV_LOAD=1
+export GREL_TIMEZONE=Europe/Zurich
+```
+
+Cron tasks now fire on Zurich wall-clock time, and log timestamps render in
+Zurich too. It carries no pattern segment, because it belongs to the process
+rather than to one component.
+
+A component variable is more specific, so it wins. Keep logs on UTC under a
+Zurich service with:
+
+```bash
+export GREL_TIMEZONE=Europe/Zurich
+export GREL_LOG_TIMEZONE=UTC
+```
+
+The full order for a cron fire time, first one that supplies it:
+
+1. `@tasks.cron(..., timezone="...")` on the task.
+2. `TaskRouter(timezone="...")` on the nearest router that declares one.
+3. `Tasks(timezone="...")`.
+4. `GREL_TASK_TIMEZONE`.
+5. `GREL_TIMEZONE`.
+6. `"UTC"`.
+
+Names are IANA names such as `Europe/Zurich`, in any casing. grelmicro
+ignores the POSIX `TZ` variable on purpose. `TZ` falls back to UTC without
+complaint when it cannot parse a value, which would turn a typo into a
+schedule running at the wrong hour. Note that `TZ` still decides what a
+naive `datetime.now()` returns inside your own task bodies.
+
+`GREL_TIMEZONE` is read once at startup. See
+[Live reconfiguration](configuration/reconfigure-from-configmap.md) for what
+that means for a mounted ConfigMap.
 
 ### Defaults reference
 
@@ -178,6 +219,8 @@ any of them with the pattern prefix above plus the field name, uppercased.
 | `HealthChecks` | `timeout` | `5` |
 | `HealthChecks` | `cache_ttl` | `1` |
 | `Idempotency` | `ttl` | `86400` (1 day) |
+| `Tasks` | `timezone` | `UTC` |
+| `Tasks` | `shutdown_timeout` | `30` |
 
 `TTLCache` and `Idempotency` set their `ttl` in code, not from the environment.
 `Timeout.seconds`, `Fallback.when`, and `Fallback.default` are required and have

@@ -10,4 +10,5 @@
       members:
         - TaskError
         - Tasks
+        - TasksConfig
         - TaskRouter

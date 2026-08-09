@@ -62,6 +62,57 @@ A name that produces an empty segment or one starting with a digit is rejected a
 
 The trade-off: the default instance owns the bare `GREL_{COMPONENT}_` namespace, so a named instance whose name collides with a field prefix can alias a default field. A `Lock("lease")` reads `GREL_LOCK_LEASE_DURATION`, the same key the default instance uses for its `lease_duration` field. This is rare in practice. The rule: the default instance owns the bare prefix, so name your other instances to avoid field-name collisions.
 
+## App-wide variables
+
+Almost every grelmicro variable belongs to one component instance and is named
+`GREL_{COMPONENT}_{FIELD}`. A few belong to the process instead. Those drop the
+component segment and read `GREL_{NAME}`.
+
+| Variable | Meaning |
+|---|---|
+| `GREL_ENV_LOAD` | Turns the environment path on for every component. |
+| `GREL_TIMEZONE` | The wall clock the service's business rules run on. |
+
+A variable qualifies as app-wide only when it meets all four rules.
+
+1. **More than one component reads it.** A value only `Log` uses stays
+   `GREL_LOG_*`. `GREL_TIMEZONE` is read by `Tasks` and by `Log`.
+2. **Every reader agrees on what it means.** One sentence has to describe the
+   value for all of them. Two components that would want different values in a
+   normal deployment need separate fields, not a shared one.
+3. **A component variable overrides it.** The app-wide value is the fallback,
+   never the winner. `GREL_LOG_TIMEZONE` beats `GREL_TIMEZONE`, and a keyword
+   argument beats both.
+4. **It is read once at startup.** App-wide values are not reconfigurable.
+   `ExternalConfig` matches keys by component prefix, so a bare `GREL_*` key in
+   a mounted ConfigMap matches nothing and is ignored. A component that needs a
+   live value keeps its own field.
+
+The precedence slot sits between the component variable and the field default:
+
+```
+keyword argument > GREL_{COMPONENT}_{FIELD} > GREL_{NAME} > field default
+```
+
+`GREL_ENV_LOAD` gates the app-wide layer too. A `GREL_TIMEZONE` set without it
+is ignored and reported like any other variable.
+
+The mechanism is `shared_env` on `resolve_config`. It passes the shared variable
+name to `_build_settings_cls`, which redeclares the field on the dynamic
+subclass with `validation_alias=AliasChoices(f"{env_prefix}{FIELD}",
+shared_var)`. The prefix is composed from the resolved prefix, so a custom
+`env_prefix=` still works. All matching, including case, is left to
+pydantic-settings. The subclass sets `populate_by_name` so the field name still
+works as a keyword argument under `extra="forbid"`, and the field is copied
+rather than rebuilt so its metadata and default factory survive.
+
+Adding a new app-wide variable is a design decision, not a convenience. Two are
+enough for most services, and each one costs every reader a lookup slot and
+every operator a name to learn. A value that describes deployment rather than
+behaviour, such as a region or a cluster name, belongs in your own settings
+object and reaches grelmicro as a keyword argument. Open an issue before adding
+a third.
+
 ## Hot-path discipline
 
 The config model is a frozen `BaseModel` with `extra="forbid"`. The hot path holds one reference to that instance and reads attributes off it. This is the budget the design protects:
@@ -117,6 +168,7 @@ We keep `self._config` as the single source of truth. If a future profile shows 
 | `DuplicateFilterConfig` | `grelmicro.log` |
 | `HealthChecksConfig` | `grelmicro.health` |
 | `LogConfig` | `grelmicro.log` |
+| `TasksConfig` | `grelmicro.task` |
 
 Each is a `BaseModel, frozen=True, extra="forbid"`. Field docs live in `Annotated[T, Doc("...")]` blocks and surface in IDEs and the API reference.
 

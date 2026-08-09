@@ -5,11 +5,42 @@ See THIRD_PARTY_NOTICES.md for the source, license, and changes.
 """
 
 from collections.abc import Callable
+from datetime import tzinfo
 from functools import partial
 from inspect import ismethod
 from typing import Any
 
-from grelmicro.task.errors import FunctionTypeError
+from grelmicro._timezone import (
+    normalize_timezone_name,
+)
+from grelmicro._timezone import (
+    resolve_timezone as _resolve_timezone,
+)
+from grelmicro.task.errors import FunctionTypeError, TimezoneError
+
+
+def resolve_timezone(timezone: str) -> tzinfo:
+    """Resolve an IANA timezone name into a ``tzinfo``.
+
+    Raises:
+        TimezoneError: If no timezone of that name can be loaded.
+    """
+    try:
+        return _resolve_timezone(timezone)
+    except ValueError as error:
+        raise TimezoneError(str(error)) from None
+
+
+def normalize_timezone(timezone: str) -> str:
+    """Return an IANA timezone name in the casing the database uses.
+
+    Raises:
+        TimezoneError: If no timezone of that name can be loaded.
+    """
+    try:
+        return normalize_timezone_name(timezone)
+    except ValueError as error:
+        raise TimezoneError(str(error)) from None
 
 
 def validate_and_generate_reference(function: Callable[..., Any]) -> str:

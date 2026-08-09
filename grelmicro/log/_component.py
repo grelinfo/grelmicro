@@ -13,6 +13,7 @@ from grelmicro._config import (
     ignored_env_reports_enabled,
     resolve_config,
 )
+from grelmicro._timezone import SHARED_TIMEZONE_ENV
 from grelmicro.log._apply import apply as _apply
 from grelmicro.log.config import (
     LogBackendType,
@@ -20,12 +21,13 @@ from grelmicro.log.config import (
     LogFormatType,
     LogLevelType,
     LogSerializerType,
-    LogTimeZoneType,
 )
 from grelmicro.log.errors import LogSettingsValidationError
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+    from grelmicro.types import TimeZoneName
 
 
 class Log:
@@ -96,7 +98,7 @@ class Log:
             LogFormatType | str | None, Doc("Log format.")
         ] = None,
         timezone: Annotated[
-            LogTimeZoneType | None,
+            TimeZoneName | None,
             Doc("IANA timezone for timestamps."),
         ] = None,
         json_serializer: Annotated[
@@ -189,6 +191,7 @@ class Log:
                 explicit=self._explicit_config,
                 kwargs=self._kwargs,
                 env_prefix="GREL_LOG_",
+                shared_env=SHARED_TIMEZONE_ENV,
                 env_load=self._env_load,
                 error_type=LogSettingsValidationError,
             )

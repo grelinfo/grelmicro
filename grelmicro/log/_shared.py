@@ -7,9 +7,9 @@ import sys
 from collections.abc import Callable, Mapping
 from datetime import datetime, tzinfo
 from typing import Any, Literal, NamedTuple
-from zoneinfo import ZoneInfo
 
 from grelmicro._config import resolve_config
+from grelmicro._timezone import SHARED_TIMEZONE_ENV, resolve_timezone
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.log.config import (
     LogConfig,
@@ -239,6 +239,22 @@ def format_extras(
     return " ".join(f"{k}={v}" for k, v in record.items() if k not in skip)
 
 
+def _format_localtime(moment: datetime) -> str:
+    """Render a timestamp with its UTC offset.
+
+    The offset makes a line self-describing, so a reader never has to know
+    which timezone the service was configured with. UTC renders as ``Z``
+    to keep the common line short. Any other zone renders the numeric
+    offset, which is what tells apart the two passes of a repeated hour
+    after a fall-back transition.
+    """
+    rendered = moment.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    offset = moment.strftime("%z")
+    if not offset or offset == "+0000":
+        return f"{rendered}Z"
+    return f"{rendered}{offset[:-2]}:{offset[-2:]}"
+
+
 def render_text_line(
     record: Mapping[str, Any],
     *,
@@ -246,7 +262,7 @@ def render_text_line(
     extra_skip: frozenset[str] = frozenset(),
 ) -> str:
     """Render a single-line text log from a flat record dict."""
-    localtime = record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    localtime = _format_localtime(record["time"])
     level = f"{record['level']:<8}"
     logger = record["logger"]
     caller = record.get("caller")
@@ -302,7 +318,7 @@ def render_pretty_lines(
     extra_skip: frozenset[str] = frozenset(),
 ) -> str:
     """Render multi-line pretty output from a flat record dict."""
-    localtime = record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    localtime = _format_localtime(record["time"])
     level = record["level"]
     logger = record["logger"]
     caller = record.get("caller")
@@ -377,6 +393,7 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
             explicit=None,
             kwargs={},
             env_prefix="GREL_LOG_",
+            shared_env=SHARED_TIMEZONE_ENV,
             error_type=LogSettingsValidationError,
         )
 
@@ -391,7 +408,7 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
     if settings.otel_enabled and not has_opentelemetry():
         raise DependencyNotFoundError(module="opentelemetry")
 
-    timezone = ZoneInfo(str(settings.timezone))
+    timezone = resolve_timezone(str(settings.timezone))
     resolved_format = _resolve_format(settings.format)
     colors = (
         should_colorize()
