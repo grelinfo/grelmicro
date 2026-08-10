@@ -25,16 +25,16 @@ pytestmark = [pytest.mark.timeout(10)]
 
 
 @pytest.fixture
-def registry() -> HealthChecks:
-    """Health registry with caching disabled."""
+def health() -> HealthChecks:
+    """Health checks component with caching disabled."""
     return HealthChecks(cache_ttl=0)
 
 
 @pytest.fixture
-def app(registry: HealthChecks) -> FastAPI:
-    """FastAPI app with health router bound to the test registry."""
+def app(health: HealthChecks) -> FastAPI:
+    """FastAPI app with health router bound to the test component."""
     application = FastAPI()
-    application.include_router(health_router(registry=registry))
+    application.include_router(health_router(component=health))
     return application
 
 
@@ -67,10 +67,10 @@ def test_livez_head_method(client: TestClient) -> None:
 
 def test_livez_never_runs_checkers() -> None:
     """A failing registered checker does not affect /livez."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", unhealthy())
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", unhealthy())
     app = FastAPI()
-    app.include_router(health_router(registry=registry))
+    app.include_router(health_router(component=health))
     client = TestClient(app)
 
     response = client.get("/livez")
@@ -82,7 +82,7 @@ def test_livez_never_runs_checkers() -> None:
 # ---------- /readyz ----------
 
 
-@pytest.mark.usefixtures("registry")
+@pytest.mark.usefixtures("health")
 def test_readyz_ok_when_no_checkers(client: TestClient) -> None:
     """Readyz returns 200 with empty body when no checkers."""
     response = client.get("/readyz")
@@ -93,10 +93,10 @@ def test_readyz_ok_when_no_checkers(client: TestClient) -> None:
 
 
 def test_readyz_ok_with_healthy_critical(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """Readyz returns 200 when critical checkers pass."""
-    registry.add("db", healthy())
+    health.add("db", healthy())
 
     response = client.get("/readyz")
 
@@ -105,10 +105,10 @@ def test_readyz_ok_with_healthy_critical(
 
 
 def test_readyz_503_on_critical_failure(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """Readyz returns 503 when any critical check fails."""
-    registry.add("db", unhealthy())
+    health.add("db", unhealthy())
 
     response = client.get("/readyz")
 
@@ -117,11 +117,11 @@ def test_readyz_503_on_critical_failure(
 
 
 def test_readyz_ignores_non_critical(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """Readyz skips non-critical checkers entirely."""
-    registry.add("db", healthy())
-    registry.add("analytics", unhealthy(), critical=False)
+    health.add("db", healthy())
+    health.add("analytics", unhealthy(), critical=False)
 
     response = client.get("/readyz")
 
@@ -129,11 +129,11 @@ def test_readyz_ignores_non_critical(
 
 
 def test_readyz_exclude_critical_checker(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """Excluding the failing critical checker makes /readyz pass."""
-    registry.add("db", unhealthy())
-    registry.add("cache", healthy())
+    health.add("db", unhealthy())
+    health.add("cache", healthy())
 
     response = client.get("/readyz?exclude=db")
 
@@ -141,20 +141,20 @@ def test_readyz_exclude_critical_checker(
 
 
 def test_readyz_exclude_multiple_comma_separated(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """The ?exclude param accepts a comma-separated list."""
-    registry.add("db", unhealthy())
-    registry.add("cache", unhealthy())
+    health.add("db", unhealthy())
+    health.add("cache", unhealthy())
 
     response = client.get("/readyz?exclude=db,cache")
 
     assert response.status_code == HTTP_200_OK
 
 
-def test_readyz_head_method(registry: HealthChecks, client: TestClient) -> None:
+def test_readyz_head_method(health: HealthChecks, client: TestClient) -> None:
     """Readyz accepts HEAD."""
-    registry.add("db", unhealthy())
+    health.add("db", unhealthy())
 
     response = client.head("/readyz")
 
@@ -164,7 +164,7 @@ def test_readyz_head_method(registry: HealthChecks, client: TestClient) -> None:
 # ---------- /healthz ----------
 
 
-@pytest.mark.usefixtures("registry")
+@pytest.mark.usefixtures("health")
 def test_healthz_empty_ok(client: TestClient) -> None:
     """Healthz with no checkers is ok with empty checks dict."""
     response = client.get("/healthz")
@@ -175,11 +175,11 @@ def test_healthz_empty_ok(client: TestClient) -> None:
 
 
 def test_healthz_includes_all_checkers(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """Healthz includes critical and non-critical in the checks dict."""
-    registry.add("db", healthy())
-    registry.add("analytics", unhealthy(), critical=False)
+    health.add("db", healthy())
+    health.add("analytics", unhealthy(), critical=False)
 
     response = client.get("/healthz")
 
@@ -194,10 +194,10 @@ def test_healthz_includes_all_checkers(
 
 
 def test_healthz_503_on_critical_failure(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """Healthz returns 503 when any critical check fails."""
-    registry.add("db", unhealthy())
+    health.add("db", unhealthy())
 
     response = client.get("/healthz")
 
@@ -206,10 +206,10 @@ def test_healthz_503_on_critical_failure(
 
 
 def test_healthz_omits_error_on_passing_check(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """A passing check reports status and critical alone, with no null error."""
-    registry.add("db", healthy())
+    health.add("db", healthy())
 
     response = client.get("/healthz")
 
@@ -217,10 +217,10 @@ def test_healthz_omits_error_on_passing_check(
 
 
 def test_healthz_keeps_error_on_failing_check(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """A failing check still carries its error string."""
-    registry.add("db", unhealthy())
+    health.add("db", unhealthy())
 
     response = client.get("/healthz")
 
@@ -229,10 +229,10 @@ def test_healthz_keeps_error_on_failing_check(
 
 def test_healthz_omits_details_when_check_returned_none() -> None:
     """A check with no details omits the field even when details are shown."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", healthy())
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", healthy())
     app = FastAPI()
-    app.include_router(health_router(registry=registry, show_details=True))
+    app.include_router(health_router(component=health, show_details=True))
     client = TestClient(app)
 
     response = client.get("/healthz")
@@ -243,7 +243,7 @@ def test_healthz_omits_details_when_check_returned_none() -> None:
 def test_healthz_schema_types_optional_fields_as_absent() -> None:
     """OpenAPI types the omitted fields as plain values, never as null."""
     app = FastAPI()
-    app.include_router(health_router(registry=HealthChecks()))
+    app.include_router(health_router(component=HealthChecks()))
 
     schema = app.openapi()["components"]["schemas"]["CheckResultResponse"]
 
@@ -254,10 +254,10 @@ def test_healthz_schema_types_optional_fields_as_absent() -> None:
 
 
 def test_healthz_details_hidden_by_default(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """Details are stripped from /healthz by default."""
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     response = client.get("/healthz")
 
@@ -266,11 +266,11 @@ def test_healthz_details_hidden_by_default(
 
 def test_healthz_details_true_always_shown() -> None:
     """show_details=True always includes details."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
 
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
     app = FastAPI()
-    app.include_router(health_router(registry=registry, show_details=True))
+    app.include_router(health_router(component=health, show_details=True))
     client = TestClient(app)
 
     response = client.get("/healthz")
@@ -280,16 +280,16 @@ def test_healthz_details_true_always_shown() -> None:
 
 def test_healthz_details_dep_returns_false_strips() -> None:
     """A dep returning False strips details, endpoint returns 200."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
 
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow() -> bool:
         return False
 
     app = FastAPI()
     app.include_router(
-        health_router(registry=registry, show_details=Depends(allow))
+        health_router(component=health, show_details=Depends(allow))
     )
     client = TestClient(app)
 
@@ -301,16 +301,16 @@ def test_healthz_details_dep_returns_false_strips() -> None:
 
 def test_healthz_details_dep_returns_true_shows() -> None:
     """A dep returning True includes details."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
 
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow() -> bool:
         return True
 
     app = FastAPI()
     app.include_router(
-        health_router(registry=registry, show_details=Depends(allow))
+        health_router(component=health, show_details=Depends(allow))
     )
     client = TestClient(app)
 
@@ -321,16 +321,16 @@ def test_healthz_details_dep_returns_true_shows() -> None:
 
 def test_healthz_details_async_dep_shows() -> None:
     """An async dep is awaited by FastAPI's DI."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
 
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     async def allow_async() -> bool:
         return True
 
     app = FastAPI()
     app.include_router(
-        health_router(registry=registry, show_details=Depends(allow_async))
+        health_router(component=health, show_details=Depends(allow_async))
     )
     client = TestClient(app)
 
@@ -341,16 +341,16 @@ def test_healthz_details_async_dep_shows() -> None:
 
 def test_healthz_details_dep_with_request() -> None:
     """A Request-annotated dep receives the request via FastAPI DI."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
 
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def allow_if_admin(request: _Request) -> bool:
         return request.headers.get("x-admin") == "yes"
 
     app = FastAPI()
     app.include_router(
-        health_router(registry=registry, show_details=Depends(allow_if_admin))
+        health_router(component=health, show_details=Depends(allow_if_admin))
     )
     client = TestClient(app)
 
@@ -361,9 +361,9 @@ def test_healthz_details_dep_with_request() -> None:
 
 def test_healthz_details_dep_with_sub_dependency() -> None:
     """FastAPI sub-dependencies resolve through ``Depends`` chains."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
 
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def current_role(request: _Request) -> str:
         return request.headers.get("x-role", "guest")
@@ -373,7 +373,7 @@ def test_healthz_details_dep_with_sub_dependency() -> None:
 
     app = FastAPI()
     app.include_router(
-        health_router(registry=registry, show_details=Depends(is_admin))
+        health_router(component=health, show_details=Depends(is_admin))
     )
     client = TestClient(app)
 
@@ -384,16 +384,16 @@ def test_healthz_details_dep_with_sub_dependency() -> None:
 
 def test_healthz_details_dep_http_exception_blocks_endpoint() -> None:
     """Raising HTTPException in the dep blocks the endpoint (documented)."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
 
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
     def deny() -> bool:
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
 
     app = FastAPI()
     app.include_router(
-        health_router(registry=registry, show_details=Depends(deny))
+        health_router(component=health, show_details=Depends(deny))
     )
     client = TestClient(app)
 
@@ -415,11 +415,11 @@ def test_healthz_details_invalid_type_rejected() -> None:
 
 
 def test_healthz_exclude_checker(
-    registry: HealthChecks, client: TestClient
+    health: HealthChecks, client: TestClient
 ) -> None:
     """?exclude removes the named checker from the response."""
-    registry.add("db", healthy())
-    registry.add("redis", unhealthy())
+    health.add("db", healthy())
+    health.add("redis", unhealthy())
 
     response = client.get("/healthz?exclude=redis")
 
@@ -445,11 +445,9 @@ def test_healthz_dependencies_block_endpoint() -> None:
     assert response.status_code == HTTP_401_UNAUTHORIZED
 
 
-def test_healthz_head_method(
-    registry: HealthChecks, client: TestClient
-) -> None:
+def test_healthz_head_method(health: HealthChecks, client: TestClient) -> None:
     """Healthz accepts HEAD."""
-    registry.add("db", healthy())
+    health.add("db", healthy())
 
     response = client.head("/healthz")
 
@@ -460,7 +458,7 @@ def test_healthz_head_method(
 # ---------- OpenAPI + misc ----------
 
 
-@pytest.mark.usefixtures("registry")
+@pytest.mark.usefixtures("health")
 def test_openapi_schema(client: TestClient) -> None:
     """All three endpoints appear in the OpenAPI schema."""
     schema = client.get("/openapi.json").json()
@@ -489,10 +487,10 @@ def test_health_router_raises_without_fastapi() -> None:
     importlib.import_module("grelmicro.integrations.fastapi")  # restore
 
 
-def test_router_prefix(registry: HealthChecks) -> None:
+def test_router_prefix(health: HealthChecks) -> None:
     """The prefix kwarg mounts endpoints under a custom path."""
     app = FastAPI()
-    app.include_router(health_router(registry=registry, prefix="/api/v1"))
+    app.include_router(health_router(component=health, prefix="/api/v1"))
     client = TestClient(app)
 
     assert client.get("/api/v1/livez").status_code == HTTP_200_OK
@@ -500,11 +498,11 @@ def test_router_prefix(registry: HealthChecks) -> None:
     assert client.get("/api/v1/healthz").status_code == HTTP_200_OK
 
 
-def test_registry_unhealthy_produces_503_on_both_endpoints(
-    registry: HealthChecks, client: TestClient
+def test_unhealthy_produces_503_on_both_endpoints(
+    health: HealthChecks, client: TestClient
 ) -> None:
     """Critical failure flips both /readyz and /healthz to 503."""
-    registry.add("db", unhealthy())
+    health.add("db", unhealthy())
 
     assert client.get("/readyz").status_code == HTTP_503_SERVICE_UNAVAILABLE
     assert client.get("/healthz").status_code == HTTP_503_SERVICE_UNAVAILABLE

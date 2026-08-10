@@ -3,7 +3,7 @@
 This section documents the internal design decisions and guarantees of grelmicro.
 
 - **[Concurrency runtime](asyncio.md)**: Why grelmicro targets asyncio directly and not Trio or AnyIO.
-- **[Backend Registry](backends.md)**: Shared registry pattern for swappable backends.
+- **[Backends and Adapters](backends.md)**: How Providers, Components, Backends, and Adapters fit together.
 - **[Configuration](config.md)**: Explicit construction paths, `from_config(...)`, optional env resolution where it fits, and the library-not-app boundary.
 - **[Live reconfiguration](reconfigure.md)**: Atomic config swap on a live component, the `Reconfigurable` mixin, and reader safety.
 - **[Import Strategy](imports.md)**: Why backends are imported from submodules, not re-exported.

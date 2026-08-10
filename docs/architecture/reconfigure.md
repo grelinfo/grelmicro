@@ -106,7 +106,7 @@ Publish the new snapshot in one assignment. `RateLimiter` and `CircuitBreaker` c
 
 The `ExternalConfig` component covers the common loop: poll a mounted ConfigMap, Secret, or file, and reapply changed values to the live components. See [Reconfigure from a ConfigMap](../configuration/reconfigure-from-configmap.md). Anything beyond that (a SIGHUP handler, an admin endpoint, a custom informer) is application-level work that calls `reconfigure` or `ExternalConfig.reload()` directly.
 
-Hot-swapping the backend from the new config is also out of scope. `_apply_reconfigure` does not read the backend identity from `new_config`. The component continues to resolve its backend the same way it did before reconfigure: a backend instance passed at construction is reused as-is, while a backend resolved through the registry is re-resolved on each call so that task-scoped overrides keep working. `reconfigure` accepts a new config of the same runtime type only, not a different config subclass.
+Hot-swapping the backend from the new config is also out of scope. `_apply_reconfigure` does not read the backend identity from `new_config`. The component continues to resolve its backend the same way it did before reconfigure: a backend instance passed at construction is reused as-is, while a backend resolved through the app is re-resolved on each call so that task-scoped overrides keep working. `reconfigure` accepts a new config of the same runtime type only, not a different config subclass.
 
 ## Related
 

@@ -371,7 +371,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         example in a unit test) type-checks as usual.
 
         Example:
-            >>> @registry.check("database")
+            >>> @health.check("database")
             ... async def check_db() -> dict | None:
             ...     return None
         """

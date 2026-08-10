@@ -13,7 +13,7 @@ Create a `HealthChecks` and register checks with the `@health.check(name)` decor
 --8<-- "health/basic.py"
 ```
 
-Register the instance with a `Grelmicro` app (see below) so the router can resolve it, or pass it explicitly via `health_router(registry=health)`.
+Register the instance with a `Grelmicro` app (see below) so the router can resolve it, or pass it explicitly via `health_router(health)`.
 
 ## Health Check
 

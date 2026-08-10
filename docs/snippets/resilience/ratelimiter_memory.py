@@ -1,3 +1,5 @@
+from grelmicro import Grelmicro
 from grelmicro.providers.memory import MemoryProvider
 
-backend = MemoryProvider().ratelimiter()
+memory = MemoryProvider()
+micro = Grelmicro(uses=[memory])

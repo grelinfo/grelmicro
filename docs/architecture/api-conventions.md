@@ -20,19 +20,28 @@ else (`backend=`, tuning fields) is keyword-only with a default.
 
 ## Components take the provider first, `name` keyword-only
 
-A component or registry is app-level wiring passed to `uses=`, such as
-`Coordination`, `Cache`, or `RateLimiterRegistry`. Its first positional is the
-provider or backend it wraps. The registration `name` is keyword-only and
-defaults to `"default"`:
+A component is app-level wiring passed to `uses=`, such as `Coordination`,
+`Cache`, or `RateLimiterComponent`. Its first positional is the provider or
+backend it wraps. The registration `name` is keyword-only and defaults to
+`"default"`:
 
 ```python
 Coordination(redis)
 Cache(redis)
-RateLimiterRegistry(redis, name="api")
+RateLimiterComponent(redis, name="api")
 ```
 
 Most apps register one component per kind, so the default name keeps the common
 case silent. Name a second instance only when two of the same kind coexist.
+
+## Components take the bare capability name
+
+A component is named after the capability it wires, not after its role:
+`Cache`, `Coordination`, `Log`, `Trace`, `Metrics`, `Outbox`, `HealthChecks`.
+Two carry the `Component` suffix, `RateLimiterComponent` and
+`CircuitBreakerComponent`, because their bare names already belong to the
+`RateLimiter` and `CircuitBreaker` patterns. The suffix names the concept from
+[Backends and Adapters](backends.md), so it adds no vocabulary.
 
 ## Algorithms use factory classmethods
 

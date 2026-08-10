@@ -11,16 +11,12 @@ from faststream import ContextRepo, FastStream
 from faststream.redis import RedisBroker
 
 from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination, Lock
+from grelmicro.coordination import Lock
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import (
-    RateLimiter,
-    RateLimiterRegistry,
-    RateLimitExceededError,
-)
+from grelmicro.resilience import RateLimiter, RateLimitExceededError
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[Coordination(redis), RateLimiterRegistry(redis)])
+micro = Grelmicro(uses=[redis])
 
 per_user_limiter = RateLimiter.sliding_window("messages", limit=10, window=60)
 

@@ -25,7 +25,7 @@ class VirtualClock:
 
     ```python
     clock = VirtualClock()
-    micro = Grelmicro(uses=[clock, CircuitBreakerRegistry(...)])
+    micro = Grelmicro(uses=[clock, CircuitBreakerComponent(...)])
 
     async with micro:
         await call()              # trips the breaker

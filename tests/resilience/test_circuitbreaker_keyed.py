@@ -9,7 +9,7 @@ import pytest
 
 from grelmicro import Grelmicro
 from grelmicro._config import reconfigurable_instances
-from grelmicro.resilience import CircuitBreaker, CircuitBreakerRegistry
+from grelmicro.resilience import CircuitBreaker, CircuitBreakerComponent
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerError,
     CircuitBreakerState,
@@ -56,7 +56,7 @@ async def _app(
     backend: MemoryCircuitBreakerAdapter,
 ) -> AsyncGenerator[Grelmicro]:
     """Open a `Grelmicro` app holding the in-memory CB backend."""
-    async with Grelmicro(uses=[CircuitBreakerRegistry(backend)]) as micro:
+    async with Grelmicro(uses=[CircuitBreakerComponent(backend)]) as micro:
         yield micro
 
 

@@ -2,7 +2,16 @@
 
 ## Unreleased
 
+### Breaking
+
+* 💥 Settle on **Component** as the one word for app-level wiring. `RateLimiterRegistry` becomes `RateLimiterComponent` and `CircuitBreakerRegistry` becomes `CircuitBreakerComponent`. Neither ever registered anything: each wraps one backend, so the name borrowed a contract it did not honor. Update `uses=[...]` and imports. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
+* 💥 `health_router(registry=...)` is now `health_router(component=...)`, matching `metrics_router(component=...)`. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
+
 ### Docs
+
+* 📝 Show the shortest correct wiring. `Grelmicro(uses=[redis])` registers a Component for every kind the Provider serves, and a bare backend is wrapped for you, so the landing page, the providers guide, and the resilience snippets no longer name a Component to do what the Provider already does. The Component classes now appear only where they are needed: a second named instance and `micro.override(...)`. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
+* 📝 Drop "Registry" from the mental model. [First Steps](first-steps.md) offered "Component or Registry" as one bullet with two names, and the word lingered in the health, rate limiter, and architecture pages. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
+* 📝 Fix the `Component` protocol docstring. It illustrated the protocol with a `Tasks` class carrying `kind = "task"`, but `Tasks` is a plain async context manager and no such kind exists. `Grelmicro.get` listed that kind too. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
 
 * 📝 Rewrite the [roadmap](roadmap.md) as direction instead of a feature list. It was a list of named features under **Next** and **Later**, which is what the issue tracker already is, so it went stale the day anything shipped: it still offered the FastAPI `Idempotency-Key` integration, the FastStream integration, and the transactional outbox as future work, all three of which ship. It now describes seven directions, names a few concretes under each as illustration, and points at the tracker once for the queue. Nothing is duplicated, so nothing falls out of sync. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
 * 📝 Stop framing the roadmap around a 1.0 that is not on the calendar. It opened with "post-1.0 items" while the project runs on `0.x`, and split into **Next** and **Later**, which read as release buckets without being any. Direction has no buckets, so both are gone. ([#647](https://github.com/grelinfo/grelmicro/issues/647))

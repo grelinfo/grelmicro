@@ -16,7 +16,7 @@ backend extras.
 
 - **Pattern**: the object your app calls, such as `Lock("cart")` or `RateLimiter.sliding_window("api", ...)`.
 - **Provider**: owns a connection, such as `RedisProvider`.
-- **Component or Registry**: registers a backend on the app.
+- **Component**: wires a backend into the app, such as `Cache` or `Coordination`. A Provider on its own registers one for every kind it serves, so you often name none.
 - **Adapter**: the concrete backend implementation. Providers usually hide it.
 - **Ambient binding**: `micro.install(app)` lets request and message handlers find the current `Grelmicro` app.
 

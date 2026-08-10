@@ -36,15 +36,15 @@ class Component(
 ):
     """A grelmicro component attached to a `Grelmicro` app.
 
-    Each grelmicro component ships one microservice pattern
-    (distributed lock, cache, rate limiter, circuit breaker, task scheduler,
-    health check, ...). The user composes components into a `Grelmicro`
-    application; the app opens every component in registration order and
-    closes them in reverse order on exit.
+    Each grelmicro component wires one microservice pattern into the app
+    (distributed lock, cache, rate limiter, circuit breaker, health check,
+    ...). The user composes components into a `Grelmicro` application. The app
+    opens every component in registration order and closes them in reverse
+    order on exit.
 
     Attributes:
         kind: Stable identifier for the component category (`"coordination"`,
-            `"cache"`, `"task"`, `"health"`, ...). The app exposes the
+            `"cache"`, `"ratelimiter"`, `"health"`, ...). The app exposes the
             component on `micro.<kind>` after registration.
         name: Read-only registration name. Multiple components of the same
             `kind` may coexist under different names. The composite key for
@@ -56,8 +56,8 @@ class Component(
 
     Example:
         ```python
-        class Tasks:
-            kind = "task"
+        class Mailer:
+            kind = "mailer"
 
             def __init__(self, *, name: str = "default") -> None:
                 self._name = name

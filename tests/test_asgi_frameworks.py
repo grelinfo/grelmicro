@@ -20,7 +20,7 @@ from starlette.testclient import TestClient
 from grelmicro import Grelmicro, NoActiveAppError
 from grelmicro.errors import OutOfContextError
 from grelmicro.integrations.fastapi import GrelmicroMiddleware
-from grelmicro.resilience import RateLimiter, RateLimiterRegistry
+from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ def _build_starlette_app(
     *, with_middleware: bool
 ) -> tuple[Starlette, Grelmicro]:
     """Build a Starlette app whose handler resolves a RateLimiter ambiently."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     async def limited(request: Request) -> JSONResponse:  # noqa: ARG001
         limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
@@ -128,7 +128,7 @@ def test_starlette_install_wires_lifecycle_and_binding() -> None:
     Driven through `TestClient` so the Starlette lifespan (where install
     chained `async with micro:`) runs and opens the components.
     """
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     async def limited(request: Request) -> JSONResponse:  # noqa: ARG001
         limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
@@ -157,7 +157,7 @@ def test_starlette_install_wires_lifecycle_and_binding() -> None:
 
 def _build_litestar_app(*, with_middleware: bool) -> tuple[Litestar, Grelmicro]:
     """Build a Litestar app whose handler resolves a RateLimiter ambiently."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     @get("/limited")
     async def handler() -> dict[str, bool]:

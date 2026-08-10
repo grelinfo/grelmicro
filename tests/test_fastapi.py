@@ -16,7 +16,7 @@ from starlette.status import HTTP_200_OK
 from grelmicro import AmbientBindingError, Grelmicro
 from grelmicro.errors import OutOfContextError
 from grelmicro.integrations.fastapi import GrelmicroMiddleware
-from grelmicro.resilience import RateLimiter, RateLimiterRegistry
+from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ def _stack_names(app: FastAPI) -> list[str]:
 
 def _build_app(*, with_middleware: bool) -> FastAPI:
     """Build a FastAPI app whose handler resolves a RateLimiter ambiently."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
@@ -125,7 +125,7 @@ def _build_installed_app(
     *, ambient: bool = True, custom_lifespan: list[str] | None = None
 ) -> FastAPI:
     """Build a FastAPI app wired with `micro.install(app)`."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     if custom_lifespan is not None:
 
@@ -179,7 +179,7 @@ def test_install_chains_existing_lifespan() -> None:
 
 def test_install_keeps_binding_outermost_whatever_the_add_order() -> None:
     """The binding middleware is built outside the ones added around it."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     app = FastAPI()
     app.add_middleware(GZipMiddleware)
     micro.install(app)
@@ -228,7 +228,7 @@ def test_install_ambient_false_raises_when_hand_wiring_is_wrapped() -> None:
 
 def test_install_raises_at_startup_when_the_placement_did_not_hold() -> None:
     """A binding middleware left wrapped fails on startup, not on a request."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     app = FastAPI()
     micro.install(app)
     # Drop the placement hook, as a framework that built its stack another
@@ -264,7 +264,7 @@ def test_install_ambient_false_strict_raises() -> None:
     """`strict=True` turns the ambient-binding warning into an error."""
     micro = Grelmicro(
         strict=True,
-        uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())],
+        uses=[RateLimiterComponent(MemoryRateLimiterAdapter())],
     )
     app = FastAPI()
     with pytest.raises(AmbientBindingError, match="ratelimiter:default"):
@@ -273,7 +273,7 @@ def test_install_ambient_false_strict_raises() -> None:
 
 def test_check_ambient_binding_true_when_installed() -> None:
     """`check_ambient_binding` is True once the middleware is wired."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     app = FastAPI()
     micro.install(app)
     assert micro.check_ambient_binding(app) is True
@@ -281,7 +281,7 @@ def test_check_ambient_binding_true_when_installed() -> None:
 
 def test_check_ambient_binding_false_without_middleware() -> None:
     """`check_ambient_binding` is False when the middleware was never wired."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     app = FastAPI()
     # The footgun: micro opened in a hand-written lifespan, install never
     # called, so no GrelmicroMiddleware was added.
@@ -297,10 +297,10 @@ def test_check_ambient_binding_catches_an_uninstalled_mounted_app() -> None:
     its own, silently. The check is what turns that back into a signal.
     """
     host_micro = Grelmicro(
-        uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())]
+        uses=[RateLimiterComponent(MemoryRateLimiterAdapter())]
     )
     sub_micro = Grelmicro(
-        uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())]
+        uses=[RateLimiterComponent(MemoryRateLimiterAdapter())]
     )
     host = FastAPI()
     host_micro.install(host)
@@ -320,6 +320,6 @@ def test_check_ambient_binding_true_without_ambient_components() -> None:
 
 def test_check_ambient_binding_rejects_unknown_app() -> None:
     """`check_ambient_binding` raises for an unsupported app with ambient components."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     with pytest.raises(TypeError, match="Starlette, FastAPI, and FastStream"):
         micro.check_ambient_binding(object())

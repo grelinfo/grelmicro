@@ -1065,10 +1065,10 @@ class HealthzResponse(BaseModel):
 
 
 def health_router(
-    registry: Annotated[
+    component: Annotated[
         HealthChecks | None,
         Doc(
-            "Health checks instance whose checks the router runs. When "
+            "Health checks component whose checks the router runs. When "
             "omitted, the router resolves the default instance from the "
             "active `Grelmicro` app (``Grelmicro(uses=[HealthChecks(...)])``)."
         ),
@@ -1141,8 +1141,8 @@ def health_router(
 
     from grelmicro._app import Grelmicro  # noqa: PLC0415
 
-    def _resolve_registry() -> "HealthChecks":
-        return registry or Grelmicro.current().get("health", "default")
+    def _resolve_component() -> "HealthChecks":
+        return component or Grelmicro.current().get("health", "default")
 
     show_details_dep = _resolve_show_details_dep(show_details)
 
@@ -1176,7 +1176,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Readiness probe. Runs critical checkers only."""
-        report = await _resolve_registry().run(
+        report = await _resolve_component().run(
             critical_only=True,
             exclude=_parse_exclude(exclude),
         )
@@ -1209,7 +1209,7 @@ def health_router(
         ] = None,
     ) -> Response:
         """Aggregate JSON report of all checker results."""
-        report = await _resolve_registry().run(
+        report = await _resolve_component().run(
             critical_only=False,
             exclude=_parse_exclude(exclude),
         )
@@ -1285,7 +1285,7 @@ def _resolve_show_details_dep(show_details: Any) -> "Callable[..., Any]":  # noq
 def _parse_exclude(raw: str | None) -> frozenset[str]:
     """Split a comma-separated exclude list into a frozenset of names.
 
-    ``frozenset`` so the registry's ``run(exclude=...)`` can adopt it
+    ``frozenset`` so the component's ``run(exclude=...)`` can adopt it
     without copying (CPython short-circuits ``frozenset(frozenset)``
     to the same object).
     """

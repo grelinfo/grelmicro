@@ -12,10 +12,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache, TTLCache
+from grelmicro.cache import TTLCache
 from grelmicro.cache.cached import cached
 from grelmicro.cache.serializers import JsonSerializer
-from grelmicro.coordination import Coordination, LeaderElection, Lock
+from grelmicro.coordination import LeaderElection, Lock
 from grelmicro.health import HealthChecks
 from grelmicro.integrations.fastapi import GrelmicroMiddleware, health_router
 from grelmicro.log import configure
@@ -23,9 +23,8 @@ from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import (
     CircuitBreaker,
-    CircuitBreakerRegistry,
+    CircuitBreakerComponent,
     RateLimiter,
-    RateLimiterRegistry,
 )
 from grelmicro.resilience.errors import CircuitBreakerError
 from grelmicro.task import Tasks
@@ -51,12 +50,12 @@ tasks.add_task(leader)
 # active provider, so /readyz probes Redis and Postgres with no boilerplate.
 health = HealthChecks(auto_health=True)
 
+# Redis fills every kind it serves. The breaker is the one override, so it
+# is the only component named here.
 micro = Grelmicro(
     uses=[
-        Cache(redis.cache()),
-        RateLimiterRegistry(redis.ratelimiter()),
-        CircuitBreakerRegistry(postgres.circuitbreaker()),
-        Coordination(lock=redis.lock(), election=redis.leaderelection()),
+        redis,
+        CircuitBreakerComponent(postgres),
         health,
         tasks,
     ]

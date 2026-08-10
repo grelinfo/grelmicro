@@ -2,43 +2,39 @@
 
 A **Provider** is a first-class connection object. It owns the vendor URL,
 the native client (a Redis pool, an asyncpg pool, ...), and the lifecycle
-of both. Components like `Coordination`, `Cache`, and `RateLimiterRegistry` accept a
-Provider directly and use its matching adapter under the hood.
+of both. Components like `Coordination`, `Cache`, and `RateLimiterComponent` accept a
+Provider directly and use its matching adapter under the hood, and a Provider
+listed on its own registers one of each for you.
 
 Five providers ship today: `RedisProvider`, `ValkeyProvider`, `PostgresProvider`,
 `SQLiteProvider`, and `MemoryProvider`. More will follow.
 
 ## Recommended shape
 
-Pass a Provider to every Component that needs the same connection:
+List the Provider and nothing else:
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
-from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import RateLimiterRegistry
 
 redis = RedisProvider("redis://localhost:6379/0")
 
-micro = Grelmicro(uses=[
-    Coordination(redis),
-    Cache(redis),
-    RateLimiterRegistry(redis),
-])
+micro = Grelmicro(uses=[redis])
 
 async with micro:
     ...
 ```
 
-Components dispatch to the Provider's factory methods (`provider.lock()`,
-`provider.cache()`, `provider.ratelimiter()`). The Adapter classes
-(`RedisLockAdapter`, `RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay
-public as escape hatches but rarely appear in user code.
+That registers `Coordination`, `Cache`, `RateLimiterComponent`, and
+`CircuitBreakerComponent`, all sharing the one pool. Each Component dispatches
+to the Provider's factory methods (`provider.lock()`, `provider.cache()`,
+`provider.ratelimiter()`). The Adapter classes (`RedisLockAdapter`,
+`RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay public as escape hatches
+but rarely appear in user code.
 
 !!! note "Import policy: prefer Providers over concrete adapters"
-    App code should import a Provider and pass it to Components and Registries,
-    not import concrete adapter classes. The Provider owns the connection and
+    App code should import a Provider and pass it to Components, not import
+    concrete adapter classes. The Provider owns the connection and
     hands each Component the right adapter, so one URL change swaps every
     backend at once. Import an adapter directly only for an escape hatch: a
     bespoke client the factory does not build, or a per-process Memory backend
@@ -46,21 +42,25 @@ public as escape hatches but rarely appear in user code.
     (`grelmicro.resilience.circuitbreaker.sqlite`) and the top-level package
     re-exports them (`from grelmicro.resilience import SQLiteCircuitBreakerAdapter`).
 
-!!! tip "Listing the Provider is optional"
-    A Provider held by a Component is discovered and lifecycled for you, so
-    you can drop the top-level entry and let the Components carry it:
+!!! tip "Name a Component to override one kind"
+    A Component claims its own kind and the Provider fills the rest, so one
+    entry moves one capability:
 
     ```python
-    micro = Grelmicro(uses=[
-        Coordination(redis),
-        Cache(redis),
-        RateLimiterRegistry(redis),
-    ])
+    micro = Grelmicro(uses=[redis, Cache(postgres)])
     ```
 
-    The shared `redis` opens once, before the Components that hold it.
-    Listing it explicitly is still valid and lets you control where it sits
-    in the lifecycle order.
+    Everything stays on Redis except the cache. A bare backend works the same
+    way and is wrapped in its Component for you:
+
+    ```python
+    micro = Grelmicro(uses=[redis, MemoryCircuitBreakerAdapter()])
+    ```
+
+    A Provider held by a Component is discovered and lifecycled for you, so
+    you can drop the top-level entry once every kind is spelled out. The
+    shared `redis` opens once, before the Components that hold it. Listing it
+    explicitly lets you control where it sits in the lifecycle order.
 
 ## Recipe 1: env-driven
 
@@ -69,16 +69,11 @@ the environment:
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
-from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider()  # reads REDIS_URL or REDIS_HOST + REDIS_PORT + ...
 
-micro = Grelmicro(uses=[
-    Coordination(redis),
-    Cache(redis),
-])
+micro = Grelmicro(uses=[redis])
 ```
 
 Set `REDIS_URL` (or `REDIS_HOST` + `REDIS_PORT` + `REDIS_DB` +
@@ -336,7 +331,7 @@ Each Provider exposes factory methods that return its matching adapter:
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
-`RateLimiterRegistry(provider)`, and `CircuitBreakerRegistry(provider)` call these factories.
+`RateLimiterComponent(provider)`, and `CircuitBreakerComponent(provider)` call these factories.
 
 ## Readiness check
 
@@ -362,18 +357,11 @@ pip install "grelmicro[valkey]"
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
-from grelmicro.coordination import Coordination
 from grelmicro.providers.valkey import ValkeyProvider
-from grelmicro.resilience import RateLimiterRegistry
 
 valkey = ValkeyProvider("redis://localhost:6379/0")
 
-micro = Grelmicro(uses=[
-    Coordination(valkey),
-    Cache(valkey),
-    RateLimiterRegistry(valkey),
-])
+micro = Grelmicro(uses=[valkey])
 ```
 
 Set `VALKEY_URL` (or `VALKEY_HOST` + `VALKEY_PORT` + `VALKEY_DB` +
@@ -474,13 +462,10 @@ lock that adapters borrow.
 ```python
 from grelmicro import Grelmicro
 from grelmicro.providers.sqlite import SQLiteProvider
-from grelmicro.resilience import RateLimiterRegistry
 
 sqlite = SQLiteProvider("app.db")
 
-micro = Grelmicro(uses=[
-    RateLimiterRegistry(sqlite),
-])
+micro = Grelmicro(uses=[sqlite])
 ```
 
 Set `SQLITE_PATH` for env-driven construction. Construction forms:
@@ -524,29 +509,18 @@ durable, distributed coordination.
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
-from grelmicro.coordination import Coordination
 from grelmicro.providers.memory import MemoryProvider
-from grelmicro.resilience import CircuitBreakerRegistry, RateLimiterRegistry
 
 memory = MemoryProvider()
 
-micro = Grelmicro(uses=[
-    memory,
-    Coordination(lock=memory.lock(), election=memory.leaderelection()),
-    Cache(memory.cache()),
-    RateLimiterRegistry(memory.ratelimiter()),
-    CircuitBreakerRegistry(memory.circuitbreaker()),
-])
+micro = Grelmicro(uses=[memory])
 ```
 
 Each factory hands back one cached adapter per kind, so the provider owns a
 single in-process store per kind. `memory.lock()` called twice returns the same
 backend, so a later call re-fetches the live store for a test or an
-introspection. Wire each kind into one component, the same way you would a Redis
-adapter. A lone `MemoryProvider` resolves every kind, so
-`uses=[memory, Coordination(memory)]` wires the lock, election, and schedule
-backends from it.
+introspection. Reach for a factory when a test needs the live store, or when
+one kind should run on a different backend than the rest.
 
 To wire a single component, pass the provider straight in:
 
