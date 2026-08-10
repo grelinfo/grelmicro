@@ -1,8 +1,9 @@
 from grelmicro.coordination import LeaderElection
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.task import Tasks
 
-leader = LeaderElection("my-service", backend=MemoryProvider().leaderelection())
+redis = RedisProvider("redis://localhost:6379/0")
+leader = LeaderElection("my-service", backend=redis.leaderelection())
 task = Tasks()
 task.add_task(leader)
 

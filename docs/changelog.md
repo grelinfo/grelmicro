@@ -9,6 +9,9 @@
 
 ### Docs
 
+* 📝 Open every feature example on a real backend. [First Steps](first-steps.md), [Cache](cache.md), [Idempotency](idempotency.md), and [Coordination](coordination.md) all started on the memory provider with a note that it runs as-is, so the memory backend read as the normal choice. It is not: a distributed lock on memory gives no mutual exclusion the moment a second replica starts. Each page now starts on Redis, with the extra to install and the command to run it. ([#680](https://github.com/grelinfo/grelmicro/issues/680))
+* 📝 Keep memory where it belongs and say why it is there. It stays on the [testing](testing.md) page, in the backend tabs, in the provider reference, and in the landing example that is about a process-local rate limiter. The cache backend tabs led with Memory and now lead with Redis. ([#680](https://github.com/grelinfo/grelmicro/issues/680))
+
 * 📝 Show the shortest correct wiring. `Grelmicro(uses=[redis])` registers a Component for every kind the Provider serves, and a bare backend is wrapped for you, so the landing page, the providers guide, and the resilience snippets no longer name a Component to do what the Provider already does. The Component classes now appear only where they are needed: a second named instance and `micro.override(...)`. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
 * 📝 Drop "Registry" from the mental model. [First Steps](first-steps.md) offered "Component or Registry" as one bullet with two names, and the word lingered in the health, rate limiter, and architecture pages. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
 * 📝 Fix the `Component` protocol docstring. It illustrated the protocol with a `Tasks` class carrying `kind = "task"`, but `Tasks` is a plain async context manager and no such kind exists. `Grelmicro.get` listed that kind too. ([#682](https://github.com/grelinfo/grelmicro/issues/682))

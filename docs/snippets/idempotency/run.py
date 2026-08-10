@@ -1,8 +1,9 @@
 from grelmicro import Grelmicro
 from grelmicro.idempotency import Idempotency
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 
-micro = Grelmicro(uses=[MemoryProvider()])
+redis = RedisProvider("redis://localhost:6379/0")
+micro = Grelmicro(uses=[redis])
 
 idem = Idempotency("charge", ttl=3600)
 

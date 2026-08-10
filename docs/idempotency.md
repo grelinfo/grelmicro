@@ -10,7 +10,7 @@ This pairs with retries. Wrap a call in `Retry`, mark the operation idempotent, 
 
 ## Quick start
 
-A FastAPI handler reads the key from the `Idempotency-Key` header and wraps the work in a block. The Memory backend needs no extra service, so this runs as-is. Swap in Redis or Postgres for production.
+A FastAPI handler reads the key from the `Idempotency-Key` header and wraps the work in a block. Responses ride the cache layer, so one provider line covers the storage.
 
 ```python
 from typing import Annotated
@@ -18,9 +18,10 @@ from typing import Annotated
 from fastapi import FastAPI, Header
 from grelmicro import Grelmicro
 from grelmicro.idempotency import Idempotency
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 
-micro = Grelmicro(uses=[MemoryProvider()])
+redis = RedisProvider("redis://localhost:6379/0")
+micro = Grelmicro(uses=[redis])
 
 app = FastAPI()
 micro.install(app)
@@ -42,6 +43,8 @@ async def charge(
 ```
 
 The first request with a given key runs `do_charge` and stores the response. Any later request with the same key replays that response without charging again.
+
+Redis needs the `redis` extra: `pip install "grelmicro[redis]"`. Tests swap the provider for the memory backend, see [Testing](testing.md).
 
 ## HTTP middleware
 

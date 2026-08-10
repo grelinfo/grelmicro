@@ -26,6 +26,7 @@ class Catalog:
 async def main() -> None:
     catalog = Catalog()
 
+    # Memory keeps this demo in one process. Every backend behaves the same.
     async with MemoryProvider() as provider:
         lock = ReadWriteLock("catalog", backend=provider.readwritelock())
 

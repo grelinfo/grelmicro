@@ -1,15 +1,15 @@
 # First Steps
 
-The smallest grelmicro app needs one pattern and a memory backend. No extra
-service, no configuration. It runs as written.
+The smallest grelmicro app is one pattern and one provider. The pattern carries
+no backend reference and finds the provider on its own.
 
 ## Install
 
 ```bash
-pip install grelmicro
+pip install "grelmicro[redis]"
 ```
 
-See the [installation guide](installation.md) for `uv`, `poetry`, and the
+See the [installation guide](installation.md) for `uv`, `poetry`, and the other
 backend extras.
 
 ## Mental model
@@ -22,17 +22,23 @@ backend extras.
 
 ## Your first app
 
-Guard a shared resource with a distributed `Lock`. The memory backend keeps the
-lock state in the process, so this runs with nothing else installed.
+Guard a shared resource with a distributed `Lock`. The provider says where the
+lock state lives, so every worker takes the same lock.
 
 ```python
 --8<-- "coordination/quickstart_lock.py"
 ```
 
+Start Redis with one command:
+
+```bash
+docker run -d -p 6379:6379 redis
+```
+
 Three things happen here:
 
 1. `Lock("cart")` builds a lock named `cart` with default settings.
-2. `MemoryProvider()` says where the shared state lives.
+2. `RedisProvider(...)` says where the shared state lives.
 3. `Grelmicro(uses=[...])` wires it into the app.
 
 The lock carries no backend reference. It finds one when it is used, inside
@@ -73,5 +79,5 @@ async def get_user(user_id: int) -> dict:
 
 ## Next
 
-You built a pattern and wired it into an app. Next, [wire a real app](wiring.md)
-with a Redis provider and `micro.install(app)`.
+You built a pattern and wired it into an app. Next, [wire it into a web
+framework](wiring.md) with `micro.install(app)`.

@@ -28,15 +28,18 @@ a cluster (see the [Task Scheduler](task.md)).
 
 ## Quick start
 
-Guard a shared resource with a distributed `Lock`. The Memory backend needs no
-extra service, so this runs as-is. Swap in Redis, Postgres, SQLite, or Kubernetes
-for production:
+Guard a shared resource with a distributed `Lock`. One provider line says where
+the lock state lives:
 
 ```python
 --8<-- "coordination/quickstart_lock.py"
 ```
 
-One caller holds `cart` at a time. The next caller waits for the release.
+One caller holds `cart` at a time, on any worker. The next caller waits for the
+release.
+
+Redis needs the `redis` extra: `pip install "grelmicro[redis]"`. Postgres,
+SQLite, and Kubernetes work the same way, see [Backends](#backends).
 
 ## Backends
 
@@ -438,8 +441,7 @@ compaction.
 
 ### Quick start
 
-Register a `Coordination` component, build a `LeaderElection`, and gate a task on
-it. The Memory backend needs no extra service, so this runs as-is:
+Register a provider, build a `LeaderElection`, and gate a task on it:
 
 ```python
 --8<-- "coordination/quickstart.py"

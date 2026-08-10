@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 from grelmicro import Grelmicro
 from grelmicro.cache import PydanticSerializer, TTLCache
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 
 
 class User(BaseModel):
@@ -10,7 +10,8 @@ class User(BaseModel):
     name: str
 
 
-micro = Grelmicro(uses=[MemoryProvider()])
+redis = RedisProvider("redis://localhost:6379/0")
+micro = Grelmicro(uses=[redis])
 
 cache = TTLCache[User](ttl=300, serializer=PydanticSerializer(User))
 

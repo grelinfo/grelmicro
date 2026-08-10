@@ -7,14 +7,15 @@ The `cache` module caches function results and arbitrary values behind a swappab
 
 ## Quick start
 
-Cache an async function's result with `@cached`. The Memory backend needs no extra service, so this runs as-is. Swap in Redis or Postgres for production:
+Cache an async function's result with `@cached`. One provider line says where the entries live:
 
 ```python
 from grelmicro import Grelmicro
 from grelmicro.cache import JsonSerializer, TTLCache, cached
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 
-micro = Grelmicro(uses=[MemoryProvider()])
+redis = RedisProvider("redis://localhost:6379/0")
+micro = Grelmicro(uses=[redis])
 
 cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
@@ -23,6 +24,8 @@ cache = TTLCache(ttl=300, serializer=JsonSerializer())
 async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 ```
+
+Redis needs the `redis` extra: `pip install "grelmicro[redis]"`. Tests swap the provider for the memory backend, see [Testing](testing.md).
 
 ## Backend
 
@@ -34,14 +37,6 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
 
 !!! tip "Install"
     The Redis backend needs the `redis` extra and the Postgres backend needs the `postgres` extra: `pip install "grelmicro[redis]"` or `pip install "grelmicro[postgres]"`. See the [installation guide](installation.md) for `uv` and `poetry`.
-
-=== "Memory"
-    ```python
-    from grelmicro import Grelmicro
-    from grelmicro.providers.memory import MemoryProvider
-
-    micro = Grelmicro(uses=[MemoryProvider()])
-    ```
 
 === "Redis"
     ```python
@@ -71,6 +66,15 @@ into a `Grelmicro` app via the `Cache` component. For Redis, pass the
 
     sqlite = SQLiteProvider("app.db")
     micro = Grelmicro(uses=[Cache(sqlite)])
+    ```
+
+=== "Memory"
+    ```python
+    from grelmicro import Grelmicro
+    from grelmicro.providers.memory import MemoryProvider
+
+    # Memory keeps entries in the process: tests and single-process apps.
+    micro = Grelmicro(uses=[MemoryProvider()])
     ```
 
 `async with micro:` opens the provider and the cache backend together.
