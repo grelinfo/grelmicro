@@ -25,8 +25,8 @@ from grelmicro.coordination.memory import (
 from grelmicro.providers import Provider
 from grelmicro.providers.valkey import ValkeyProvider
 from grelmicro.resilience._components import (
-    CircuitBreakerRegistry,
-    RateLimiterRegistry,
+    CircuitBreakerComponent,
+    RateLimiterComponent,
 )
 from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
@@ -179,7 +179,7 @@ def test_bare_adapter_class_constructs_then_wraps() -> None:
     micro = Grelmicro(uses=[MemoryCircuitBreakerAdapter])
 
     breakers = micro.get("circuitbreaker")
-    assert isinstance(breakers, CircuitBreakerRegistry)
+    assert isinstance(breakers, CircuitBreakerComponent)
 
 
 def test_bare_adapter_class_matches_explicit_form() -> None:
@@ -200,8 +200,8 @@ def test_provider_registers_one_component_per_served_kind() -> None:
 
     assert isinstance(micro.get("coordination"), Coordination)
     assert isinstance(micro.get("cache"), Cache)
-    assert isinstance(micro.get("ratelimiter"), RateLimiterRegistry)
-    assert isinstance(micro.get("circuitbreaker"), CircuitBreakerRegistry)
+    assert isinstance(micro.get("ratelimiter"), RateLimiterComponent)
+    assert isinstance(micro.get("circuitbreaker"), CircuitBreakerComponent)
 
 
 def test_provider_skips_kinds_it_does_not_serve() -> None:
@@ -217,7 +217,7 @@ def test_provider_skips_cache_when_only_ratelimiter_served() -> None:
     """A Provider serving only the rate limiter registers no cache Component."""
     micro = Grelmicro(uses=[_RateLimiterOnlyProvider()])
 
-    assert isinstance(micro.get("ratelimiter"), RateLimiterRegistry)
+    assert isinstance(micro.get("ratelimiter"), RateLimiterComponent)
     kinds = {component.kind for component in micro.components}
     assert kinds == {"ratelimiter"}
 
@@ -228,8 +228,8 @@ def test_valkey_provider_auto_registers_like_redis() -> None:
 
     assert isinstance(micro.get("coordination"), Coordination)
     assert isinstance(micro.get("cache"), Cache)
-    assert isinstance(micro.get("ratelimiter"), RateLimiterRegistry)
-    assert isinstance(micro.get("circuitbreaker"), CircuitBreakerRegistry)
+    assert isinstance(micro.get("ratelimiter"), RateLimiterComponent)
+    assert isinstance(micro.get("circuitbreaker"), CircuitBreakerComponent)
 
 
 async def test_provider_auto_registered_components_lifecycle() -> None:

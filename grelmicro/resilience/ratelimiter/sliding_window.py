@@ -14,7 +14,7 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     Stores a single timestamp per key (about 72 bytes).
 
     Use this when you need a precise sliding window, such as for
-    HTTP API throttling with RFC 9211 `RateLimit-*` headers or
+    HTTP API throttling with the IETF `RateLimit` headers or the
     legacy `X-RateLimit-*` headers. For the pattern "allow a burst
     of N, then 1 per second", use
     [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]

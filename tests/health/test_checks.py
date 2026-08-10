@@ -1,4 +1,4 @@
-"""Tests for Health Check Registry."""
+"""Tests for the HealthChecks component."""
 
 import asyncio
 import logging
@@ -30,41 +30,41 @@ from .conftest import (
 pytestmark = [pytest.mark.timeout(10)]
 
 
-async def test_user_timeout_error_is_not_classified_as_registry_timeout() -> (
+async def test_user_timeout_error_is_not_classified_as_component_timeout() -> (
     None
 ):
     """A TimeoutError raised by the check itself stays a generic failure."""
-    registry = HealthChecks(timeout=10)
+    health = HealthChecks(timeout=10)
 
     async def check_raises_timeout() -> HealthDetails | None:
         msg = "downstream call timed out"
         raise TimeoutError(msg)
 
-    registry.add("downstream", check_raises_timeout)
+    health.add("downstream", check_raises_timeout)
 
-    report = await registry.run()
+    report = await health.run()
 
     result = report["checks"]["downstream"]
     assert result["status"] == HealthStatus.ERROR
     assert result["error"] == "TimeoutError: downstream call timed out"
 
 
-async def test_empty_registry_is_ok() -> None:
-    """An empty registry reports ok."""
-    registry = HealthChecks()
+async def test_empty_checks_is_ok() -> None:
+    """A component with no checks reports ok."""
+    health = HealthChecks()
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["status"] == HealthStatus.OK
     assert report["checks"] == {}
 
 
 async def test_add_and_run_single_healthy() -> None:
-    """registry.add() + run() reports ok for a healthy check."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", healthy())
+    """add() + run() reports ok for a healthy check."""
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", healthy())
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["status"] == HealthStatus.OK
     assert list(report["checks"]) == ["db"]
@@ -76,14 +76,14 @@ async def test_add_and_run_single_healthy() -> None:
 
 
 async def test_decorator_registers_check() -> None:
-    """@registry.check(name) registers the decorated function."""
-    registry = HealthChecks(cache_ttl=0)
+    """@health.check(name) registers the decorated function."""
+    health = HealthChecks(cache_ttl=0)
 
-    @registry.check("database")
+    @health.check("database")
     async def _check_db() -> HealthDetails | None:
         return None
 
-    report = await registry.run()
+    report = await health.run()
 
     assert list(report["checks"]) == ["database"]
     assert report["status"] == HealthStatus.OK
@@ -91,14 +91,14 @@ async def test_decorator_registers_check() -> None:
 
 async def test_sync_check_runs_in_thread() -> None:
     """A sync check function is executed via ``asyncio.to_thread``."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
 
     def sync_check() -> HealthDetails | None:
         return {"ran": "sync"}
 
-    registry.add("db", sync_check)
+    health.add("db", sync_check)
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["status"] == HealthStatus.OK
     assert report["checks"]["db"]["details"] == {"ran": "sync"}
@@ -106,27 +106,27 @@ async def test_sync_check_runs_in_thread() -> None:
 
 async def test_decorator_returns_function_unchanged() -> None:
     """The decorator returns the wrapped function as-is."""
-    registry = HealthChecks()
+    health = HealthChecks()
 
     async def _fn() -> HealthDetails | None:
         return {"ok": True}
 
-    wrapped = registry.check("x")(_fn)
+    wrapped = health.check("x")(_fn)
 
     assert wrapped is _fn
 
 
 async def test_decorator_with_options() -> None:
     """Decorator accepts critical and timeout kwargs."""
-    registry = HealthChecks(cache_ttl=0, timeout=5.0)
+    health = HealthChecks(cache_ttl=0, timeout=5.0)
 
-    @registry.check("analytics", critical=False, timeout=0.1)
+    @health.check("analytics", critical=False, timeout=0.1)
     async def _check() -> HealthDetails | None:
         await asyncio.sleep(1.0)
         return None
 
     started = time.monotonic()
-    report = await registry.run()
+    report = await health.run()
     elapsed = time.monotonic() - started
 
     assert report["status"] == HealthStatus.OK  # non-critical fail ignored
@@ -137,10 +137,10 @@ async def test_decorator_with_options() -> None:
 
 async def test_critical_failure_produces_error() -> None:
     """Critical failure produces aggregate error."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("redis", unhealthy())
+    health = HealthChecks(cache_ttl=0)
+    health.add("redis", unhealthy())
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["status"] == HealthStatus.ERROR
     redis = report["checks"]["redis"]
@@ -151,11 +151,11 @@ async def test_critical_failure_produces_error() -> None:
 
 async def test_non_critical_failure_keeps_aggregate_ok() -> None:
     """Non-critical failures do not flip the aggregate."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", healthy())
-    registry.add("external-api", unhealthy(), critical=False)
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", healthy())
+    health.add("external-api", unhealthy(), critical=False)
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["status"] == HealthStatus.OK
     assert report["checks"]["db"]["status"] == HealthStatus.OK
@@ -165,55 +165,55 @@ async def test_non_critical_failure_keeps_aggregate_ok() -> None:
 
 async def test_critical_failure_trumps_non_critical() -> None:
     """Any critical failure produces aggregate error."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", unhealthy(), critical=True)
-    registry.add("analytics", unhealthy(), critical=False)
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", unhealthy(), critical=True)
+    health.add("analytics", unhealthy(), critical=False)
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["status"] == HealthStatus.ERROR
 
 
 async def test_all_non_critical_fail_aggregate_ok() -> None:
     """All non-critical failures keep the aggregate ok."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("a", unhealthy(), critical=False)
-    registry.add("b", unhealthy(), critical=False)
+    health = HealthChecks(cache_ttl=0)
+    health.add("a", unhealthy(), critical=False)
+    health.add("b", unhealthy(), critical=False)
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["status"] == HealthStatus.OK
 
 
 async def test_check_with_details() -> None:
     """Checker details are captured in the result."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("redis", healthy_with_details({"latency_ms": 1.5}))
+    health = HealthChecks(cache_ttl=0)
+    health.add("redis", healthy_with_details({"latency_ms": 1.5}))
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["checks"]["redis"]["details"] == {"latency_ms": 1.5}
 
 
 async def test_checks_sorted_by_name() -> None:
     """Checks are returned in alphabetical order."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("zeta", healthy())
-    registry.add("alpha", healthy())
-    registry.add("mu", healthy())
+    health = HealthChecks(cache_ttl=0)
+    health.add("zeta", healthy())
+    health.add("alpha", healthy())
+    health.add("mu", healthy())
 
-    report = await registry.run()
+    report = await health.run()
 
     assert list(report["checks"]) == ["alpha", "mu", "zeta"]
 
 
 async def test_critical_only_filter() -> None:
     """critical_only=True skips non-critical checks entirely."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", healthy())
-    registry.add("analytics", unhealthy(), critical=False)
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", healthy())
+    health.add("analytics", unhealthy(), critical=False)
 
-    report = await registry.run(critical_only=True)
+    report = await health.run(critical_only=True)
 
     assert list(report["checks"]) == ["db"]
     assert report["status"] == HealthStatus.OK
@@ -221,11 +221,11 @@ async def test_critical_only_filter() -> None:
 
 async def test_exclude_filter() -> None:
     """Exclude skips the named checks."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", healthy())
-    registry.add("redis", unhealthy())
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", healthy())
+    health.add("redis", unhealthy())
 
-    report = await registry.run(exclude=["redis"])
+    report = await health.run(exclude=["redis"])
 
     assert list(report["checks"]) == ["db"]
     assert report["status"] == HealthStatus.OK
@@ -233,10 +233,10 @@ async def test_exclude_filter() -> None:
 
 async def test_global_timeout_applies() -> None:
     """Global timeout applies when no per-check timeout is set."""
-    registry = HealthChecks(timeout=0.1, cache_ttl=0)
-    registry.add("slow", slow(delay=1.0))
+    health = HealthChecks(timeout=0.1, cache_ttl=0)
+    health.add("slow", slow(delay=1.0))
 
-    report = await registry.run()
+    report = await health.run()
 
     assert report["status"] == HealthStatus.ERROR
     slow_result = report["checks"]["slow"]
@@ -248,12 +248,12 @@ async def test_global_timeout_applies() -> None:
 
 
 async def test_per_check_timeout_override_via_add() -> None:
-    """Per-check timeout overrides the registry default via add()."""
-    registry = HealthChecks(timeout=5.0, cache_ttl=0)
-    registry.add("slow", slow(delay=1.0), timeout=0.1, critical=False)
+    """Per-check timeout overrides the component default via add()."""
+    health = HealthChecks(timeout=5.0, cache_ttl=0)
+    health.add("slow", slow(delay=1.0), timeout=0.1, critical=False)
 
     started = time.monotonic()
-    report = await registry.run()
+    report = await health.run()
     elapsed = time.monotonic() - started
 
     assert report["status"] == HealthStatus.OK
@@ -265,12 +265,12 @@ async def test_concurrent_execution() -> None:
     """Checks run in parallel, not sequentially."""
     count = 3
     delay = 0.1
-    registry = HealthChecks(timeout=2.0, cache_ttl=0)
+    health = HealthChecks(timeout=2.0, cache_ttl=0)
     for i in range(count):
-        registry.add(f"c{i}", slow(delay=delay))
+        health.add(f"c{i}", slow(delay=delay))
 
     started = time.monotonic()
-    report = await registry.run()
+    report = await health.run()
     elapsed = time.monotonic() - started
 
     assert report["status"] == HealthStatus.OK
@@ -279,26 +279,26 @@ async def test_concurrent_execution() -> None:
 
 async def test_cache_hit_returns_same_result() -> None:
     """Within TTL, repeated calls return the cached result."""
-    registry = HealthChecks(cache_ttl=10.0)
+    health = HealthChecks(cache_ttl=10.0)
     check = Counting()
-    registry.add("db", check)
+    health.add("db", check)
 
-    await registry.run()
-    await registry.run()
-    await registry.run()
+    await health.run()
+    await health.run()
+    await health.run()
 
     assert check.calls == 1
 
 
 async def test_cache_expires() -> None:
     """After TTL expires, the check runs again."""
-    registry = HealthChecks(cache_ttl=0.05)
+    health = HealthChecks(cache_ttl=0.05)
     check = Counting()
-    registry.add("db", check)
+    health.add("db", check)
 
-    await registry.run()
+    await health.run()
     await asyncio.sleep(0.1)
-    await registry.run()
+    await health.run()
 
     expected_calls = 2
     assert check.calls == expected_calls
@@ -306,12 +306,12 @@ async def test_cache_expires() -> None:
 
 async def test_cache_disabled_with_zero_ttl() -> None:
     """cache_ttl=0 disables the cache entirely."""
-    registry = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0)
     check = Counting()
-    registry.add("db", check)
+    health.add("db", check)
 
-    await registry.run()
-    await registry.run()
+    await health.run()
+    await health.run()
 
     expected_calls = 2
     assert check.calls == expected_calls
@@ -319,27 +319,27 @@ async def test_cache_disabled_with_zero_ttl() -> None:
 
 async def test_single_flight_coalesces_concurrent_calls() -> None:
     """Concurrent cache-fill requests share a single execution."""
-    registry = HealthChecks(cache_ttl=1.0)
+    health = HealthChecks(cache_ttl=1.0)
     check = SlowCounting(delay=0.1)
-    registry.add("db", check)
+    health.add("db", check)
 
     async with asyncio.TaskGroup() as tg:
         for _ in range(5):
-            tg.create_task(registry.run())
+            tg.create_task(health.run())
 
     assert check.calls == 1
 
 
 async def test_shared_cache_between_readyz_and_healthz_paths() -> None:
     """critical_only=True and full run share per-check cache."""
-    registry = HealthChecks(cache_ttl=10.0)
+    health = HealthChecks(cache_ttl=10.0)
     critical = Counting()
     non_critical = Counting()
-    registry.add("db", critical)
-    registry.add("analytics", non_critical, critical=False)
+    health.add("db", critical)
+    health.add("analytics", non_critical, critical=False)
 
-    await registry.run(critical_only=True)
-    await registry.run()
+    await health.run(critical_only=True)
+    await health.run()
 
     assert critical.calls == 1
     assert non_critical.calls == 1
@@ -360,72 +360,72 @@ async def test_shared_cache_between_readyz_and_healthz_paths() -> None:
 )
 async def test_invalid_name_rejected(name: str) -> None:
     """Names must match ^[a-z0-9][a-z0-9:_-]*$."""
-    registry = HealthChecks()
+    health = HealthChecks()
     with pytest.raises(ValueError, match="Valid examples:") as exc:
-        registry.add(name, healthy())
+        health.add(name, healthy())
     assert "Invalid health check name" in str(exc.value)
 
 
 async def test_namespaced_name_accepted() -> None:
     """Colon-separated names are allowed for namespacing."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("weather:circuitbreaker", healthy())
-    report = await registry.run()
+    health = HealthChecks(cache_ttl=0)
+    health.add("weather:circuitbreaker", healthy())
+    report = await health.run()
     assert "weather:circuitbreaker" in report["checks"]
 
 
 async def test_digit_leading_name_accepted() -> None:
     """Digits are valid as the leading character."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("0-primary", healthy())
-    assert "0-primary" in (await registry.run())["checks"]
+    health = HealthChecks(cache_ttl=0)
+    health.add("0-primary", healthy())
+    assert "0-primary" in (await health.run())["checks"]
 
 
 async def test_name_too_long_rejected() -> None:
     """Names longer than 64 chars are rejected."""
-    registry = HealthChecks()
+    health = HealthChecks()
     with pytest.raises(ValueError, match="Invalid health check name"):
-        registry.add("a" * 65, healthy())
+        health.add("a" * 65, healthy())
 
 
 async def test_name_at_max_len_accepted() -> None:
     """A name of exactly 64 chars is accepted."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("a" * 64, healthy())
-    report = await registry.run()
+    health = HealthChecks(cache_ttl=0)
+    health.add("a" * 64, healthy())
+    report = await health.run()
     assert "a" * 64 in report["checks"]
 
 
 async def test_duplicate_name_raises_for_add() -> None:
     """Registering two checks with the same name via add() raises."""
-    registry = HealthChecks()
-    registry.add("db", healthy())
+    health = HealthChecks()
+    health.add("db", healthy())
 
     with pytest.raises(ValueError, match="already registered"):
-        registry.add("db", healthy())
+        health.add("db", healthy())
 
 
 async def test_duplicate_name_raises_for_decorator() -> None:
     """The decorator form also rejects duplicates."""
-    registry = HealthChecks()
+    health = HealthChecks()
 
-    @registry.check("db")
+    @health.check("db")
     async def _first() -> HealthDetails | None:
         return None
 
     with pytest.raises(ValueError, match="already registered"):
 
-        @registry.check("db")
+        @health.check("db")
         async def _second() -> HealthDetails | None:
             return None
 
 
 async def test_health_error_exposes_message() -> None:
     """HealthError subclasses expose their message in the error field."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", unhealthy_with_health_error())
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", unhealthy_with_health_error())
 
-    report = await registry.run()
+    report = await health.run()
 
     assert (
         report["checks"]["db"]["error"] == "Database connection pool exhausted"
@@ -434,10 +434,10 @@ async def test_health_error_exposes_message() -> None:
 
 async def test_generic_exception_hides_message() -> None:
     """Non-HealthError exceptions surface the type and message."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("redis", unhealthy())
+    health = HealthChecks(cache_ttl=0)
+    health.add("redis", unhealthy())
 
-    report = await registry.run()
+    report = await health.run()
 
     assert (
         report["checks"]["redis"]["error"]
@@ -449,11 +449,11 @@ async def test_health_error_logs_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """HealthError failures log at WARNING with exc_info."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("db", unhealthy_with_health_error())
+    health = HealthChecks(cache_ttl=0)
+    health.add("db", unhealthy_with_health_error())
 
     with caplog.at_level(logging.WARNING, logger="grelmicro.health"):
-        await registry.run()
+        await health.run()
 
     records = [r for r in caplog.records if r.name == "grelmicro.health"]
     assert len(records) == 1
@@ -467,11 +467,11 @@ async def test_generic_exception_logs_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Unexpected exceptions log at ERROR with a traceback."""
-    registry = HealthChecks(cache_ttl=0)
-    registry.add("redis", unhealthy())
+    health = HealthChecks(cache_ttl=0)
+    health.add("redis", unhealthy())
 
     with caplog.at_level(logging.WARNING, logger="grelmicro.health"):
-        await registry.run()
+        await health.run()
 
     records = [r for r in caplog.records if r.name == "grelmicro.health"]
     assert len(records) == 1
@@ -482,11 +482,11 @@ async def test_timeout_logs_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Timed-out checks log at WARNING with the per-check timeout."""
-    registry = HealthChecks(timeout=0.05, cache_ttl=0)
-    registry.add("slow", slow(delay=1.0))
+    health = HealthChecks(timeout=0.05, cache_ttl=0)
+    health.add("slow", slow(delay=1.0))
 
     with caplog.at_level(logging.WARNING, logger="grelmicro.health"):
-        await registry.run()
+        await health.run()
 
     records = [r for r in caplog.records if r.name == "grelmicro.health"]
     assert len(records) == 1
@@ -516,9 +516,9 @@ def test_cache_ttl_negative_raises() -> None:
 
 async def test_resolves_via_active_app() -> None:
     """`Grelmicro.current().get('health', 'default')` returns the registered instance."""
-    registry = HealthChecks()
-    async with Grelmicro(uses=[registry]) as micro:
-        assert micro.get("health", "default") is registry
+    health = HealthChecks()
+    async with Grelmicro(uses=[health]) as micro:
+        assert micro.get("health", "default") is health
 
 
 async def test_two_default_health_components_clash() -> None:
@@ -539,22 +539,22 @@ async def test_resolve_missing_raises() -> None:
 
 async def test_reconfigure_swaps_config() -> None:
     """Reconfigure publishes the new config."""
-    registry = HealthChecks(timeout=1.0, cache_ttl=1.0)
-    new_config = registry.config.model_copy(update={"cache_ttl": 5.0})
+    health = HealthChecks(timeout=1.0, cache_ttl=1.0)
+    new_config = health.config.model_copy(update={"cache_ttl": 5.0})
 
-    await registry.reconfigure(new_config)
+    await health.reconfigure(new_config)
 
-    assert registry.config == new_config
+    assert health.config == new_config
 
 
 async def test_reconfigure_same_config_is_noop() -> None:
     """Equal configs short-circuit."""
-    registry = HealthChecks(timeout=1.0, cache_ttl=1.0)
-    same = registry.config.model_copy()
+    health = HealthChecks(timeout=1.0, cache_ttl=1.0)
+    same = health.config.model_copy()
 
-    await registry.reconfigure(same)
+    await health.reconfigure(same)
 
-    assert registry.config == same
+    assert health.config == same
 
 
 async def test_reconfigure_rejects_different_config_type() -> None:
@@ -563,9 +563,9 @@ async def test_reconfigure_rejects_different_config_type() -> None:
     class Other(BaseModel):
         pass
 
-    registry = HealthChecks()
+    health = HealthChecks()
     with pytest.raises(TypeError, match="HealthChecksConfig"):
-        await registry.reconfigure(Other())  # ty: ignore[invalid-argument-type]
+        await health.reconfigure(Other())  # ty: ignore[invalid-argument-type]
 
 
 async def test_reconfigure_changes_cache_ttl_for_next_run() -> None:
@@ -576,19 +576,19 @@ async def test_reconfigure_changes_cache_ttl_for_next_run() -> None:
         nonlocal call_count
         call_count += 1
 
-    registry = HealthChecks(cache_ttl=60.0)
-    registry.add("c", check)
+    health = HealthChecks(cache_ttl=60.0)
+    health.add("c", check)
 
-    await registry.run()
-    await registry.run()
+    await health.run()
+    await health.run()
     cached_calls = call_count
 
-    await registry.reconfigure(
-        registry.config.model_copy(update={"cache_ttl": 0.0})
+    await health.reconfigure(
+        health.config.model_copy(update={"cache_ttl": 0.0})
     )
 
-    await registry.run()
-    await registry.run()
+    await health.run()
+    await health.run()
 
     # First two runs share cache, last two each call the check fresh.
     assert cached_calls == 1
@@ -617,20 +617,20 @@ async def test_reconfigure_during_inflight_run_uses_admission_snapshot() -> (
         in_check.set()
         await can_finish.wait()
 
-    registry = HealthChecks(cache_ttl=60.0)
-    registry.add("c", slow_check)
+    health = HealthChecks(cache_ttl=60.0)
+    health.add("c", slow_check)
 
     async with asyncio.TaskGroup() as tg:
-        tg.create_task(registry.run())
+        tg.create_task(health.run())
         await in_check.wait()
-        await registry.reconfigure(
-            registry.config.model_copy(update={"cache_ttl": 0.0})
+        await health.reconfigure(
+            health.config.model_copy(update={"cache_ttl": 0.0})
         )
         can_finish.set()
 
     assert call_count == 1
     # The next run() admits at cache_ttl=0 and runs the check again.
-    await registry.run()
+    await health.run()
     assert call_count == 2  # noqa: PLR2004
 
 
@@ -658,16 +658,16 @@ async def test_reconfigure_round_is_consistent_across_checks() -> None:
         slow_started.set()
         await slow_can_finish.wait()
 
-    registry = HealthChecks(cache_ttl=60.0)
-    registry.add("fast", fast_check)
-    registry.add("slow", slow_check)
+    health = HealthChecks(cache_ttl=60.0)
+    health.add("fast", fast_check)
+    health.add("slow", slow_check)
 
     async with asyncio.TaskGroup() as tg:
-        tg.create_task(registry.run())
+        tg.create_task(health.run())
         await slow_started.wait()
         # Reconfigure to disable cache while the round is in flight.
-        await registry.reconfigure(
-            registry.config.model_copy(update={"cache_ttl": 0.0})
+        await health.reconfigure(
+            health.config.model_copy(update={"cache_ttl": 0.0})
         )
         slow_can_finish.set()
 
@@ -676,6 +676,6 @@ async def test_reconfigure_round_is_consistent_across_checks() -> None:
     assert slow_calls == 1
 
     # The next round admits at cache_ttl=0 and runs both checks again.
-    await registry.run()
+    await health.run()
     assert fast_calls == 2  # noqa: PLR2004
     assert slow_calls == 2  # noqa: PLR2004

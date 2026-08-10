@@ -572,7 +572,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         Raises:
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryCircuitBreakerAdapter()` for a
-                per-replica breaker), register a `CircuitBreakerRegistry`
+                per-replica breaker), register a `CircuitBreakerComponent`
                 Component, or run the call inside `async with micro:` or
                 after `micro.install(app)`.
         """
@@ -592,7 +592,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             msg = (
                 f"CircuitBreaker({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryCircuitBreakerAdapter() for a per-replica "
-                f"breaker), register a CircuitBreakerRegistry component, or run "
+                f"breaker), register a CircuitBreakerComponent component, or run "
                 f"the call inside `async with micro:` or after "
                 f"`micro.install(app)`."
             )

@@ -196,7 +196,7 @@ a partially-correct PR is faster than guessing.
   - `👷 Add attestations and wheel verification to the release`
   - `📝 Update the changelog for the next release`
   - `♻️ Bind the algorithm to the strategy once at construction`
-  - `⬆️ Bump pydantic-extra-types from 2.11.1 to 2.11.2`
+  - `⬆️ Bump pydantic-settings from 2.14.1 to 2.14.2`
 
 - The PR number is appended automatically on squash merge
   (`... (#123)`), so you do not write it in the title yourself.
@@ -513,6 +513,10 @@ bound to the file digest, so a tampered artifact finds no attestation.
 - When adding a decision point (e.g. multiple algorithms), write
   an explicit **"Choosing a ..." guide**: a numbered decision
   list plus a side-by-side comparison table.
+- [`docs/roadmap.md`](docs/roadmap.md) holds direction, the issue
+  tracker holds the queue. It carries no issue numbers and needs no
+  edit when one closes. Touch it when a direction changes, which is
+  rare.
 
 Every release publishes the site to GitHub Pages. To republish
 without cutting a release, run the `Docs` workflow:
@@ -546,7 +550,7 @@ If you adapt code from another project, even a snippet:
   (`RedisProvider`, `PostgresProvider`, `MemoryProvider`) owns a
   vendor connection and builds the matching adapters through factory
   methods (`redis.lock()`, `redis.cache()`).
-- A **component** (`Coordination`, `Cache`, `RateLimiterRegistry`,
+- A **component** (`Coordination`, `Cache`, `RateLimiterComponent`,
   ...) wraps one kind of backend. The user wires everything through
   the app: `Grelmicro(uses=[provider, Component(...)])`. Construction
   is pure: `__init__` performs no I/O and no global writes. The app

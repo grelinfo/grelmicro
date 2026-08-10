@@ -286,7 +286,7 @@ micro = Grelmicro(uses=[Outbox(postgres, relay=True)])
 
 ### Ordering
 
-The outbox does not guarantee ordering in this version. Messages are delivered at least once and concurrently, so two messages, even with the same `key`, may be delivered out of order, most visibly when the first one is retried after a failure. Design handlers to tolerate reordering. Strict per-key ordering is a planned feature with explicit head-of-line semantics.
+The outbox does not guarantee ordering in this version. Messages are delivered at least once and concurrently, so two messages, even with the same `key`, may be delivered out of order, most visibly when the first one is retried after a failure. Design handlers to tolerate reordering. Strict per-key ordering, with explicit head-of-line semantics, is [on the roadmap](roadmap.md).
 
 ## Delivery semantics
 

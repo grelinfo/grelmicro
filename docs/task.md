@@ -4,6 +4,7 @@ A simple scheduler that runs tasks periodically. Use it for lightweight recurrin
 
 - **Fast and easy**: simple decorators to define and schedule tasks with minimal boilerplate.
 - **Interval tasks**: run tasks at fixed intervals, locally or across a cluster.
+- **Cron tasks**: run tasks on a cron schedule in the timezone you choose, claimed once across the fleet.
 - **Coordination**: control concurrency with distributed primitives (see [Coordination primitives](coordination.md)).
 - **Dependency injection**: use [FastDepends](https://lancetnik.github.io/FastDepends/) to inject dependencies into tasks.
 - **Error handling**: errors are caught and logged, so a failing task does not stop the scheduler.

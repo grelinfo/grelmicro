@@ -1,6 +1,6 @@
 # Reconfigure from a ConfigMap
 
-[`reconfigure(new_config)`](../architecture/reconfigure.md) swaps a live component's configuration without rebuilding it. The `ExternalConfig` component automates the whole loop: it reads a mounted `ConfigMap`, `Secret`, `.env`, or JSON file, and reapplies every changed value to the live components, with no per-component wiring.
+[`reconfigure(new_config)`](../architecture/reconfigure.md) swaps a live component's configuration without rebuilding it. The `ExternalConfig` component automates the whole loop: it reads a mounted `ConfigMap`, `Secret`, `.env`, JSON, YAML, or TOML file, and reapplies every changed value to the live components, with no per-component wiring.
 
 ## The ConfigMap
 
@@ -35,9 +35,9 @@ Add `ExternalConfig` to the app and point it at the mount:
 
 ```python
 from grelmicro import ExternalConfig, Grelmicro
-from grelmicro.coordination import Coordination, Lock
+from grelmicro.coordination import Lock
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import RateLimiter, RateLimiterRegistry
+from grelmicro.resilience import RateLimiter
 
 redis = RedisProvider("redis://localhost:6379/0")
 
@@ -45,8 +45,7 @@ ledger_lock = Lock("ledger")
 api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
 micro = Grelmicro(uses=[
-    Coordination(redis),
-    RateLimiterRegistry(redis.ratelimiter()),
+    redis,
     ExternalConfig("/etc/grelmicro"),
 ])
 ```

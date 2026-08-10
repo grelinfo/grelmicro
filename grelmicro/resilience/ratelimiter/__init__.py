@@ -136,11 +136,13 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             Doc(
                 """
                 An explicit backend instance. When `None` (the
-                default), the registered backend is used.
+                default), the backend of the app's `ratelimiter`
+                component is used.
 
-                Set this to skip the global registry, for example
-                in tests or when running several backends at the
-                same time.
+                Set this to bypass the app, for example in tests
+                or when running several backends at the same time.
+                Pass a name to select a component registered under
+                that name.
                 """
             ),
         ] = None,
@@ -196,7 +198,7 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         Raises:
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryRateLimiterAdapter()` for a
-                per-process limiter), register a `RateLimiterRegistry`
+                per-process limiter), register a `RateLimiterComponent`
                 Component, or run the call inside `async with micro:` or
                 after `micro.install(app)`.
         """
@@ -216,7 +218,7 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             msg = (
                 f"RateLimiter({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryRateLimiterAdapter() for a per-process "
-                f"limiter), register a RateLimiterRegistry component, or run the "
+                f"limiter), register a RateLimiterComponent component, or run the "
                 f"call inside `async with micro:` or after `micro.install(app)`."
             )
             raise OutOfContextError(msg) from None

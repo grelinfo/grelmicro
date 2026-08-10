@@ -310,7 +310,7 @@ async def test_uses_skips_none_entries() -> None:
 
 
 async def test_uses_override_only_covers_registered_keys() -> None:
-    """A key the bulkhead does not override falls through to the registry."""
+    """A key the bulkhead does not override falls through to the app."""
     default = MemoryLockAdapter()
     dedicated = MemoryLockAdapter()
     micro = Grelmicro(uses=[Coordination(lock=default)])

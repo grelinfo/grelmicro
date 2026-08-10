@@ -82,10 +82,10 @@ class SQLiteProvider(Provider):
     ```python
     from grelmicro import Grelmicro
     from grelmicro.providers.sqlite import SQLiteProvider
-    from grelmicro.resilience import RateLimiterRegistry
+    from grelmicro.resilience import RateLimiterComponent
 
     sqlite = SQLiteProvider("app.db")
-    micro = Grelmicro(uses=[sqlite, RateLimiterRegistry(sqlite)])
+    micro = Grelmicro(uses=[sqlite, RateLimiterComponent(sqlite)])
     ```
 
     The path can also come from the `SQLITE_PATH` environment variable.

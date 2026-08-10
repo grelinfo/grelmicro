@@ -92,7 +92,7 @@ _active_bulkhead: ContextVar[Mapping[tuple[str, str], Component]] = ContextVar(
 )
 """Component overrides installed by the active `Bulkhead` scope, keyed by `(kind, name)`.
 
-`Grelmicro.get` consults this before its own registry so a Pattern resolving
+`Grelmicro.get` consults this before its own registrations so a Pattern resolving
 its default backend inside the scope picks up the bulkhead's `uses=`
 component. A Pattern with an explicit `backend=` never calls `get`, so
 explicit choices always win.
@@ -103,7 +103,7 @@ class Grelmicro:
     """The grelmicro application container.
 
     A `Grelmicro` is the user-owned root that holds every item attached to the
-    app (components, task managers, health registries, custom async context
+    app (components, task managers, custom async context
     managers, ...) and opens them as a single async context manager. Two
     `Grelmicro` instances in the same process are fully independent.
 
@@ -412,7 +412,7 @@ class Grelmicro:
                 f"with no components, so the default component for each kind is "
                 f"ambiguous. Wrap each provider in the components it should "
                 f"serve, for example Cache(provider) or "
-                f"RateLimiterRegistry(provider)."
+                f"RateLimiterComponent(provider)."
             )
             raise AmbiguousProviderError(msg)
         self._register_one_provider(pending[0])
@@ -440,7 +440,7 @@ class Grelmicro:
                 """
                 Component category, matching the `kind` class attribute on
                 the registered component (`"coordination"`, `"cache"`, `"ratelimiter"`,
-                `"circuitbreaker"`, `"log"`, `"trace"`, `"tasks"`, `"health"`).
+                `"circuitbreaker"`, `"log"`, `"trace"`, `"metrics"`, `"health"`).
                 """,
             ),
         ],
@@ -525,7 +525,7 @@ class Grelmicro:
         snapshot_items = self._items.copy()
         snapshot_by_kind = self._by_kind.copy()
         async with AsyncExitStack() as stack:
-            # The registry is mutated one component at a time, so the restore
+            # The index is mutated one component at a time, so the restore
             # has to cover the loop as well as the block. A component that
             # fails to open leaves the ones before it already installed.
             try:
@@ -1114,8 +1114,8 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
         LockBackend,
     )
     from grelmicro.resilience._components import (  # noqa: PLC0415
-        CircuitBreakerRegistry,
-        RateLimiterRegistry,
+        CircuitBreakerComponent,
+        RateLimiterComponent,
     )
     from grelmicro.resilience._protocol import (  # noqa: PLC0415
         CircuitBreakerBackend,
@@ -1129,9 +1129,9 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     if isinstance(item, LockBackend):
         return Coordination(lock=item)
     if isinstance(item, CircuitBreakerBackend):
-        return CircuitBreakerRegistry(item)
+        return CircuitBreakerComponent(item)
     if isinstance(item, RateLimiterBackend):
-        return RateLimiterRegistry(item)
+        return RateLimiterComponent(item)
     return None
 
 
@@ -1149,8 +1149,8 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
         Coordination,
     )
     from grelmicro.resilience._components import (  # noqa: PLC0415
-        CircuitBreakerRegistry,
-        RateLimiterRegistry,
+        CircuitBreakerComponent,
+        RateLimiterComponent,
     )
 
     components: list[Component] = []
@@ -1169,11 +1169,11 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
 
     ratelimiter = _provider_backend_or_none(provider.ratelimiter)
     if ratelimiter is not None:
-        components.append(RateLimiterRegistry(ratelimiter))
+        components.append(RateLimiterComponent(ratelimiter))
 
     circuitbreaker = _provider_backend_or_none(provider.circuitbreaker)
     if circuitbreaker is not None:
-        components.append(CircuitBreakerRegistry(circuitbreaker))
+        components.append(CircuitBreakerComponent(circuitbreaker))
 
     return components
 

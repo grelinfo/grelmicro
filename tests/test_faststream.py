@@ -18,7 +18,7 @@ from faststream.redis.opentelemetry import (  # noqa: E402
 
 from grelmicro import AmbientBindingError, Grelmicro  # noqa: E402
 from grelmicro.integrations import faststream as integration  # noqa: E402
-from grelmicro.resilience import RateLimiter, RateLimiterRegistry  # noqa: E402
+from grelmicro.resilience import RateLimiter, RateLimiterComponent  # noqa: E402
 from grelmicro.resilience.ratelimiter.memory import (  # noqa: E402
     MemoryRateLimiterAdapter,
 )
@@ -60,7 +60,7 @@ async def _running(app: FastStream) -> AsyncIterator[None]:
 
 async def test_install_wires_lifecycle_and_ambient_binding() -> None:
     """`micro.install(app)` opens micro and binds it inside a subscriber."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     broker = RedisBroker()
     app = FastStream(broker)
     results: list[bool] = []
@@ -173,7 +173,7 @@ def test_install_faststream_telemetry_missing_extra_silent_by_default(
 
 async def test_install_ambient_false_still_opens_lifecycle() -> None:
     """`ambient=False` still opens micro so components are registered."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     broker = RedisBroker()
     app = FastStream(broker)
     opened: list[bool] = []
@@ -238,7 +238,7 @@ async def test_install_leaves_micro_closed_when_startup_fails_before_open() -> (
 def test_install_ambient_false_strict_raises() -> None:
     """`strict=True` turns the ambient-binding warning into an error."""
     micro = Grelmicro(
-        strict=True, uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())]
+        strict=True, uses=[RateLimiterComponent(MemoryRateLimiterAdapter())]
     )
     with pytest.raises(AmbientBindingError, match="ratelimiter:default"):
         micro.install(FastStream(RedisBroker()), ambient=False)
@@ -246,7 +246,7 @@ def test_install_ambient_false_strict_raises() -> None:
 
 def test_check_ambient_binding_true_when_installed() -> None:
     """`check_ambient_binding` is True once the broker middleware is wired."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     app = FastStream(RedisBroker())
     micro.install(app)
     assert micro.check_ambient_binding(app) is True
@@ -254,7 +254,7 @@ def test_check_ambient_binding_true_when_installed() -> None:
 
 def test_check_ambient_binding_false_without_middleware() -> None:
     """`check_ambient_binding` is False when the broker middleware is absent."""
-    micro = Grelmicro(uses=[RateLimiterRegistry(MemoryRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
     app = FastStream(RedisBroker())
     assert micro.check_ambient_binding(app) is False
 

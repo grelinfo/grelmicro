@@ -11,7 +11,7 @@ import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.clock import VirtualClock
-from grelmicro.resilience import RateLimiterRegistry
+from grelmicro.resilience import RateLimiterComponent
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
@@ -26,7 +26,7 @@ REFILL_RATE = 1.0
 async def _backend() -> AsyncGenerator[MemoryRateLimiterAdapter]:
     """Open the in-memory backend inside an active `Grelmicro` app."""
     backend = MemoryRateLimiterAdapter()
-    async with Grelmicro(uses=[RateLimiterRegistry(backend)]):
+    async with Grelmicro(uses=[RateLimiterComponent(backend)]):
         yield backend
 
 
