@@ -1,4 +1,4 @@
-"""Components for the Grelmicro app object: `RateLimiterRegistry`, `CircuitBreakerRegistry`."""
+"""Components for the Grelmicro app object: `RateLimiterComponent`, `CircuitBreakerComponent`."""
 
 from __future__ import annotations
 
@@ -18,25 +18,33 @@ if TYPE_CHECKING:
     )
 
 
-class RateLimiterRegistry:
+class RateLimiterComponent:
     """`RateLimiterBackend` wrapper exposing `(ratelimiter, name)` registration.
 
-    Registered on a `Grelmicro` app via `Grelmicro(uses=[RateLimiterRegistry(redis)])`.
     The active app resolves `RateLimiter` patterns to this Component's backend
     on every call.
 
     Accepts a `Provider` or a `RateLimiterBackend`. When given a Provider, the
     component calls `provider.ratelimiter()` to build the matching adapter.
 
+    Naming this class is rarely needed. `Grelmicro(uses=[redis])` already
+    registers a default one for every kind the Provider serves, and a bare
+    backend in `uses=[...]` is wrapped for you. Construct it to register a
+    second instance under its own name, or to swap the backend in a test with
+    `micro.override(...)`.
+
     Example:
         ```python
         from grelmicro import Grelmicro
         from grelmicro.providers.redis import RedisProvider
-        from grelmicro.resilience import RateLimiter, RateLimiterRegistry
+        from grelmicro.resilience import RateLimiter, RateLimiterComponent
 
         redis = RedisProvider("redis://localhost:6379/0")
-        micro = Grelmicro(uses=[redis, RateLimiterRegistry(redis)])
-        api = RateLimiter.token_bucket("api", capacity=10, refill_rate=1)
+        quotas = RedisProvider("redis://localhost:6379/1")
+        micro = Grelmicro(uses=[redis, RateLimiterComponent(quotas, name="api")])
+        api = RateLimiter.token_bucket(
+            "api", capacity=10, refill_rate=1, backend="api"
+        )
 
         async with micro:
             await api.acquire(key="user-1")
@@ -62,8 +70,8 @@ class RateLimiterRegistry:
             str,
             Doc(
                 """
-                Registration name. Multiple `RateLimiterRegistry` Components may coexist
-                on one `Grelmicro` under different names.
+                Registration name. Multiple `RateLimiterComponent` instances
+                may coexist on one `Grelmicro` under different names.
                 """,
             ),
         ] = "default",
@@ -105,24 +113,36 @@ class RateLimiterRegistry:
         return None
 
 
-class CircuitBreakerRegistry:
+class CircuitBreakerComponent:
     """`CircuitBreakerBackend` wrapper exposing `(circuitbreaker, name)` registration.
 
-    Registered on a `Grelmicro` app via `Grelmicro(uses=[CircuitBreakerRegistry(redis)])`.
     The active app resolves `CircuitBreaker` patterns to this Component's
     backend on every call.
 
     Accepts a `Provider` or a `CircuitBreakerBackend`. When given a Provider,
     the component calls `provider.circuitbreaker()` to build the matching adapter.
 
+    Naming this class is rarely needed. `Grelmicro(uses=[redis])` already
+    registers a default one for every kind the Provider serves, and a bare
+    backend in `uses=[...]` is wrapped for you. Construct it to keep breaker
+    state on a different backend than the rest of the app, to register a second
+    instance under its own name, or to swap the backend in a test with
+    `micro.override(...)`.
+
     Example:
         ```python
         from grelmicro import Grelmicro
         from grelmicro.providers.redis import RedisProvider
-        from grelmicro.resilience import CircuitBreaker, CircuitBreakerRegistry
+        from grelmicro.resilience import (
+            CircuitBreaker,
+            CircuitBreakerComponent,
+            MemoryCircuitBreakerAdapter,
+        )
 
         redis = RedisProvider("redis://localhost:6379/0")
-        micro = Grelmicro(uses=[redis, CircuitBreakerRegistry(redis)])
+        micro = Grelmicro(
+            uses=[redis, CircuitBreakerComponent(MemoryCircuitBreakerAdapter())]
+        )
         payment = CircuitBreaker("payment")
 
         async with micro:
@@ -152,8 +172,8 @@ class CircuitBreakerRegistry:
             str,
             Doc(
                 """
-                Registration name. Multiple `CircuitBreakerRegistry` Components may coexist
-                on one `Grelmicro` under different names.
+                Registration name. Multiple `CircuitBreakerComponent`
+                instances may coexist on one `Grelmicro` under different names.
                 """,
             ),
         ] = "default",

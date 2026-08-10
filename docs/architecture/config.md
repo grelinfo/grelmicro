@@ -175,4 +175,4 @@ Each is a `BaseModel, frozen=True, extra="forbid"`. Field docs live in `Annotate
 ## Related
 
 - [Configuration](../config.md): the user-facing guide for the three paths, prefix table, and recipes.
-- [Backend Registry](backends.md): companion contract for runtime-pluggable backends.
+- [Backends and Adapters](backends.md): companion contract for runtime-pluggable backends.

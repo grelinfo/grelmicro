@@ -68,7 +68,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | [**Logging**](https://grelmicro.grel.info/logging/) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
 | [**Tracing**](https://grelmicro.grel.info/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
 | [**Metrics**](https://grelmicro.grel.info/metrics/) | OpenTelemetry metrics with a `@measure` decorator, a Prometheus `/metrics` router, and built-in instrumentation across components. |
-| [**Health**](https://grelmicro.grel.info/health/) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
+| [**Health**](https://grelmicro.grel.info/health/) | Health checks with concurrent runners and FastAPI liveness / readiness integration. |
 | [**Client IP**](https://grelmicro.grel.info/clientip/) | Resolve the real caller behind a reverse proxy, trusting only the `X-Forwarded-For` entries your own proxies appended. |
 | [**Configuration**](https://grelmicro.grel.info/config/) | `ExternalConfig` reconfigures live components from a mounted ConfigMap, Secret, or `.env` / JSON / YAML / TOML file. |
 
@@ -119,25 +119,21 @@ async def ping() -> dict[str, str]:
     return {"status": "ok"}
 ```
 
-That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory backend says per-process on purpose. [Make it fleet-wide](#fastapi-with-one-provider-and-one-component) when you need to.
+That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory backend says per-process on purpose. [Make it fleet-wide](#fastapi-with-one-provider) when you need to.
 
-### FastAPI with one provider and one component
+### FastAPI with one provider
 
-To make the rate limiter fleet-wide, wrap it in a `Grelmicro` container with one provider and one component, then install it into FastAPI.
+To make the rate limiter fleet-wide, put one provider in a `Grelmicro` container and install it into FastAPI. The provider wires a component for every kind it serves, so there is nothing else to list.
 
 ```python
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
 from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import (
-    RateLimitExceededError,
-    RateLimiter,
-    RateLimiterRegistry,
-)
+from grelmicro.resilience import RateLimitExceededError, RateLimiter
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[RateLimiterRegistry(redis)])
+micro = Grelmicro(uses=[redis])
 
 api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
 
@@ -154,7 +150,7 @@ async def ping() -> dict[str, str]:
     return {"status": "ok"}
 ```
 
-Adding more primitives is the same shape: one extra entry in `uses=[...]`. `micro.install(app)` opens the app on startup, closes it on shutdown, and lets request handlers resolve backends without passing `backend=`.
+Adding more primitives is the same shape: they resolve through the same provider. `micro.install(app)` opens the app on startup, closes it on shutdown, and lets request handlers resolve backends without passing `backend=`.
 
 ### FastAPI integration
 
@@ -283,7 +279,7 @@ def leader_only_task():
 The key shape:
 
 - **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Component and active manager. `async with micro:` opens them all in order, closes in reverse.
-- **One Provider, many Components.** `Coordination(redis)`, `Cache(redis)`, `RateLimiterRegistry(redis)` all share the same `RedisProvider` pool. List the Components and grelmicro lifecycles the Provider once. Pass a bare `Grelmicro(uses=[redis])` to register a default Component per kind the Provider serves.
+- **One Provider, many Components.** `Grelmicro(uses=[redis])` registers a default Component for every kind the `RedisProvider` serves, and they all share its pool. Name a Component only to override one kind: `Grelmicro(uses=[redis, Cache(postgres)])` keeps the rest on Redis.
 - **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`, and `GrelmicroMiddleware` extends that scope to request handlers. The same `Lock` works in production with Redis and in tests with `MemoryLockAdapter`, no rewiring.
 - **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
 

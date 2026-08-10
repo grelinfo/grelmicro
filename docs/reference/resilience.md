@@ -11,7 +11,7 @@
         - Bulkhead
         - BulkheadConfig
         - BulkheadFullError
-        - CircuitBreakerRegistry
+        - CircuitBreakerComponent
         - CircuitBreaker
         - CircuitBreakerBackend
         - CircuitBreakerConfig
@@ -38,7 +38,7 @@
         - PostgresCircuitBreakerAdapter
         - PostgresRateLimiterAdapter
         - RandomBackoff
-        - RateLimiterRegistry
+        - RateLimiterComponent
         - RateLimiter
         - RateLimiterBackend
         - RateLimiterConfig

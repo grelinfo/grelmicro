@@ -20,13 +20,15 @@ Pick the front door first, the algorithm second, the backend third.
 
 **Components** (wire the front doors into `Grelmicro(uses=[...])`):
 
-* `RateLimiterRegistry(backend)` and `CircuitBreakerRegistry(backend)`. They
-  register the shared storage. Without them, pass `backend=` on the
-  primitive (a memory adapter is fine for tests and single-replica
-  services).
+* Listing a Provider is usually enough: `Grelmicro(uses=[redis])` registers a
+  default Component for every kind the Provider serves, and a bare backend in
+  `uses=[...]` is wrapped for you. Name `RateLimiterComponent(backend)` or
+  `CircuitBreakerComponent(backend)` to register a second instance under its
+  own name, or to swap the backend in a test. Without any of them, the front
+  doors run per replica, or take an explicit `backend=`.
 
-**Adapters / backends** (one per storage choice, used inside
-`RateLimiterRegistry` / `CircuitBreakerRegistry`): `MemoryRateLimiterAdapter`,
+**Adapters / backends** (one per storage choice, wrapped by the
+Components): `MemoryRateLimiterAdapter`,
 `RedisRateLimiterAdapter`, `PostgresRateLimiterAdapter`,
 `SQLiteRateLimiterAdapter`, `MemoryCircuitBreakerAdapter`,
 `RedisCircuitBreakerAdapter`, `PostgresCircuitBreakerAdapter`. End
@@ -56,8 +58,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from grelmicro.resilience._components import (
-    CircuitBreakerRegistry,
-    RateLimiterRegistry,
+    CircuitBreakerComponent,
+    RateLimiterComponent,
 )
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
@@ -174,10 +176,10 @@ __all__ = [
     "BulkheadFullError",
     "CircuitBreaker",
     "CircuitBreakerBackend",
+    "CircuitBreakerComponent",
     "CircuitBreakerConfig",
     "CircuitBreakerError",
     "CircuitBreakerMetrics",
-    "CircuitBreakerRegistry",
     "CircuitBreakerSnapshot",
     "CircuitBreakerState",
     "CircuitBreakerStrategy",
@@ -204,8 +206,8 @@ __all__ = [
     "RateLimitResult",
     "RateLimiter",
     "RateLimiterBackend",
+    "RateLimiterComponent",
     "RateLimiterConfig",
-    "RateLimiterRegistry",
     "RateLimiterStrategy",
     "RedisCircuitBreakerAdapter",
     "RedisRateLimiterAdapter",

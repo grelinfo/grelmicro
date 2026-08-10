@@ -550,7 +550,7 @@ If you adapt code from another project, even a snippet:
   (`RedisProvider`, `PostgresProvider`, `MemoryProvider`) owns a
   vendor connection and builds the matching adapters through factory
   methods (`redis.lock()`, `redis.cache()`).
-- A **component** (`Coordination`, `Cache`, `RateLimiterRegistry`,
+- A **component** (`Coordination`, `Cache`, `RateLimiterComponent`,
   ...) wraps one kind of backend. The user wires everything through
   the app: `Grelmicro(uses=[provider, Component(...)])`. Construction
   is pure: `__init__` performs no I/O and no global writes. The app

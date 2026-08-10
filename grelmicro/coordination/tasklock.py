@@ -124,7 +124,8 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 """
                 The distributed lock backend used to acquire and release the lock.
 
-                By default, it will use the lock backend registry to get the default lock backend.
+                By default, it resolves the lock backend from the
+                active app's `Coordination` component.
                 """
             ),
         ] = None,
@@ -252,7 +253,8 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 """
                 The distributed lock backend used to acquire and release the lock.
 
-                By default, it will use the lock backend registry to get the default lock backend.
+                By default, it resolves the lock backend from the
+                active app's `Coordination` component.
                 """
             ),
         ] = None,

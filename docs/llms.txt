@@ -19,7 +19,7 @@ Each primitive is a protocol, so you can swap Redis for PostgreSQL, SQLite, Kube
 - [Outbox](https://grelmicro.grel.info/outbox/): a transactional outbox that delivers messages at least once after your database transaction commits.
 - [Task Scheduler](https://grelmicro.grel.info/task/): interval and cron tasks with durable, distributed at-most-once execution.
 - [Resilience](https://grelmicro.grel.info/resilience/): circuit breaker and rate limiter with pluggable algorithms.
-- [Health](https://grelmicro.grel.info/health/): a health check registry with FastAPI liveness and readiness integration.
+- [Health](https://grelmicro.grel.info/health/): health checks with FastAPI liveness and readiness integration.
 - [Logging](https://grelmicro.grel.info/logging/): 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output.
 - [Tracing](https://grelmicro.grel.info/tracing/): OpenTelemetry spans and structured log context through `@instrument`.
 - [Metrics](https://grelmicro.grel.info/metrics/): OpenTelemetry metrics with a `@measure` decorator and a Prometheus router.

@@ -11,7 +11,7 @@ from grelmicro.coordination.memory import (
     MemoryScheduleAdapter,
 )
 from grelmicro.providers.memory import MemoryProvider
-from grelmicro.resilience import CircuitBreakerRegistry, RateLimiterRegistry
+from grelmicro.resilience import CircuitBreakerComponent, RateLimiterComponent
 from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
 )
@@ -101,15 +101,15 @@ def test_cache_resolves_backend_from_provider() -> None:
     assert isinstance(cache.backend, MemoryCacheAdapter)
 
 
-def test_ratelimiter_registry_resolves_backend_from_provider() -> None:
-    """`RateLimiterRegistry(memory)` resolves a rate limiter backend."""
+def test_ratelimiter_component_resolves_backend_from_provider() -> None:
+    """`RateLimiterComponent(memory)` resolves a rate limiter backend."""
     provider = MemoryProvider()
-    registry = RateLimiterRegistry(provider)
-    assert isinstance(registry.backend, MemoryRateLimiterAdapter)
+    component = RateLimiterComponent(provider)
+    assert isinstance(component.backend, MemoryRateLimiterAdapter)
 
 
-def test_circuitbreaker_registry_resolves_backend_from_provider() -> None:
-    """`CircuitBreakerRegistry(memory)` resolves a circuit breaker backend."""
+def test_circuitbreaker_component_resolves_backend_from_provider() -> None:
+    """`CircuitBreakerComponent(memory)` resolves a circuit breaker backend."""
     provider = MemoryProvider()
-    registry = CircuitBreakerRegistry(provider)
-    assert isinstance(registry.backend, MemoryCircuitBreakerAdapter)
+    component = CircuitBreakerComponent(provider)
+    assert isinstance(component.backend, MemoryCircuitBreakerAdapter)

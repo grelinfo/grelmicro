@@ -1,6 +1,6 @@
 from grelmicro.health import HealthChecks, HealthDetails
 
-# Registry default: 2s per check (default is 5s)
+# Component default: 2s per check (default is 5s)
 health = HealthChecks(timeout=2.0)
 
 

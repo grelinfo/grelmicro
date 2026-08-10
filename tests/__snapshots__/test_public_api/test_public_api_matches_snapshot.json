@@ -266,7 +266,7 @@
       "()": "(app)"
     },
     "health_router": {
-      "()": "(registry=..., *, prefix=..., show_details=..., healthz_dependencies=...)"
+      "()": "(component=..., *, prefix=..., show_details=..., healthz_dependencies=...)"
     },
     "install": {
       "()": "(app, micro, *, ambient=...)"
@@ -364,6 +364,9 @@
     "CircuitBreakerBackend": {
       "()": "(*args, **kwargs)"
     },
+    "CircuitBreakerComponent": {
+      "()": "(source, *, name=...)"
+    },
     "CircuitBreakerConfig": {
       "()": "(*args, **kwargs)"
     },
@@ -372,9 +375,6 @@
     },
     "CircuitBreakerMetrics": {
       "()": "(name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error)"
-    },
-    "CircuitBreakerRegistry": {
-      "()": "(source, *, name=...)"
     },
     "CircuitBreakerSnapshot": {
       "()": "(state, opened_at, consecutive_error_count=..., consecutive_success_count=...)"
@@ -471,11 +471,11 @@
     "RateLimiterBackend": {
       "()": "(*args, **kwargs)"
     },
+    "RateLimiterComponent": {
+      "()": "(source, *, name=...)"
+    },
     "RateLimiterConfig": {
       "()": "(*args, **kwargs)"
-    },
-    "RateLimiterRegistry": {
-      "()": "(source, *, name=...)"
     },
     "RateLimiterStrategy": {
       "()": "(*args, **kwargs)"

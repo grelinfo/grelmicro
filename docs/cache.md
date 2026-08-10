@@ -94,7 +94,7 @@ Pick the backend that matches your deployment, not the fastest one on paper.
 
 ## TTLCache
 
-`TTLCache` is the main cache class. It delegates storage to the registered backend and handles TTL, optional maxsize with LRU eviction, serialization, and statistics.
+`TTLCache` is the main cache class. It delegates storage to the backend the app registered and handles TTL, optional maxsize with LRU eviction, serialization, and statistics.
 
 ```python
 from grelmicro.cache import TTLCache

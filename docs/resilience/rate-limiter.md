@@ -8,7 +8,7 @@ A **Rate Limiter** caps how many requests a client can make inside a time window
 - Enforce fair usage across clients.
 - Produce HTTP 429 responses with the [IETF RateLimit](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) headers or the legacy `X-RateLimit-*` ones.
 
-`RateLimiter` is algorithm-agnostic. Pass an algorithm config to choose semantics. Everything else (API, `RateLimitResult`, backend registry, `fail_open`) is shared.
+`RateLimiter` is algorithm-agnostic. Pass an algorithm config to choose semantics. Everything else (API, `RateLimitResult`, backend resolution, `fail_open`) is shared.
 
 ## Usage
 
@@ -124,7 +124,7 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 
 ## Backend
 
-Load a backend before using `RateLimiter`. The same backend serves every algorithm.
+List a provider on the app before using `RateLimiter`. It registers the rate limiter component for you, and the same backend serves every algorithm.
 
 !!! tip "Install"
     The Redis backend needs the `redis` extra, the Postgres backend needs the `postgres` extra, and the SQLite backend needs the `sqlite` extra: `pip install "grelmicro[redis]"`, `pip install "grelmicro[postgres]"`, or `pip install "grelmicro[sqlite]"`. See the [installation guide](../installation.md) for `uv` and `poetry`.
@@ -171,14 +171,14 @@ Use **Redis** in production when you already run Redis and want the lowest-laten
     The backend compiles the algorithm into a bound strategy at `RateLimiter.__init__` through `backend.bind(config)`. Runtime `acquire`, `peek`, and `reset` calls invoke that strategy directly. **There is no algorithm dispatch on the request path.**
 
 !!! tip
-    The rate limiter uses the same backend registry pattern as the synchronization primitives. See [Backend Architecture](../architecture/backends.md) for details.
+    The rate limiter resolves its backend the same way the coordination primitives do. See [Backends and Adapters](../architecture/backends.md) for details.
 
 !!! note "Coming from an early 0.x: register a backend, then `install` the app"
-    Early releases opened a global backend in the lifespan (`async with RedisRateLimiterBackend(...)`). You now register a `RateLimiterRegistry` on the app and wire the app with `micro.install(app)`:
+    Early releases opened a global backend in the lifespan (`async with RedisRateLimiterBackend(...)`). You now list the provider on the app and wire the app with `micro.install(app)`:
 
     ```python
-    micro = Grelmicro(uses=[RateLimiterRegistry(redis)])
-    micro.install(app)  # opens the registry AND binds it per request
+    micro = Grelmicro(uses=[redis])
+    micro.install(app)  # opens the components AND binds them per request
     ```
 
     `install` is the important part. A module-level `RateLimiter("auth")` resolves its backend from the active app per request, which only works when `install` adds its middleware. Open `async with micro:` in a hand-written lifespan without `install` and the app starts up healthy, then raises `OutOfContextError` on the first rate-limited request. See [Wiring an App](../wiring.md) for the guard and the `micro.check_ambient_binding(app)` test helper.
