@@ -25,6 +25,8 @@ async def get_user(user_id: int) -> dict:
     return await db.fetch_user(user_id)
 ```
 
+Call `get_user` inside `async with micro:`, or from a handler once `micro.install(app)` ran. That is where the cache finds its backend.
+
 Redis needs the `redis` extra: `pip install "grelmicro[redis]"`. Tests swap the provider for the memory backend, see [Testing](testing.md).
 
 ## Backend
