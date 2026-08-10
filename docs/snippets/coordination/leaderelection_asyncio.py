@@ -1,11 +1,10 @@
 import asyncio
 
 from grelmicro.coordination import LeaderElection
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 
-leader = LeaderElection(
-    "cluster_group", backend=MemoryProvider().leaderelection()
-)
+redis = RedisProvider("redis://localhost:6379/0")
+leader = LeaderElection("cluster_group", backend=redis.leaderelection())
 
 
 async def main():

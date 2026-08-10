@@ -3,9 +3,10 @@ from fastapi import FastAPI
 from grelmicro import Grelmicro
 from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import IdempotencyMiddleware
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 
-micro = Grelmicro(uses=[MemoryProvider()])
+redis = RedisProvider("redis://localhost:6379/0")
+micro = Grelmicro(uses=[redis])
 app = FastAPI()
 
 micro.install(app)

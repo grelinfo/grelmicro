@@ -8,10 +8,10 @@ from fast_depends import Depends
 from fastapi import FastAPI
 
 from grelmicro.coordination import LeaderElection, Lock
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.task import Tasks
 
-provider = MemoryProvider()
+provider = RedisProvider("redis://localhost:6379/0")
 backend = provider.lock()
 coordination_backend = provider.leaderelection()
 task = Tasks()

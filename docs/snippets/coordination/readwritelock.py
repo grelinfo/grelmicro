@@ -5,6 +5,7 @@ from grelmicro.providers.memory import MemoryProvider
 
 
 async def main() -> None:
+    # Memory keeps this demo in one process. Every backend behaves the same.
     async with MemoryProvider() as provider:
         catalog = ReadWriteLock("catalog", backend=provider.readwritelock())
 

@@ -1,8 +1,7 @@
 # Wiring an App
 
-A real app swaps the memory backend for a shared service and runs the patterns
-behind a web framework. This page wires one provider, then installs the app into
-FastAPI and FastStream with one call.
+A real app runs its patterns behind a web framework. This page wires one
+provider, then installs the app into FastAPI and FastStream with one call.
 
 ## One provider, one line
 

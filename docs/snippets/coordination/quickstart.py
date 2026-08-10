@@ -1,9 +1,10 @@
 from grelmicro import Grelmicro
-from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.redis import RedisProvider
 from grelmicro.task import Tasks
 
 tasks = Tasks()
-micro = Grelmicro(uses=[MemoryProvider(), tasks])
+redis = RedisProvider("redis://localhost:6379/0")
+micro = Grelmicro(uses=[redis, tasks])
 
 leader = micro.coordination.leaderelection("worker")
 tasks.add_task(leader)

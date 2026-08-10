@@ -21,6 +21,7 @@ class Resource:
 async def main() -> None:
     resource = Resource()
 
+    # Memory keeps this demo in one process. Every backend behaves the same.
     async with MemoryProvider() as provider:
         lock = Lock("cart", backend=provider.lock())
 
