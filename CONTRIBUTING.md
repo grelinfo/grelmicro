@@ -196,7 +196,7 @@ a partially-correct PR is faster than guessing.
   - `👷 Add attestations and wheel verification to the release`
   - `📝 Update the changelog for the next release`
   - `♻️ Bind the algorithm to the strategy once at construction`
-  - `⬆️ Bump pydantic-extra-types from 2.11.1 to 2.11.2`
+  - `⬆️ Bump pydantic-settings from 2.14.1 to 2.14.2`
 
 - The PR number is appended automatically on squash merge
   (`... (#123)`), so you do not write it in the title yourself.
