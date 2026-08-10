@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+
+* 📝 Reframe the [roadmap](roadmap.md) against the release line it ships on. It opened with "post-1.0 items" while the project runs on `0.x`, so a reader could not tell whether **Next** meant the next release or something after a 1.0 that is not on the calendar. It now says `0.x` out loud and links the [capability matrix](capabilities.md) for what ships today. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
+* 📝 Drop the shipped work from the roadmap and add what the guide already promised. The FastAPI `Idempotency-Key` integration and the FastStream integration both ship, so they leave. Strict per-key outbox ordering and the SQLite outbox adapter join, because the outbox pages call them planned. The transactional outbox itself shipped, so the saga entry now covers sagas alone. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
+* 📝 Correct the rate limit header standard. The docs cited RFC 9211, which defines `Cache-Status` and has nothing to do with rate limits. The IETF fields are an [Internet-Draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) that now defines `RateLimit` and `RateLimit-Policy` with `q`, `r`, and `t` parameters, not the `RateLimit-Limit` / `-Remaining` / `-Reset` names the [Rate Limiter](resilience/rate-limiter.md#result-fields) table showed. The table matches the draft and shows a real response. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
+* 📝 Match the README module table to what ships. Resilience listed two patterns out of seven, Cache and Coordination did not name Valkey, Cache named an adapter class instead of its backends, and Client IP was missing. The "why" line now names idempotency and metrics too. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
+* 📝 Keep the first README example to one idea. It ended by naming a container and a registry in the section meant to prove how little grelmicro asks for. That sentence is now a link to the example that introduces them. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
+* 📝 Stop [Shield](resilience/shield.md#what-shield-does-not-do) contradicting the roadmap. Hedged requests were called "not on the roadmap" while the roadmap listed them, fleet-wide retry budgets and deadline propagation read as never rather than planned, and one line said "async-only in 1.0" on a project that ships `0.x`. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
+* 📝 Link each roadmap entry to the issue that tracks it, and require a pull request that ships one to update the entry in the same change. The rule is in the [contributing checklist](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md#before-opening-a-pr) and on the page itself, so the drift this release fixed does not come back. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
+* 📝 Fix the stale links and lists a reader trips over: the capability matrix pointed at a closed roadmap issue, said Memory adapters take no Provider when `MemoryProvider` ships, and listed three Providers out of five. The architecture index omitted three of its own pages, the ConfigMap page omitted YAML and TOML, the task page never mentioned cron in its own summary, and the idempotency quick start still opened with `Cache(MemoryCacheAdapter())`. ([#647](https://github.com/grelinfo/grelmicro/issues/647))
+
 ## 0.36.0 - 2026-08-09
 
 ### Breaking

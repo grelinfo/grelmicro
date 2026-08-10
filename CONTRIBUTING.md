@@ -678,6 +678,11 @@ the light one, so expect it to take much longer.
 - Every new public symbol has a docstring and a test.
 - `docs/` is updated if user-facing behaviour changed.
 - `docs/changelog.md` has an entry under `## Unreleased`.
+- [`docs/roadmap.md`](docs/roadmap.md) is updated if the change ships,
+  drops, or reshapes a roadmap entry. Roadmap entries link the issue
+  that tracks them, so a PR closing one of those issues removes or
+  rewrites the entry in the same PR. A roadmap that lists shipped work
+  as future is worse than no roadmap.
 - Commit titles follow the gitmoji convention (one emoji and an
   imperative sentence, no type keyword or scope).
 

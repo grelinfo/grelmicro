@@ -39,9 +39,9 @@ ______________________________________________________________________
 
 ## Why grelmicro
 
-grelmicro is an async Python toolkit for microservices and distributed systems: shared locks, caching, rate limits, circuit breakers, and scheduled tasks.
+grelmicro is an async Python toolkit for microservices and distributed systems: shared locks, caching, rate limits, circuit breakers, retries, and scheduled tasks.
 
-It ships them as small, composable modules with pluggable backends, alongside the transactional outbox, logging, health checks, and tracing. Async-first, type-safe, and fully tested.
+It ships them as small, composable modules with pluggable backends, alongside idempotency keys, the transactional outbox, logging, health checks, metrics, and tracing. Async-first, type-safe, and fully tested.
 
 It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve microservices, a modular monolith, or a self-contained system, and fit naturally into containerized and Kubernetes deployments.
 
@@ -51,7 +51,7 @@ It is built for any Python application that coordinates work across processes, w
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
 - **Railguarded**: fully tested, type-checked, and validated. Pre-1.0 the API may change on a minor release. `1.x` follows standard semver.
 
-grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq) and **not** a web framework (it plugs into FastAPI, Starlette, or Litestar). It fills the gap between the web framework you picked and the infrastructure you run.
+grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq) and **not** a web framework (it plugs into FastAPI, Starlette, Litestar, and FastStream). It fills the gap between the web framework you picked and the infrastructure you run.
 
 Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](https://grelmicro.grel.info/comparison/) for a per-domain breakdown.
 
@@ -59,16 +59,17 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 
 | Module | Summary |
 |---|---|
-| [**Cache**](https://grelmicro.grel.info/cache/) | `@cached` decorator with local and distributed stampede protection. In-memory `TTLCache` or `RedisCacheAdapter`. |
+| [**Cache**](https://grelmicro.grel.info/cache/) | `TTLCache` and a `@cached` decorator with local and distributed stampede protection. Redis, Valkey, PostgreSQL, SQLite, in-memory. |
 | [**Idempotency**](https://grelmicro.grel.info/idempotency/) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
-| [**Coordination**](https://grelmicro.grel.info/coordination/) | Distributed `Lock`, `ReadWriteLock`, `TaskLock`, and `LeaderElection`. Redis, PostgreSQL, SQLite, Kubernetes, in-memory. |
+| [**Coordination**](https://grelmicro.grel.info/coordination/) | Distributed `Lock`, `ReadWriteLock`, `TaskLock`, and `LeaderElection`. Redis, Valkey, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Outbox**](https://grelmicro.grel.info/outbox/) | Transactional outbox. `publish` a message inside your database transaction and a background relay delivers it at least once with retries and dead-lettering. PostgreSQL, in-memory. |
 | [**Task Scheduler**](https://grelmicro.grel.info/task/) | Interval and cron tasks with durable, distributed at-most-once execution. A modern, lightweight alternative to APScheduler and Celery beat. |
-| [**Resilience**](https://grelmicro.grel.info/resilience/) | [Circuit Breaker](https://grelmicro.grel.info/resilience/circuit-breaker/) and [Rate Limiter](https://grelmicro.grel.info/resilience/rate-limiter/) with pluggable algorithms (`TokenBucketConfig`, `SlidingWindowConfig`). |
+| [**Resilience**](https://grelmicro.grel.info/resilience/) | [Shield](https://grelmicro.grel.info/resilience/shield/), [Circuit Breaker](https://grelmicro.grel.info/resilience/circuit-breaker/), [Rate Limiter](https://grelmicro.grel.info/resilience/rate-limiter/), [Retry](https://grelmicro.grel.info/resilience/retry/), [Timeout](https://grelmicro.grel.info/resilience/timeout/), [Bulkhead](https://grelmicro.grel.info/resilience/bulkhead/), and [Fallback](https://grelmicro.grel.info/resilience/fallback/), with pluggable algorithms and backends. |
 | [**Logging**](https://grelmicro.grel.info/logging/) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
 | [**Tracing**](https://grelmicro.grel.info/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
 | [**Metrics**](https://grelmicro.grel.info/metrics/) | OpenTelemetry metrics with a `@measure` decorator, a Prometheus `/metrics` router, and built-in instrumentation across components. |
 | [**Health**](https://grelmicro.grel.info/health/) | Health check registry with concurrent runners and FastAPI liveness / readiness integration. |
+| [**Client IP**](https://grelmicro.grel.info/clientip/) | Resolve the real caller behind a reverse proxy, trusting only the `X-Forwarded-For` entries your own proxies appended. |
 | [**Configuration**](https://grelmicro.grel.info/config/) | `ExternalConfig` reconfigures live components from a mounted ConfigMap, Secret, or `.env` / JSON / YAML / TOML file. |
 
 ## Installation
@@ -118,7 +119,7 @@ async def ping() -> dict[str, str]:
     return {"status": "ok"}
 ```
 
-That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory adapter says per-process on purpose. Swap to a fleet-wide backend later by composing it inside `Grelmicro(uses=[RateLimiterRegistry(redis)])` as shown below.
+That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory backend says per-process on purpose. [Make it fleet-wide](#fastapi-with-one-provider-and-one-component) when you need to.
 
 ### FastAPI with one provider and one component
 

@@ -153,10 +153,10 @@ When the inner layer exhausts its own attempts and surfaces an exception, Shield
 ## What Shield does not do
 
 - **HTTP status sniffing.** No `Retry-After` parsing, no 429/503 awareness. Call `response.raise_for_status()` inside the wrapped function and pass the resulting exception type via `timeout_errors=`.
-- **Sync callables.** Async-only in 1.0. Wrap sync code in `asyncio.to_thread(...)` if needed.
-- **Hedged requests.** Firing N parallel attempts and taking the first success is a different primitive, not on the roadmap.
-- **Distributed retry budget.** Each `Shield` is per-process. There is no cross-replica coordination.
-- **Total deadline propagation.** Shield enforces per-attempt timeouts. Wrap the whole call in `asyncio.timeout(...)` for a total deadline.
+- **Sync callables.** Async-only. Wrap sync code in `asyncio.to_thread(...)` if needed.
+- **Hedged requests.** Firing a backup attempt and taking the first success is a different primitive. It is [on the roadmap](../roadmap.md), not shipped.
+- **Distributed retry budget.** Each `Shield` is per-process. There is no cross-replica coordination. Fleet-wide budgets are [on the roadmap](../roadmap.md).
+- **Total deadline propagation.** Shield enforces per-attempt timeouts. Wrap the whole call in `asyncio.timeout(...)` for a total deadline. A deadline that propagates on its own is [on the roadmap](../roadmap.md).
 
 ??? note "How the adaptive layer works"
 

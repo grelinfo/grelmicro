@@ -6,7 +6,7 @@ A **Rate Limiter** caps how many requests a client can make inside a time window
 
 - Protect services from overload and abuse.
 - Enforce fair usage across clients.
-- Produce HTTP 429 responses with [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) `RateLimit-*` or legacy `X-RateLimit-*` headers.
+- Produce HTTP 429 responses with the [IETF RateLimit](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) headers or the legacy `X-RateLimit-*` ones.
 
 `RateLimiter` is algorithm-agnostic. Pass an algorithm config to choose semantics. Everything else (API, `RateLimitResult`, backend registry, `fail_open`) is shared.
 
@@ -108,11 +108,11 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
     | **Parameters** | `limit`, `window` | `capacity`, `refill_rate` |
     | **Burst behaviour** | Up to `limit` requests if the window is empty | Up to `capacity` if the bucket is full |
     | **Sustained rate** | `limit / window` requests per second | `refill_rate` tokens per second |
-    | **HTTP header fit** | Strong. `reset_after` is a true window boundary and maps directly to `RateLimit-Reset`. | Workable. `retry_after` is the time until the next token (continuous refill), not a window reset. |
+    | **HTTP header fit** | Strong. `reset_after` is a true window boundary and maps directly to the `t=` parameter of `RateLimit`. | Workable. `retry_after` is the time until the next token (continuous refill), not a window reset. |
 
     ### Worked scenarios
 
-    - **"Limit each user to 100 API calls per minute."** Use `SlidingWindowConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into `RateLimit-Reset`.
+    - **"Limit each user to 100 API calls per minute."** Use `SlidingWindowConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into the `t=` parameter of `RateLimit`.
     - **"Allow a burst of 20 uploads, then 2 per second."** Use `TokenBucketConfig(capacity=20, refill_rate=2)`. Each word in the sentence maps to one parameter.
     - **"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."** Use `TokenBucketConfig(capacity=5, refill_rate=0.1)`.
     - **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `SlidingWindowConfig(limit=10, window=60)`.
@@ -173,11 +173,11 @@ Use **Redis** in production when you already run Redis and want the lowest-laten
 !!! tip
     The rate limiter uses the same backend registry pattern as the synchronization primitives. See [Backend Architecture](../architecture/backends.md) for details.
 
-!!! note "Coming from 0.x: register a backend, then `install` the app"
-    In 0.x you opened a global backend in the lifespan (`async with RedisRateLimiterBackend(...)`). In 1.0 you register a `RateLimiterRegistry` on the app and wire the app with `micro.install(app)`:
+!!! note "Coming from an early 0.x: register a backend, then `install` the app"
+    Early releases opened a global backend in the lifespan (`async with RedisRateLimiterBackend(...)`). You now register a `RateLimiterRegistry` on the app and wire the app with `micro.install(app)`:
 
     ```python
-    micro = Grelmicro(uses=[RateLimiterRegistry(RedisRateLimiterAdapter())])
+    micro = Grelmicro(uses=[RateLimiterRegistry(redis)])
     micro.install(app)  # opens the registry AND binds it per request
     ```
 
@@ -185,15 +185,22 @@ Use **Redis** in production when you already run Redis and want the lowest-laten
 
 ## Result fields
 
-`RateLimitResult` is the same across algorithms and carries everything needed for HTTP rate limit headers. The `HTTP header` column shows the [RFC 9211](https://www.rfc-editor.org/rfc/rfc9211.html) name first and the legacy `X-RateLimit-*` name second. Pick whichever convention your API already uses.
+`RateLimitResult` is the same across algorithms and carries everything needed for HTTP rate limit headers. The `HTTP header` column shows the [IETF RateLimit](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) form first and the legacy `X-RateLimit-*` name second. Pick whichever convention your API already uses. The IETF fields are still an Internet-Draft, so nothing here is frozen yet, while the `X-RateLimit-*` names are widely deployed convention.
 
 | Field | Type | Description | HTTP Header |
 |---|---|---|---|
 | `allowed` | `bool` | Whether the request is permitted | 200 vs 429 status |
-| `limit` | `int` | Total quota (`limit` for SlidingWindowConfig, `int(capacity)` for TokenBucketConfig) | `RateLimit-Limit` / `X-RateLimit-Limit` |
-| `remaining` | `int` | Remaining requests / tokens | `RateLimit-Remaining` / `X-RateLimit-Remaining` |
+| `limit` | `int` | Total quota (`limit` for SlidingWindowConfig, `int(capacity)` for TokenBucketConfig) | `RateLimit-Policy` `q=` / `X-RateLimit-Limit` |
+| `remaining` | `int` | Remaining requests / tokens | `RateLimit` `r=` / `X-RateLimit-Remaining` |
 | `retry_after` | `float` | Seconds until next allowed request | `Retry-After` |
-| `reset_after` | `float` | Seconds until full quota resets | `RateLimit-Reset` / `X-RateLimit-Reset` |
+| `reset_after` | `float` | Seconds until full quota resets | `RateLimit` `t=` / `X-RateLimit-Reset` |
+
+A response carrying both looks like this:
+
+```http
+RateLimit-Policy: "api";q=100;w=60
+RateLimit: "api";r=50;t=30
+```
 
 ### Weighted requests
 

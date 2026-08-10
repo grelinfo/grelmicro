@@ -1,6 +1,6 @@
 # Reconfigure from a ConfigMap
 
-[`reconfigure(new_config)`](../architecture/reconfigure.md) swaps a live component's configuration without rebuilding it. The `ExternalConfig` component automates the whole loop: it reads a mounted `ConfigMap`, `Secret`, `.env`, or JSON file, and reapplies every changed value to the live components, with no per-component wiring.
+[`reconfigure(new_config)`](../architecture/reconfigure.md) swaps a live component's configuration without rebuilding it. The `ExternalConfig` component automates the whole loop: it reads a mounted `ConfigMap`, `Secret`, `.env`, JSON, YAML, or TOML file, and reapplies every changed value to the live components, with no per-component wiring.
 
 ## The ConfigMap
 
