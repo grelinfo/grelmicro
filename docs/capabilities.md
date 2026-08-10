@@ -2,7 +2,7 @@
 
 Which Pattern × Adapter combinations ship today, and which gaps remain.
 
-This page is the at-a-glance view of what ships. The [roadmap](roadmap.md) carries what is planned.
+This page is the at-a-glance view of what ships. The [roadmap](roadmap.md) says where the gaps are going.
 
 ## Vocabulary
 

@@ -678,11 +678,12 @@ the light one, so expect it to take much longer.
 - Every new public symbol has a docstring and a test.
 - `docs/` is updated if user-facing behaviour changed.
 - `docs/changelog.md` has an entry under `## Unreleased`.
-- [`docs/roadmap.md`](docs/roadmap.md) is updated if the change ships,
-  drops, or reshapes a roadmap entry. Roadmap entries link the issue
-  that tracks them, so a PR closing one of those issues removes or
-  rewrites the entry in the same PR. A roadmap that lists shipped work
-  as future is worse than no roadmap.
+- [`docs/roadmap.md`](docs/roadmap.md) is updated only if the change
+  moves a **direction**, not because it closed an issue. The roadmap
+  describes where grelmicro is going. The issue tracker holds the
+  queue. Keep them apart: no issue numbers on the roadmap, and no
+  roadmap edit for ordinary work that one of its headings already
+  covers.
 - Commit titles follow the gitmoji convention (one emoji and an
   imperative sentence, no type keyword or scope).
 
