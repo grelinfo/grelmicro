@@ -185,7 +185,7 @@ Use **Redis** in production when you already run Redis and want the lowest-laten
 
 ## Result fields
 
-`RateLimitResult` is the same across algorithms and carries everything needed for HTTP rate limit headers. The `HTTP header` column shows the [IETF RateLimit](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) form first and the legacy `X-RateLimit-*` name second. Pick whichever convention your API already uses. The IETF fields are still an Internet-Draft, so nothing here is frozen yet, while the `X-RateLimit-*` names are widely deployed convention.
+`RateLimitResult` is the same across algorithms and carries the per-request values a rate limit header needs. The `HTTP header` column shows the [IETF RateLimit](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) form first and the legacy `X-RateLimit-*` name second. Pick whichever convention your API already uses. The IETF fields are still an Internet-Draft, so nothing here is frozen yet, while the `X-RateLimit-*` names are widely deployed convention.
 
 | Field | Type | Description | HTTP Header |
 |---|---|---|---|
@@ -201,6 +201,8 @@ A response carrying both looks like this:
 RateLimit-Policy: "api";q=100;w=60
 RateLimit: "api";r=50;t=30
 ```
+
+`RateLimit-Policy` describes the policy rather than the request, so its window (`w=`) is not on the result. Read it from the config you built the limiter with, such as `SlidingWindowConfig.window`. The policy line is the same on every response, so render it once.
 
 ### Weighted requests
 

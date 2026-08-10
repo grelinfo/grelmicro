@@ -21,7 +21,9 @@ from grelmicro.idempotency import Idempotency
 from grelmicro.providers.memory import MemoryProvider
 
 micro = Grelmicro(uses=[MemoryProvider()])
+
 app = FastAPI()
+micro.install(app)
 
 idem = Idempotency("charge", ttl=3600)
 
