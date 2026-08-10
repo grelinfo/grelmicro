@@ -513,6 +513,10 @@ bound to the file digest, so a tampered artifact finds no attestation.
 - When adding a decision point (e.g. multiple algorithms), write
   an explicit **"Choosing a ..." guide**: a numbered decision
   list plus a side-by-side comparison table.
+- [`docs/roadmap.md`](docs/roadmap.md) holds direction, the issue
+  tracker holds the queue. It carries no issue numbers and needs no
+  edit when one closes. Touch it when a direction changes, which is
+  rare.
 
 Every release publishes the site to GitHub Pages. To republish
 without cutting a release, run the `Docs` workflow:
@@ -678,12 +682,6 @@ the light one, so expect it to take much longer.
 - Every new public symbol has a docstring and a test.
 - `docs/` is updated if user-facing behaviour changed.
 - `docs/changelog.md` has an entry under `## Unreleased`.
-- [`docs/roadmap.md`](docs/roadmap.md) is updated only if the change
-  moves a **direction**, not because it closed an issue. The roadmap
-  describes where grelmicro is going. The issue tracker holds the
-  queue. Keep them apart: no issue numbers on the roadmap, and no
-  roadmap edit for ordinary work that one of its headings already
-  covers.
 - Commit titles follow the gitmoji convention (one emoji and an
   imperative sentence, no type keyword or scope).
 
