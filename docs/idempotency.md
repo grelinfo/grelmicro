@@ -17,12 +17,13 @@ from typing import Annotated
 
 from fastapi import FastAPI, Header
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
-from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.idempotency import Idempotency
+from grelmicro.providers.memory import MemoryProvider
 
-micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+micro = Grelmicro(uses=[MemoryProvider()])
+
 app = FastAPI()
+micro.install(app)
 
 idem = Idempotency("charge", ttl=3600)
 

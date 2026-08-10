@@ -513,6 +513,10 @@ bound to the file digest, so a tampered artifact finds no attestation.
 - When adding a decision point (e.g. multiple algorithms), write
   an explicit **"Choosing a ..." guide**: a numbered decision
   list plus a side-by-side comparison table.
+- [`docs/roadmap.md`](docs/roadmap.md) holds direction, the issue
+  tracker holds the queue. It carries no issue numbers and needs no
+  edit when one closes. Touch it when a direction changes, which is
+  rare.
 
 Every release publishes the site to GitHub Pages. To republish
 without cutting a release, run the `Docs` workflow:
