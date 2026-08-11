@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Final,
+    Self,
+    cast,
+)
 
 from typing_extensions import Doc
 
@@ -24,6 +32,21 @@ if TYPE_CHECKING:
         ScheduleBackend,
     )
     from grelmicro.types import BackendScope
+
+
+COORDINATION_BACKENDS: Final = (
+    ("lock", "lock"),
+    ("rwlock", "readwritelock"),
+    ("election", "leaderelection"),
+    ("schedule", "schedule"),
+)
+"""The coordination backends, as `(keyword, provider factory)` pairs.
+
+One list, read by everything that walks a `Coordination`: the keyword each
+backend is passed under, the `_{keyword}_backend` attribute it is stored on,
+and the `Provider` factory that builds it. Adding a fifth backend here reaches
+the app's Provider discovery and the backend scope check with it.
+"""
 
 
 class Coordination:
@@ -169,22 +192,12 @@ class Coordination:
             # A provider may not ship every adapter kind. Leave a backend
             # unset so the kind raises a clear error only when it is actually
             # used, instead of crashing construction for a locks-only user.
-            try:
-                self._lock_backend = provider.lock()
-            except (AttributeError, NotImplementedError):
-                self._lock_backend = None
-            try:
-                self._rwlock_backend = provider.readwritelock()
-            except (AttributeError, NotImplementedError):
-                self._rwlock_backend = None
-            try:
-                self._election_backend = provider.leaderelection()
-            except (AttributeError, NotImplementedError):
-                self._election_backend = None
-            try:
-                self._schedule_backend = provider.schedule()
-            except (AttributeError, NotImplementedError):
-                self._schedule_backend = None
+            for keyword, factory in COORDINATION_BACKENDS:
+                try:
+                    backend = getattr(provider, factory)()
+                except (AttributeError, NotImplementedError):
+                    backend = None
+                setattr(self, f"_{keyword}_backend", backend)
 
         if lock is not None:
             resolved_lock = cast(

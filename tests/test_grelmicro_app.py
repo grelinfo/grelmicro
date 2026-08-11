@@ -905,6 +905,21 @@ async def test_discovers_the_provider_of_a_read_write_lock_backend() -> None:
     assert provider.exited == 1
 
 
+async def test_a_bare_provider_wires_every_coordination_backend() -> None:
+    """`uses=[provider]` reaches the read-write lock like every other backend.
+
+    The shortest wiring registers a default Component per kind, so a pattern
+    that works with `Coordination(provider)` works with the provider alone.
+    """
+    micro = Grelmicro(uses=[_RecordingProvider()])
+
+    coordination = micro.coordination
+    assert coordination.lock_backend is not None
+    assert coordination.rwlock_backend is not None
+    assert coordination.election_backend is not None
+    assert coordination.schedule_backend is not None
+
+
 async def test_explicit_provider_takes_precedence_over_discovery() -> None:
     """A provider listed in `uses=` is lifecycled once, not adopted again."""
     provider = _RecordingProvider()

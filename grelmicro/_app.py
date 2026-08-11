@@ -154,7 +154,8 @@ class Grelmicro:
                 Accepts `Component` instances (registered with `(kind, name)`
                 lookup, exposed on `micro.<kind>`), bare adapter or component
                 classes (instantiated for you), `Provider` instances (a lone
-                Provider registers a default Component per kind it serves), and
+                Provider registers a default Component per kind it serves,
+                `outbox` aside), and
                 plain async context managers (lifecycled only, caller holds the
                 reference). Two bare Providers with no Components raise
                 `AmbiguousProviderError`.
@@ -308,8 +309,8 @@ class Grelmicro:
                 instance is indexed under `(kind, name)` and exposed on
                 `micro.<kind>`. A first-party backend is auto-wrapped into its
                 matching `Component`. A `Provider` on an app with no Components
-                registers one default Component per kind it serves. A zero-arg
-                class is instantiated first. Any other async context manager is
+                registers one default Component per kind it serves, `outbox`
+                aside. A zero-arg class is instantiated first. Any other async context manager is
                 just lifecycled, and the caller keeps the reference.
                 """,
             ),
@@ -325,9 +326,9 @@ class Grelmicro:
            into the matching `Component` (`Coordination` for lock backends,
            `Cache` for cache backends) before registration.
         3. A `Provider` (e.g. `RedisProvider`): always lifecycled. On an app
-           with no Components, it also registers one default Component per kind
-           it serves. Once any Component is registered, the Provider is
-           lifecycle-only.
+           with no Components, it also registers one default Component per
+           kind it serves, `outbox` aside. Once any Component is registered,
+           the Provider is lifecycle-only.
         4. Any other async context manager: just lifecycled with the app,
            the caller keeps the reference.
 
@@ -1149,18 +1150,17 @@ def _iter_provider_backends(item: object) -> list[object]:
     """Return the provider-holding backends to inspect for `item`.
 
     Most components expose one backend via `backend`. A `Coordination`
-    component holds a lock, a read-write lock, an election, and a schedule
-    backend, any of which may own or borrow a Provider, so all present ones
-    are returned. A plain item with no backend is inspected directly.
+    component holds one per entry in `COORDINATION_BACKENDS`, any of which may
+    own or borrow a Provider, so all present ones are returned. A plain item
+    with no backend is inspected directly.
     """
+    from grelmicro.coordination._component import (  # noqa: PLC0415
+        COORDINATION_BACKENDS,
+    )
+
     backends = [
-        getattr(item, name, None)
-        for name in (
-            "_lock_backend",
-            "_rwlock_backend",
-            "_election_backend",
-            "_schedule_backend",
-        )
+        getattr(item, f"_{keyword}_backend", None)
+        for keyword, _ in COORDINATION_BACKENDS
     ]
     if any(backend is not None for backend in backends):
         return [backend for backend in backends if backend is not None]
@@ -1217,12 +1217,15 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
 
     Walks the provider factories. A factory that raises `NotImplementedError`
     means the provider does not serve that kind, so the matching Component is
-    skipped. `coordination` wires whichever of the lock, election, and schedule
-    backends the provider ships. Imports are lazy so a provider that serves only
-    one kind never loads the other component modules.
+    skipped. `coordination` wires whichever of its backends the provider
+    ships. `Outbox` is never registered this way: it carries handlers and a
+    relay, so it is built where those are declared. Imports are lazy so a
+    provider that serves only one kind never loads the other component
+    modules.
     """
     from grelmicro.cache._component import Cache  # noqa: PLC0415
     from grelmicro.coordination._component import (  # noqa: PLC0415
+        COORDINATION_BACKENDS,
         Coordination,
     )
     from grelmicro.resilience._components import (  # noqa: PLC0415
@@ -1232,13 +1235,12 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
 
     components: list[Component] = []
 
-    lock = _provider_backend_or_none(provider.lock)
-    election = _provider_backend_or_none(provider.leaderelection)
-    schedule = _provider_backend_or_none(provider.schedule)
-    if lock is not None or election is not None or schedule is not None:
-        components.append(
-            Coordination(lock=lock, election=election, schedule=schedule)
-        )
+    coordination = {
+        keyword: _provider_backend_or_none(getattr(provider, factory))
+        for keyword, factory in COORDINATION_BACKENDS
+    }
+    if any(backend is not None for backend in coordination.values()):
+        components.append(Coordination(**coordination))
 
     cache = _provider_backend_or_none(provider.cache)
     if cache is not None:
