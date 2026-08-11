@@ -85,6 +85,13 @@ postgres = "grelmicro.coordination.postgres:PostgresLockAdapter"
 sqlite = "grelmicro.coordination.sqlite:SQLiteLockAdapter"
 kubernetes = "grelmicro.coordination.kubernetes:KubernetesLockAdapter"
 
+[project.entry-points."grelmicro.coordination.readwritelock.adapters"]
+memory = "grelmicro.coordination.memory:MemoryReadWriteLockAdapter"
+redis = "grelmicro.coordination.redis:RedisReadWriteLockAdapter"
+postgres = "grelmicro.coordination.postgres:PostgresReadWriteLockAdapter"
+sqlite = "grelmicro.coordination.sqlite:SQLiteReadWriteLockAdapter"
+kubernetes = "grelmicro.coordination.kubernetes:KubernetesReadWriteLockAdapter"
+
 [project.entry-points."grelmicro.coordination.election.adapters"]
 memory = "grelmicro.coordination.memory:MemoryLeaderElectionAdapter"
 redis = "grelmicro.coordination.redis:RedisLeaderElectionAdapter"

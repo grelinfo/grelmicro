@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from importlib.metadata import entry_points
+
 import pytest
 
 from grelmicro._discovery import (
@@ -9,6 +11,7 @@ from grelmicro._discovery import (
     load_adapter,
     load_provider,
 )
+from grelmicro.coordination._component import COORDINATION_BACKENDS
 from grelmicro.errors import (
     AdapterNotRegisteredError,
     ProviderNotRegisteredError,
@@ -87,3 +90,51 @@ def test_load_adapter_unknown_kind_reports_empty_group() -> None:
 def test_provider_error_renders_empty_group() -> None:
     """The provider error reads 'none installed' when nothing is registered."""
     assert "none installed" in str(ProviderNotRegisteredError("redis", []))
+
+
+COORDINATION_GROUPS = {
+    "lock": "coordination",
+    "rwlock": "coordination.readwritelock",
+    "election": "coordination.election",
+    "schedule": "coordination.schedule",
+}
+"""The adapter group each coordination backend resolves through."""
+
+
+def test_every_coordination_backend_has_an_adapter_group() -> None:
+    """A backend with no group cannot be resolved, or extended by a plugin.
+
+    `COORDINATION_BACKENDS` is the list every wiring path reads. A backend
+    added there needs an entry-point group too, or its short names resolve to
+    nothing.
+    """
+    assert {slot.keyword for slot in COORDINATION_BACKENDS} == set(
+        COORDINATION_GROUPS
+    )
+
+
+@pytest.mark.parametrize("kind", sorted(COORDINATION_GROUPS.values()))
+def test_a_coordination_group_ships_its_memory_adapter(kind: str) -> None:
+    """Every coordination kind resolves at least the memory short name."""
+    assert load_adapter(kind, "memory") is not None
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "coordination",
+        "coordination.readwritelock",
+        "coordination.election",
+        "coordination.schedule",
+        "cache",
+        "ratelimiter",
+        "circuitbreaker",
+    ],
+)
+def test_every_registered_adapter_imports(kind: str) -> None:
+    """Each entry point names a class that still exists under that path."""
+    registered = list(entry_points(group=adapter_group(kind)))
+
+    assert registered
+    for entry_point in registered:
+        assert isinstance(entry_point.load(), type)
