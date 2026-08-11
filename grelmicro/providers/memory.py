@@ -16,6 +16,7 @@ if TYPE_CHECKING:
         MemoryReadWriteLockAdapter,
         MemoryScheduleAdapter,
     )
+    from grelmicro.outbox.memory import MemoryOutboxAdapter
     from grelmicro.resilience.circuitbreaker.memory import (
         MemoryCircuitBreakerAdapter,
     )
@@ -60,6 +61,7 @@ class MemoryProvider(Provider):
         self._schedule: MemoryScheduleAdapter | None = None
         self._rwlock: MemoryReadWriteLockAdapter | None = None
         self._cache: MemoryCacheAdapter | None = None
+        self._outbox: MemoryOutboxAdapter | None = None
         self._ratelimiter: MemoryRateLimiterAdapter | None = None
         self._circuitbreaker: MemoryCircuitBreakerAdapter | None = None
 
@@ -122,6 +124,21 @@ class MemoryProvider(Provider):
 
             self._cache = MemoryCacheAdapter(**kwargs)
         return self._cache
+
+    def outbox(self, **kwargs: Any) -> MemoryOutboxAdapter:  # noqa: ANN401, ARG002
+        """Return the shared `MemoryOutboxAdapter` for this provider.
+
+        The staging settings a SQL outbox takes (`table`, `auto_migrate`,
+        `notify`) describe a database, so they are accepted and ignored here.
+        Messages live in a dict and the relay is woken directly.
+        """
+        if self._outbox is None:
+            from grelmicro.outbox.memory import (  # noqa: PLC0415
+                MemoryOutboxAdapter,
+            )
+
+            self._outbox = MemoryOutboxAdapter()
+        return self._outbox
 
     def ratelimiter(self, **kwargs: Any) -> MemoryRateLimiterAdapter:  # noqa: ANN401
         """Return the shared `MemoryRateLimiterAdapter` for this provider."""

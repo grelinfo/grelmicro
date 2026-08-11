@@ -10,6 +10,7 @@ from grelmicro.coordination.memory import (
     MemoryLockAdapter,
     MemoryScheduleAdapter,
 )
+from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.resilience import CircuitBreakerComponent, RateLimiterComponent
 from grelmicro.resilience.circuitbreaker.memory import (
@@ -37,6 +38,7 @@ def test_factories_return_adapters() -> None:
     assert isinstance(provider.cache(), MemoryCacheAdapter)
     assert isinstance(provider.ratelimiter(), MemoryRateLimiterAdapter)
     assert isinstance(provider.circuitbreaker(), MemoryCircuitBreakerAdapter)
+    assert isinstance(provider.outbox(), MemoryOutboxAdapter)
 
 
 def test_factories_cache_one_adapter_per_kind() -> None:
@@ -48,6 +50,20 @@ def test_factories_cache_one_adapter_per_kind() -> None:
     assert provider.cache() is provider.cache()
     assert provider.ratelimiter() is provider.ratelimiter()
     assert provider.circuitbreaker() is provider.circuitbreaker()
+    assert provider.outbox() is provider.outbox()
+
+
+def test_outbox_ignores_the_settings_of_a_sql_store() -> None:
+    """`table`, `auto_migrate` and `notify` describe a database, not a dict.
+
+    `Outbox` passes them to whichever provider it holds, so the memory
+    provider has to take them and carry on.
+    """
+    provider = MemoryProvider()
+
+    adapter = provider.outbox(table="outbox", auto_migrate=True, notify=True)
+
+    assert isinstance(adapter, MemoryOutboxAdapter)
 
 
 def test_unknown_kwarg_raises() -> None:
