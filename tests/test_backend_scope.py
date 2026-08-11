@@ -391,3 +391,15 @@ async def test_a_bulkhead_checks_the_components_it_opens() -> None:
         with pytest.raises(BackendScopeError, match="MemoryLockAdapter"):
             async with bulkhead:
                 pass  # pragma: no cover
+
+
+def test_a_host_requirement_names_sqlite_as_a_fix() -> None:
+    """SQLite reaches far enough for `host`, so the message offers it."""
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), requires="host")]
+    )
+
+    with pytest.raises(BackendScopeError, match="Use a SQLite,") as error:
+        micro.check_backends()
+
+    assert "provides scope 'process'" in str(error.value)

@@ -270,8 +270,12 @@ def strict_message(
         f"{entry.requires!r} in environment {environment!r}."
         for entry in unmet
     ]
+    backends = (
+        "a SQLite, Redis, Valkey, Postgres, or Kubernetes backend"
+        if all(entry.requires == "host" for entry in unmet)
+        else "a Redis, Valkey, Postgres, or Kubernetes backend"
+    )
     lines.append(
-        "Use a Redis, Valkey, Postgres, or Kubernetes backend, or pass "
-        "requires= to say what reach you want."
+        f"Use {backends}, or pass requires= to say what reach you want."
     )
     return " ".join(lines)

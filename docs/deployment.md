@@ -22,9 +22,8 @@ Declaring `production` or `staging` turns on the backend check below. This is
 the one place to set it per environment, so unlike `GREL_ENV_LOAD` it belongs
 in the manifest rather than the image.
 
-Any other value still reaches your traces, because OpenTelemetry allows a
-custom one, but it names no tier grelmicro can act on, so the check reads it
-as undeclared and says so:
+Any other value names no tier grelmicro can act on, so it neither gates the
+check nor reaches the trace attribute. It reads as undeclared, and says so:
 
 ```
 GrelmicroConfigWarning: GREL_ENVIRONMENT='preprod' is not one of development,

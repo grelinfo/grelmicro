@@ -25,6 +25,11 @@ import os
 import re
 import warnings
 from collections import deque
+
+# Imported at runtime, not under `TYPE_CHECKING`: both appear in the
+# annotations of `resolve_config` and `defer_report`, which
+# `typing.get_type_hints` has to resolve from module globals.
+from collections.abc import Callable, Mapping  # noqa: TC003
 from copy import copy
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
@@ -38,14 +43,14 @@ from grelmicro.errors import GrelmicroConfigWarning
 
 if TYPE_CHECKING:
     import asyncio
-    from collections.abc import Callable, Mapping
 
     from grelmicro.errors import SettingsValidationError
 else:
     # Runtime fallback so `typing.get_type_hints(resolve_config)` resolves the
     # `error_type` annotation without importing a name used only in
     # annotations. The real type reaches static checkers via the
-    # `TYPE_CHECKING` branch above.
+    # `TYPE_CHECKING` branch above. See the `collections.abc` import above for
+    # the other half of the same requirement.
     SettingsValidationError = Any
 
 C = TypeVar("C", bound=BaseModel)
