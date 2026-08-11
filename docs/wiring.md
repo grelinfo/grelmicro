@@ -6,7 +6,7 @@ provider, then installs the app into FastAPI and FastStream with one call.
 ## One provider, one line
 
 A provider owns the connection. Pass it to `uses=` and grelmicro registers a
-default component for every kind the provider serves:
+default component for every kind the provider serves, `Outbox` aside:
 
 ```python
 from grelmicro import Grelmicro
@@ -77,6 +77,10 @@ if os.getenv("STORE_BACKEND") == "redis":
     A Provider registers a default component for every kind it serves that no
     component already claims, whether you list it in `uses=` or pass it to
     `micro.use(provider)`. Explicit wins, the provider fills the rest.
+
+    `Outbox` is the exception, and it is always written out. It carries the
+    handlers your messages are delivered to and the relay that delivers them,
+    so it belongs where those are declared. See [Outbox](outbox.md).
 
     Two providers are the one case where the forms differ. `uses=[p1, p2]` sees
     both at once and raises `AmbiguousProviderError`, because neither can be the

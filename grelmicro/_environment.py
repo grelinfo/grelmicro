@@ -46,18 +46,23 @@ STRICT_ENVIRONMENTS: Final = frozenset({"staging", "production"})
 QUIET_ENVIRONMENTS: Final = frozenset({"development", "test"})
 """Tiers that report nothing."""
 
-BACKEND_ATTRIBUTES: Final = (
-    "backend",
-    "_lock_backend",
-    "_rwlock_backend",
-    "_election_backend",
-    "_schedule_backend",
-)
-"""Where a Component keeps a bound backend.
 
-Most keep one on `backend`. `Coordination` holds four, any of which may come
-from a different Provider, so each is checked on its own.
-"""
+def backend_attributes() -> tuple[str, ...]:
+    """Return the attributes a Component keeps a bound backend on.
+
+    Most keep one on `backend`. `Coordination` keeps one per entry in
+    `COORDINATION_BACKENDS`, any of which may come from a different Provider,
+    so each is checked on its own.
+    """
+    from grelmicro.coordination._component import (  # noqa: PLC0415
+        COORDINATION_BACKENDS,
+    )
+
+    return (
+        "backend",
+        *(f"_{keyword}_backend" for keyword, _ in COORDINATION_BACKENDS),
+    )
+
 
 _SCOPE_RANK: Final[dict[str, int]] = {
     scope: rank for rank, scope in enumerate(get_args(BackendScope.__value__))
@@ -165,12 +170,13 @@ def unmet_requirements(items: Iterable[object]) -> list[Unmet]:
     Only a bound backend is checked. A component that holds none, or that
     declares no requirement, is passed over.
     """
+    attributes = backend_attributes()
     grouped: dict[tuple[str, BackendScope, BackendScope], list[str]] = {}
     for item in items:
         requires = getattr(item, "requires", None)
         if requires not in _SCOPE_RANK:
             continue
-        for attribute in BACKEND_ATTRIBUTES:
+        for attribute in attributes:
             backend = getattr(item, attribute, None)
             scope = scope_of(backend) if backend is not None else None
             if scope is None or _SCOPE_RANK[scope] >= _SCOPE_RANK[requires]:
