@@ -1159,8 +1159,8 @@ def _iter_provider_backends(item: object) -> list[object]:
     )
 
     backends = [
-        getattr(item, f"_{keyword}_backend", None)
-        for keyword, _ in COORDINATION_BACKENDS
+        getattr(item, f"_{slot.keyword}_backend", None)
+        for slot in COORDINATION_BACKENDS
     ]
     if any(backend is not None for backend in backends):
         return [backend for backend in backends if backend is not None]
@@ -1184,11 +1184,8 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     from grelmicro.cache._component import Cache  # noqa: PLC0415
     from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
     from grelmicro.coordination._component import (  # noqa: PLC0415
+        COORDINATION_BACKENDS,
         Coordination,
-    )
-    from grelmicro.coordination._protocol import (  # noqa: PLC0415
-        LeaderElectionBackend,
-        LockBackend,
     )
     from grelmicro.resilience._components import (  # noqa: PLC0415
         CircuitBreakerComponent,
@@ -1201,14 +1198,13 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
 
     if isinstance(item, CacheBackend):
         return Cache(item)
-    if isinstance(item, LeaderElectionBackend):
-        return Coordination(election=item)
-    if isinstance(item, LockBackend):
-        return Coordination(lock=item)
     if isinstance(item, CircuitBreakerBackend):
         return CircuitBreakerComponent(item)
     if isinstance(item, RateLimiterBackend):
         return RateLimiterComponent(item)
+    for slot in COORDINATION_BACKENDS:
+        if isinstance(item, slot.protocol):
+            return Coordination._holding(slot.keyword, item)  # noqa: SLF001
     return None
 
 
@@ -1236,8 +1232,8 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
     components: list[Component] = []
 
     coordination = {
-        keyword: _provider_backend_or_none(getattr(provider, factory))
-        for keyword, factory in COORDINATION_BACKENDS
+        slot.keyword: _provider_backend_or_none(getattr(provider, slot.factory))
+        for slot in COORDINATION_BACKENDS
     }
     if any(backend is not None for backend in coordination.values()):
         components.append(Coordination(**coordination))
