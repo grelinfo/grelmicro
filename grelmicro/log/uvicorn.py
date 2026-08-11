@@ -25,6 +25,12 @@ _UVICORN_LOG_RECORD_ATTRS = _STANDARD_LOG_RECORD_ATTRS | {
 
 _MIN_ACCESS_ARGS = 5
 
+_ACCESS_LOGGER = "uvicorn.access"
+"""Logger uvicorn writes its access records to."""
+
+_ACCESS_MESSAGE = '%s - "%s %s HTTP/%s" %d'
+"""Message template uvicorn logs every access record with."""
+
 
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
@@ -121,20 +127,26 @@ class UvicornAccessFormatter(UvicornFormatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format access records with split request fields.
 
+        A record is split when it carries uvicorn's access message, or when
+        it comes from uvicorn's access logger with the matching arguments. A
+        record that is neither is formatted whole, so an application record
+        reaching this formatter through a shared handler keeps its message
+        instead of being read as a request.
+
         The split runs on a copy. A record is formatted once per handler and
         stays readable afterwards, so rewriting `msg` and `args` in place
         would hand every later reader the rewritten record: a second handler
         on the same logger, a queue listener, or a test reading `caplog`.
         """
+        args = record.args
         if not (
-            isinstance(record.args, tuple)
-            and len(record.args) >= _MIN_ACCESS_ARGS
+            isinstance(args, tuple)
+            and len(args) >= _MIN_ACCESS_ARGS
+            and self._is_access(record)
         ):
             return super().format(record)
 
-        client_addr, method, full_path, http_version, status_code, *_ = (
-            record.args
-        )
+        client_addr, method, full_path, http_version, status_code, *_ = args
         access = copy(record)
         access.__dict__.update(
             {
@@ -149,3 +161,13 @@ class UvicornAccessFormatter(UvicornFormatter):
         access.args = (method, full_path, status_code)
 
         return super().format(access)
+
+    @staticmethod
+    def _is_access(record: logging.LogRecord) -> bool:
+        """Return whether `record` reads as one of uvicorn's access records.
+
+        Uvicorn logs every access record with one message, from one logger.
+        Either is enough: a renamed logger still carries the message, and a
+        reworded message still comes from the access logger.
+        """
+        return record.msg == _ACCESS_MESSAGE or record.name == _ACCESS_LOGGER

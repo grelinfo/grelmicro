@@ -744,3 +744,50 @@ class TestAccessRecordIsLeftIntact:
         assert record.getMessage() == (
             "cart wanted cluster but got process at boot on replica-2"
         )
+
+    def test_an_application_record_is_formatted_whole(
+        self, access_formatter: UvicornAccessFormatter
+    ) -> None:
+        """A record that is not a request keeps its message in the output."""
+        # Arrange
+        record = _make_record(
+            name="app.audit",
+            msg="%s wanted %s but got %s at %s on %s",
+            args=("cart", "cluster", "process", "boot", "replica-2"),
+        )
+
+        # Act
+        line = access_formatter.format(record)
+
+        # Assert
+        assert (
+            "cart wanted cluster but got process at boot on replica-2" in line
+        )
+
+    def test_uvicorns_message_is_split_under_any_logger_name(
+        self, access_formatter: UvicornAccessFormatter
+    ) -> None:
+        """A renamed access logger still carries uvicorn's own message."""
+        # Arrange
+        record = _make_record(name="gateway.access")
+
+        # Act
+        line = access_formatter.format(record)
+
+        # Assert
+        assert '"method":"GET"' in line
+        assert '"status_code":200' in line
+
+    def test_the_access_logger_is_split_whatever_the_message_says(
+        self, access_formatter: UvicornAccessFormatter
+    ) -> None:
+        """A future uvicorn wording still splits, because the logger matches."""
+        # Arrange
+        record = _make_record(msg='%s "%s %s HTTP/%s" %d served')
+
+        # Act
+        line = access_formatter.format(record)
+
+        # Assert
+        assert '"method":"GET"' in line
+        assert '"status_code":200' in line
