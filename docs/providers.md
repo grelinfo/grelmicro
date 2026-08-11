@@ -359,7 +359,7 @@ pip install "grelmicro[valkey]"
 from grelmicro import Grelmicro
 from grelmicro.providers.valkey import ValkeyProvider
 
-valkey = ValkeyProvider("redis://localhost:6379/0")
+valkey = ValkeyProvider("valkey://localhost:6379/0")
 
 micro = Grelmicro(uses=[valkey])
 ```
@@ -379,6 +379,12 @@ ValkeyProvider(env_load=False)              # kwargs only, no env
 ValkeyProvider.from_config(RedisConfig(...))  # from a config object
 ValkeyProvider.from_client(client)           # bring-your-own client
 ```
+
+`ValkeyProvider` also reads Valkey's own schemes, so a deployment can name
+the server it runs: `valkey://`, `valkeys://`, `valkey+sentinel://`, and
+`valkey+cluster://` work wherever the `redis` spellings do, in the
+constructor and in `VALKEY_URL` alike. `RedisProvider` keeps the `redis`
+schemes only.
 
 `ValkeyProvider` reads the same `redis+sentinel://` and `redis+cluster://`
 schemes as `RedisProvider` and builds the Valkey Sentinel and Cluster

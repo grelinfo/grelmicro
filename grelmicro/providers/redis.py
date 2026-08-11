@@ -216,7 +216,7 @@ class RedisProvider(Provider):
         proxy. `redis+cluster://` opens a `RedisCluster`.
         """
         scheme = url.split("://", 1)[0].lower() if "://" in url else ""
-        if scheme == _SENTINEL_SCHEME:
+        if _is_sentinel(scheme):
             parts = _parse_multihost_url(url)
             self._sentinel = self._sentinel_class(
                 parts.hosts,
@@ -232,7 +232,7 @@ class RedisProvider(Provider):
                 username=parts.username,
                 password=parts.password,
             )
-        if scheme == _CLUSTER_SCHEME:
+        if _is_cluster(scheme):
             import importlib  # noqa: PLC0415
 
             cluster_node = importlib.import_module(
@@ -579,8 +579,13 @@ def _resolve_url(
     sentinel_password: str | None,
     env_prefix: str,
     env_load: bool,
+    settings_cls: type[_RedisEnvSettings] = _RedisEnvSettings,
 ) -> tuple[str, str | None]:
-    """Resolve the connection URL and Sentinel password from kwargs and env."""
+    """Resolve the connection URL and Sentinel password from kwargs and env.
+
+    `settings_cls` decides which URL schemes the environment path accepts, so
+    `ValkeyProvider` reads `valkey://` where `RedisProvider` does not.
+    """
     if url is not None and host is not None:
         msg = "pass either `url` or `host`, not both"
         raise RedisProviderConfigError(msg)
@@ -607,7 +612,7 @@ def _resolve_url(
         # `_env_prefix` is a pydantic-settings runtime kwarg that overrides
         # `model_config["env_prefix"]` per call. The stubs do not expose it,
         # so static checkers reject it even though the runtime accepts it.
-        settings = _RedisEnvSettings(_env_prefix=env_prefix)
+        settings = settings_cls(_env_prefix=env_prefix)
     except ValidationError as error:
         raise RedisProviderConfigError(error) from None
 
@@ -671,7 +676,7 @@ def _sentinel_kwargs(
     if sentinel_password is None:
         return None
     scheme = url.split("://", 1)[0].lower() if "://" in url else ""
-    if scheme != _SENTINEL_SCHEME:
+    if not _is_sentinel(scheme):
         import warnings  # noqa: PLC0415
 
         msg = (
@@ -730,6 +735,25 @@ def _compose_url(*, host: str, port: int, db: int, password: str | None) -> str:
 
 _SENTINEL_SCHEME = "redis+sentinel"
 _CLUSTER_SCHEME = "redis+cluster"
+
+_SENTINEL_SUFFIX = "+sentinel"
+_CLUSTER_SUFFIX = "+cluster"
+
+
+def _is_sentinel(scheme: str) -> bool:
+    """Return whether `scheme` names a Sentinel URL, whichever vendor wrote it.
+
+    `ValkeyProvider` accepts `valkey+sentinel://` alongside
+    `redis+sentinel://`, and both reach the same Sentinel client.
+    """
+    return scheme.endswith(_SENTINEL_SUFFIX)
+
+
+def _is_cluster(scheme: str) -> bool:
+    """Return whether `scheme` names a Cluster URL, whichever vendor wrote it."""
+    return scheme.endswith(_CLUSTER_SUFFIX)
+
+
 _DEFAULT_SENTINEL_PORT = 26379
 _DEFAULT_REDIS_PORT = 6379
 
@@ -768,9 +792,7 @@ def _parse_multihost_url(url: str) -> _MultiHostUrl:
     scheme, _, rest = url.partition("://")
     scheme = scheme.lower()
     default_port = (
-        _DEFAULT_SENTINEL_PORT
-        if scheme == _SENTINEL_SCHEME
-        else _DEFAULT_REDIS_PORT
+        _DEFAULT_SENTINEL_PORT if _is_sentinel(scheme) else _DEFAULT_REDIS_PORT
     )
 
     authority, _, path = rest.partition("/")
@@ -798,7 +820,7 @@ def _parse_multihost_url(url: str) -> _MultiHostUrl:
 
     service_name = ""
     db = 0
-    if scheme == _SENTINEL_SCHEME:
+    if _is_sentinel(scheme):
         segments = [seg for seg in path.split("/") if seg]
         if not segments:
             msg = "redis+sentinel URL must name the master service"

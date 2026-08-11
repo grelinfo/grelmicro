@@ -4,14 +4,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
+from pydantic import UrlConstraints
+from pydantic_core import MultiHostUrl
 from typing_extensions import Doc
 
 from grelmicro.providers.redis import (
     RedisConfig,
     RedisProvider,
+    _RedisEnvSettings,
     _resolve_url,
     _sentinel_kwargs,
 )
+
+# Runtime import: pydantic resolves the annotation on `_ValkeyEnvSettings.url`
+# from module globals when it builds the model.
+from grelmicro.types import SecretUrl  # noqa: TC001
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -33,6 +40,35 @@ if TYPE_CHECKING:
     )
 
 
+ValkeyAnyDsn = Annotated[
+    MultiHostUrl,
+    UrlConstraints(
+        allowed_schemes=[
+            "valkey",
+            "valkeys",
+            "valkey+sentinel",
+            "valkey+cluster",
+            "redis",
+            "rediss",
+            "unix",
+            "redis+sentinel",
+            "redis+cluster",
+        ]
+    ),
+]
+"""Every URL scheme `ValkeyProvider` understands.
+
+Valkey's own schemes and Redis's, because `valkey-py` reads both and a
+deployment that names the server it runs should not have to say `redis`.
+"""
+
+
+class _ValkeyEnvSettings(_RedisEnvSettings):
+    """Read Valkey settings from the environment, Valkey schemes included."""
+
+    url: SecretUrl[ValkeyAnyDsn] | None = None
+
+
 class ValkeyProvider(RedisProvider):
     """Valkey connection provider.
 
@@ -48,8 +84,8 @@ class ValkeyProvider(RedisProvider):
     Construction forms (FastStream-style):
 
     ```python
-    ValkeyProvider("redis://localhost:6379")     # positional URL
-    ValkeyProvider(url="redis://...")            # keyword URL
+    ValkeyProvider("valkey://localhost:6379")    # positional URL
+    ValkeyProvider(url="redis://...")            # either vendor's scheme
     ValkeyProvider(host="x", port=6379, db=0)   # decomposed kwargs
     ValkeyProvider()                             # env-driven (VALKEY_*)
     ValkeyProvider(env_prefix="CACHE_VALKEY_")  # custom env prefix
@@ -121,6 +157,7 @@ class ValkeyProvider(RedisProvider):
         self._bind_valkey_classes()
         self._env_prefix = env_prefix
         self._url, resolved_sentinel_password = _resolve_url(
+            settings_cls=_ValkeyEnvSettings,
             url=url,
             host=host,
             port=port,

@@ -11,7 +11,11 @@ from grelmicro.coordination.redis import (
     RedisLockAdapter,
     RedisScheduleAdapter,
 )
-from grelmicro.providers.redis import RedisConfig, RedisProviderConfigError
+from grelmicro.providers.redis import (
+    RedisConfig,
+    RedisProvider,
+    RedisProviderConfigError,
+)
 from grelmicro.providers.valkey import ValkeyProvider
 from grelmicro.resilience.circuitbreaker.redis import (
     RedisCircuitBreakerAdapter,
@@ -369,3 +373,57 @@ class TestEntryPoint:
         assert "valkey" in names
         loaded = names["valkey"].load()
         assert loaded is ValkeyProvider
+
+
+class TestValkeySchemes:
+    """`valkey://` is what a Valkey deployment writes, so it is accepted."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "valkey://localhost:6379/0",
+            "valkeys://localhost:6379/0",
+            "redis://localhost:6379/0",
+            "rediss://localhost:6379/0",
+        ],
+    )
+    def test_both_vendors_schemes_are_read_from_the_environment(
+        self, url: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The env path accepts every scheme the constructor accepts.
+
+        A URL that builds a client when passed in code has to build one when
+        it arrives as `VALKEY_URL`, or the deployment path fails on the value
+        the development path took.
+        """
+        monkeypatch.setenv("VALKEY_URL", url)
+
+        provider = ValkeyProvider()
+
+        assert provider.url == url
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "valkey+sentinel://a:26379,b:26379/mymaster/0",
+            "valkey+cluster://a:6379,b:6379",
+        ],
+    )
+    def test_valkey_sentinel_and_cluster_schemes_build_their_clients(
+        self, url: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The Valkey spellings reach the same clients as the Redis ones."""
+        monkeypatch.setenv("VALKEY_URL", url)
+
+        provider = ValkeyProvider()
+
+        assert provider.client is not None
+
+    def test_redis_keeps_its_own_schemes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`RedisProvider` does not learn Valkey's schemes."""
+        monkeypatch.setenv("REDIS_URL", "valkey://localhost:6379/0")
+
+        with pytest.raises(RedisProviderConfigError):
+            RedisProvider()
