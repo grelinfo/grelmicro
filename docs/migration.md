@@ -27,7 +27,7 @@ circuit does once.
 | Task run totals jumped after upgrading, with no new failures | 0.34 | [Filter on `outcome`](#0-34-task-run-outcomes) |
 | `ImportError: cannot import name 'LogTimeZoneType'` | 0.36 | [Use `TimeZoneName`](#0-36-timezone-type) |
 | `LogSettingsValidationError: unknown timezone name 'CEST'` | 0.36 | [Name the zone](#0-36-timezone-abbreviation) |
-| `ImportError: cannot import name 'RateLimiterRegistry'` or `'CircuitBreakerRegistry'` | 0.37 | [Rename to `Component`](#0-37-registry-renamed) |
+| `ImportError: cannot import name 'RateLimiterRegistry'` or `ImportError: cannot import name 'CircuitBreakerRegistry'` | 0.37 | [Rename to `Component`](#0-37-registry-renamed) |
 | `TypeError: health_router() got an unexpected keyword argument 'registry'` | 0.37 | [Pass `component=`](#0-37-registry-renamed) |
 
 ## 0.37
