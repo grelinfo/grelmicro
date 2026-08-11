@@ -8,6 +8,7 @@ from typing import (
     Any,
     ClassVar,
     Final,
+    NamedTuple,
     Self,
     cast,
 )
@@ -15,6 +16,12 @@ from typing import (
 from typing_extensions import Doc
 
 from grelmicro._component import instantiate_if_class
+from grelmicro.coordination._protocol import (
+    LeaderElectionBackend,
+    LockBackend,
+    ReadWriteLockBackend,
+    ScheduleBackend,
+)
 from grelmicro.coordination.errors import CoordinationBackendError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.lock import Lock
@@ -25,27 +32,34 @@ from grelmicro.providers._base import Provider
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from grelmicro.coordination._protocol import (
-        LeaderElectionBackend,
-        LockBackend,
-        ReadWriteLockBackend,
-        ScheduleBackend,
-    )
     from grelmicro.types import BackendScope
 
 
-COORDINATION_BACKENDS: Final = (
-    ("lock", "lock"),
-    ("rwlock", "readwritelock"),
-    ("election", "leaderelection"),
-    ("schedule", "schedule"),
-)
-"""The coordination backends, as `(keyword, provider factory)` pairs.
+class CoordinationBackend(NamedTuple):
+    """One of the backends a `Coordination` holds."""
 
-One list, read by everything that walks a `Coordination`: the keyword each
-backend is passed under, the `_{keyword}_backend` attribute it is stored on,
-and the `Provider` factory that builds it. Adding a fifth backend here reaches
-the app's Provider discovery and the backend scope check with it.
+    keyword: str
+    """Keyword it is passed under, and the `_{keyword}_backend` attribute."""
+
+    factory: str
+    """`Provider` method that builds it."""
+
+    protocol: type
+    """Backend Protocol an instance of it satisfies."""
+
+
+COORDINATION_BACKENDS: Final = (
+    CoordinationBackend("lock", "lock", LockBackend),
+    CoordinationBackend("rwlock", "readwritelock", ReadWriteLockBackend),
+    CoordinationBackend("election", "leaderelection", LeaderElectionBackend),
+    CoordinationBackend("schedule", "schedule", ScheduleBackend),
+)
+"""Every backend a `Coordination` holds, in wiring order.
+
+One list, read by everything that walks a `Coordination`: the component
+itself, the app's Provider discovery, the wrapping of a bare backend into its
+Component, and the backend scope check. A fifth backend added here reaches all
+four.
 """
 
 
@@ -192,12 +206,12 @@ class Coordination:
             # A provider may not ship every adapter kind. Leave a backend
             # unset so the kind raises a clear error only when it is actually
             # used, instead of crashing construction for a locks-only user.
-            for keyword, factory in COORDINATION_BACKENDS:
+            for slot in COORDINATION_BACKENDS:
                 try:
-                    backend = getattr(provider, factory)()
+                    backend = getattr(provider, slot.factory)()
                 except (AttributeError, NotImplementedError):
                     backend = None
-                setattr(self, f"_{keyword}_backend", backend)
+                setattr(self, f"_{slot.keyword}_backend", backend)
 
         if lock is not None:
             resolved_lock = cast(
@@ -242,6 +256,18 @@ class Coordination:
                 if isinstance(resolved_schedule, Provider)
                 else resolved_schedule
             )
+
+    @classmethod
+    def _holding(cls, keyword: str, backend: object) -> Self:
+        """Return a `Coordination` holding `backend` in the `keyword` slot.
+
+        Used to wrap a bare backend passed to `Grelmicro(uses=[...])`. The
+        slot comes from `COORDINATION_BACKENDS`, so a backend added there is
+        wrapped without another branch to write.
+        """
+        component = cls()
+        setattr(component, f"_{keyword}_backend", backend)
+        return component
 
     @property
     def name(self) -> str:

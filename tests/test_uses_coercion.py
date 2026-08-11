@@ -21,6 +21,8 @@ from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
+    MemoryReadWriteLockAdapter,
+    MemoryScheduleAdapter,
 )
 from grelmicro.providers import Provider
 from grelmicro.providers.valkey import ValkeyProvider
@@ -169,6 +171,30 @@ def test_bare_adapter_instance_wraps_in_component() -> None:
     coordination = micro.get("coordination")
     assert isinstance(coordination, Coordination)
     assert coordination.lock_backend is not None
+
+
+@pytest.mark.parametrize(
+    ("adapter", "attribute"),
+    [
+        (MemoryLockAdapter, "lock_backend"),
+        (MemoryReadWriteLockAdapter, "rwlock_backend"),
+        (MemoryLeaderElectionAdapter, "election_backend"),
+        (MemoryScheduleAdapter, "schedule_backend"),
+    ],
+)
+def test_every_coordination_backend_wraps_into_its_slot(
+    adapter: type, attribute: str
+) -> None:
+    """Each coordination backend lands on the slot it belongs to.
+
+    A backend that wraps into no Component would be lifecycled and never
+    resolved, so the app would start and the pattern would fail on first use.
+    """
+    micro = Grelmicro(uses=[adapter()])
+
+    coordination = micro.get("coordination")
+    assert isinstance(coordination, Coordination)
+    assert getattr(coordination, attribute) is not None
 
 
 # --- Bare Adapter class ---

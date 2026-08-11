@@ -60,7 +60,7 @@ def backend_attributes() -> tuple[str, ...]:
 
     return (
         "backend",
-        *(f"_{keyword}_backend" for keyword, _ in COORDINATION_BACKENDS),
+        *(f"_{slot.keyword}_backend" for slot in COORDINATION_BACKENDS),
     )
 
 
