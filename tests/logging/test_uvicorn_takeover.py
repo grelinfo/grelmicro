@@ -6,7 +6,7 @@ from collections.abc import Iterator
 import pytest
 
 from grelmicro.log._apply import apply as apply_backend
-from grelmicro.log.config import LogConfig, LogFormatType
+from grelmicro.log.config import LogBackendType, LogConfig, LogFormatType
 from grelmicro.log.uvicorn import UvicornAccessFormatter, UvicornFormatter
 from grelmicro.log.uvicorn import apply as apply_uvicorn
 
@@ -146,3 +146,48 @@ def test_apply_backend_respects_the_opt_out(
 
     apply_backend(LogConfig(uvicorn_enabled=True))
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "backend",
+    [LogBackendType.STDLIB, LogBackendType.STRUCTLOG, LogBackendType.LOGURU],
+)
+@pytest.mark.usefixtures("reset_backend")
+def test_uvicorn_matches_the_app_format_on_every_backend(
+    backend: LogBackendType,
+) -> None:
+    """Uvicorn's own records are rendered by grelmicro, whatever runs the app.
+
+    The app's records go through the selected backend, and uvicorn keeps its
+    own stdlib handlers. Both ends render through the same writers, so one
+    process emits one format.
+    """
+    apply_backend(LogConfig(backend=backend, format=LogFormatType.LOGFMT))
+    formatter = _formatters("uvicorn.access")[0]
+    assert formatter is not None
+
+    line = formatter.format(_access_record())
+
+    assert "method=POST" in line
+    assert "status_code=200" in line
+
+
+@pytest.mark.parametrize(
+    "backend",
+    [LogBackendType.STDLIB, LogBackendType.STRUCTLOG, LogBackendType.LOGURU],
+)
+@pytest.mark.usefixtures("reset_backend")
+def test_the_access_record_survives_every_backend(
+    backend: LogBackendType,
+) -> None:
+    """Formatting leaves the record as it found it, on every backend."""
+    apply_backend(LogConfig(backend=backend, format=LogFormatType.LOGFMT))
+    formatter = _formatters("uvicorn.access")[0]
+    assert formatter is not None
+    record = _access_record()
+
+    formatter.format(record)
+
+    assert record.getMessage() == (
+        '127.0.0.1:54321 - "POST /orders HTTP/1.1" 200'
+    )

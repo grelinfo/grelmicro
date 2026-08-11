@@ -702,3 +702,45 @@ class TestUvicornProcess:
             assert "logger" in startup_logs[0]
             assert "caller" not in startup_logs[0]
             assert "time" in startup_logs[0]
+
+
+class TestAccessRecordIsLeftIntact:
+    """The access split must not rewrite the record other handlers read."""
+
+    def test_the_record_survives_formatting(
+        self, access_formatter: UvicornAccessFormatter
+    ) -> None:
+        """Formatting reads the record and leaves it as it found it."""
+        # Arrange
+        record = _make_record()
+        expected_msg, expected_args = record.msg, record.args
+
+        # Act
+        access_formatter.format(record)
+
+        # Assert
+        assert record.msg == expected_msg
+        assert record.args == expected_args
+        assert (
+            record.getMessage()
+            == '127.0.0.1:8000 - "GET /api/v1/users HTTP/1.1" 200'
+        )
+
+    def test_a_second_handler_reads_the_original_message(
+        self, access_formatter: UvicornAccessFormatter
+    ) -> None:
+        """A record with five arguments reaches the next handler unharmed."""
+        # Arrange
+        record = _make_record(
+            name="app.audit",
+            msg="%s wanted %s but got %s at %s on %s",
+            args=("cart", "cluster", "process", "boot", "replica-2"),
+        )
+
+        # Act
+        access_formatter.format(record)
+
+        # Assert
+        assert record.getMessage() == (
+            "cart wanted cluster but got process at boot on replica-2"
+        )

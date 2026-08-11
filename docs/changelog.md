@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+* 🐛 Cover uvicorn's takeover on every logging backend. `stdlib`, `structlog`, and `loguru` all hand uvicorn's own loggers the matching formatter, so one process emits one format whichever backend runs the app, and each is now tested. ([#705](https://github.com/grelinfo/grelmicro/issues/705))
+* 🐛 Keep a log record readable after uvicorn's access formatter has seen it. `UvicornAccessFormatter` split the request fields by rewriting `msg` and `args` on the record itself, so any record carrying five or more positional arguments reached every later reader as `"%s %s %s"`: a second handler on the same logger, a queue listener, or a test reading `caplog`. The split now runs on a copy. ([#705](https://github.com/grelinfo/grelmicro/issues/705))
+
 ### Added
 
 * ✨ Refuse to start when a backend cannot keep the promise its component makes. Declare the tier with `GREL_ENVIRONMENT` or `Grelmicro(environment=...)`, and in `production` or `staging` a `Coordination` or `Outbox` bound to a memory or SQLite backend raises `BackendScopeError` before the first connection opens. A lock that excludes nothing the moment a second replica starts used to say nothing at all. ([#683](https://github.com/grelinfo/grelmicro/issues/683))
