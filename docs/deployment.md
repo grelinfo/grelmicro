@@ -12,8 +12,8 @@ environment:
 GREL_ENVIRONMENT=production
 ```
 
-Four values gate: `development`, `test`, `staging`, and `production`. They are
-the well-known values of the OpenTelemetry
+Four values name a tier: `development`, `test`, `staging`, and `production`.
+They are the well-known values of the OpenTelemetry
 [`deployment.environment.name`](https://opentelemetry.io/docs/specs/semconv/resource/deployment-environment/)
 attribute, and grelmicro writes the declared value into that attribute on the
 tracer resource, so the same variable names your environment in every trace.
@@ -22,9 +22,9 @@ Declaring `production` or `staging` turns on the backend check below. This is
 the one place to set it per environment, so unlike `GREL_ENV_LOAD` it belongs
 in the manifest rather than the image.
 
-Any other value still reaches your traces, because OpenTelemetry allows one,
-but it names no tier grelmicro can act on, so the check reads it as
-undeclared and says so:
+Any other value still reaches your traces, because OpenTelemetry allows a
+custom one, but it names no tier grelmicro can act on, so the check reads it
+as undeclared and says so:
 
 ```
 GrelmicroConfigWarning: GREL_ENVIRONMENT='preprod' is not one of development,
@@ -54,13 +54,11 @@ which provides scope 'process', but requires scope 'cluster' in environment
 requires= to say what reach you want.
 ```
 
-A backend provides a scope, a component requires one. The message names both
-sides, so the fix is in the sentence that reports the problem.
-
 The check runs before the first connection opens, so a misconfigured pod
 fails at boot instead of on the request that needed the lock.
 
-Every backend has a **scope**, and every component **requires** one:
+A backend **provides** a scope, and a component **requires** one. The message
+names both sides, so the fix is in the sentence that reports the problem.
 
 | Backend scope | Backends | State is shared by |
 | --- | --- | --- |
@@ -95,6 +93,10 @@ Only a bound backend is checked. A component you never registered is the
 local behavior: a `@cron` with no `Coordination` fires on every replica on
 purpose. Wiring a memory schedule backend instead says you expected the fleet
 to agree, so that one is reported.
+
+A [`Bulkhead(uses=[...])`](resilience/bulkhead.md) holds components the app
+never registers, so those are checked on first entry to the scope instead of
+at startup.
 
 ### When the environment is not declared
 

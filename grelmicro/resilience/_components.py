@@ -55,7 +55,7 @@ class RateLimiterComponent:
     kind: ClassVar[str] = "ratelimiter"
 
     default_requires: ClassVar[BackendScope] = "process"
-    """A budget per replica is a normal shape, so any backend will do."""
+    """Default `requires=`: a budget counts per replica unless told otherwise."""
 
     def __init__(
         self,
@@ -76,10 +76,10 @@ class RateLimiterComponent:
                 """
                 The smallest backend scope this component accepts:
                 `"process"`, `"host"` or `"cluster"`. Defaults to
-                `"process"`, since a budget per replica is a normal thing to
-                want. Raise it to `"cluster"` for one budget shared by the
-                fleet, and the app refuses to start on a backend that cannot
-                share it. Checked when the app opens, see
+                `"process"`, so any rate limiter backend is accepted. Raise
+                it to `"cluster"` for one budget shared by the fleet, and the
+                app refuses to start on a backend that cannot share it.
+                Checked when the app opens, see
                 [the backend check](../deployment.md#the-backend-check).
                 """,
             ),
@@ -178,7 +178,7 @@ class CircuitBreakerComponent:
     kind: ClassVar[str] = "circuitbreaker"
 
     default_requires: ClassVar[BackendScope] = "process"
-    """A breaker reacting to what one replica sees is the standard shape."""
+    """Default `requires=`: a breaker trips on what one replica sees."""
 
     def __init__(
         self,
@@ -201,9 +201,9 @@ class CircuitBreakerComponent:
                 """
                 The smallest backend scope this component accepts:
                 `"process"`, `"host"` or `"cluster"`. Defaults to
-                `"process"`: a breaker that trips on what one replica sees is
-                the standard shape. Raise it to `"cluster"` for one shared
-                verdict across the fleet. Checked when the app opens, see
+                `"process"`, so a breaker trips on what one replica sees.
+                Raise it to `"cluster"` for one verdict shared by the fleet.
+                Checked when the app opens, see
                 [the backend check](../deployment.md#the-backend-check).
                 """,
             ),

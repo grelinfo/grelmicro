@@ -56,7 +56,7 @@ class Cache:
     kind: ClassVar[str] = "cache"
 
     default_requires: ClassVar[BackendScope] = "process"
-    """A cache per replica is the standard shape, so any backend will do."""
+    """Default `requires=`: a cache holds per replica unless told otherwise."""
 
     def __init__(
         self,
@@ -77,11 +77,11 @@ class Cache:
             Doc(
                 """
                 The smallest backend scope this component accepts:
-                `"process"`, `"host"` or `"cluster"`. Defaults to `"process"`,
-                since a cache per replica is a normal thing to want. Raise it
-                to `"cluster"` for a cache an `Idempotency` reads from, where
-                a replay has to find the stored response wherever the retry
-                lands. Checked when the app opens, see
+                `"process"`, `"host"` or `"cluster"`. Defaults to
+                `"process"`, so any cache backend is accepted. Raise it to
+                `"cluster"` for the cache an `Idempotency` rides, which has
+                to hold the stored response for every replica. Checked when
+                the app opens, see
                 [the backend check](../deployment.md#the-backend-check).
                 """,
             ),

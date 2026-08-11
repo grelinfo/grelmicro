@@ -32,7 +32,7 @@ Not every Pattern needs a backend, and the ones that do behave differently when 
 
 The tiers above say what a Pattern does with no backend at all. A backend that is present but too small is the harder case, because the Pattern works: a `Lock` on `MemoryLockAdapter` acquires, releases, and excludes nothing beyond the process.
 
-So an Adapter declares its **backend scope** and a Component declares the scope it **requires**. Kubernetes names the same axis the same way, with `scope: Namespaced | Cluster` on a CRD.
+So an Adapter declares the **backend scope** it provides and a Component declares the scope it **requires**.
 
 ```python
 class MemoryLockAdapter:
@@ -41,7 +41,7 @@ class MemoryLockAdapter:
 
 Three values, ordered: `process` (Memory) is held inside one process, `host` (SQLite) across the processes sharing one file, `cluster` (Redis, Valkey, Postgres, Kubernetes) across every process that connects to the backend. A Component is satisfied when the backend's scope is at least what it requires. `Coordination` and `Outbox` require `cluster`, the resilience Components and `Cache` require `process`, and `requires=` overrides either way.
 
-The environment decides the severity, not the verdict: `GREL_ENVIRONMENT=production` makes an unmet requirement a `BackendScopeError` at startup, an undeclared environment makes it a warning, and `development` or `test` silences it. [Deployment](../deployment.md#the-backend-check) has the user-facing rules.
+The environment decides the severity, not the verdict: `production` and `staging` make an unmet requirement a `BackendScopeError` at startup, an undeclared environment makes it a warning, and `development` and `test` silence it. [Deployment](../deployment.md#the-backend-check) has the user-facing rules.
 
 An Adapter that declares no `scope` is not reported. A third-party Adapter is the author's promise to keep, and grelmicro has no way to size a store it has never seen.
 

@@ -61,7 +61,7 @@ class Coordination:
     kind: ClassVar[str] = "coordination"
 
     default_requires: ClassVar[BackendScope] = "cluster"
-    """A lock, a leader and a cron fire all promise the whole fleet agrees."""
+    """Default `requires=`: a lock, a leader and a cron fire hold fleet-wide."""
 
     def __init__(
         self,
@@ -139,10 +139,9 @@ class Coordination:
                 """
                 The smallest backend scope this component accepts:
                 `"process"`, `"host"` or `"cluster"`. Defaults to
-                `"cluster"`, because a lock that excludes nothing beyond one
-                process is not a lock. Lower it to declare a single-process
-                or single-host deployment, where a narrower reach is what you
-                want. Checked when the app opens, see
+                `"cluster"`, so a lock, a leader and a cron fire hold across
+                every replica. Lower it to declare a single-process or
+                single-host deployment. Checked when the app opens, see
                 [the backend check](../deployment.md#the-backend-check).
                 """,
             ),

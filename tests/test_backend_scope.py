@@ -19,7 +19,11 @@ from grelmicro.outbox import Outbox
 from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.sqlite import SQLiteProvider
-from grelmicro.resilience import CircuitBreakerComponent, RateLimiterComponent
+from grelmicro.resilience import (
+    Bulkhead,
+    CircuitBreakerComponent,
+    RateLimiterComponent,
+)
 from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
 )
@@ -372,3 +376,18 @@ async def test_the_report_logs_straight_away_once_logging_is_configured(
         await micro.__aexit__(None, None, None)
 
     assert "MemoryLockAdapter" in caplog.records[0].getMessage()
+
+
+async def test_a_bulkhead_checks_the_components_it_opens() -> None:
+    """`Bulkhead(uses=[...])` is checked the first time the scope opens."""
+    bulkhead = Bulkhead(
+        "orders",
+        max_concurrent=1,
+        uses=[Coordination(lock=MemoryLockAdapter())],
+    )
+    micro = Grelmicro(environment="production")
+
+    async with micro:
+        with pytest.raises(BackendScopeError, match="MemoryLockAdapter"):
+            async with bulkhead:
+                pass  # pragma: no cover

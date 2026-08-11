@@ -60,7 +60,7 @@ class Outbox:
     kind: ClassVar[str] = "outbox"
 
     default_requires: ClassVar[BackendScope] = "cluster"
-    """One replica stages the message, another may relay it."""
+    """Default `requires=`: a staged message reaches a relay on any replica."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -81,8 +81,8 @@ class Outbox:
                 """
                 The smallest backend scope this component accepts:
                 `"process"`, `"host"` or `"cluster"`. Defaults to
-                `"cluster"`: the outbox stages a message on one replica for a
-                relay that may run on another. Lower it to declare a
+                `"cluster"`, so a message staged on one replica reaches the
+                relay running on another. Lower it to declare a
                 single-process or single-host deployment. Checked when the
                 app opens, see
                 [the backend check](../deployment.md#the-backend-check).

@@ -33,9 +33,8 @@ logger = logging.getLogger("grelmicro")
 ENVIRONMENT_VAR: Final = "GREL_ENVIRONMENT"
 """Variable naming the tier, read whatever `GREL_ENV_LOAD` says.
 
-The flag gates the variables that fill component fields. This one selects a
-policy, and a safety check an unset flag turns off would be off in the
-deployments that need it.
+The flag gates the variables that fill component fields. This one selects the
+severity of the backend scope check, so it is read either way.
 """
 
 ENVIRONMENTS: Final[tuple[Environment, ...]] = get_args(Environment.__value__)
@@ -78,8 +77,8 @@ _UNDECLARED_MESSAGE: Final = (
 )
 """Report text for an unmet requirement with no tier declared.
 
-Both words in one sentence: a backend provides a scope, a component requires
-one. The traceback teaches the pair where it matters.
+Names both sides of the match: a backend provides a scope, a component
+requires one.
 """
 
 _reported_unknown: set[str] = set()
@@ -90,8 +89,9 @@ _reported_unknown: set[str] = set()
 class Unmet:
     """One component whose backends do not reach as far as it requires.
 
-    A `Coordination` holds four backends, and one memory provider behind all
-    four is one mistake, so they are reported together.
+    Backends of the same scope under one component are held together, so a
+    `Coordination` whose four backends all come from one memory provider is
+    reported once.
     """
 
     component: str
@@ -123,8 +123,7 @@ def resolve_environment(explicit: Environment | None) -> Environment | None:
     """Return the declared tier, or `None` when nothing declares one.
 
     An explicit argument wins over `GREL_ENVIRONMENT`. A value outside the
-    four tiers is reported once and read as undeclared, so a fleet that names
-    a tier `preprod` keeps booting and `prodution` is loud instead of silent.
+    four tiers is reported once and read as undeclared.
     """
     if explicit is not None:
         return explicit
@@ -164,8 +163,7 @@ def _report_unknown_environment(value: str) -> None:
 def scope_of(backend: object) -> BackendScope | None:
     """Return how far `backend` shares state, or `None` when it says nothing.
 
-    An Adapter that declares no `scope` is never reported. A third-party
-    author knows how far their store reaches, and grelmicro does not.
+    An Adapter that declares no `scope` is never reported.
     """
     scope = getattr(backend, "scope", None)
     return scope if scope in _SCOPE_RANK else None
@@ -174,8 +172,8 @@ def scope_of(backend: object) -> BackendScope | None:
 def unmet_requirements(items: Iterable[object]) -> list[Unmet]:
     """Return every bound backend that falls short of its component.
 
-    Only a bound backend is checked. A component that was never registered is
-    the documented way to ask for local behavior, so absence is no finding.
+    Only a bound backend is checked. A component that holds none, or that
+    declares no requirement, is passed over.
     """
     grouped: dict[tuple[str, BackendScope, BackendScope], list[str]] = {}
     for item in items:
