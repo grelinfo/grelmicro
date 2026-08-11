@@ -14,6 +14,7 @@ from grelmicro.config import ExternalConfig
 from grelmicro.errors import (
     AdapterNotRegisteredError,
     AdmissionError,
+    BackendScopeError,
     DependencyNotFoundError,
     GrelmicroConfigWarning,
     GrelmicroError,
@@ -28,6 +29,7 @@ __all__ = [
     "AdmissionError",
     "AmbientBindingError",
     "AmbiguousProviderError",
+    "BackendScopeError",
     "Component",
     "ComponentAlreadyRegisteredError",
     "ComponentNotRegisteredError",

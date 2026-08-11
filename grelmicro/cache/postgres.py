@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import re
 from logging import getLogger
-from typing import TYPE_CHECKING, Annotated, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -26,6 +26,8 @@ _JANITOR_JITTER = 0.2
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from types import TracebackType
+
+    from grelmicro.types import BackendScope
 
 
 class PostgresCacheAdapter(CacheBackend):
@@ -61,6 +63,9 @@ class PostgresCacheAdapter(CacheBackend):
 
     Read more in the [Cache](../cache.md) docs.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     _SQL_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS {table_name} (

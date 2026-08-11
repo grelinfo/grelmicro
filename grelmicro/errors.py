@@ -19,6 +19,20 @@ class GrelmicroConfigWarning(UserWarning):
     """
 
 
+class BackendScopeError(GrelmicroError, RuntimeError):
+    """Raised when a backend does not reach as far as its component requires.
+
+    A `Lock` on a memory backend excludes nothing once a second replica runs.
+    So in `staging` and `production`, a component bound to a backend whose
+    `scope` falls short of what it requires refuses to open, before the first
+    connection is made. Wire a backend that reaches far enough, or pass
+    `requires=` to declare the reach you meant.
+
+    `micro.check_backends()` raises the same error from a test, so the wiring
+    is answered for before a pod answers for it.
+    """
+
+
 class AdmissionError(GrelmicroError):
     """Raised when a gatekeeping primitive refuses a call.
 

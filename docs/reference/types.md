@@ -9,3 +9,5 @@
         - SecretUrl
         - TimeZoneName
         - LogLevel
+        - Environment
+        - BackendScope

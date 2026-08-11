@@ -46,6 +46,12 @@ The first request with a given key runs `do_charge` and stores the response. Any
 
 Redis needs the `redis` extra: `pip install "grelmicro[redis]"`. Tests swap the provider for the memory backend, see [Testing](testing.md).
 
+A replay has to find the stored response wherever the retry lands, so the `Cache` behind an `Idempotency` has to be shared by every replica. A `Cache` alone is happy on the memory backend, so say what this one is for and the [backend check](deployment.md#the-backend-check) holds you to it:
+
+```python
+micro = Grelmicro(uses=[redis, Cache(redis, requires="cluster")])
+```
+
 ## HTTP middleware
 
 The quick start reads the key and opens a block in every handler that needs one. `IdempotencyMiddleware` does it once, for the whole app.

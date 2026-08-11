@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+* ✨ Refuse to start when a backend cannot keep the promise its component makes. Declare the tier with `GREL_ENVIRONMENT` or `Grelmicro(environment=...)`, and in `production` or `staging` a `Coordination` or `Outbox` bound to a memory or SQLite backend raises `BackendScopeError` before the first connection opens. A lock that excludes nothing the moment a second replica starts used to say nothing at all. ([#683](https://github.com/grelinfo/grelmicro/issues/683))
+* ✨ Add `scope` to every adapter and `requires=` to every component that holds a backend. A backend provides a scope (`process`, `host` or `cluster`), a component requires one, and `Coordination(memory, requires="process")` declares a single-process deployment instead of muting a check. `RateLimiterComponent(redis, requires="cluster")` reads the other way and fails the day someone points it at memory. ([#683](https://github.com/grelinfo/grelmicro/issues/683))
+* ✨ Report the same finding as a warning on two channels when no tier is declared, and stay silent in `development` and `test`. A value naming no tier, such as `preprod`, warns and reads as undeclared, so a fleet with its own tier names keeps booting and `prodution` is loud instead of silent. ([#683](https://github.com/grelinfo/grelmicro/issues/683))
+* ✨ Add `micro.check_backends()`, which answers for production from a process that declares something else, so a test catches the wiring before a pod does. It raises `BackendScopeError` naming every binding that does not hold. ([#683](https://github.com/grelinfo/grelmicro/issues/683))
+* ✨ Set the OpenTelemetry `deployment.environment.name` resource attribute from the declared tier, so one variable gates the check and names the environment in every trace. ([#683](https://github.com/grelinfo/grelmicro/issues/683))
+
 ### Breaking
 
 * 💥 Settle on **Component** as the one word for app-level wiring. `RateLimiterRegistry` becomes `RateLimiterComponent` and `CircuitBreakerRegistry` becomes `CircuitBreakerComponent`. Neither ever registered anything: each wraps one backend, so the name borrowed a contract it did not honor. Update `uses=[...]` and imports. ([#682](https://github.com/grelinfo/grelmicro/issues/682))

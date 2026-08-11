@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
     from grelmicro.outbox._message import Message
     from grelmicro.outbox._protocol import OutboxBackend
+    from grelmicro.types import BackendScope
 
 
 class Outbox:
@@ -58,6 +59,9 @@ class Outbox:
 
     kind: ClassVar[str] = "outbox"
 
+    default_requires: ClassVar[BackendScope] = "cluster"
+    """One replica stages the message, another may relay it."""
+
     def __init__(  # noqa: PLR0913
         self,
         source: Annotated[
@@ -71,6 +75,20 @@ class Outbox:
             ),
         ],
         *,
+        requires: Annotated[
+            BackendScope | None,
+            Doc(
+                """
+                The smallest backend scope this component accepts:
+                `"process"`, `"host"` or `"cluster"`. Defaults to
+                `"cluster"`: the outbox stages a message on one replica for a
+                relay that may run on another. Lower it to declare a
+                single-process or single-host deployment. Checked when the
+                app opens, see
+                [the backend check](../deployment.md#the-backend-check).
+                """,
+            ),
+        ] = None,
         name: Annotated[str, Doc("Registration name.")] = "default",
         config: Annotated[
             OutboxConfig | None,
@@ -129,6 +147,7 @@ class Outbox:
     ) -> None:
         """Initialize the component and resolve its config and backend."""
         self._name = name
+        self._requires: BackendScope = requires or self.default_requires
         self._config = resolve_config(
             OutboxConfig,
             explicit=config,
@@ -172,6 +191,11 @@ class Outbox:
     def name(self) -> str:
         """Return the registration name."""
         return self._name
+
+    @property
+    def requires(self) -> BackendScope:
+        """The smallest backend scope this component accepts."""
+        return self._requires
 
     @property
     def config(self) -> OutboxConfig:

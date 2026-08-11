@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from math import ceil
 from types import TracebackType
-from typing import Annotated, Self
+from typing import Annotated, ClassVar, Self
 
 from lightkube import AsyncClient, KubeConfig
 from lightkube.core.exceptions import ApiError
@@ -28,6 +28,7 @@ from grelmicro.coordination._protocol import (
 )
 from grelmicro.coordination.errors import CoordinationSettingsValidationError
 from grelmicro.errors import OutOfContextError
+from grelmicro.types import BackendScope
 
 _LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
 _LABEL_MANAGED_BY_VALUE = "grelmicro"
@@ -123,6 +124,9 @@ class KubernetesLockAdapter(LockBackend):
     across release and re-acquire cycles. The Lease is never deleted while the
     backend is open.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     def __init__(
         self,
@@ -477,6 +481,9 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
     Kubernetes-native deployment with few, long-lived readers. Reach for
     Redis or PostgreSQL for a hot read path.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     def __init__(
         self,
@@ -943,6 +950,9 @@ class KubernetesLeaderElectionAdapter:
     with its `resourceVersion` and written back with it, so a concurrent writer
     loses the race with a 409 Conflict.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     def __init__(
         self,

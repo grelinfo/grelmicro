@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from grelmicro import _config
+from grelmicro import _config, _environment
 from grelmicro.clock import VirtualClock
 
 
@@ -36,6 +36,19 @@ def _opt_in_env_config(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _declare_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Declare the tier so the backend scope check stays quiet by default.
+
+    The suite wires memory backends everywhere, which an undeclared
+    environment reports once per app, and `filterwarnings = ["error"]` turns
+    every report into a failure. Declaring `test` is what the docs ask of a
+    test suite, so the suite does it. Tests that exercise the check set
+    `GREL_ENVIRONMENT` themselves or pass `environment=`.
+    """
+    monkeypatch.setenv("GREL_ENVIRONMENT", "test")
+
+
+@pytest.fixture(autouse=True)
 def _reset_ignored_env_reports(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reset the process-wide ignored-variable report state.
 
@@ -45,4 +58,6 @@ def _reset_ignored_env_reports(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     _config._warned_ignored_env.clear()
     _config._pending_ignored_env.clear()
+    _config._pending_reports.clear()
+    _environment._reported_unknown.clear()
     monkeypatch.setattr(_config, "_logging_configured", False)

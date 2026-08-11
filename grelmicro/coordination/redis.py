@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from types import TracebackType
 
+    from grelmicro.types import BackendScope
+
 
 class RedisLockAdapter(LockBackend):
     """Redis Lock Adapter.
@@ -39,6 +41,9 @@ class RedisLockAdapter(LockBackend):
     re-acquire keeps climbing. Tokens are strictly monotonic against a single
     Redis master.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     _LUA_ACQUIRE_OR_EXTEND = """
         -- KEYS[1] = lock key, KEYS[2] = fence counter key
@@ -214,6 +219,9 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
     own acquire drops the readers that expired instead of waiting for a
     whole-key TTL.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     _LUA_NOW = """
         local t = redis.call('TIME')
@@ -576,6 +584,9 @@ class RedisScheduleAdapter(ScheduleBackend):
     rely on the default `env_prefix=` to build one from environment variables.
     """
 
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
+
     _LUA_CLAIM = """
         -- KEYS[1] = last_fired key
         -- ARGV[1] = due epoch
@@ -700,6 +711,9 @@ class RedisLeaderElectionAdapter:
     rely on the default `env_prefix=` to build one from environment
     variables.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     _LUA_ACQUIRE_OR_RENEW = """
         local key = KEYS[1]

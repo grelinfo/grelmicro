@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from grelmicro.cache._protocol import CacheBackend
     from grelmicro.cache.serializers import CacheSerializer
+    from grelmicro.types import BackendScope
 
 
 class Cache:
@@ -54,6 +55,9 @@ class Cache:
 
     kind: ClassVar[str] = "cache"
 
+    default_requires: ClassVar[BackendScope] = "process"
+    """A cache per replica is the standard shape, so any backend will do."""
+
     def __init__(
         self,
         source: Annotated[
@@ -68,6 +72,20 @@ class Cache:
             ),
         ],
         *,
+        requires: Annotated[
+            BackendScope | None,
+            Doc(
+                """
+                The smallest backend scope this component accepts:
+                `"process"`, `"host"` or `"cluster"`. Defaults to `"process"`,
+                since a cache per replica is a normal thing to want. Raise it
+                to `"cluster"` for a cache an `Idempotency` reads from, where
+                a replay has to find the stored response wherever the retry
+                lands. Checked when the app opens, see
+                [the backend check](../deployment.md#the-backend-check).
+                """,
+            ),
+        ] = None,
         name: Annotated[
             str,
             Doc(
@@ -80,6 +98,7 @@ class Cache:
     ) -> None:
         """Initialize the component with the wrapped backend."""
         self._name = name
+        self._requires: BackendScope = requires or self.default_requires
         resolved = cast(
             "Provider | CacheBackend",
             instantiate_if_class(source),
@@ -93,6 +112,11 @@ class Cache:
     def name(self) -> str:
         """Return the registration name."""
         return self._name
+
+    @property
+    def requires(self) -> BackendScope:
+        """The smallest backend scope this component accepts."""
+        return self._requires
 
     @property
     def backend(self) -> CacheBackend:

@@ -17,7 +17,11 @@ from grelmicro.trace import (
     TraceExporterType,
     TraceSamplerType,
 )
-from grelmicro.trace._component import _exporter_kwargs, _resolve_exporter_type
+from grelmicro.trace._component import (
+    _declared_environment,
+    _exporter_kwargs,
+    _resolve_exporter_type,
+)
 from grelmicro.trace.errors import (
     TraceError,
     TraceSettingsValidationError,
@@ -505,3 +509,35 @@ def test_invalid_value_does_not_echo_the_credential() -> None:
         TraceConfig(sample_ratio=-1, endpoint="https://usr:s3cret@collector")
 
     assert "s3cret" not in str(excinfo.value)
+
+
+async def test_declared_environment_becomes_a_resource_attribute() -> None:
+    """The tier that gates the backend check names the tier in every span."""
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE)],
+        environment="staging",
+    )
+
+    async with micro:
+        resource = micro.trace.provider.resource
+        assert resource.attributes["deployment.environment.name"] == "staging"
+
+
+async def test_an_undeclared_environment_writes_no_attribute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no tier declared, the OTel env detector is left to answer."""
+    monkeypatch.delenv("GREL_ENVIRONMENT", raising=False)
+    micro = Grelmicro(uses=[Trace(exporter=TraceExporterType.NONE)])
+
+    async with micro:
+        resource = micro.trace.provider.resource
+        assert "deployment.environment.name" not in resource.attributes
+
+
+def test_the_environment_is_read_without_an_active_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `Trace` opened on its own still reads `GREL_ENVIRONMENT`."""
+    monkeypatch.setenv("GREL_ENVIRONMENT", "production")
+    assert _declared_environment() == "production"

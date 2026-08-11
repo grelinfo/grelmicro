@@ -38,7 +38,7 @@ from grelmicro.errors import GrelmicroConfigWarning
 
 if TYPE_CHECKING:
     import asyncio
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from grelmicro.errors import SettingsValidationError
 else:
@@ -232,6 +232,13 @@ A component resolves its config before logging is configured, so the names
 queue here until `flush_ignored_env_reports` drains them.
 """
 
+_pending_reports: deque[Callable[[], None]] = deque()
+"""Startup reports from elsewhere in grelmicro, waiting for logging.
+
+Same queue discipline as `_pending_ignored_env`, for a report that carries
+more than a variable name. `_environment` puts the backend scope report here.
+"""
+
 _logging_configured = False
 """True while `grelmicro.log` has its handlers installed."""
 
@@ -308,6 +315,21 @@ def flush_ignored_env_reports() -> None:
     _logging_configured = True
     while _pending_ignored_env:
         _log_ignored_env(_pending_ignored_env.popleft())
+    while _pending_reports:
+        _pending_reports.popleft()()
+
+
+def defer_report(emit: Callable[[], None]) -> None:
+    """Emit a startup log record now, or queue it until logging is configured.
+
+    The `warnings` channel fires where the report is made. The log record
+    waits, so a report made before `Log` installs its handlers still lands in
+    the log stream instead of a root logger with nothing on it.
+    """
+    if _logging_configured:
+        emit()
+    else:
+        _pending_reports.append(emit)
 
 
 def hold_ignored_env_reports() -> None:

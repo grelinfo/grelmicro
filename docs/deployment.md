@@ -3,6 +3,139 @@
 What a container image and a Kubernetes manifest need before they run a
 grelmicro application in production.
 
+## Declare the environment
+
+Set `GREL_ENVIRONMENT=production` in the manifest of every deployed
+environment:
+
+```bash
+GREL_ENVIRONMENT=production
+```
+
+Four values gate: `development`, `test`, `staging`, and `production`. They are
+the well-known values of the OpenTelemetry
+[`deployment.environment.name`](https://opentelemetry.io/docs/specs/semconv/resource/deployment-environment/)
+attribute, and grelmicro writes the declared value into that attribute on the
+tracer resource, so the same variable names your environment in every trace.
+
+Declaring `production` or `staging` turns on the backend check below. This is
+the one place to set it per environment, so unlike `GREL_ENV_LOAD` it belongs
+in the manifest rather than the image.
+
+Any other value still reaches your traces, because OpenTelemetry allows one,
+but it names no tier grelmicro can act on, so the check reads it as
+undeclared and says so:
+
+```
+GrelmicroConfigWarning: GREL_ENVIRONMENT='preprod' is not one of development,
+test, staging, production, so the backend check runs as if it were
+undeclared.
+```
+
+A fleet that calls its tiers `qa` and `preprod` keeps booting, and
+`prodution` is loud instead of silent.
+
+The value names a tier, not the name your organisation gave the environment.
+Map yours to the closest of the four: a deployed environment that runs more
+than one replica is `staging`, a throwaway CI run is `test`. You know which
+one an environment called `integration` is, and grelmicro does not.
+
+### The backend check
+
+A `Lock` on a memory backend is not a lock. It excludes nothing once a second
+replica runs, and without a check it says nothing about it. So in `production`
+and `staging`, a pattern that promises a guarantee across replicas refuses to
+start on a backend that cannot deliver it:
+
+```
+BackendScopeError: Coordination('default') is bound to MemoryLockAdapter,
+which provides scope 'process', but requires scope 'cluster' in environment
+'production'. Use a Redis, Valkey, Postgres, or Kubernetes backend, or pass
+requires= to say what reach you want.
+```
+
+A backend provides a scope, a component requires one. The message names both
+sides, so the fix is in the sentence that reports the problem.
+
+The check runs before the first connection opens, so a misconfigured pod
+fails at boot instead of on the request that needed the lock.
+
+Every backend has a **scope**, and every component **requires** one:
+
+| Backend scope | Backends | State is shared by |
+| --- | --- | --- |
+| `process` | Memory | One process |
+| `host` | SQLite | The processes on one host |
+| `cluster` | Redis, Valkey, Postgres, Kubernetes | Every process that connects |
+
+`cluster` means every process connected to that backend, wherever those
+processes run. One Redis serving two Kubernetes clusters still holds one lock.
+
+`Coordination` and `Outbox` require `cluster`, because a lock, a leader, a
+distributed cron and an outbox all promise something across replicas. `Cache`,
+`RateLimiterComponent` and `CircuitBreakerComponent` require `process`: a
+per-replica cache and a per-replica circuit breaker are the standard shape,
+not a mistake.
+
+Say what you want with `requires=` and the default no longer applies:
+
+```python
+--8<-- "deployment/requires.py"
+```
+
+It reads in both directions. Lower the bar to accept the scope you have, or
+raise it to make the wiring you meant a startup condition: a
+`RateLimiterComponent(redis, requires="cluster")` fails at boot the day
+someone points it at memory. A `Cache` that an
+[`Idempotency`](idempotency.md) reads from wants `requires="cluster"` too,
+because a replay has to find the stored response wherever the retry lands.
+
+Only a bound backend is checked. A component you never registered is the
+[documented way](architecture/backends.md#distribution-model) to say you want
+local behavior: a `@cron` with no `Coordination` fires on every replica on
+purpose. Wiring a memory schedule backend instead says you expected the fleet
+to agree, so that one is reported.
+
+### When the environment is not declared
+
+An undeclared environment still reports a backend that cannot keep its
+promise. The report is a `GrelmicroConfigWarning` and a `WARNING` on the
+`grelmicro` logger, once at startup, on both channels like the
+[ignored-variable report](#when-the-flag-is-missing):
+
+```
+GrelmicroConfigWarning: Coordination('default') is bound to MemoryLockAdapter,
+which provides scope 'process', but requires scope 'cluster'. Set
+GREL_ENVIRONMENT to declare where this runs, or pass requires='process' to
+say that is the reach you want.
+```
+
+So the three states differ in severity, not in what they find:
+
+| `GREL_ENVIRONMENT` | A backend that cannot keep the promise |
+| --- | --- |
+| `production`, `staging` | `BackendScopeError` at startup |
+| unset | Warning on both channels, once |
+| `development`, `test` | Nothing |
+
+Declare `test` in your test suite and the memory backends every test wires up
+go quiet. [Testing](testing.md#declare-the-test-environment) shows where.
+
+### Check it before it deploys
+
+`micro.check_backends()` asks the question the deployed app will ask, from a
+process that declares something else, so a test catches the wiring before a
+pod does. It raises the same `BackendScopeError`, naming every binding that
+does not hold:
+
+```python
+def test_backends_hold_across_replicas() -> None:
+    micro.check_backends()
+```
+
+It checks against `production` by default. Pass `environment=` to ask about
+another one.
+
 ## Turn on environment configuration
 
 Set `GREL_ENV_LOAD=1` in the image:
@@ -11,10 +144,14 @@ Set `GREL_ENV_LOAD=1` in the image:
 ENV GREL_ENV_LOAD=1
 ```
 
-Every `GREL_*` variable is read only when this flag is truthy (`1`, `true`,
-`yes`, `on`). Without it, a pod that sets `GREL_LOG_LEVEL=DEBUG` logs at
-`INFO`, and a pod that sets `GREL_LOCK_CART_LEASE_DURATION=120` keeps the
-60 second default.
+Every `GREL_*` variable that fills a component field is read only when this
+flag is truthy (`1`, `true`, `yes`, `on`). Without it, a pod that sets
+`GREL_LOG_LEVEL=DEBUG` logs at `INFO`, and a pod that sets
+`GREL_LOCK_CART_LEASE_DURATION=120` keeps the 60 second default.
+
+`GREL_ENVIRONMENT` is the exception, along with the flag itself. Neither
+fills a component field, and a safety check behind an opt-in flag would be
+off in the pods that need it most.
 
 Provider variables are not gated. `REDIS_URL`, `VALKEY_URL`, `POSTGRES_URL`
 and `SQLITE_PATH` are read out of the box, because those names belong to your
@@ -161,6 +298,8 @@ spec:
           ports:
             - containerPort: 8000
           env:
+            - name: GREL_ENVIRONMENT
+              value: production
             - name: GREL_LOG_LEVEL
               value: INFO
             - name: GREL_LOCK_CART_LEASE_DURATION
@@ -200,6 +339,8 @@ change the image, and then put it in every copy of the manifest.
 
 ## Checklist
 
+- [ ] `GREL_ENVIRONMENT` is set in every deployed environment.
+- [ ] `micro.check_backends()` is asserted in a test.
 - [ ] `GREL_ENV_LOAD=1` is in the image.
 - [ ] The startup logs carry no `variable` field.
 - [ ] `GREL_LOG_LEVEL` is set per environment, and the format is left to `AUTO`.

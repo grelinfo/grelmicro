@@ -23,6 +23,12 @@ variable that is missing fails at construction and names the variable it
 wanted, so there is no silent default to protect you from. Pass
 `env_load=False` to a provider to turn its env reads off.
 
+Two `GREL_*` names sit outside the flag as well, because neither fills a
+component field. `GREL_ENV_LOAD` is the flag. `GREL_ENVIRONMENT` says where
+the app runs, which decides how a backend that cannot keep a promise across
+replicas is reported: see
+[the backend check](deployment.md#the-backend-check).
+
 Step 2 is the one that surprises people. `GREL_ENV_LOAD` is a single
 process-wide switch, so a variable set without it is ignored and the default
 applies. That situation reports at startup instead of passing silently, naming

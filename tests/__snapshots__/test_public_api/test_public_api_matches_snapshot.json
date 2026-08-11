@@ -6,6 +6,7 @@
     "AdmissionError": null,
     "AmbientBindingError": null,
     "AmbiguousProviderError": null,
+    "BackendScopeError": null,
     "Component": {
       "()": "(*args, **kwargs)"
     },
@@ -18,7 +19,7 @@
       "()": "(config=..., *, secrets=..., reload_interval=...)"
     },
     "Grelmicro": {
-      "()": "(*, uses=..., strict=..., allow_multiple=...)",
+      "()": "(*, uses=..., environment=..., strict=..., allow_multiple=...)",
       ".current": "()"
     },
     "GrelmicroConfigWarning": null,
@@ -41,7 +42,7 @@
   },
   "grelmicro.cache": {
     "Cache": {
-      "()": "(source, *, name=...)",
+      "()": "(source, *, requires=..., name=...)",
       ".cached": "(cache=..., *, ttl=..., maxsize=..., key=..., key_maker=..., skip=..., typed=..., lock=..., early=..., stale_ttl=..., tags=...)"
     },
     "CacheBackend": {
@@ -112,7 +113,7 @@
   },
   "grelmicro.coordination": {
     "Coordination": {
-      "()": "(source=..., *, lock=..., election=..., rwlock=..., schedule=..., name=...)"
+      "()": "(source=..., *, lock=..., election=..., rwlock=..., schedule=..., requires=..., name=...)"
     },
     "CoordinationBackendError": null,
     "CoordinationError": null,
@@ -365,7 +366,7 @@
       "()": "(*args, **kwargs)"
     },
     "CircuitBreakerComponent": {
-      "()": "(source, *, name=...)"
+      "()": "(source, *, requires=..., name=...)"
     },
     "CircuitBreakerConfig": {
       "()": "(*args, **kwargs)"
@@ -472,7 +473,7 @@
       "()": "(*args, **kwargs)"
     },
     "RateLimiterComponent": {
-      "()": "(source, *, name=...)"
+      "()": "(source, *, requires=..., name=...)"
     },
     "RateLimiterConfig": {
       "()": "(*args, **kwargs)"

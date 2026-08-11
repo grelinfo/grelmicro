@@ -7,7 +7,7 @@ import contextlib
 import re
 from logging import getLogger
 from time import time
-from typing import TYPE_CHECKING, Annotated, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -27,6 +27,8 @@ _JANITOR_JITTER = 0.2
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from types import TracebackType
+
+    from grelmicro.types import BackendScope
 
 
 class SQLiteCacheAdapter(CacheBackend):
@@ -68,6 +70,9 @@ class SQLiteCacheAdapter(CacheBackend):
 
     Read more in the [Cache](../cache.md) docs.
     """
+
+    scope: ClassVar[BackendScope] = "host"
+    """State is shared by the processes that open the same file."""
 
     _SQL_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS {table_name} (

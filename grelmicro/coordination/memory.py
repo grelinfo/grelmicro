@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from time import monotonic
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
 from grelmicro.coordination._protocol import (
     LeaderRecord,
@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from types import TracebackType
 
+    from grelmicro.types import BackendScope
+
 
 class MemoryLockAdapter(LockBackend):
     """Memory Lock Adapter.
@@ -28,6 +30,9 @@ class MemoryLockAdapter(LockBackend):
     This is not a backend with a real distributed lock. It is a local lock that can be used for
     testing purposes or for locking operations that are executed in the same asyncio event loop.
     """
+
+    scope: ClassVar[BackendScope] = "process"
+    """State lives in this process and is not shared beyond it."""
 
     def __init__(self) -> None:
         """Initialize the lock backend."""
@@ -109,6 +114,9 @@ class MemoryReadWriteLockAdapter(ReadWriteLockBackend):
     it holds the lock. Use a Redis, Postgres, SQLite, or Kubernetes backend
     across nodes.
     """
+
+    scope: ClassVar[BackendScope] = "process"
+    """State lives in this process and is not shared beyond it."""
 
     def __init__(self) -> None:
         """Initialize the read-write lock backend."""
@@ -240,6 +248,9 @@ class MemoryScheduleAdapter(ScheduleBackend):
     SQLite backend for durable distributed cron.
     """
 
+    scope: ClassVar[BackendScope] = "process"
+    """State lives in this process and is not shared beyond it."""
+
     def __init__(self) -> None:
         """Initialize an empty schedule store."""
         self._last_fired: dict[str, float] = {}
@@ -283,6 +294,9 @@ class MemoryLeaderElectionAdapter:
     process believes it leads. Use a Redis, Postgres, or Kubernetes backend
     for real elections.
     """
+
+    scope: ClassVar[BackendScope] = "process"
+    """State lives in this process and is not shared beyond it."""
 
     def __init__(self) -> None:
         """Initialize an empty record store."""

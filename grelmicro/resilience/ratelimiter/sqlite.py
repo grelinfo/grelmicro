@@ -6,7 +6,7 @@ import asyncio
 import math
 import re
 from time import time
-from typing import TYPE_CHECKING, Annotated, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self, assert_never
 
 from typing_extensions import Doc
 
@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     import aiosqlite
+
+    from grelmicro.types import BackendScope
 
 
 class SQLiteRateLimiterAdapter(RateLimiterBackend):
@@ -48,6 +50,9 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
+
+    scope: ClassVar[BackendScope] = "host"
+    """State is shared by the processes that open the same file."""
 
     _SQL_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS {table_name} (

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from threading import Lock
-from typing import TYPE_CHECKING, Annotated, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self, assert_never
 
 from typing_extensions import Doc
 
@@ -19,6 +19,8 @@ from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+    from grelmicro.types import BackendScope
 
 _EVICTION_THRESHOLD = 1000
 
@@ -186,6 +188,9 @@ class MemoryRateLimiterAdapter(RateLimiterBackend):
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
+
+    scope: ClassVar[BackendScope] = "process"
+    """State lives in this process and is not shared beyond it."""
 
     def __init__(self) -> None:
         """Initialize the rate limiter adapter."""

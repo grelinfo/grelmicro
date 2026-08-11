@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from types import TracebackType
 
+    from grelmicro.types import BackendScope
+
 
 class PostgresLockAdapter(LockBackend):
     """PostgreSQL Lock Adapter.
@@ -38,6 +40,9 @@ class PostgresLockAdapter(LockBackend):
     clears the holder and expiry but keeps the row and its fence, so the
     fence is strictly monotonic per name across release and re-acquire cycles.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (
@@ -246,6 +251,9 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
     the next acquire instead of holding writers out until some shared expiry
     fires.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     _SQL_CREATE_TABLES = """
         CREATE TABLE IF NOT EXISTS {table_name} (
@@ -687,6 +695,9 @@ class PostgresScheduleAdapter(ScheduleBackend):
     on the default `env_prefix=` to build one from environment variables.
     """
 
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
+
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     name TEXT PRIMARY KEY,
@@ -850,6 +861,9 @@ class PostgresLeaderElectionAdapter:
     backend = PostgresLeaderElectionAdapter(provider=postgres)
     ```
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     is_shared: ClassVar[bool] = True
 

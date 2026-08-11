@@ -14,7 +14,14 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol, Self, cast
 from typing_extensions import Doc
 
 from grelmicro._component import Component, Usable, instantiate_if_class
+from grelmicro._environment import (
+    report_unmet_requirements,
+    resolve_environment,
+    strict_message,
+    unmet_requirements,
+)
 from grelmicro.errors import (
+    BackendScopeError,
     GrelmicroError,
     MultipleActiveAppsError,
     OutOfContextError,
@@ -29,6 +36,7 @@ if TYPE_CHECKING:
     from grelmicro.coordination._component import Coordination
     from grelmicro.log._component import Log
     from grelmicro.trace._component import Trace
+    from grelmicro.types import Environment
 else:
     # Runtime fallback so `typing.get_type_hints(Grelmicro)` resolves the
     # `coordination` / `cache` property annotations without forcing first-party
@@ -36,6 +44,7 @@ else:
     # static type checkers via the `TYPE_CHECKING` branch above.
     Cache = Any
     Coordination = Any
+    Environment = Any
     Log = Any
     Trace = Any
 
@@ -158,6 +167,24 @@ class Grelmicro:
                 """,
             ),
         ] = None,
+        environment: Annotated[
+            Environment | None,
+            Doc(
+                """
+                The deployment tier this app runs in: `"development"`,
+                `"test"`, `"staging"` or `"production"`. Falls back to
+                `GREL_ENVIRONMENT`, which is read whatever `GREL_ENV_LOAD`
+                says, and stays `None` when neither declares one.
+
+                `"staging"` and `"production"` make an unmet backend scope a
+                `BackendScopeError` at startup, `"development"` and `"test"`
+                silence it, and an undeclared tier reports it once as a
+                warning. The declared value also becomes the OpenTelemetry
+                `deployment.environment.name` resource attribute. See
+                [the backend check](deployment.md#the-backend-check).
+                """,
+            ),
+        ] = None,
         strict: Annotated[
             bool,
             Doc(
@@ -191,6 +218,7 @@ class Grelmicro:
         self._exit_stack: AsyncExitStack | None = None
         self._token: Any = None
         self._strict = strict
+        self._environment = resolve_environment(environment)
         self._allow_multiple = allow_multiple
         self._pending_providers: list[Provider] = []
         self._deferring_provider_defaults = uses is not None
@@ -204,6 +232,47 @@ class Grelmicro:
             finally:
                 self._deferring_provider_defaults = False
             self._register_provider_defaults()
+
+    @property
+    def environment(self) -> Environment | None:
+        """The declared deployment tier, or `None` when nothing declares one.
+
+        Resolved once at construction from `Grelmicro(environment=...)`, then
+        `GREL_ENVIRONMENT`. A value naming no tier reads as `None`.
+        """
+        return self._environment
+
+    def check_backends(
+        self,
+        environment: Annotated[
+            Environment,
+            Doc(
+                """
+                The tier to answer for. Defaults to `"production"`, so the
+                answer holds for the deployment rather than for the process
+                running the check.
+                """,
+            ),
+        ] = "production",
+    ) -> None:
+        """Check every bound backend against what its component requires.
+
+        Asks the question the deployed app will ask, from a process that
+        declares something else, so a test catches the wiring before a pod
+        does:
+
+        ```python
+        def test_backends_hold_across_replicas() -> None:
+            micro.check_backends()
+        ```
+
+        Raises:
+            BackendScopeError: If any bound backend reaches less far than its
+                component requires, naming every one of them.
+        """
+        unmet = unmet_requirements(self._items)
+        if unmet:
+            raise BackendScopeError(strict_message(unmet, environment))
 
     @classmethod
     def current(cls) -> Grelmicro:
@@ -904,6 +973,9 @@ class Grelmicro:
             self._discover_shared_providers()
             self._order_providers_before_dependents()
             self._resolve_provider_sharing()
+            report_unmet_requirements(
+                unmet_requirements(self._items), self._environment
+            )
             self._exit_stack = AsyncExitStack()
             await self._exit_stack.__aenter__()
             self._token = _current_micro.set(self)

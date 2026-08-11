@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, assert_never
 
 from typing_extensions import Doc
 
@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from redis.asyncio import Redis
+
+    from grelmicro.types import BackendScope
 
 
 class RedisRateLimiterAdapter(RateLimiterBackend):
@@ -46,6 +48,9 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     def __init__(
         self,
