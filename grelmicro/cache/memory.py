@@ -4,9 +4,10 @@ import asyncio
 from collections.abc import Iterable, Mapping, Sequence
 from time import monotonic
 from types import TracebackType
-from typing import Self
+from typing import ClassVar, Self
 
 from grelmicro.cache._protocol import CacheBackend
+from grelmicro.types import BackendScope
 
 
 class MemoryCacheAdapter(CacheBackend):
@@ -21,6 +22,9 @@ class MemoryCacheAdapter(CacheBackend):
     the key from every tag it belonged to, so no tag ever points at a
     key that is gone.
     """
+
+    scope: ClassVar[BackendScope] = "process"
+    """State lives in this process and is not shared beyond it."""
 
     def __init__(self) -> None:
         """Initialize the memory cache backend."""

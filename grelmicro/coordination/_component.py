@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         ReadWriteLockBackend,
         ScheduleBackend,
     )
+    from grelmicro.types import BackendScope
 
 
 class Coordination:
@@ -58,6 +59,9 @@ class Coordination:
     """
 
     kind: ClassVar[str] = "coordination"
+
+    default_requires: ClassVar[BackendScope] = "cluster"
+    """Default `requires=`: a lock, a leader and a cron fire hold fleet-wide."""
 
     def __init__(
         self,
@@ -129,6 +133,19 @@ class Coordination:
                 """,
             ),
         ] = None,
+        requires: Annotated[
+            BackendScope | None,
+            Doc(
+                """
+                The smallest backend scope this component accepts:
+                `"process"`, `"host"` or `"cluster"`. Defaults to
+                `"cluster"`, so a lock, a leader and a cron fire hold across
+                every replica. Lower it to declare a single-process or
+                single-host deployment. Checked when the app opens, see
+                [the backend check](../deployment.md#the-backend-check).
+                """,
+            ),
+        ] = None,
         name: Annotated[
             str,
             Doc(
@@ -141,6 +158,7 @@ class Coordination:
     ) -> None:
         """Initialize the component with the wrapped backends."""
         self._name = name
+        self._requires: BackendScope = requires or self.default_requires
         self._lock_backend: LockBackend | None = None
         self._rwlock_backend: ReadWriteLockBackend | None = None
         self._election_backend: LeaderElectionBackend | None = None
@@ -216,6 +234,11 @@ class Coordination:
     def name(self) -> str:
         """Return the registration name."""
         return self._name
+
+    @property
+    def requires(self) -> BackendScope:
+        """The smallest backend scope this component accepts."""
+        return self._requires
 
     @property
     def lock_backend(self) -> LockBackend:

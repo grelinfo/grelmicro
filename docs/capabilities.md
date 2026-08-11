@@ -35,6 +35,8 @@ See [Backends and Adapters](architecture/backends.md) for the full model.
 
 Valkey has no column of its own: `ValkeyProvider` serves the Redis adapters through `valkey-py`, so read the Redis column for it.
 
+Each column also has a **backend scope**, which is how far its state is shared: `process` for Memory, `host` for SQLite, `cluster` for Redis, Valkey, Postgres, and Kubernetes. A ✅ says the combination ships, not that it holds across replicas. [Deployment](deployment.md#the-backend-check) covers the startup check that keeps a `process` backend out of a `cluster` job.
+
 Legend:
 
 - ✅ ships today.

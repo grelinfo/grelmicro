@@ -6,7 +6,7 @@ import asyncio
 import re
 from contextlib import asynccontextmanager
 from math import ceil
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from aiosqlite import Connection
+
+    from grelmicro.types import BackendScope
 
 
 class SQLiteLockAdapter(LockBackend):
@@ -56,6 +58,9 @@ class SQLiteLockAdapter(LockBackend):
     micro = Grelmicro(uses=[sqlite, Coordination(lock=sqlite)])
     ```
     """
+
+    scope: ClassVar[BackendScope] = "host"
+    """State is shared by the processes that open the same file."""
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (
@@ -267,6 +272,9 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
     Lease durations are rounded up to whole seconds, the resolution SQLite
     date functions work at.
     """
+
+    scope: ClassVar[BackendScope] = "host"
+    """State is shared by the processes that open the same file."""
 
     _SQL_CREATE_TABLES = (
         """
@@ -620,6 +628,9 @@ class SQLiteScheduleAdapter(ScheduleBackend):
     micro = Grelmicro(uses=[sqlite, Coordination(schedule=sqlite)])
     ```
     """
+
+    scope: ClassVar[BackendScope] = "host"
+    """State is shared by the processes that open the same file."""
 
     _SQL_CREATE_TABLE_IF_NOT_EXISTS = """
                 CREATE TABLE IF NOT EXISTS {table_name} (

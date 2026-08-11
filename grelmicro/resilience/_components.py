@@ -16,6 +16,7 @@ if TYPE_CHECKING:
         CircuitBreakerBackend,
         RateLimiterBackend,
     )
+    from grelmicro.types import BackendScope
 
 
 class RateLimiterComponent:
@@ -53,6 +54,9 @@ class RateLimiterComponent:
 
     kind: ClassVar[str] = "ratelimiter"
 
+    default_requires: ClassVar[BackendScope] = "process"
+    """Default `requires=`: a budget counts per replica unless told otherwise."""
+
     def __init__(
         self,
         source: Annotated[
@@ -66,6 +70,20 @@ class RateLimiterComponent:
             ),
         ],
         *,
+        requires: Annotated[
+            BackendScope | None,
+            Doc(
+                """
+                The smallest backend scope this component accepts:
+                `"process"`, `"host"` or `"cluster"`. Defaults to
+                `"process"`, so any rate limiter backend is accepted. Raise
+                it to `"cluster"` for one budget shared by the fleet, and the
+                app refuses to start on a backend that cannot share it.
+                Checked when the app opens, see
+                [the backend check](../deployment.md#the-backend-check).
+                """,
+            ),
+        ] = None,
         name: Annotated[
             str,
             Doc(
@@ -78,6 +96,7 @@ class RateLimiterComponent:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self._name = name
+        self._requires: BackendScope = requires or self.default_requires
         resolved = cast(
             "Provider | RateLimiterBackend",
             instantiate_if_class(source),
@@ -91,6 +110,11 @@ class RateLimiterComponent:
     def name(self) -> str:
         """Return the registration name."""
         return self._name
+
+    @property
+    def requires(self) -> BackendScope:
+        """The smallest backend scope this component accepts."""
+        return self._requires
 
     @property
     def backend(self) -> RateLimiterBackend:
@@ -153,6 +177,9 @@ class CircuitBreakerComponent:
 
     kind: ClassVar[str] = "circuitbreaker"
 
+    default_requires: ClassVar[BackendScope] = "process"
+    """Default `requires=`: a breaker trips on what one replica sees."""
+
     def __init__(
         self,
         source: Annotated[
@@ -168,6 +195,19 @@ class CircuitBreakerComponent:
             ),
         ],
         *,
+        requires: Annotated[
+            BackendScope | None,
+            Doc(
+                """
+                The smallest backend scope this component accepts:
+                `"process"`, `"host"` or `"cluster"`. Defaults to
+                `"process"`, so a breaker trips on what one replica sees.
+                Raise it to `"cluster"` for one verdict shared by the fleet.
+                Checked when the app opens, see
+                [the backend check](../deployment.md#the-backend-check).
+                """,
+            ),
+        ] = None,
         name: Annotated[
             str,
             Doc(
@@ -180,6 +220,7 @@ class CircuitBreakerComponent:
     ) -> None:
         """Initialize the Component with the wrapped backend."""
         self._name = name
+        self._requires: BackendScope = requires or self.default_requires
         resolved = cast(
             "Provider | CircuitBreakerBackend",
             instantiate_if_class(source),
@@ -193,6 +234,11 @@ class CircuitBreakerComponent:
     def name(self) -> str:
         """Return the registration name."""
         return self._name
+
+    @property
+    def requires(self) -> BackendScope:
+        """The smallest backend scope this component accepts."""
+        return self._requires
 
     @property
     def backend(self) -> CircuitBreakerBackend:

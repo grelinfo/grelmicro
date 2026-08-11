@@ -10,7 +10,13 @@ from typing_extensions import TypeVar
 from grelmicro._redact import redact_url
 from grelmicro._timezone import normalize_timezone_name
 
-__all__ = ["LogLevel", "SecretUrl", "TimeZoneName"]
+__all__ = [
+    "BackendScope",
+    "Environment",
+    "LogLevel",
+    "SecretUrl",
+    "TimeZoneName",
+]
 
 _TZ_ERROR_CODE = "time_zone_name"
 """Error code pydantic reports for an unusable timezone name."""
@@ -20,6 +26,24 @@ _TZ_ERROR_TEMPLATE = "{reason}"
 
 type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 """Standard logging level names, matching `logging.getLevelName` output."""
+
+type Environment = Literal["development", "test", "staging", "production"]
+"""Deployment tier the application runs in.
+
+The well-known values of the OpenTelemetry `deployment.environment.name`
+attribute. `Grelmicro(environment=...)` and `GREL_ENVIRONMENT` take one, and
+`staging` and `production` turn the backend scope check into an error. A tier
+your organisation calls something else maps onto the closest of the four.
+"""
+
+type BackendScope = Literal["process", "host", "cluster"]
+"""How far a backend shares the state it holds.
+
+Ordered: `process` is one process (Memory), `host` is the processes on one
+host (SQLite), `cluster` is every process that connects to the backend
+(Redis, Valkey, Postgres, Kubernetes). An Adapter declares its own as a
+`scope` class attribute, and a Component `requires` at least one of them.
+"""
 
 
 class TimeZoneName(str):

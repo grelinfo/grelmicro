@@ -28,6 +28,25 @@ Not every Pattern needs a backend, and the ones that do behave differently when 
 
 **Purely local.** `Retry`, `Timeout`, `Bulkhead`, `Shield`, and `Fallback` hold no shared state and never take a backend. Construct and use them directly.
 
+## Backend scope and requirement
+
+The tiers above say what a Pattern does with no backend at all. A backend that is present but too small is the harder case, because the Pattern works: a `Lock` on `MemoryLockAdapter` acquires, releases, and excludes nothing beyond the process.
+
+So an Adapter declares the **backend scope** it provides and a Component declares the scope it **requires**.
+
+```python
+class MemoryLockAdapter:
+    scope: ClassVar[BackendScope] = "process"
+```
+
+Three values, ordered: `process` (Memory) is held inside one process, `host` (SQLite) across the processes sharing one file, `cluster` (Redis, Valkey, Postgres, Kubernetes) across every process that connects to the backend. A Component is satisfied when the backend's scope is at least what it requires. `Coordination` and `Outbox` require `cluster`, the resilience Components and `Cache` require `process`, and `requires=` overrides either way.
+
+The environment decides the severity, not the verdict: `production` and `staging` make an unmet requirement a `BackendScopeError` at startup, an undeclared environment makes it a warning, and `development` and `test` silence it. [Deployment](../deployment.md#the-backend-check) has the user-facing rules.
+
+An Adapter that declares no `scope` is not reported. A third-party Adapter is the author's promise to keep, and grelmicro has no way to size a store it has never seen.
+
+## Grouping
+
 `Coordination` groups the coordination backends (lock, leader election, schedule) under one Component because they belong to one domain, though you can still wire each to a different backend (`Coordination(lock=..., election=..., schedule=...)`). Resilience instead exposes one Component per shared Pattern, because each carries an independent sharing decision.
 
 ## Construction vs registration

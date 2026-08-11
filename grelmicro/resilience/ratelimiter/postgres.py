@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Annotated, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self, assert_never
 
 from typing_extensions import Doc
 
@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from asyncpg import Pool
+
+    from grelmicro.types import BackendScope
 
 
 _RATE_LIMITER_ADVISORY_NAMESPACE = 0x67726C72_72746C6D
@@ -59,6 +61,9 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     _SQL_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS {table_name} (

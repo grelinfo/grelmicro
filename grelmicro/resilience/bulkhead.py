@@ -19,6 +19,10 @@ from grelmicro._config import (
     default_env_prefix,
     resolve_config,
 )
+from grelmicro._environment import (
+    report_unmet_requirements,
+    unmet_requirements,
+)
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import BulkheadFullError
 
@@ -290,14 +294,22 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         Entered in order so a Component borrows a provider opened just
         before it. Registered on the active app's exit stack, so they
         close when the app shuts down rather than per scope.
+
+        These components are not registered on the app, so the app cannot
+        check their backend scope at startup. They are checked here instead,
+        the first time the scope opens.
         """
         async with self._open_lock:
             if self._opened:
                 return
-            exit_stack = Grelmicro.current()._exit_stack  # noqa: SLF001
+            micro = Grelmicro.current()
+            exit_stack = micro._exit_stack  # noqa: SLF001
             if exit_stack is None:  # pragma: no cover
                 msg = "Bulkhead uses= requires an open Grelmicro app"
                 raise RuntimeError(msg)
+            report_unmet_requirements(
+                unmet_requirements(self._uses), micro.environment
+            )
             for item in self._uses:
                 await exit_stack.enter_async_context(item)
             self._opened = True

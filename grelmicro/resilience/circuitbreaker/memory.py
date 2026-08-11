@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker.consecutive_count import (
         ConsecutiveCountConfig,
     )
+    from grelmicro.types import BackendScope
 
 
 _CULL_LIMIT = 32
@@ -68,6 +69,9 @@ class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
     Use it for tests and single-process deployments. Use
     `RedisCircuitBreakerAdapter` for fleet-wide shared state.
     """
+
+    scope: ClassVar[BackendScope] = "process"
+    """State lives in this process and is not shared beyond it."""
 
     is_shared: ClassVar[bool] = False
 

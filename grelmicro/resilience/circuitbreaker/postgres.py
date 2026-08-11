@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker.consecutive_count import (
         ConsecutiveCountConfig,
     )
+    from grelmicro.types import BackendScope
 
 
 _CIRCUIT_BREAKER_ADVISORY_NAMESPACE = 0x67726362_2D636972
@@ -90,6 +91,9 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
 
     Read more in the [Circuit Breaker](../resilience/circuit-breaker.md) docs.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     is_shared: ClassVar[bool] = True
 

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro._config import resolve_config
+from grelmicro._environment import resolve_environment
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.trace.config import (
     TraceConfig,
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.trace._autoinstrument import InstrumentDirective
+    from grelmicro.types import Environment
 
 
 _logger = logging.getLogger(__name__)
@@ -316,7 +318,7 @@ class Trace:
             )
             raise TraceError(msg)
         self._prior_provider = trace._TRACER_PROVIDER  # noqa: SLF001
-        self._provider = _build_provider(config)
+        self._provider = _build_provider(config, _declared_environment())
         trace._TRACER_PROVIDER = self._provider  # noqa: SLF001
         return self
 
@@ -399,8 +401,30 @@ async def _run_with_timeout(fn: Any, timeout: float) -> bool:  # noqa: ANN401, A
     return finished
 
 
-def _build_provider(config: TraceConfig) -> Any:  # noqa: ANN401
-    """Build a `TracerProvider` from a `TraceConfig`."""
+def _declared_environment() -> Environment | None:
+    """Return the tier the active app declares, or `None`.
+
+    `Trace` opens inside `async with micro:`, so the app is resolvable. A
+    `Trace` opened on its own reads `GREL_ENVIRONMENT` directly.
+    """
+    from grelmicro._app import Grelmicro, NoActiveAppError  # noqa: PLC0415
+
+    try:
+        return Grelmicro.current().environment
+    except NoActiveAppError:
+        return resolve_environment(None)
+
+
+def _build_provider(
+    config: TraceConfig, environment: Environment | None = None
+) -> Any:  # noqa: ANN401
+    """Build a `TracerProvider` from a `TraceConfig`.
+
+    A declared environment becomes the `deployment.environment.name` resource
+    attribute. Passing it after the detectors is what makes it win over an
+    `OTEL_RESOURCE_ATTRIBUTES` that says otherwise, so the tier that gates the
+    backend check is the tier every span reports.
+    """
     try:
         from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
         from opentelemetry.sdk.trace import TracerProvider  # noqa: PLC0415
@@ -421,6 +445,8 @@ def _build_provider(config: TraceConfig) -> Any:  # noqa: ANN401
     resource_attrs: dict[str, Any] = dict(config.resource_attributes)
     if config.service_name is not None:
         resource_attrs["service.name"] = config.service_name
+    if environment is not None:
+        resource_attrs.setdefault("deployment.environment.name", environment)
     resource = Resource.create(resource_attrs) if resource_attrs else None
 
     sampler: Sampler

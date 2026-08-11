@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from grelmicro.resilience.circuitbreaker.consecutive_count import (
         ConsecutiveCountConfig,
     )
+    from grelmicro.types import BackendScope
 
 
 class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
@@ -83,6 +84,9 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
 
     Read more in the [Circuit Breaker](../resilience/circuit-breaker.md) docs.
     """
+
+    scope: ClassVar[BackendScope] = "host"
+    """State is shared by the processes that open the same file."""
 
     is_shared: ClassVar[bool] = True
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -13,6 +13,8 @@ from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from types import TracebackType
+
+    from grelmicro.types import BackendScope
 
 _CLEAR_BATCH_SIZE = 1000
 _TAG_SCAN_BATCH_SIZE = 500
@@ -88,6 +90,9 @@ class RedisCacheAdapter(CacheBackend):
     with the value, so an expired key never leaves a stale tag entry
     behind. Both live under the cache prefix, so `clear` sweeps them too.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     def __init__(
         self,

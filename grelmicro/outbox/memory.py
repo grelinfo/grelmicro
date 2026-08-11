@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from grelmicro.outbox._message import OutboxRecord
+    from grelmicro.types import BackendScope
 
 
 @dataclass
@@ -35,6 +36,9 @@ class _Row:
 
 class MemoryOutboxAdapter:
     """In-memory outbox storage backend."""
+
+    scope: ClassVar[BackendScope] = "process"
+    """State lives in this process and is not shared beyond it."""
 
     def __init__(self) -> None:
         """Initialize an empty in-memory backend."""

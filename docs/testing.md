@@ -3,6 +3,23 @@
 grelmicro gives you three tools for tests: swap a backend for the test, drive
 time by hand, and record the calls a pattern makes.
 
+## Declare the test environment
+
+Tests wire memory backends, and a memory backend behind a `Lock` is what the
+[backend check](deployment.md#the-backend-check) reports. Declare the
+environment once in `conftest.py` and the report stops, in the suite where it
+has nothing to say:
+
+```python
+import os
+
+os.environ.setdefault("GREL_ENVIRONMENT", "test")
+```
+
+`Grelmicro(environment="test")` does the same for one app. Keep calling
+`micro.check_backends()` for the app you deploy: it answers for production
+whatever this process declares.
+
 ## Swap a backend
 
 Inside an active app, `micro.override(...)` replaces a component for the duration

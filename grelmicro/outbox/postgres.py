@@ -8,7 +8,7 @@ import re
 from datetime import UTC, datetime
 from functools import partial
 from logging import getLogger
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
 
 import asyncpg
 from typing_extensions import Doc
@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from types import TracebackType
     from uuid import UUID
 
+    from grelmicro.types import BackendScope
+
 
 class PostgresOutboxAdapter(OutboxBackend):
     """Postgres outbox storage backend.
@@ -40,6 +42,9 @@ class PostgresOutboxAdapter(OutboxBackend):
     rely on the default `env_prefix=` to build one from environment
     variables.
     """
+
+    scope: ClassVar[BackendScope] = "cluster"
+    """State is shared by every process that connects to it."""
 
     _SQL_MIGRATE = """
         CREATE TABLE IF NOT EXISTS {table} (
