@@ -143,20 +143,10 @@ def _report_unknown_environment(value: str) -> None:
         return
     _reported_unknown.add(value)
     known = ", ".join(ENVIRONMENTS)
-    warnings.warn(
-        _UNKNOWN_ENVIRONMENT_MESSAGE % (ENVIRONMENT_VAR, value, known),
-        GrelmicroConfigWarning,
-        stacklevel=4,
-    )
+    message = _UNKNOWN_ENVIRONMENT_MESSAGE % (ENVIRONMENT_VAR, value, known)
+    warnings.warn(message, GrelmicroConfigWarning, stacklevel=4)
     defer_report(
-        partial(
-            logger.warning,
-            _UNKNOWN_ENVIRONMENT_MESSAGE,
-            ENVIRONMENT_VAR,
-            value,
-            known,
-            extra={"variable": ENVIRONMENT_VAR},
-        )
+        partial(logger.warning, message, extra={"variable": ENVIRONMENT_VAR})
     )
 
 
@@ -222,7 +212,7 @@ def report_unmet_requirements(
     if environment in STRICT_ENVIRONMENTS:
         raise BackendScopeError(strict_message(unmet, environment))
     entry = unmet[0]
-    arguments = (
+    message = _UNDECLARED_MESSAGE % (
         entry.component,
         entry.backend,
         entry.provides,
@@ -232,16 +222,14 @@ def report_unmet_requirements(
         ENVIRONMENT_VAR,
         entry.scope,
     )
-    warnings.warn(
-        _UNDECLARED_MESSAGE % arguments,
-        GrelmicroConfigWarning,
-        stacklevel=4,
-    )
+    warnings.warn(message, GrelmicroConfigWarning, stacklevel=4)
+    # Rendered before it reaches `logging`, so both channels carry the same
+    # sentence and the record holds no positional arguments a formatter
+    # could read as something else.
     defer_report(
         partial(
             logger.warning,
-            _UNDECLARED_MESSAGE,
-            *arguments,
+            message,
             extra={
                 "component": entry.component,
                 "backend_scope": entry.scope,
