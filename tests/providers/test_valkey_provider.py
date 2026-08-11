@@ -427,3 +427,19 @@ class TestValkeySchemes:
 
         with pytest.raises(RedisProviderConfigError):
             RedisProvider()
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "foo+sentinel://a:26379,b:26379/mymaster/0",
+            "foo+cluster://a:6379,b:6379",
+        ],
+    )
+    def test_an_unknown_vendor_prefix_is_not_a_sentinel_or_cluster_url(
+        self, url: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the two vendors' spellings reach the Sentinel and Cluster clients."""
+        monkeypatch.setenv("VALKEY_URL", url)
+
+        with pytest.raises(RedisProviderConfigError):
+            ValkeyProvider()

@@ -736,8 +736,11 @@ def _compose_url(*, host: str, port: int, db: int, password: str | None) -> str:
 _SENTINEL_SCHEME = "redis+sentinel"
 _CLUSTER_SCHEME = "redis+cluster"
 
-_SENTINEL_SUFFIX = "+sentinel"
-_CLUSTER_SUFFIX = "+cluster"
+_SENTINEL_SCHEMES = frozenset({_SENTINEL_SCHEME, "valkey+sentinel"})
+"""Every scheme naming a Sentinel URL, across both vendors."""
+
+_CLUSTER_SCHEMES = frozenset({_CLUSTER_SCHEME, "valkey+cluster"})
+"""Every scheme naming a Cluster URL, across both vendors."""
 
 
 def _is_sentinel(scheme: str) -> bool:
@@ -746,12 +749,12 @@ def _is_sentinel(scheme: str) -> bool:
     `ValkeyProvider` accepts `valkey+sentinel://` alongside
     `redis+sentinel://`, and both reach the same Sentinel client.
     """
-    return scheme.endswith(_SENTINEL_SUFFIX)
+    return scheme in _SENTINEL_SCHEMES
 
 
 def _is_cluster(scheme: str) -> bool:
     """Return whether `scheme` names a Cluster URL, whichever vendor wrote it."""
-    return scheme.endswith(_CLUSTER_SUFFIX)
+    return scheme in _CLUSTER_SCHEMES
 
 
 _DEFAULT_SENTINEL_PORT = 26379
