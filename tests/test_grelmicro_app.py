@@ -212,7 +212,7 @@ class _RecordingReadWriteLockAdapter:
 
     async def acquire_read(
         self, *, name: str, token: str, duration: float
-    ) -> bool:
+    ) -> int | None:
         raise NotImplementedError
 
     async def release_read(self, *, name: str, token: str) -> bool:
