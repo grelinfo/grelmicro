@@ -4,6 +4,7 @@
 
 ### Fixed
 
+* 🐛 Cover uvicorn's takeover on every logging backend. `stdlib`, `structlog`, and `loguru` all hand uvicorn's own loggers the matching formatter, so one process emits one format whichever backend runs the app, and each is now tested. ([#705](https://github.com/grelinfo/grelmicro/issues/705))
 * 🐛 Keep a log record readable after uvicorn's access formatter has seen it. `UvicornAccessFormatter` split the request fields by rewriting `msg` and `args` on the record itself, so any record carrying five or more positional arguments reached every later reader as `"%s %s %s"`: a second handler on the same logger, a queue listener, or a test reading `caplog`. The split now runs on a copy. ([#705](https://github.com/grelinfo/grelmicro/issues/705))
 
 ### Added
