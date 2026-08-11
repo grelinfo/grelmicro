@@ -25,6 +25,85 @@ circuit does once.
 | An open circuit closed once, just after upgrading | 0.32.2 | [Expected, happens once](#0-32-2-circuit-breaker-state) |
 | `TypeError: @cached on ... needs an explicit key=` | 0.34 | [Name the key](#0-34-cached-method-key) |
 | Task run totals jumped after upgrading, with no new failures | 0.34 | [Filter on `outcome`](#0-34-task-run-outcomes) |
+| `ImportError: cannot import name 'LogTimeZoneType'` | 0.36 | [Use `TimeZoneName`](#0-36-timezone-type) |
+| `LogSettingsValidationError: unknown timezone name 'CEST'` | 0.36 | [Name the zone](#0-36-timezone-abbreviation) |
+| `ImportError: cannot import name 'RateLimiterRegistry'` or `'CircuitBreakerRegistry'` | 0.37 | [Rename to `Component`](#0-37-registry-renamed) |
+| `TypeError: health_router() got an unexpected keyword argument 'registry'` | 0.37 | [Pass `component=`](#0-37-registry-renamed) |
+
+## 0.37
+
+### `Registry` classes are now `Component` {#0-37-registry-renamed}
+
+`RateLimiterRegistry` is `RateLimiterComponent` and `CircuitBreakerRegistry`
+is `CircuitBreakerComponent`. Neither ever registered anything: each wraps
+one backend. Rename the import and the call:
+
+```python
+# Before
+from grelmicro.resilience import CircuitBreakerRegistry, RateLimiterRegistry
+
+micro = Grelmicro(
+    uses=[RateLimiterRegistry(redis), CircuitBreakerRegistry(redis)]
+)
+
+
+# After
+from grelmicro.resilience import CircuitBreakerComponent, RateLimiterComponent
+
+micro = Grelmicro(
+    uses=[RateLimiterComponent(redis), CircuitBreakerComponent(redis)]
+)
+```
+
+Most wiring needs neither name. `Grelmicro(uses=[redis])` registers a
+component for every kind the provider serves, so name the class only for a
+second instance or for `micro.override(...)`.
+
+`health_router(registry=...)` is now `health_router(component=...)`, matching
+`metrics_router(component=...)`:
+
+```python
+# Before
+app.include_router(health_router(registry=health))
+
+# After
+app.include_router(health_router(component=health))
+```
+
+## 0.36
+
+### `LogTimeZoneType` is gone {#0-36-timezone-type}
+
+Use [`TimeZoneName`](reference/types.md) from `grelmicro.types`, which every
+component that takes a timezone now shares:
+
+```python
+# Before
+from grelmicro.log import LogTimeZoneType
+
+# After
+from grelmicro.types import TimeZoneName
+```
+
+### A timezone abbreviation no longer validates {#0-36-timezone-abbreviation}
+
+`GREL_LOG_TIMEZONE=CEST` used to validate and then fail later, because
+`zoneinfo` has no such zone. It now raises `LogSettingsValidationError:
+unknown timezone name 'CEST'` where the value is read. Abbreviations such as
+`CEST`, `PST`, `PDT`, `EDT`, `BST`, and `JST` are daylight saving variants,
+not zones, and pinning one would freeze the offset year-round. Name the zone
+instead:
+
+```bash
+# Before
+GREL_LOG_TIMEZONE=CEST
+
+# After
+GREL_LOG_TIMEZONE=Europe/Zurich
+```
+
+Real zone names that look like abbreviations keep working, starting with the
+default `UTC`, and including `CET`, `EET`, `GMT`, `EST`, `MST`, and `HST`.
 
 ## 0.34
 
