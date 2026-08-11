@@ -1149,13 +1149,18 @@ def _iter_provider_backends(item: object) -> list[object]:
     """Return the provider-holding backends to inspect for `item`.
 
     Most components expose one backend via `backend`. A `Coordination`
-    component holds a lock backend, an election backend, and a schedule
-    backend, any of which may own a Provider, so all present ones are
-    returned. A plain item with no backend is inspected directly.
+    component holds a lock, a read-write lock, an election, and a schedule
+    backend, any of which may own or borrow a Provider, so all present ones
+    are returned. A plain item with no backend is inspected directly.
     """
     backends = [
         getattr(item, name, None)
-        for name in ("_lock_backend", "_election_backend", "_schedule_backend")
+        for name in (
+            "_lock_backend",
+            "_rwlock_backend",
+            "_election_backend",
+            "_schedule_backend",
+        )
     ]
     if any(backend is not None for backend in backends):
         return [backend for backend in backends if backend is not None]
