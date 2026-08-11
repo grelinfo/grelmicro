@@ -66,6 +66,14 @@ def test_outbox_ignores_the_settings_of_a_sql_store() -> None:
     assert isinstance(adapter, MemoryOutboxAdapter)
 
 
+def test_outbox_rejects_a_keyword_it_does_not_know() -> None:
+    """A stray keyword raises here as it does on every other factory."""
+    provider = MemoryProvider()
+
+    with pytest.raises(TypeError, match="bogus"):
+        provider.outbox(bogus="outbox")
+
+
 def test_unknown_kwarg_raises() -> None:
     """A stray kwarg is forwarded and errors on first creation."""
     provider = MemoryProvider()

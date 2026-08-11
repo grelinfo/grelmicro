@@ -25,6 +25,10 @@ if TYPE_CHECKING:
     )
 
 
+_SQL_OUTBOX_SETTINGS = frozenset({"table", "auto_migrate", "notify"})
+"""Outbox settings that describe a database, which memory has none of."""
+
+
 class MemoryProvider(Provider):
     """In-process provider.
 
@@ -125,13 +129,25 @@ class MemoryProvider(Provider):
             self._cache = MemoryCacheAdapter(**kwargs)
         return self._cache
 
-    def outbox(self, **kwargs: Any) -> MemoryOutboxAdapter:  # noqa: ANN401, ARG002
+    def outbox(self, **kwargs: Any) -> MemoryOutboxAdapter:  # noqa: ANN401
         """Return the shared `MemoryOutboxAdapter` for this provider.
 
         The staging settings a SQL outbox takes (`table`, `auto_migrate`,
-        `notify`) describe a database, so they are accepted and ignored here.
-        Messages live in a dict and the relay is woken directly.
+        `notify`) describe a database, so they are accepted and ignored here:
+        messages live in a dict and the relay is woken directly. Any other
+        keyword raises, as it does on every other factory.
+
+        Raises:
+            TypeError: If a keyword other than the SQL staging settings is
+                passed.
         """
+        unexpected = sorted(set(kwargs) - _SQL_OUTBOX_SETTINGS)
+        if unexpected:
+            msg = (
+                f"MemoryProvider.outbox() got an unexpected keyword argument "
+                f"{unexpected[0]!r}"
+            )
+            raise TypeError(msg)
         if self._outbox is None:
             from grelmicro.outbox.memory import (  # noqa: PLC0415
                 MemoryOutboxAdapter,
