@@ -108,7 +108,7 @@ class ValkeyProvider(RedisProvider):
     Valkey client, exit to close it. Adapters delegate their lifecycle
     to the provider when one is supplied.
 
-    Read more in the [Providers](../providers.md) docs.
+    Read more in the [Providers](../providers/index.md) docs.
     """
 
     short_name: ClassVar[str] = "valkey"

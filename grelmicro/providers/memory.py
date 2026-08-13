@@ -53,7 +53,7 @@ class MemoryProvider(Provider):
     micro = Grelmicro(uses=[memory, Coordination(memory)])
     ```
 
-    Read more in the [Providers](../providers.md) docs.
+    Read more in the [Providers](../providers/index.md) docs.
     """
 
     short_name: ClassVar[str] = "memory"

@@ -2175,6 +2175,26 @@ class TestCachedRefreshPrivateCache:
         assert after == EXPECTED_CALL_COUNT_2
 
 
+async def _wait_for_log(
+    caplog: pytest.LogCaptureFixture,
+    needle: str,
+    max_wait: float = 5.0,
+) -> list[logging.LogRecord]:
+    """Poll until a matching record lands, or the deadline passes.
+
+    A background refresh runs on a task or a worker thread, so the record
+    appears some time after the call returns. A fixed sleep either wastes
+    that time or is too short on a loaded machine, which is how this reads
+    as a flake rather than a failure.
+    """
+    deadline = time.monotonic() + max_wait
+    while True:
+        found = [r for r in caplog.records if needle in r.message]
+        if found or time.monotonic() >= deadline:
+            return found
+        await asyncio.sleep(0.01)
+
+
 class TestEarlyRefreshFailureIsObservable:
     """A failed background refresh must never pass silently."""
 
@@ -2210,12 +2230,9 @@ class TestEarlyRefreshFailureIsObservable:
         # Act
         with caplog.at_level(logging.WARNING, logger="grelmicro.cache.cached"):
             await compute()  # hit, schedules the background refresh
-            await asyncio.sleep(0.05)  # let the task settle
+            failures = await _wait_for_log(caplog, "early refresh failed")
 
         # Assert
-        failures = [
-            r for r in caplog.records if "early refresh failed" in r.message
-        ]
         assert failures
         assert failures[0].exc_info is not None
         assert isinstance(failures[0].exc_info[1], RuntimeError)
@@ -2252,12 +2269,10 @@ class TestEarlyRefreshFailureIsObservable:
         # Act
         with caplog.at_level(logging.WARNING, logger="grelmicro.cache.cached"):
             await asyncio.to_thread(compute)
-            await asyncio.sleep(0.1)  # the sync path refreshes on a thread
+            # The sync path refreshes on a worker thread.
+            failures = await _wait_for_log(caplog, "early refresh failed")
 
         # Assert
-        failures = [
-            r for r in caplog.records if "early refresh failed" in r.message
-        ]
         assert failures
 
     async def test_cancelled_refresh_is_not_reported(

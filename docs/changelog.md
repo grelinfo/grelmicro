@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+* 📝 Split the six longest guide pages so each one answers a single question. Cache, Idempotency, Coordination, Outbox, Logging, and Providers are now sections with an index page and one page per topic. The top-level URLs are unchanged. ([#681](https://github.com/grelinfo/grelmicro/issues/681))
+* 📝 Move Redis connection settings off the cache page and onto [Redis and Valkey](providers/redis.md). A pattern page says which backends work and links out. ([#681](https://github.com/grelinfo/grelmicro/issues/681))
+* 📝 Move the logging benchmark table to [Benchmarks](benchmarks.md), next to every other measurement. ([#681](https://github.com/grelinfo/grelmicro/issues/681))
+
+### Fixed
+
+* 📝 Fail the docs build on a link whose anchor no longer exists. `mkdocs build --strict` caught a missing file but let a moved heading through. ([#681](https://github.com/grelinfo/grelmicro/issues/681))
+* 📝 Render the ten snippets that no page included, and delete five that nothing needed. A test now fails on a snippet no page renders. ([#681](https://github.com/grelinfo/grelmicro/issues/681))
+
 ## 0.37.1 - 2026-08-13
 
 ### Added
@@ -41,7 +54,7 @@
 ### Docs
 
 * 📝 Say that a bare Provider registers every kind it serves except `outbox`, which carries handlers and a relay and is built where those are declared. Four docstrings and the wiring guide claimed every kind. ([#710](https://github.com/grelinfo/grelmicro/issues/710))
-* 📝 Open every feature example on a real backend. [First Steps](first-steps.md), [Cache](cache.md), [Idempotency](idempotency.md), and [Coordination](coordination.md) all started on the memory provider with a note that it runs as-is, so the memory backend read as the normal choice. It is not: a distributed lock on memory gives no mutual exclusion the moment a second replica starts. Each page now starts on Redis and names the extra to install. [First Steps](first-steps.md) adds the one command that runs it. ([#680](https://github.com/grelinfo/grelmicro/issues/680))
+* 📝 Open every feature example on a real backend. [First Steps](first-steps.md), [Cache](cache/index.md), [Idempotency](idempotency/index.md), and [Coordination](coordination/index.md) all started on the memory provider with a note that it runs as-is, so the memory backend read as the normal choice. It is not: a distributed lock on memory gives no mutual exclusion the moment a second replica starts. Each page now starts on Redis and names the extra to install. [First Steps](first-steps.md) adds the one command that runs it. ([#680](https://github.com/grelinfo/grelmicro/issues/680))
 * 📝 Keep memory where it belongs and say why it is there. It stays on the [testing](testing.md) page, in the backend tabs, in the provider reference, and in the landing example that is about a process-local rate limiter. The cache backend tabs led with Memory and now lead with Redis. ([#680](https://github.com/grelinfo/grelmicro/issues/680))
 * 📝 Show the shortest correct wiring. `Grelmicro(uses=[redis])` registers a Component for every kind the Provider serves, and a bare backend is wrapped for you, so the landing page, the providers guide, and the resilience snippets no longer name a Component to do what the Provider already does. The Component classes now appear only where they are needed: a second named instance and `micro.override(...)`. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
 * 📝 Drop "Registry" from the mental model. [First Steps](first-steps.md) offered "Component or Registry" as one bullet with two names, and the word lingered in the health, rate limiter, and architecture pages. ([#682](https://github.com/grelinfo/grelmicro/issues/682))
@@ -72,7 +85,7 @@
 * ✨ Add [`GREL_TIMEZONE`](config.md#one-timezone-for-the-whole-service), one variable saying what wall clock the service runs on. `Tasks` and `Log` both read it, and a component variable still wins, so `GREL_LOG_TIMEZONE=UTC` keeps logs on UTC under a service that schedules on local time. grelmicro ignores the POSIX `TZ` variable on purpose, since `TZ` falls back to UTC without complaint on a value it cannot parse. ([#645](https://github.com/grelinfo/grelmicro/issues/645))
 * ✨ Add `TasksConfig` and `Tasks.from_config(...)`, so tasks configure like every other component. `timezone` and `shutdown_timeout` resolve from `GREL_TASK_*`. `Tasks` supports live reconfiguration of `shutdown_timeout`. `timezone` is startup-only, and an attempt to change it from a mounted ConfigMap is reported rather than applied. ([#645](https://github.com/grelinfo/grelmicro/issues/645))
 * ✨ Log timestamps carry their UTC offset in the `TEXT` and `PRETTY` formats, rendered as `Z` for UTC. Without it, a non-UTC log timezone made the repeated hour after a daylight saving transition read as though time ran backwards. `JSON` and `LOGFMT` already carried the offset. ([#645](https://github.com/grelinfo/grelmicro/issues/645))
-* ✨ Add [`ReadWriteLock`](coordination.md#read-write-lock), a distributed lock that lets every reader in at once and keeps writers alone. `lock.read` and `lock.write` are two views of one lock, each with `acquire`, `acquire_nowait`, `extend`, `release`, and a `from_thread` adapter. It is writer-preferring: a writer that finds readers in the way records an intent, so readers arriving after it wait and writers never starve. Every holder has its own lease, so a reader that died is reaped by the next acquire instead of blocking a writer until a shared expiry fires. `ReadGuard` and `WriteGuard` are distinct types, so a function that writes can demand the write guard in its signature, and reading a token from a spent guard raises `LockNotOwnedError` instead of handing back a stale one. `WriteGuard.poisoned` says the previous writer's lease expired without a release, and `await guard.downgrade()` turns a write lease into a read lease with no gap for another writer. Upgrading raises `LockUpgradeError` rather than shipping a deadlock. Redis, Valkey, PostgreSQL, SQLite, Kubernetes, and Memory all ship an adapter and pass one shared conformance suite. ([#686](https://github.com/grelinfo/grelmicro/issues/686))
+* ✨ Add [`ReadWriteLock`](coordination/read-write-lock.md), a distributed lock that lets every reader in at once and keeps writers alone. `lock.read` and `lock.write` are two views of one lock, each with `acquire`, `acquire_nowait`, `extend`, `release`, and a `from_thread` adapter. It is writer-preferring: a writer that finds readers in the way records an intent, so readers arriving after it wait and writers never starve. Every holder has its own lease, so a reader that died is reaped by the next acquire instead of blocking a writer until a shared expiry fires. `ReadGuard` and `WriteGuard` are distinct types, so a function that writes can demand the write guard in its signature, and reading a token from a spent guard raises `LockNotOwnedError` instead of handing back a stale one. `WriteGuard.poisoned` says the previous writer's lease expired without a release, and `await guard.downgrade()` turns a write lease into a read lease with no gap for another writer. Upgrading raises `LockUpgradeError` rather than shipping a deadlock. Redis, Valkey, PostgreSQL, SQLite, Kubernetes, and Memory all ship an adapter and pass one shared conformance suite. ([#686](https://github.com/grelinfo/grelmicro/issues/686))
 
 ### Fixed
 
@@ -89,7 +102,7 @@
 ### Docs
 
 * 📝 Add a [Deployment](deployment.md) guide, which says `GREL_ENV_LOAD=1` out loud and puts it in the image rather than the manifest, where one copy always forgets it. Covers the log format and the probe noise, the probe endpoints, the shutdown window against `Tasks(shutdown_timeout=...)`, and a Deployment manifest that applies as it stands. ([#676](https://github.com/grelinfo/grelmicro/issues/676))
-* 📝 Scope the resolution order to the `GREL_*` namespace, in [Configuration](config.md#how-a-value-is-resolved). Step 2 read as though `GREL_ENV_LOAD` gated every environment variable, which no Provider has ever obeyed: `RedisProvider()` reads `REDIS_URL` with no flag, since that name belongs to the deployment rather than to grelmicro, and a missing one fails at construction naming the variable it wanted instead of falling back to a default. [Providers](providers.md) says the same where a reader of the env-driven recipe will see it. ([#676](https://github.com/grelinfo/grelmicro/issues/676))
+* 📝 Scope the resolution order to the `GREL_*` namespace, in [Configuration](config.md#how-a-value-is-resolved). Step 2 read as though `GREL_ENV_LOAD` gated every environment variable, which no Provider has ever obeyed: `RedisProvider()` reads `REDIS_URL` with no flag, since that name belongs to the deployment rather than to grelmicro, and a missing one fails at construction naming the variable it wanted instead of falling back to a default. [Providers](providers/index.md) says the same where a reader of the env-driven recipe will see it. ([#676](https://github.com/grelinfo/grelmicro/issues/676))
 
 ## 0.35.1 - 2026-08-06
 
@@ -1223,7 +1236,7 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 
 ### Features
 
-* ✨ Add in-memory [TTL cache](cache.md) with LRU eviction, per-key stampede protection, and `@cached` decorator.
+* ✨ Add in-memory [TTL cache](cache/index.md) with LRU eviction, per-key stampede protection, and `@cached` decorator.
 * ✨ Add `RedisCacheBackend` for distributed cache storage.
 * ✨ Add cache statistics via `CacheInfo` (hits, misses, evictions, stampedes).
 * ✨ Add Kubernetes sync backend using Lease resources (`pip install grelmicro[kubernetes]`).
@@ -1249,10 +1262,10 @@ M2 milestone closed: backend wiring is now fully explicit. Construction is pure 
 
 ### Docs
 
-* 📝 Add [cache module](cache.md) documentation with usage guide and API reference.
+* 📝 Add [cache module](cache/index.md) documentation with usage guide and API reference.
 * 📝 Add [Kubernetes Backend Architecture](architecture/kubernetes.md) page.
 * 📝 Add [SQLite Backend Architecture](architecture/sqlite.md) page.
-* 📝 Add backend comparison matrix to [Coordination](coordination.md#backends) guide.
+* 📝 Add backend comparison matrix to [Coordination](coordination/index.md#backends) guide.
 * 📝 Rewrite README with project vision.
 
 ## 0.5.0 - 2026-03-17

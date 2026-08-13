@@ -1,6 +1,6 @@
 # SQLite Backend
 
-This page documents the internal design of the SQLite [Coordination backend](../coordination.md#backends).
+This page documents the internal design of the SQLite [Coordination backend](../coordination/index.md#backends).
 
 ## One Connection
 

@@ -6,8 +6,9 @@ of both. Components like `Coordination`, `Cache`, and `RateLimiterComponent` acc
 Provider directly and use its matching adapter under the hood, and a Provider
 listed on its own registers one of each for you.
 
-Five providers ship today: `RedisProvider`, `ValkeyProvider`, `PostgresProvider`,
-`SQLiteProvider`, and `MemoryProvider`. More will follow.
+Five providers ship today: [`RedisProvider`](redis.md), [`ValkeyProvider`](redis.md#valkey),
+[`PostgresProvider`](postgres.md), [`SQLiteProvider`](#sqlite), and
+[`MemoryProvider`](#memory). More will follow.
 
 ## Recommended shape
 
@@ -156,6 +157,8 @@ about the wiring.
 
 ## Construction forms
 
+Every Provider takes the same shapes. Redis as the example:
+
 ```python
 RedisProvider("redis://localhost:6379")      # positional URL
 RedisProvider(url="redis://...")             # keyword URL
@@ -184,114 +187,6 @@ RedisProvider("anything://localhost:6379")
 
 `RedisProviderConfigError` and `PostgresProviderConfigError` are both
 `GrelmicroError`, so one `except` covers every way the URL arrives.
-
-## Sentinel and Cluster
-
-`RedisProvider` switches topology from the URL scheme. The scheme rides
-the same `url` field, so `REDIS_URL` alone selects standalone, Sentinel,
-or Cluster with no other code change. `ValkeyProvider` reads the same
-schemes and builds the Valkey equivalents.
-
-Standalone stays as before:
-
-```python
-RedisProvider("redis://localhost:6379/0")
-```
-
-Sentinel lists the Sentinel hosts in the authority. The first path
-segment is the master service name. An optional second segment is the
-database index.
-
-```python
-RedisProvider("redis+sentinel://host1:26379,host2:26379/mymaster/0")
-```
-
-Cluster lists the seed nodes. The client discovers the rest of the
-topology from them.
-
-```python
-RedisProvider("redis+cluster://host1:6379,host2:6379")
-```
-
-### Authenticated Sentinels
-
-Sentinel servers often run with their own `requirepass`, and the Bitnami
-Redis chart turns that on by default. That password is separate from the
-data password, and both fit in the environment:
-
-```bash
-REDIS_URL=redis+sentinel://sentinel-0:26379,sentinel-1:26379/mymaster/0
-REDIS_PASSWORD=...
-REDIS_SENTINEL_PASSWORD=...
-```
-
-```python
-provider = RedisProvider()
-```
-
-It applies only when set. The data password is never reused for the
-Sentinel connections, because `AUTH` against a server without
-`requirepass` fails, which would break every deployment whose Sentinels
-are unauthenticated.
-
-It also applies only to a `redis+sentinel://` URL. Setting it alongside
-any other scheme warns rather than passing silently, since one
-environment often serves several services and only some of them talk to
-Sentinel.
-
-The same value is available as `sentinel_password=` on the constructor
-and on `RedisConfig`.
-
-Credentials in the URL userinfo apply to both the Sentinel connections
-and the data connections. Use the factory methods when you need to pass
-other Sentinel connection settings:
-
-```python
-RedisProvider.sentinel(
-    sentinels=[("host1", 26379), ("host2", 26379)],
-    service_name="mymaster",
-    db=0,
-    password="data-password",
-    sentinel_kwargs={"password": "sentinel-password"},
-)
-
-RedisProvider.cluster(
-    nodes=[("host1", 6379), ("host2", 6379)],
-    password="cluster-password",
-)
-```
-
-`safe_url` and `repr()` redact the password for every scheme, including
-the multi-host forms.
-
-### Failover on Sentinel
-
-The Sentinel client re-resolves the master when it changes. During that
-brief window an in-flight command can error. Wrap the call in the
-[resilience](resilience/index.md) patterns (retry and circuit breaker)
-to ride through the failover.
-
-### The hash-tag rule on Cluster
-
-A Redis Cluster shards keys across slots by a hash of the key. A command
-or script that touches several keys must keep them in one slot, or the
-cluster rejects it as a cross-slot error.
-
-The cache adapter and the lock adapter both run multi-key operations.
-On Cluster, give their `prefix` a hash tag so every key they touch lands
-in one slot. A hash tag is any substring in braces: the cluster hashes
-only what is inside the first `{...}`.
-
-```python
-provider = RedisProvider("redis+cluster://host1:6379,host2:6379")
-cache = provider.cache(prefix="{myapp}cache")
-lock = provider.lock(prefix="{myapp}")
-```
-
-Without a hash tag, the adapter raises a `ValueError` at construction
-that names the fix. Standalone and Sentinel need no hash tag, since every
-key lives on one server. The rate limiter, circuit breaker, schedule, and
-leader-election adapters touch one key per call and work on Cluster as is.
 
 ## Credentials in a config object
 
@@ -358,127 +253,26 @@ Valkey run `PING`, Postgres and SQLite run `SELECT 1`, and Memory returns
 ready right away. A `HealthChecks` registers it as a
 `provider:{short_name}` check, one provider at a time with
 `health.add_provider(provider)` or for the whole app with
-`HealthChecks(auto_health=True)`. See [Health Checks](health.md#provider-readiness-checks).
+`HealthChecks(auto_health=True)`. See [Health Checks](../health.md#provider-readiness-checks).
 
-## Valkey
+## Lifecycle
 
-`ValkeyProvider` is a subclass of `RedisProvider`. It connects to a
-[Valkey](https://valkey.io) server using the `valkey-py` client
-(`valkey.asyncio`) and serves the same adapter set as `RedisProvider`:
-Lock, LeaderElection, Schedule, TTLCache, RateLimiter, and CircuitBreaker.
+The Provider is opened when the `Grelmicro` app enters and closed when
+the app exits. Components borrow the Provider's client without managing
+its lifecycle.
 
-Install the `valkey` extra before using it:
+**Order does not matter.** A Provider opens before the Components that
+borrow it, wherever you list it, and a Provider you leave out entirely is
+discovered and opened for you. `uses=` says what the app is made of, and
+grelmicro opens it in dependency order.
 
-```bash
-pip install "grelmicro[valkey]"
-```
+This matters because the resource is often lazy: `PostgresProvider` builds
+its `asyncpg.Pool` on `__aenter__`, so a Component that opened first would
+reach for `provider.client` before the pool exists.
 
-```python
-from grelmicro import Grelmicro
-from grelmicro.providers.valkey import ValkeyProvider
-
-valkey = ValkeyProvider("valkey://localhost:6379/0")
-
-micro = Grelmicro(uses=[valkey])
-```
-
-Set `VALKEY_URL` (or `VALKEY_HOST` + `VALKEY_PORT` + `VALKEY_DB` +
-`VALKEY_PASSWORD`) for env-driven construction.
-
-Construction forms:
-
-```python
-ValkeyProvider("redis://localhost:6379")     # positional URL
-ValkeyProvider(url="redis://...")            # keyword URL
-ValkeyProvider(host="x", port=6379, db=0)   # decomposed kwargs
-ValkeyProvider()                             # env-driven (VALKEY_*)
-ValkeyProvider(env_prefix="CACHE_VALKEY_")  # custom env prefix
-ValkeyProvider(env_load=False)              # kwargs only, no env
-ValkeyProvider.from_config(ValkeyConfig(...))  # from a config object
-ValkeyProvider.from_client(client)           # bring-your-own client
-```
-
-`ValkeyProvider` also reads Valkey's own schemes, so a deployment can name
-the server it runs: `valkey://`, `valkeys://`, `valkey+sentinel://`, and
-`valkey+cluster://` work wherever the `redis` spellings do, in the
-constructor, in `VALKEY_URL`, and in `ValkeyConfig`. `RedisProvider` and
-`RedisConfig` keep the `redis` schemes only.
-
-`ValkeyConfig` carries the same fields as `RedisConfig`, so
-`ValkeyProvider.from_config()` takes either one.
-
-`ValkeyProvider` reads the same `redis+sentinel://` and `redis+cluster://`
-schemes as `RedisProvider` and builds the Valkey Sentinel and Cluster
-clients. The factory methods `ValkeyProvider.sentinel(...)` and
-`ValkeyProvider.cluster(...)` and the Cluster hash-tag rule apply the
-same way.
-
-## Postgres
-
-`PostgresProvider` ships all factory methods: `.lock()`, `.leaderelection()`, `.cache()`, `.outbox()`, `.ratelimiter()`, `.circuitbreaker()`, and `.schedule()`. The
-provider wraps an `asyncpg.Pool` and opens it lazily on `__aenter__`.
-
-```python
-from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination
-from grelmicro.providers.postgres import PostgresProvider
-
-postgres = PostgresProvider("postgresql://localhost/app")
-
-micro = Grelmicro(uses=[
-    Coordination(postgres),
-])
-```
-
-A SQLAlchemy-style URL works as it is. The provider drops the driver
-suffix, so an app already holding `postgresql+asyncpg://localhost/app`
-passes it straight through with no string surgery:
-
-```python
-postgres = PostgresProvider("postgresql+asyncpg://localhost/app")
-```
-
-The suffix names the client library that app uses, not the wire
-protocol, and this provider always connects with asyncpg.
-
-Set `POSTGRES_URL` (or `POSTGRES_HOST` + `POSTGRES_PORT` + `POSTGRES_DB`
-+ `POSTGRES_USER` + `POSTGRES_PASSWORD`) for env-driven construction. The
-database name also reads from `POSTGRES_DATABASE` when `POSTGRES_DB` is
-unset, so both the `postgres` Docker image convention and the longer
-spelling work.
-
-Pass `command_timeout` (or set `POSTGRES_COMMAND_TIMEOUT`) to bound every operation. A query that hangs on a frozen or unreachable server then raises `TimeoutError` after that many seconds, instead of blocking until the OS TCP timeout. It defaults to `None` (no timeout).
-
-```python
-postgres = PostgresProvider("postgresql://localhost/app", command_timeout=5)
-```
-
-For two pools (writer + reader), split by env prefix:
-
-```python
-write = PostgresProvider(env_prefix="WRITE_POSTGRES_")
-read = PostgresProvider(env_prefix="READ_POSTGRES_")
-
-micro = Grelmicro(uses=[
-    write,
-    read,
-    Coordination(write),
-    Coordination(read, name="read"),
-])
-```
-
-Construction forms:
-
-```python
-PostgresProvider("postgresql://localhost/app")  # positional URL
-PostgresProvider(url="postgresql://...")        # keyword URL
-PostgresProvider(host="db", port=5432, database="app", user="u", password="pw")
-PostgresProvider()                              # env-driven (POSTGRES_*)
-PostgresProvider(env_prefix="WRITE_POSTGRES_")  # custom env prefix
-PostgresProvider(env_load=False)                # kwargs only, no env
-PostgresProvider.from_config(PostgresConfig(...))
-PostgresProvider.from_client(pool)              # bring-your-own pool
-```
+Listing the Provider first still reads well and is worth doing for a human
+reader. If you want the list you wrote to be exactly the list that runs,
+`Grelmicro(strict=True)` raises `LifecycleOrderError` instead of reordering.
 
 ## SQLite
 
@@ -506,25 +300,6 @@ SQLiteProvider(env_load=False)            # kwargs only, no env
 SQLiteProvider.from_config(SQLiteConfig(...))
 SQLiteProvider.from_client(connection)    # bring-your-own connection
 ```
-
-## Lifecycle
-
-The Provider is opened when the `Grelmicro` app enters and closed when
-the app exits. Components borrow the Provider's client without managing
-its lifecycle.
-
-**Order does not matter.** A Provider opens before the Components that
-borrow it, wherever you list it, and a Provider you leave out entirely is
-discovered and opened for you. `uses=` says what the app is made of, and
-grelmicro opens it in dependency order.
-
-This matters because the resource is often lazy: `PostgresProvider` builds
-its `asyncpg.Pool` on `__aenter__`, so a Component that opened first would
-reach for `provider.client` before the pool exists.
-
-Listing the Provider first still reads well and is worth doing for a human
-reader. If you want the list you wrote to be exactly the list that runs,
-`Grelmicro(strict=True)` raises `LifecycleOrderError` instead of reordering.
 
 ## Memory
 

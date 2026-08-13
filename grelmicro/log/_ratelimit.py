@@ -126,7 +126,7 @@ class RateLimitFilter(Filter):
     logger.addFilter(RateLimitFilter(capacity=10, refill_rate=1))
     ```
 
-    Read more in the [Logging](../logging.md) docs.
+    Read more in the [Logging](../logging/index.md) docs.
     """
 
     def __init__(

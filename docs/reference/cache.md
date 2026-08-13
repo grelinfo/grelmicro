@@ -1,8 +1,8 @@
 # Cache
 
-- **Start here**: [Cache guide](../cache.md)
-- **Common recipes**: [`@cached`](../cache.md#cached-decorator), [`TTLCache`](../cache.md#ttlcache)
-- **Configuration**: [Backend setup](../cache.md#backend), [Redis backend configuration](../cache.md#redis-backend-configuration)
+- **Start here**: [Cache guide](../cache/index.md)
+- **Common recipes**: [`@cached`](../cache/cached.md), [`TTLCache`](../cache/index.md#ttlcache)
+- **Configuration**: [Backend setup](../cache/index.md#backend), [Redis backend configuration](../providers/redis.md#environment-variables)
 
 ::: grelmicro.cache
     options:

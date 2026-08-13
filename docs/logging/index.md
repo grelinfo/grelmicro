@@ -6,6 +6,9 @@ Zero-config logging that follows the **12-factor app** methodology. Use it to ge
 - **Structured**: extra fields become flat top-level keys, exceptions become structured error data.
 - **Environment-driven**: every knob is a `GREL_LOG_*` environment variable, read when `GREL_ENV_LOAD` is enabled, or passed straight to `configure()`.
 
+Two more pages cover the rest: [Integrations](integrations.md) for OpenTelemetry,
+FastAPI, and uvicorn, and [Filters](filters.md) for taming a noisy logger.
+
 ## Quick Start
 
 ```python
@@ -83,6 +86,12 @@ grelmicro supports three logging backends. All backends produce **identical outp
         # or
         pip install grelmicro[structlog,opentelemetry]
         ```
+
+Every level and an exception, on the loguru backend:
+
+```python title="basic.py"
+--8<-- "log/basic.py"
+```
 
 ## Structured Logging
 
@@ -257,192 +266,25 @@ In a container or CI:
           ZeroDivisionError: division by zero
     ```
 
-## OpenTelemetry Integration
+### Custom Format (Loguru only)
 
-When [OpenTelemetry](https://opentelemetry.io/) is installed, `trace_id` and `span_id` are automatically added to logs:
+You can provide a custom [loguru format template](https://loguru.readthedocs.io/en/stable/api/logger.html#message):
+
+```
+GREL_LOG_FORMAT="{level} | {message}"
+```
 
 ```python
---8<-- "log/opentelemetry_example.py"
+--8<-- "log/custom_format.py"
 ```
 
 Output:
-```json
-{
-  "time": "2026-01-27T16:00:00.000Z",
-  "level": "INFO",
-  "msg": "Processing request",
-  "logger": "myapp.service",
-  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
-  "span_id": "00f067aa0ba902b7",
-  "user_id": 123
-}
+```
+INFO | Custom format example
 ```
 
-Trace fields follow the OpenTelemetry standard and are placed at the JSON root level for compatibility with observability platforms (Jaeger, Zipkin, DataDog, Grafana Tempo).
-
-To disable: `GREL_LOG_OTEL_ENABLED=false`
-
-## FastAPI Integration
-
-```python
---8<-- "log/fastapi.py"
-```
-
-!!! warning
-    Call `configure` during the lifespan of the FastAPI application. The FastAPI CLI may reset the logging configuration otherwise.
-
-## Uvicorn Integration
-
-Uvicorn has its own logging system separate from your application: it installs its own handlers and turns propagation off, so its lines never reach the handler `configure()` sets up. Left alone, one process emits two formats.
-
-`configure()` fixes that for you. No log config file, no change to how uvicorn is started:
-
-```python
-from grelmicro.log import configure
-
-configure()
-```
-
-```
-time=2026-08-05T13:10:49.805834+00:00 level=INFO msg="Application startup complete." logger=uvicorn.error
-time=2026-08-05T13:10:49.807003+00:00 level=INFO msg="POST /orders 200" logger=uvicorn.access client_addr=127.0.0.1:54321 method=POST full_path=/orders http_version=1.1 status_code=200
-time=2026-08-05T13:10:49.807224+00:00 level=INFO msg="Order created" logger=myapp order_id=a1b2c3
-```
-
-Uvicorn's handlers are kept and only their formatter is replaced, so the stderr/stdout split survives and access lines keep their structured fields.
-
-This works because uvicorn configures logging while building its `Config`, before it imports your application module, so a `configure()` call at import time runs afterwards. A process that configures logging *before* uvicorn starts is not covered.
-
-Pass `uvicorn_enabled=False` when uvicorn's logging is configured elsewhere, such as with `--log-config`:
-
-```python
-configure(uvicorn_enabled=False)
-```
-
-### Configuring uvicorn with a log config file
-
-The file-based route still works, and is the option when you are not calling `configure()` at all:
-
-```json
---8<-- "log/uvicorn_log_config.json"
-```
-
-Then start uvicorn with:
-
-```bash
-uvicorn app:app --log-config uvicorn_log_config.json
-```
-
-`UvicornFormatter` and `UvicornAccessFormatter` read `GREL_LOG_FORMAT` at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.
-
-`UvicornAccessFormatter` additionally parses uvicorn's access log arguments into structured fields: `client_addr`, `method`, `full_path`, `http_version`, `status_code`.
-
-### Quieting health probes
-
-Kubernetes polls `/livez`, `/readyz` and `/healthz` every few seconds for the life of the pod, and the access log reports every one. In a healthy pod they are close to the only thing in the log.
-
-`ProbeFilter` drops them. Attach it to the access logger, the same way as the other filters on this page:
-
-```python
---8<-- "log/probes.py"
-```
-
-**A failing probe is still logged.** Only responses below `400` are dropped, so a readiness check that starts refusing traffic still shows up. That line is often the only evidence the kubelet asked and was refused, so hiding it with the noise would remove the one thing worth reading.
-
-**Paths are matched by suffix**, so `health_router(prefix="/api/v1")` is covered with no configuration. A query string is ignored, so `/healthz?exclude=redis` is still recognised as a probe.
-
-Pass `paths=` to cover other polled endpoints. It replaces the defaults rather than adding to them:
-
-```python
-logging.getLogger("uvicorn.access").addFilter(
-    ProbeFilter(paths=("/livez", "/readyz", "/healthz", "/metrics"))
-)
-```
-
-It is a plain `logging.Filter`, so it also works in a `dictConfig`, on another access logger, or removed again with `removeFilter`.
-
-## Deduplicating Noisy Logs
-
-`DuplicateFilter` is a `logging.Filter` that silences repeated log records.
-
-```python
---8<-- "log/duplicate_filter.py"
-```
-
-After **5** identical records, the filter silently drops any further occurrences. It tracks up to **100** distinct keys in an LRU cache.
-
-`key_mode="template"` (default) uses the raw format string as the key, so `%`-style calls with different arguments share one counter. It is also about **3 times faster** than rendered keying. `DuplicateFilter` and `RateLimitFilter` share the same five `key_mode` values:
-
-| `key_mode` | Counter scope | Good for |
-|---|---|---|
-| `"logger"` | One counter per logger name | Collapse every record from a noisy logger |
-| `"level"` | One counter per log level | Collapse all records at a level |
-| `"global"` | One shared counter | Collapse everything into one budget |
-| `"template"` (default) | One counter per (logger, level, `str(record.msg)`) | Shares across arg values of the same template |
-| `"rendered"` | One counter per (logger, level, `record.getMessage()`) | Distinguishes fully-rendered messages |
-
-Use `key_mode="rendered"` to track each rendered message separately, or pass `key=` for a custom fingerprint:
-
-```python
-logger.addFilter(DuplicateFilter(key_mode="rendered"))
-logger.addFilter(DuplicateFilter(key=lambda r: (r.name, r.exc_info)))
-```
-
-Set `ttl` to re-emit a burst of `allowed_repetitions` records every window during sustained floods, so operators continue to receive periodic reminders:
-
-```python
-logger.addFilter(DuplicateFilter(allowed_repetitions=5, ttl=300))
-```
-
-State is in-process only. There is no cross-process sharing and no explicit reset API: construct a new filter if you need to wipe counters.
-
-!!! tip
-    `DuplicateFilter` attaches to any stdlib logger, so it works with every `GREL_LOG_BACKEND`. For code using `from loguru import logger` or `structlog.get_logger()` directly, use those libraries' native filtering.
-
-## Rate-Limiting Noisy Logs
-
-`RateLimitFilter` is a `logging.Filter` that drops records when a token bucket is empty. It allows bursts: up to `capacity` records can pass through at once, and the bucket then refills at `refill_rate` records per second.
-
-```python
---8<-- "log/rate_limit_filter.py"
-```
-
-By default the filter buckets **per logger**: each logger has its own burst budget. Swap `key_mode` for different grouping:
-
-| `key_mode` | Bucket scope | Good for |
-|---|---|---|
-| `"logger"` (default) | One bucket per logger name | Noisy third-party libraries that flood a single logger |
-| `"level"` | One bucket per log level | Throttle all WARNING/ERROR across the app |
-| `"global"` | One shared bucket | App-wide safety net on the root handler |
-| `"template"` | One bucket per (logger, level, `str(record.msg)`) | Shares across arg values of the same template |
-| `"rendered"` | One bucket per (logger, level, `record.getMessage()`) | Distinguishes fully-rendered messages |
-
-```python
---8<-- "log/rate_limit_filter_global.py"
-```
-
-Pass a custom `key=` callable for any other grouping:
-
-```python
-logger.addFilter(
-    RateLimitFilter(
-        capacity=20,
-        refill_rate=2,
-        key=lambda r: f"{r.name}|{r.exc_info is not None}",
-    )
-)
-```
-
-Use `cost=` when a record should spend multiple tokens (e.g. on a verbose-level handler):
-
-```python
-logger.addFilter(RateLimitFilter(capacity=100, refill_rate=10, cost=2))
-```
-
-State is in-process only, backed by [`MemoryTokenBucket`][grelmicro.resilience.MemoryTokenBucket]. Call `filter.reset(key)` to clear one key, or construct a new filter to wipe all state.
-
-!!! tip
-    `RateLimitFilter` and `DuplicateFilter` compose well: attach the dedup filter first to collapse true duplicates, then the rate-limit filter to cap the sustained flow.
+!!! note
+    Custom format strings only work with the loguru backend.
 
 ## Settings
 
@@ -488,29 +330,24 @@ GREL_LOG_TIMEZONE=Europe/Zurich
 2026-04-01 13:56:36.066Z
 ```
 
-Leave it unset to follow [`GREL_TIMEZONE`](config.md#one-timezone-for-the-whole-service),
+Leave it unset to follow [`GREL_TIMEZONE`](../config.md#one-timezone-for-the-whole-service),
 the wall clock the whole service runs on. Set it to `UTC` to keep log
 timestamps on UTC under a service that schedules on local time.
 
-## Custom Format (Loguru only)
+### Why orjson is not selected automatically
 
-You can provide a custom [loguru format template](https://loguru.readthedocs.io/en/stable/api/logger.html#message):
+Installing orjson does not change anything until you also select it. That is deliberate, and it is the one place in the logging module that is not auto-detected.
 
-```
-GREL_LOG_FORMAT="{level} | {message}"
-```
+The two serializers do not agree on every payload:
 
-```python
---8<-- "log/custom_format.py"
-```
+| Value in `extra={...}` | `stdlib` | `orjson` |
+|---|---|---|
+| `float("nan")`, `float("inf")` | `NaN`, `Infinity` | `null` |
+| a non-string dict key | coerced to a string | raises `TypeError` |
 
-Output:
-```
-INFO | Custom format example
-```
+Picking a serializer because a package happens to be importable would mean an unrelated dependency pulling in orjson could change what your logs say, or turn a working log call into an exception on a payload that used to serialize. A log line that crashes the request is worse than a log line that is slower.
 
-!!! note
-    Custom format strings only work with the loguru backend.
+So the choice stays yours. Set `GREL_LOG_JSON_SERIALIZER=orjson`, or pass `json_serializer="orjson"` to `configure()`, once you know your payloads are compatible. See the [benchmarks](../benchmarks.md#logging) for what it buys.
 
 ## JSON Record Structure
 
@@ -555,40 +392,4 @@ For strict unbuffered output (12-factor compliance):
 
 ```bash
 PYTHONUNBUFFERED=1
-```
-
-## Performance
-
-Benchmark results (50,000 iterations):
-
-| Backend | Serializer | Ops/sec | vs Best |
-|---------|------------|---------|---------|
-| structlog | orjson | 302,273 | 100.0% |
-| stdlib | orjson | 269,353 | 89.1% |
-| structlog | stdlib | 198,000 | 65.5% |
-| loguru | orjson | 192,953 | 63.8% |
-| stdlib | stdlib | 181,745 | 60.1% |
-| loguru | stdlib | 147,185 | 48.7% |
-
-!!! tip "Performance Recommendation"
-    For high-throughput applications, use `GREL_LOG_JSON_SERIALIZER=orjson` with `structlog` or `stdlib` backend.
-
-### Why orjson is not selected automatically
-
-Installing orjson does not change anything until you also select it. That is deliberate, and it is the one place in the logging module that is not auto-detected.
-
-The two serializers do not agree on every payload:
-
-| Value in `extra={...}` | `stdlib` | `orjson` |
-|---|---|---|
-| `float("nan")`, `float("inf")` | `NaN`, `Infinity` | `null` |
-| a non-string dict key | coerced to a string | raises `TypeError` |
-
-Picking a serializer because a package happens to be importable would mean an unrelated dependency pulling in orjson could change what your logs say, or turn a working log call into an exception on a payload that used to serialize. A log line that crashes the request is worse than a log line that is slower.
-
-So the choice stays yours. Set `GREL_LOG_JSON_SERIALIZER=orjson`, or pass `json_serializer="orjson"` to `configure()`, once you know your payloads are compatible.
-
-Run the benchmark:
-```bash
-python benchmarks/logging_benchmark.py
 ```

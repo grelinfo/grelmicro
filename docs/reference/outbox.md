@@ -1,8 +1,8 @@
 # Outbox
 
-- **Start here**: [Outbox guide](../outbox.md)
-- **Common recipes**: [`publish`](../outbox.md#producer), [`@handler`](../outbox.md#consumer), [relay](../outbox.md#relay)
-- **Configuration**: [Backend](../outbox.md#backend), [Configuration](../outbox.md#configuration)
+- **Start here**: [Outbox guide](../outbox/index.md)
+- **Common recipes**: [`publish`](../outbox/producer.md), [`@handler`](../outbox/consumer.md), [relay](../outbox/relay.md)
+- **Configuration**: [Backend](../outbox/index.md#backend), [Configuration](../outbox/relay.md#configuration)
 
 ::: grelmicro.outbox
     options:

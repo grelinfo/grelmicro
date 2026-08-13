@@ -61,7 +61,7 @@ class PostgresCacheAdapter(CacheBackend):
     cache = Cache(postgres)
     ```
 
-    Read more in the [Cache](../cache.md) docs.
+    Read more in the [Cache](../cache/index.md) docs.
     """
 
     scope: ClassVar[BackendScope] = "cluster"
