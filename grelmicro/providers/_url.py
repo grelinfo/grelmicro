@@ -48,4 +48,7 @@ def validate_url(url: str, *, settings_cls: type[BaseSettings]) -> str:
             provider does not understand.
     """
     validated = _url_model(settings_cls).model_validate({"url": url})
-    return str(validated.model_dump()["url"].get_secret_value())
+    # The model is built at runtime, so a static checker sees `BaseModel` and
+    # rejects `validated.url`. `model_dump()` hands back the same `SecretUrl`,
+    # since a python-mode dump keeps the wrapper.
+    return validated.model_dump()["url"].get_secret_value().unicode_string()
