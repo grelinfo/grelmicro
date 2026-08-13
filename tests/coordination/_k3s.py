@@ -27,11 +27,18 @@ def create_k3s_container() -> DockerContainer:
 
     Single construction point for the whole suite. Traefik and the metrics
     server are disabled because no test uses them and both slow the boot.
+
+    `--disable-agent` leaves out the kubelet. The backend stores every lock in
+    a `coordination.k8s.io` Lease, so the tests need the API server and nothing
+    that runs a workload. It also keeps the suite working on a rootless
+    container runtime, where the kubelet exits on `/dev/kmsg` and takes the
+    server down with it a moment after readiness.
     """
     return (
         DockerContainer(K3S_IMAGE)
         .with_command(
-            "server --disable=traefik,metrics-server --tls-san=127.0.0.1"
+            "server --disable-agent --disable=traefik,metrics-server"
+            " --tls-san=127.0.0.1"
         )
         .with_kwargs(privileged=True, tmpfs={"/run": "", "/var/run": ""})
         .with_exposed_ports(6443)
