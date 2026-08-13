@@ -167,6 +167,24 @@ RedisProvider.from_config(RedisConfig(...))  # from a config object
 RedisProvider.from_client(client)            # bring-your-own client
 ```
 
+## URL validation
+
+A URL reaches a provider from three places: the constructor, the
+environment, and a config object. All three check it against the same
+type, so a URL accepted in one is accepted in the others, and a URL
+refused in one is refused in all of them.
+
+A URL the provider cannot use is refused before any client is built:
+
+```python
+RedisProvider("anything://localhost:6379")
+# RedisProviderConfigError: Could not validate settings:
+# - url: URL scheme should be 'redis', 'rediss', 'unix', 'redis+sentinel' or 'redis+cluster'
+```
+
+`RedisProviderConfigError` and `PostgresProviderConfigError` are both
+`GrelmicroError`, so one `except` covers every way the URL arrives.
+
 ## Sentinel and Cluster
 
 `RedisProvider` switches topology from the URL scheme. The scheme rides
@@ -376,15 +394,18 @@ ValkeyProvider(host="x", port=6379, db=0)   # decomposed kwargs
 ValkeyProvider()                             # env-driven (VALKEY_*)
 ValkeyProvider(env_prefix="CACHE_VALKEY_")  # custom env prefix
 ValkeyProvider(env_load=False)              # kwargs only, no env
-ValkeyProvider.from_config(RedisConfig(...))  # from a config object
+ValkeyProvider.from_config(ValkeyConfig(...))  # from a config object
 ValkeyProvider.from_client(client)           # bring-your-own client
 ```
 
 `ValkeyProvider` also reads Valkey's own schemes, so a deployment can name
 the server it runs: `valkey://`, `valkeys://`, `valkey+sentinel://`, and
 `valkey+cluster://` work wherever the `redis` spellings do, in the
-constructor and in `VALKEY_URL` alike. `RedisProvider` keeps the `redis`
-schemes only.
+constructor, in `VALKEY_URL`, and in `ValkeyConfig`. `RedisProvider` and
+`RedisConfig` keep the `redis` schemes only.
+
+`ValkeyConfig` carries the same fields as `RedisConfig`, so
+`ValkeyProvider.from_config()` takes either one.
 
 `ValkeyProvider` reads the same `redis+sentinel://` and `redis+cluster://`
 schemes as `RedisProvider` and builds the Valkey Sentinel and Cluster

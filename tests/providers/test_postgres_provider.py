@@ -595,6 +595,47 @@ class TestValidationErrors:
         assert "test_password" not in str(excinfo.value)
 
 
+BAD_URLS = [
+    "mysql://test_host:5432/test_db",
+    "redis://test_host:6379/0",
+    "postgresql://test_host:notaport/test_db",
+    "not a url",
+]
+
+
+class TestUrlValidationParity:
+    """The constructor, the environment, and the config accept one set."""
+
+    @pytest.mark.parametrize("url", BAD_URLS)
+    def test_constructor_refuses_what_the_environment_refuses(
+        self, url: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both paths reject the same URL, and with the same error."""
+        monkeypatch.setenv("POSTGRES_URL", url)
+
+        with pytest.raises(PostgresProviderConfigError) as from_env:
+            PostgresProvider()
+        with pytest.raises(PostgresProviderConfigError) as from_kwarg:
+            PostgresProvider(url, env_load=False)
+
+        assert str(from_kwarg.value) == str(from_env.value)
+
+    @pytest.mark.parametrize("url", BAD_URLS)
+    def test_the_config_refuses_it_too(self, url: str) -> None:
+        """`PostgresConfig` rejects every URL the other two paths reject."""
+        with pytest.raises(ValidationError):
+            PostgresConfig(url=url)
+
+    def test_a_rejected_constructor_url_does_not_echo_the_password(
+        self,
+    ) -> None:
+        """A wrong scheme reports the failure without the credential."""
+        with pytest.raises(PostgresProviderConfigError) as excinfo:
+            PostgresProvider("mysql://usr:test_password@h/db", env_load=False)
+
+        assert "test_password" not in str(excinfo.value)
+
+
 DRIVER_SCHEMES = [
     "postgresql+asyncpg",
     "postgresql+pg8000",

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* ✨ Add `ValkeyConfig`, which accepts Valkey's own URL schemes. `ValkeyProvider` reads `valkey://` in the constructor and in `VALKEY_URL`, but `from_config` took a `RedisConfig`, which refuses those schemes, so the one path that could not name the server was the config object. `from_config` still takes a `RedisConfig`. ([#718](https://github.com/grelinfo/grelmicro/issues/718))
+
+### Fixed
+
+* 🐛 Validate a URL passed to a provider exactly as one read from the environment. `RedisProvider("anything://host")` handed the string to redis-py and failed with its `ValueError`, while `REDIS_URL` was checked against the provider's own URL type and raised `RedisProviderConfigError`. Both paths now validate against one type, so they accept the same URLs and fail the same way, and `PostgresProvider` does too. A URL that a client library used to accept and the URL type refuses, such as a host-less authority, now raises at construction. ([#718](https://github.com/grelinfo/grelmicro/issues/718))
+* 🐛 Carry the Sentinel password through `ValkeyProvider.from_config`. It was dropped, so a Valkey Sentinel built from a config connected to the Sentinel servers unauthenticated while the same config on `RedisProvider` authenticated. ([#718](https://github.com/grelinfo/grelmicro/issues/718))
+
 ## 0.37.0 - 2026-08-11
 
 ### Breaking

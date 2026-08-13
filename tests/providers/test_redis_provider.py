@@ -8,7 +8,7 @@ from redis.asyncio.client import Redis
 from redis.asyncio.cluster import RedisCluster
 from redis.asyncio.sentinel import Sentinel
 
-from grelmicro import Grelmicro, GrelmicroConfigWarning
+from grelmicro import Grelmicro, GrelmicroConfigWarning, GrelmicroError
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.coordination.redis import (
     RedisLockAdapter,
@@ -596,17 +596,25 @@ class TestSentinelUrl:
         )
         assert "secret" not in repr(provider)
 
-    def test_sentinel_url_skips_empty_authority_item(self) -> None:
-        """A trailing comma in the authority is ignored."""
-        provider = RedisProvider("redis+sentinel://h1:26379,/mymaster")
-
-        assert isinstance(provider._sentinel, Sentinel)
-        assert sum(1 for _ in provider._sentinel.sentinels) == 1
+    def test_sentinel_url_with_empty_authority_item_raises(self) -> None:
+        """A trailing comma in the authority leaves a host empty and raises."""
+        with pytest.raises(RedisProviderConfigError, match="empty host"):
+            RedisProvider("redis+sentinel://h1:26379,/mymaster")
 
     def test_cluster_url_with_no_hosts_raises(self) -> None:
         """An authority with only separators raises."""
-        with pytest.raises(RedisProviderConfigError, match="at least one host"):
+        with pytest.raises(RedisProviderConfigError, match="empty host"):
             RedisProvider("redis+cluster://,")
+
+    def test_sentinel_factory_without_hosts_raises(self) -> None:
+        """The factory composes a host-less URL, which the parser refuses."""
+        with pytest.raises(RedisProviderConfigError, match="at least one host"):
+            RedisProvider.sentinel(sentinels=[], service_name="mymaster")
+
+    def test_cluster_factory_with_an_empty_host_raises(self) -> None:
+        """A node with no host name is refused rather than silently dropped."""
+        with pytest.raises(RedisProviderConfigError, match="missing host"):
+            RedisProvider.cluster(nodes=[("", 6379)])
 
     async def test_sentinel_provider_closes_sentinels_on_exit(self) -> None:
         """Owned sentinel providers close every Sentinel connection on exit."""
@@ -823,13 +831,6 @@ class TestRedactUrlEdgeCases:
         ):
             assert redact_url(url) == url
 
-    def test_provider_repr_redacts_unparsable_url(self) -> None:
-        """A URL redis-py accepts but pydantic cannot parse still reprs safely."""
-        provider = RedisProvider("redis://user:hun,ter2@:6379/0")
-
-        assert "hun,ter2" not in repr(provider)
-        assert "***" in repr(provider)
-
 
 class TestValidationErrors:
     """A rejected value must never carry its credential into the error."""
@@ -847,6 +848,65 @@ class TestValidationErrors:
             RedisConfig(url="redis://usr:test_password@h:notaport/0")
 
         assert "test_password" not in str(excinfo.value)
+
+
+BAD_URLS = [
+    "anything://test_host:6379/0",
+    "https://test_host:6379/0",
+    "redis://test_host:notaport/0",
+    "not a url",
+    "redis+sentinel://h1:26379,/mymaster",
+]
+
+
+class TestUrlValidationParity:
+    """The constructor, the environment, and the config accept one set."""
+
+    @pytest.mark.parametrize("url", BAD_URLS)
+    def test_constructor_refuses_what_the_environment_refuses(
+        self, url: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both paths reject the same URL, and with the same error."""
+        monkeypatch.setenv("REDIS_URL", url)
+
+        with pytest.raises(RedisProviderConfigError) as from_env:
+            RedisProvider()
+        with pytest.raises(RedisProviderConfigError) as from_kwarg:
+            RedisProvider(url, env_load=False)
+
+        assert str(from_kwarg.value) == str(from_env.value)
+
+    @pytest.mark.parametrize("url", BAD_URLS)
+    def test_the_config_refuses_it_too(self, url: str) -> None:
+        """`RedisConfig` rejects every URL the other two paths reject."""
+        with pytest.raises(ValidationError):
+            RedisConfig(url=url)
+
+    def test_a_rejected_constructor_url_is_a_grelmicro_error(self) -> None:
+        """The failure is catchable as `GrelmicroError`, not a client error."""
+        with pytest.raises(GrelmicroError):
+            RedisProvider("anything://test_host:6379/0", env_load=False)
+
+    def test_a_rejected_constructor_url_does_not_echo_the_password(
+        self,
+    ) -> None:
+        """A wrong scheme reports the failure without the credential."""
+        with pytest.raises(RedisProviderConfigError) as excinfo:
+            RedisProvider("https://usr:test_password@h/0", env_load=False)
+
+        assert "test_password" not in str(excinfo.value)
+
+    def test_an_uppercase_scheme_resolves_the_same_from_both_paths(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A scheme is case-insensitive, and both paths lowercase it."""
+        monkeypatch.setenv("REDIS_URL", "REDIS://test_host:6379/0")
+
+        assert RedisProvider().url == "redis://test_host:6379/0"
+        assert (
+            RedisProvider("REDIS://test_host:6379/0", env_load=False).url
+            == "redis://test_host:6379/0"
+        )
 
 
 class TestSentinelPassword:

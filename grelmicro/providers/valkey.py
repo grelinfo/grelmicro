@@ -63,6 +63,17 @@ deployment that names the server it runs should not have to say `redis`.
 """
 
 
+class ValkeyConfig(RedisConfig):
+    """Valkey connection settings.
+
+    The same fields as `RedisConfig`, with Valkey's own URL schemes
+    accepted alongside Redis's. Pass it to
+    `ValkeyProvider.from_config(cfg)`, which also takes a `RedisConfig`.
+    """
+
+    url: SecretUrl[ValkeyAnyDsn] | None = None
+
+
 class _ValkeyEnvSettings(_RedisEnvSettings):
     """Read Valkey settings from the environment, Valkey schemes included."""
 
@@ -89,7 +100,7 @@ class ValkeyProvider(RedisProvider):
     ValkeyProvider(host="x", port=6379, db=0)   # decomposed kwargs
     ValkeyProvider()                             # env-driven (VALKEY_*)
     ValkeyProvider(env_prefix="CACHE_VALKEY_")  # custom env prefix
-    ValkeyProvider.from_config(RedisConfig(...))  # from a config object
+    ValkeyProvider.from_config(ValkeyConfig(...))  # from a config object
     ValkeyProvider.from_client(client)           # bring-your-own client
     ```
 
@@ -228,12 +239,17 @@ class ValkeyProvider(RedisProvider):
         cls,
         config: Annotated[
             RedisConfig,
-            Doc("Pre-built `RedisConfig` carrying the connection settings."),
+            Doc(
+                """
+                Pre-built `ValkeyConfig` or `RedisConfig` carrying the
+                connection settings.
+                """
+            ),
         ],
         *,
         env_prefix: str = "VALKEY_",
     ) -> Self:
-        """Build a provider from a `RedisConfig` instance.
+        """Build a provider from a `ValkeyConfig` or `RedisConfig` instance.
 
         The config is treated as authoritative: no environment reads.
         """
@@ -248,6 +264,11 @@ class ValkeyProvider(RedisProvider):
             db=config.db,
             password=(
                 config.password.get_secret_value() if config.password else None
+            ),
+            sentinel_password=(
+                config.sentinel_password.get_secret_value()
+                if config.sentinel_password
+                else None
             ),
             env_prefix=env_prefix,
             env_load=False,
