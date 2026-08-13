@@ -21,6 +21,7 @@ from grelmicro.errors import (
     SettingsValidationError,
 )
 from grelmicro.providers._base import Provider
+from grelmicro.providers._url import validate_url
 from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
@@ -583,16 +584,22 @@ def _resolve_url(
 ) -> tuple[str, str | None]:
     """Resolve the connection URL and Sentinel password from kwargs and env.
 
-    `settings_cls` decides which URL schemes the environment path accepts, so
-    `ValkeyProvider` reads `valkey://` where `RedisProvider` does not.
+    `settings_cls` carries the URL type both paths validate against, so
+    `ValkeyProvider` reads `valkey://` where `RedisProvider` does not, and a
+    URL passed to the constructor is accepted or refused exactly as the same
+    URL set in the environment.
     """
     if url is not None and host is not None:
         msg = "pass either `url` or `host`, not both"
         raise RedisProviderConfigError(msg)
 
     if url is not None:
+        try:
+            validated = validate_url(str(url), settings_cls=settings_cls)
+        except ValidationError as error:
+            raise RedisProviderConfigError(error) from None
         return (
-            _apply_password(str(url), password, source="`password`"),
+            _apply_password(validated, password, source="`password`"),
             sentinel_password,
         )
 

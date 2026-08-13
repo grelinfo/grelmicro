@@ -4,6 +4,7 @@ from importlib.metadata import entry_points
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.coordination.redis import (
@@ -16,7 +17,7 @@ from grelmicro.providers.redis import (
     RedisProvider,
     RedisProviderConfigError,
 )
-from grelmicro.providers.valkey import ValkeyProvider
+from grelmicro.providers.valkey import ValkeyConfig, ValkeyProvider
 from grelmicro.resilience.circuitbreaker.redis import (
     RedisCircuitBreakerAdapter,
 )
@@ -183,6 +184,32 @@ class TestFromConfig:
         cfg = RedisConfig(host="cfg_host")
         provider = ValkeyProvider.from_config(cfg)
         assert provider.env_prefix == "VALKEY_"
+
+    def test_from_config_takes_a_valkey_url(self) -> None:
+        """`ValkeyConfig` carries the schemes the provider accepts."""
+        cfg = ValkeyConfig(url="valkey://cfg_host:6379/0")
+
+        provider = ValkeyProvider.from_config(cfg)
+
+        assert provider.url == "valkey://cfg_host:6379/0"
+
+    def test_a_redis_config_refuses_a_valkey_url(self) -> None:
+        """`RedisConfig` keeps the Redis schemes, so `ValkeyConfig` exists."""
+        with pytest.raises(ValidationError):
+            RedisConfig(url="valkey://cfg_host:6379/0")
+
+    def test_from_config_carries_the_sentinel_password(self) -> None:
+        """`from_config` is authoritative and must not drop it."""
+        provider = ValkeyProvider.from_config(
+            ValkeyConfig(
+                url="valkey+sentinel://a:26379,b:26379/mymaster/0",
+                sentinel_password="sentinel_password",
+            )
+        )
+
+        sentinel = provider._sentinel
+        assert sentinel is not None
+        assert sentinel.sentinel_kwargs == {"password": "sentinel_password"}
 
 
 class TestFromClient:
@@ -401,6 +428,7 @@ class TestValkeySchemes:
         provider = ValkeyProvider()
 
         assert provider.url == url
+        assert ValkeyProvider(url, env_load=False).url == url
 
     @pytest.mark.parametrize(
         "url",
@@ -422,11 +450,13 @@ class TestValkeySchemes:
     def test_redis_keeps_its_own_schemes(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`RedisProvider` does not learn Valkey's schemes."""
+        """`RedisProvider` does not learn Valkey's schemes, on either path."""
         monkeypatch.setenv("REDIS_URL", "valkey://localhost:6379/0")
 
         with pytest.raises(RedisProviderConfigError):
             RedisProvider()
+        with pytest.raises(RedisProviderConfigError):
+            RedisProvider("valkey://localhost:6379/0", env_load=False)
 
     @pytest.mark.parametrize(
         "url",

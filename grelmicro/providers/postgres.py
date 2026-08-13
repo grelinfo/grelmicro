@@ -19,6 +19,7 @@ from typing_extensions import Doc
 from grelmicro._redact import redact_url
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
+from grelmicro.providers._url import validate_url
 from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
@@ -472,13 +473,24 @@ def _resolve_url(
     env_prefix: str,
     env_load: bool,
 ) -> str:
-    """Resolve the connection URL from kwargs and (optionally) the environment."""
+    """Resolve the connection URL from kwargs and (optionally) the environment.
+
+    A URL passed here is validated against `_PostgresEnvSettings.url`, the same
+    type the environment path uses, so both accept the same URLs and fail the
+    same way.
+    """
     if url is not None and host is not None:
         msg = "pass either `url` or `host`, not both"
         raise PostgresProviderConfigError(msg)
 
     if url is not None:
-        return _normalize_scheme(str(url))
+        try:
+            validated = validate_url(
+                str(url), settings_cls=_PostgresEnvSettings
+            )
+        except ValidationError as error:
+            raise PostgresProviderConfigError(error) from None
+        return _normalize_scheme(validated)
 
     if host is not None:
         return _compose_url(
