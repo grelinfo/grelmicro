@@ -15,7 +15,7 @@ The lock supports the following features:
   deadlocks.
 - **Non-blocking**: lock operations do not block the async event loop.
 - **Backend-agnostic**: several backends are supported, including Redis,
-  PostgreSQL, and Kubernetes ConfigMap.
+  PostgreSQL, SQLite, and the Kubernetes Lease API.
 
 ```python
 --8<-- "coordination/lock.py"
