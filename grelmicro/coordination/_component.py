@@ -92,7 +92,7 @@ class Coordination:
             leader = micro.coordination.leaderelection("worker")
         ```
 
-    Read more in the [Coordination](../coordination.md) docs.
+    Read more in the [Coordination](../coordination/index.md) docs.
     """
 
     kind: ClassVar[str] = "coordination"

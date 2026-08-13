@@ -122,7 +122,7 @@ class RedisProvider(Provider):
     Redis client, exit to close it. Adapters delegate their lifecycle
     to the provider when one is supplied.
 
-    Read more in the [Providers](../providers.md) docs.
+    Read more in the [Providers](../providers/index.md) docs.
     """
 
     short_name: ClassVar[str] = "redis"
@@ -402,7 +402,7 @@ class RedisProvider(Provider):
         The cluster client discovers the full topology from the seed
         nodes and routes each key to its owning slot. Multi-key
         operations must land in one slot: see the cache hash-tag rule in
-        the [Providers](../providers.md) docs.
+        the [Providers](../providers/index.md) docs.
         """
         url = _compose_cluster_url(nodes=nodes, password=password)
         self = cls.__new__(cls)

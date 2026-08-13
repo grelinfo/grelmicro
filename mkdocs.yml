@@ -56,6 +56,7 @@ validation:
   omitted_files: warn
   absolute_links: warn
   unrecognized_links: warn
+  anchors: warn
 
 nav:
 - grelmicro: index.md
@@ -64,10 +65,24 @@ nav:
 - User Guide:
     - first-steps.md
     - wiring.md
-    - cache.md
-    - idempotency.md
-    - coordination.md
-    - outbox.md
+    - Cache:
+        - cache/index.md
+        - cache/cached.md
+    - Idempotency:
+        - idempotency/index.md
+        - idempotency/middleware.md
+    - Coordination:
+        - coordination/index.md
+        - coordination/lock.md
+        - coordination/read-write-lock.md
+        - coordination/task-lock.md
+        - coordination/leader-election.md
+    - Outbox:
+        - outbox/index.md
+        - outbox/producer.md
+        - outbox/consumer.md
+        - outbox/relay.md
+        - outbox/schema.md
     - task.md
     - Resilience:
         - resilience/index.md
@@ -81,7 +96,10 @@ nav:
         - resilience/composition.md
     - health.md
     - clientip.md
-    - logging.md
+    - Logging:
+        - logging/index.md
+        - logging/integrations.md
+        - logging/filters.md
     - tracing.md
     - metrics.md
     - config.md
@@ -90,7 +108,10 @@ nav:
 - Advanced User Guide:
     - advanced/config.md
     - configuration/reconfigure-from-configmap.md
-    - providers.md
+    - Providers:
+        - providers/index.md
+        - providers/redis.md
+        - providers/postgres.md
     - capabilities.md
     - comparison.md
     - benchmarks.md

@@ -1,6 +1,6 @@
 # Kubernetes Backend
 
-This page documents the internal design of the Kubernetes [Coordination backend](../coordination.md#backends).
+This page documents the internal design of the Kubernetes [Coordination backend](../coordination/index.md#backends).
 
 ## Lease Resources
 

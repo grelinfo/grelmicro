@@ -80,7 +80,7 @@ if os.getenv("STORE_BACKEND") == "redis":
 
     `Outbox` is the exception, and it is always written out. It carries the
     handlers your messages are delivered to and the relay that delivers them,
-    so it belongs where those are declared. See [Outbox](outbox.md).
+    so it belongs where those are declared. See [Outbox](outbox/index.md).
 
     Two providers are the one case where the forms differ. `uses=[p1, p2]` sees
     both at once and raises `AmbiguousProviderError`, because neither can be the
@@ -185,7 +185,7 @@ around each consumed message so patterns resolve inside subscribers. Pass
 
 ## Next
 
-Read the per-pattern pages for [cache](cache.md), [coordination](coordination.md),
+Read the per-pattern pages for [cache](cache/index.md), [coordination](coordination/index.md),
 [scheduling](task.md), and [resilience](resilience/index.md). When you deploy,
 the [Configuration](config.md) page shows how to tune every pattern with `GREL_*`
 environment variables.

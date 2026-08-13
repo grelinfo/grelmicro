@@ -78,16 +78,46 @@ instance). This is rare in practice.
 
 Build a config object, then construct via `from_config`:
 
-```python
-from grelmicro.coordination import Lock
-from grelmicro.coordination.lock import LockConfig
-
-cfg = LockConfig(lease_duration=60, retry_interval=0.1)
-lock = Lock.from_config("cart", cfg)
+```python title="lock_declarative.py"
+--8<-- "coordination/lock_declarative.py"
 ```
 
 The config object is a frozen Pydantic model. Field names match the kwargs from
 the programmatic path. `from_config` skips the env layer entirely.
+
+Every primitive takes the same path. Some accept the config as a `config=`
+keyword instead of `from_config`, because their config type also selects the
+algorithm:
+
+=== "Retry"
+    ```python
+    --8<-- "resilience/retry_declarative.py"
+    ```
+
+=== "Timeout"
+    ```python
+    --8<-- "resilience/timeout_declarative.py"
+    ```
+
+=== "Shield"
+    ```python
+    --8<-- "resilience/shield_declarative.py"
+    ```
+
+=== "Fallback"
+    ```python
+    --8<-- "resilience/fallback_declarative.py"
+    ```
+
+=== "Circuit breaker"
+    ```python
+    --8<-- "resilience/circuitbreaker_declarative.py"
+    ```
+
+=== "Rate limiter"
+    ```python
+    --8<-- "resilience/ratelimiter_from_config.py"
+    ```
 
 ## Resolution order
 

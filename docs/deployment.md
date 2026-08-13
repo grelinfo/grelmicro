@@ -84,7 +84,7 @@ It reads in both directions. Lower the bar to accept the scope you have, or
 raise it to make the wiring you meant a startup condition: a
 `RateLimiterComponent(redis, requires="cluster")` fails at boot the day
 someone points it at memory. A `Cache` that an
-[`Idempotency`](idempotency.md) reads from wants `requires="cluster"` too,
+[`Idempotency`](idempotency/index.md) reads from wants `requires="cluster"` too,
 because a replay has to find the stored response wherever the retry lands.
 
 Only a bound backend is checked. A component you never registered is the
@@ -201,7 +201,7 @@ pod, and the access log reports each one. Attach `ProbeFilter` to drop them:
 --8<-- "log/probes.py"
 ```
 
-[Logging](logging.md) covers the formats, the backends and the other filters.
+[Logging](logging/index.md) covers the formats, the backends and the other filters.
 
 ## Health probes
 
@@ -251,7 +251,7 @@ The composition root then holds no connection code at all:
 ```
 
 Pods sharing a namespace with another grelmicro application need a `prefix`
-so the two do not collide on key or lease names. [Providers](providers.md)
+so the two do not collide on key or lease names. [Providers](providers/index.md)
 covers the URL forms and the backend options.
 
 ## Reconfigure without a restart

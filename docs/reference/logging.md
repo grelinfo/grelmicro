@@ -1,7 +1,7 @@
 # Logging
 
-- **Start here**: [Logging guide](../logging.md)
-- **Common recipes**: [`configure(...)`](../logging.md) for JSON, LOGFMT, TEXT, PRETTY output. Filters: `DuplicateFilter`, `RateLimitFilter`.
+- **Start here**: [Logging guide](../logging/index.md)
+- **Common recipes**: [`configure(...)`](../logging/index.md) for JSON, LOGFMT, TEXT, PRETTY output. Filters: `DuplicateFilter`, `RateLimitFilter`.
 
 ::: grelmicro.log
     options:

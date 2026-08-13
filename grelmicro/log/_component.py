@@ -59,7 +59,7 @@ class Log:
     `Grelmicro` lifecycles in the same process. Run one `Log` at a
     time per process.
 
-    Read more in the [Logging](../logging.md) docs.
+    Read more in the [Logging](../logging/index.md) docs.
     """
 
     kind: ClassVar[str] = "log"

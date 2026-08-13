@@ -5,7 +5,7 @@ URL/credentials that built it. Components (`Coordination`, `Cache`, rate limiter
 ...) accept a `Provider` instead of opening their own pools, so two
 components against the same vendor share one connection.
 
-Read more in the [Providers](providers.md) docs.
+Read more in the [Providers](../providers/index.md) docs.
 """
 
 from grelmicro.providers._base import Provider

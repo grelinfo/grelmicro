@@ -13,14 +13,26 @@ Each primitive is a protocol, so you can swap Redis for PostgreSQL, SQLite, Kube
 
 ## User guide
 
-- [Cache](https://grelmicro.grel.info/cache/): the `@cached` decorator with local and distributed stampede protection.
+- [Cache](https://grelmicro.grel.info/cache/): `TTLCache`, backends, serializers, tags, and batch operations.
+- [The @cached decorator](https://grelmicro.grel.info/cache/cached/): custom keys, refresh, streaming producers, stampede protection, and serve-stale-on-error.
 - [Idempotency](https://grelmicro.grel.info/idempotency/): idempotency keys that make a retried operation safe.
-- [Coordination](https://grelmicro.grel.info/coordination/): distributed `Lock`, `TaskLock`, and `LeaderElection`.
+- [Idempotency middleware](https://grelmicro.grel.info/idempotency/middleware/): replay a whole HTTP response when a request repeats its `Idempotency-Key` header.
+- [Coordination](https://grelmicro.grel.info/coordination/): pick a backend for distributed `Lock`, `ReadWriteLock`, `TaskLock`, and `LeaderElection`.
+- [Lock](https://grelmicro.grel.info/coordination/lock/): distributed mutual exclusion, bounded acquire, lease extension, and fencing tokens.
+- [Read-Write Lock](https://grelmicro.grel.info/coordination/read-write-lock/): many readers at once, one writer alone, with typed guards and poison detection.
+- [Task Lock](https://grelmicro.grel.info/coordination/task-lock/): a lock for scheduled tasks that holds past completion to stop re-execution.
+- [Leader Election](https://grelmicro.grel.info/coordination/leader-election/): elect one worker for a long-lived role, with the lease record and `lead`.
 - [Outbox](https://grelmicro.grel.info/outbox/): a transactional outbox that delivers messages at least once after your database transaction commits.
+- [Outbox producer](https://grelmicro.grel.info/outbox/producer/): `publish` inside your own transaction, with SQLModel, SQLAlchemy, and FastAPI.
+- [Outbox consumer](https://grelmicro.grel.info/outbox/consumer/): handlers, the `Message` fields, retry control, and dead-lettering.
+- [Outbox relay](https://grelmicro.grel.info/outbox/relay/): scaling the relay, retention, observability, and every configuration field.
+- [Outbox schema](https://grelmicro.grel.info/outbox/schema/): the table layout and managing it with Alembic.
 - [Task Scheduler](https://grelmicro.grel.info/task/): interval and cron tasks with durable, distributed at-most-once execution.
 - [Resilience](https://grelmicro.grel.info/resilience/): circuit breaker and rate limiter with pluggable algorithms.
 - [Health](https://grelmicro.grel.info/health/): health checks with FastAPI liveness and readiness integration.
 - [Logging](https://grelmicro.grel.info/logging/): 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output.
+- [Logging integrations](https://grelmicro.grel.info/logging/integrations/): OpenTelemetry trace context, FastAPI, and uvicorn access logs.
+- [Logging filters](https://grelmicro.grel.info/logging/filters/): deduplicate and rate limit a noisy logger.
 - [Tracing](https://grelmicro.grel.info/tracing/): OpenTelemetry spans and structured log context through `@instrument`.
 - [Metrics](https://grelmicro.grel.info/metrics/): OpenTelemetry metrics with a `@measure` decorator and a Prometheus router.
 - [Configuration](https://grelmicro.grel.info/config/): reconfigure live components from a ConfigMap, Secret, or file.
@@ -37,6 +49,9 @@ Each primitive is a protocol, so you can swap Redis for PostgreSQL, SQLite, Kube
 
 ## Optional
 
+- [Providers](https://grelmicro.grel.info/providers/): the connection object behind every component, its construction forms, lifecycle, and factory methods.
+- [Redis and Valkey](https://grelmicro.grel.info/providers/redis/): environment variables, Sentinel, Cluster, and the hash-tag rule.
+- [Postgres](https://grelmicro.grel.info/providers/postgres/): environment variables, `command_timeout`, and splitting reader and writer pools.
 - [Comparison](https://grelmicro.grel.info/comparison/): grelmicro next to aiocache, slowapi, pybreaker, tenacity, and aioredlock.
 - [Benchmarks](https://grelmicro.grel.info/benchmarks/): performance measurements for the primitives.
 - [Changelog](https://grelmicro.grel.info/changelog/): release notes for every version.

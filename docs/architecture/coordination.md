@@ -1,6 +1,6 @@
 # Coordination Internals
 
-This page documents the internal design of the [Coordination primitives](../coordination.md).
+This page documents the internal design of the [Coordination primitives](../coordination/index.md).
 
 ## Worker Identity
 

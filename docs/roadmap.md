@@ -28,7 +28,7 @@ Work that happens without a request should be as easy to state as work that answ
 
 ## A shorter first hour
 
-Reading the guide should not be the only way to start. A starter template wires one provider, health checks, and one pattern, so a service runs before anything has to be understood. Recipes cover shapes that are not one primitive, such as a multi-step workflow across `Tasks`, `TaskLock`, and the [outbox](outbox.md).
+Reading the guide should not be the only way to start. A starter template wires one provider, health checks, and one pattern, so a service runs before anything has to be understood. Recipes cover shapes that are not one primitive, such as a multi-step workflow across `Tasks`, `TaskLock`, and the [outbox](outbox/index.md).
 
 ## The runtime underneath
 

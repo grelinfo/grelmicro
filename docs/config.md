@@ -16,7 +16,7 @@ A field takes the first of these that supplies it:
 4. The field's default.
 
 The flag gates the `GREL_*` namespace, which is grelmicro's own. It does not
-gate a [Provider](providers.md), and it never did. `RedisProvider()` reads
+gate a [Provider](providers/index.md), and it never did. `RedisProvider()` reads
 `REDIS_URL`, `PostgresProvider()` reads `POSTGRES_URL`, with no flag, because
 those names belong to your environment rather than to grelmicro. A provider
 variable that is missing fails at construction and names the variable it

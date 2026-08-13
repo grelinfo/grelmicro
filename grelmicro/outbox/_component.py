@@ -54,7 +54,7 @@ class Outbox:
         micro = Grelmicro(uses=[outbox])
         ```
 
-    Read more in the [Outbox](../outbox.md) docs.
+    Read more in the [Outbox](../outbox/index.md) docs.
     """
 
     kind: ClassVar[str] = "outbox"

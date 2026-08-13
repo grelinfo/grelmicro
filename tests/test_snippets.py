@@ -17,11 +17,16 @@ Snippets are tiered:
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
 
-_SNIPPETS_DIR = Path(__file__).resolve().parent.parent / "docs" / "snippets"
+_DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
+_SNIPPETS_DIR = _DOCS_DIR / "snippets"
+
+# `--8<-- "path/to/snippet.py"`, optionally with a `:start:end` line range.
+_INCLUDE_RE = re.compile(r'--8<--\s*"([^":]+)(?::\d+)*"')
 
 # Snippets whose module body runs an event loop with global side effects
 # (logging / tracing setup). Compiled and built by MkDocs, not run here.
@@ -70,6 +75,25 @@ def test_snippets_present() -> None:
     """The snippet tiers reference files that still exist."""
     for rel in _COMPILE_ONLY | set(_ENV):
         assert (_SNIPPETS_DIR / rel).is_file(), rel
+
+
+def test_no_orphan_snippets() -> None:
+    """Every snippet is included by a page.
+
+    `check_paths` fails an include pointing at a missing file. Nothing
+    catches the reverse, so a snippet no page renders still costs test
+    time and reads as a live example to anyone browsing the tree.
+    """
+    included = {
+        match
+        for page in _DOCS_DIR.rglob("*.md")
+        for match in _INCLUDE_RE.findall(page.read_text())
+    }
+    snippets = {rel for rel in _ALL if not rel.endswith("__init__.py")}
+    orphans = sorted(snippets - included)
+    assert not orphans, (
+        f"snippets included by no page: {orphans}. Include them or delete them."
+    )
 
 
 @pytest.mark.parametrize("rel", _RUNNABLE)

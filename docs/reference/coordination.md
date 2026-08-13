@@ -1,8 +1,8 @@
 # Coordination
 
-- **Start here**: [Coordination guide](../coordination.md)
-- **Common recipes**: [`Lock`](../coordination.md#lock), [`ReadWriteLock`](../coordination.md#read-write-lock), [`TaskLock`](../coordination.md#task-lock), [`LeaderElection`](../coordination.md#leader-election)
-- **Backends**: [backend selection](../coordination.md#backends)
+- **Start here**: [Coordination guide](../coordination/index.md)
+- **Common recipes**: [`Lock`](../coordination/lock.md), [`ReadWriteLock`](../coordination/read-write-lock.md), [`TaskLock`](../coordination/task-lock.md), [`LeaderElection`](../coordination/leader-election.md)
+- **Backends**: [backend selection](../coordination/index.md#backends)
 
 ::: grelmicro.coordination
     options:

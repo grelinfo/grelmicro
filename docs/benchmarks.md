@@ -11,6 +11,7 @@ uv run python benchmarks/ratelimiter_benchmark.py
 uv run python benchmarks/circuitbreaker_benchmark.py
 uv run python benchmarks/cache_benchmark.py
 uv run python benchmarks/lock_benchmark.py
+uv run python benchmarks/logging_benchmark.py
 ```
 
 Each script measures the in-memory backend so the numbers reflect grelmicro's own overhead, not a network round-trip. Distributed backends (Redis, Postgres, SQLite) add their transport and storage cost on top.
@@ -41,6 +42,23 @@ That is also why the numbers below are not the point. The scripts are. Run them 
 | Cache | `get` (miss) | ~260 ns |
 | Cache | `set` | ~290 ns |
 | Lock | `acquire` + `release` cycle | ~1330 ns |
+
+## Logging
+
+The logging backends are measured separately, over 50,000 iterations:
+
+| Backend | Serializer | Ops/sec | vs Best |
+|---------|------------|---------|---------|
+| structlog | orjson | 302,273 | 100.0% |
+| stdlib | orjson | 269,353 | 89.1% |
+| structlog | stdlib | 198,000 | 65.5% |
+| loguru | orjson | 192,953 | 63.8% |
+| stdlib | stdlib | 181,745 | 60.1% |
+| loguru | stdlib | 147,185 | 48.7% |
+
+For a high-throughput service, pair `GREL_LOG_JSON_SERIALIZER=orjson` with the
+`structlog` or `stdlib` backend. orjson is never selected for you, and
+[Logging](logging/index.md#why-orjson-is-not-selected-automatically) explains why.
 
 ## Reading the numbers
 

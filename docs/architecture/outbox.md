@@ -1,6 +1,6 @@
 # Outbox Internals
 
-This page documents the internal design of the [Outbox](../outbox.md). The user guide covers the API. This page covers the why.
+This page documents the internal design of the [Outbox](../outbox/index.md). The user guide covers the API. This page covers the why.
 
 ## The dual-write problem
 
@@ -48,7 +48,7 @@ Three decisions matter here.
 
 Delivery is **at least once**. The relay runs the handler, then marks the message done. A crash in between reruns the handler.
 
-Exactly-once *delivery* is impossible: the relay must either mark-then-do (can lose the side effect) or do-then-mark (can repeat it), and no third option exists across a process boundary. The outbox chooses do-then-mark, so the honest guarantee is at-least-once and **handlers must be idempotent**. Every message carries a stable `id` to use as the idempotency key, which composes with the [idempotency](../idempotency.md) primitive.
+Exactly-once *delivery* is impossible: the relay must either mark-then-do (can lose the side effect) or do-then-mark (can repeat it), and no third option exists across a process boundary. The outbox chooses do-then-mark, so the honest guarantee is at-least-once and **handlers must be idempotent**. Every message carries a stable `id` to use as the idempotency key, which composes with the [idempotency](../idempotency/index.md) primitive.
 
 A stale relay that settles a message another relay has since reclaimed is fenced by `WHERE attempts = $claimed_attempts` on the settle statements, so a late write from a slow relay cannot clobber the reclaiming relay's state. This does not make delivery exactly-once. It only trims duplicate amplification.
 
@@ -74,4 +74,4 @@ One table holds every message. Column names follow the common outbox convention 
 
 ## Backend extensibility
 
-The relay talks to an `OutboxBackend` protocol, so a backend is one adapter plus a `provider.outbox()` factory, the same shape [cache](../cache.md) and [coordination](../coordination.md) use. Postgres ships today. SQLite (single-writer, no NOTIFY) is planned, and MySQL (also `FOR UPDATE SKIP LOCKED`) is on the roadmap. The producer and consumer API never changes across backends.
+The relay talks to an `OutboxBackend` protocol, so a backend is one adapter plus a `provider.outbox()` factory, the same shape [cache](../cache/index.md) and [coordination](../coordination/index.md) use. Postgres ships today. SQLite (single-writer, no NOTIFY) is planned, and MySQL (also `FOR UPDATE SKIP LOCKED`) is on the roadmap. The producer and consumer API never changes across backends.

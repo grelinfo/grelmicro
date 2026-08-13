@@ -47,7 +47,7 @@ class Cache:
             user = await get_user(1)
         ```
 
-    Read more in the [Cache](../cache.md) docs.
+    Read more in the [Cache](../cache/index.md) docs.
     """
 
     cached = staticmethod(cached)
