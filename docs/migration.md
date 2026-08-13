@@ -9,9 +9,10 @@ sections in the [changelog](changelog.md), newest first.
 
 In `0.x` the minor is the breaking position: a `0.x.0` release may change the
 public API, and a `0.x.y` release is a safe patch. So an upgrade within one
-minor rarely needs this page. One patch is an exception, and it changes no
-API: [0.32.2](#0-32-2-circuit-breaker-state) changes what an already-open
-circuit does once.
+minor rarely needs this page. Two patches are exceptions, and neither changes
+any API: [0.32.2](#0-32-2-circuit-breaker-state) changes what an already-open
+circuit does once, and [0.37.1](#0-37-1-url-validation) refuses a provider URL
+that a client library used to accept.
 
 ## Find your symptom
 
@@ -29,6 +30,33 @@ circuit does once.
 | `LogSettingsValidationError: unknown timezone name 'CEST'` | 0.36 | [Name the zone](#0-36-timezone-abbreviation) |
 | `ImportError: cannot import name 'RateLimiterRegistry'` or `ImportError: cannot import name 'CircuitBreakerRegistry'` | 0.37 | [Rename to `Component`](#0-37-registry-renamed) |
 | `TypeError: health_router() got an unexpected keyword argument 'registry'` | 0.37 | [Pass `component=`](#0-37-registry-renamed) |
+| `RedisProviderConfigError` or `PostgresProviderConfigError` on a URL that used to connect | 0.37.1 | [Fix the URL](#0-37-1-url-validation) |
+
+## 0.37.1
+
+### A provider URL is validated on every path {#0-37-1-url-validation}
+
+A URL passed to a provider constructor is now checked against the same type
+as one read from the environment. Both paths accept the same URLs and raise
+the same error, so a URL the client library used to accept can now be refused
+where it used to connect:
+
+```python
+# Before: redis-py accepted the authority and connected to h1 alone
+RedisProvider("redis+sentinel://h1:26379,/mymaster")
+
+# After
+# RedisProviderConfigError: Could not validate settings:
+# - url: Input should be a valid URL, empty host
+```
+
+The message names what is wrong with the URL. Fix the URL, most often a
+trailing comma in a multi-host authority, a missing host, or a port that is
+not a number.
+
+Nothing else moves: `redis://`, `rediss://`, `unix://`, `redis+sentinel://`,
+`redis+cluster://`, the four `valkey` spellings, and every Postgres scheme
+including the SQLAlchemy driver forms are all accepted as before.
 
 ## 0.37
 
