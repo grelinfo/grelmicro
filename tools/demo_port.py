@@ -21,11 +21,24 @@ import socket
 import sys
 
 
-def free_port() -> int:
-    """Return a port the kernel reports as free right now."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+def free_port(attempts: int = 20) -> int:
+    """Return a port free on both loopback families right now.
+
+    The kernel hands out an ephemeral port for one family at a time, and a
+    port free on `127.0.0.1` can be taken on `::1`. Each candidate is
+    checked against both before it is returned.
+
+    Raises:
+        SystemExit: If no candidate came back free within `attempts`.
+    """
+    for _ in range(attempts):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = int(sock.getsockname()[1])
+        if is_free(port):
+            return port
+    msg = f"found no port free on both loopback families in {attempts} tries"
+    raise SystemExit(msg)
 
 
 def is_free(port: int) -> bool:
