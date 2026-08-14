@@ -3,22 +3,29 @@
 from __future__ import annotations
 
 import pickle
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, TypeVar
 
 from grelmicro.cache.serializers import (
     CacheSerializer,
     JsonSerializer,
     PickleSerializer,
     PydanticSerializer,
+    _infer_serializer,
+    _infer_serializer_from_class,
+    _infer_serializer_from_instance,
+    _resolve_serializer,
 )
 
 pytestmark = [pytest.mark.timeout(10)]
 
 
 EXPECTED_USER_ID = 42
+
+T = TypeVar("T")
 
 
 class _User(BaseModel):
@@ -167,3 +174,87 @@ class TestPydanticSerializer:
         result = serializer.loads(serializer.dumps(item))
 
         assert result == item
+
+
+class TestResolveSerializer:
+    """Tests for `_resolve_serializer`."""
+
+    def test_serializer_instance_passes_through(self) -> None:
+        """Test that a serializer instance is returned unchanged."""
+        serializer = JsonSerializer()
+
+        assert _resolve_serializer(serializer) is serializer
+
+    def test_model_becomes_pydantic_serializer(self) -> None:
+        """Test that a model type is wrapped in a PydanticSerializer."""
+        serializer = _resolve_serializer(_User)
+
+        assert isinstance(serializer, PydanticSerializer)
+        assert serializer.loads(b'{"id": 1, "name": "Alice"}').name == "Alice"
+
+    def test_generic_alias_becomes_pydantic_serializer(self) -> None:
+        """Test that a parameterized type is wrapped too."""
+        serializer = _resolve_serializer(list[_User])
+
+        assert serializer.loads(b'[{"id": 1, "name": "Alice"}]') == [
+            _User(id=1, name="Alice")
+        ]
+
+    def test_serializer_class_names_the_fix(self) -> None:
+        """Test that a serializer class raises and asks for an instance."""
+        with pytest.raises(
+            TypeError, match=r"pass an instance: JsonSerializer\(\)"
+        ):
+            _resolve_serializer(JsonSerializer)
+
+
+class TestInferSerializer:
+    """Tests for `_infer_serializer` and its two readers."""
+
+    def test_model_infers_pydantic_serializer(self) -> None:
+        """Test that a model type infers a PydanticSerializer."""
+        assert isinstance(_infer_serializer(_User), PydanticSerializer)
+
+    @pytest.mark.parametrize("annotation", [bytes, Any, T])
+    def test_raw_bytes_annotations_infer_nothing(
+        self, annotation: object
+    ) -> None:
+        """Test that `bytes`, `Any`, and a type variable infer nothing."""
+        assert _infer_serializer(annotation) is None
+
+    def test_unsupported_type_infers_nothing(self) -> None:
+        """Test that a type Pydantic cannot adapt infers nothing."""
+
+        class Opaque:
+            def __init__(self, value: object) -> None:
+                self.value = value
+
+        assert _infer_serializer(Opaque) is None
+
+    def test_instance_without_type_parameter_infers_nothing(self) -> None:
+        """Test that an unparameterized instance infers nothing."""
+        assert _infer_serializer_from_instance(object()) is None
+
+    def test_instance_type_parameter_is_read(self) -> None:
+        """Test that `Klass[Model](...)` exposes its parameter."""
+        assert isinstance(
+            _infer_serializer_from_instance(PydanticSerializer[_User](_User)),
+            PydanticSerializer,
+        )
+
+    def test_class_without_matching_base_infers_nothing(self) -> None:
+        """Test that a subclass of another generic infers nothing."""
+        assert (
+            _infer_serializer_from_class(list[int], PydanticSerializer) is None
+        )
+
+    def test_class_type_parameter_is_read(self) -> None:
+        """Test that `class Sub(Klass[Model])` exposes its parameter."""
+
+        class UserSerializer(PydanticSerializer[_User]):
+            pass
+
+        assert isinstance(
+            _infer_serializer_from_class(UserSerializer, PydanticSerializer),
+            PydanticSerializer,
+        )

@@ -13,8 +13,9 @@ from typing import assert_type
 
 from pydantic import BaseModel
 
+from grelmicro import Grelmicro
 from grelmicro._json import JSONDecodable
-from grelmicro.cache import serializers
+from grelmicro.cache import Cache, serializers
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.ttl import TTLCache
 
@@ -66,3 +67,29 @@ async def test_default_serializer_get_returns_bytes_or_none() -> None:
     await cache.set("k", b"raw")
     value = await cache.get("k")
     assert_type(value, bytes | None)
+
+
+async def test_type_parameter_alone_preserves_t() -> None:
+    """`TTLCache[User]` with no serializer keeps `User | None` on get."""
+    cache = TTLCache[_User](ttl=60, backend=MemoryCacheAdapter())
+    await cache.set("k", _User(id=1, name="alice"))
+    value = await cache.get("k")
+    assert_type(value, _User | None)
+
+
+async def test_model_as_serializer_binds_t() -> None:
+    """A model passed as `serializer` binds `T` to that model."""
+    cache = TTLCache(ttl=60, serializer=_User, backend=MemoryCacheAdapter())
+    await cache.set("k", _User(id=1, name="alice"))
+    value = await cache.get("k")
+    assert_type(value, _User | None)
+
+
+async def test_component_factory_model_binds_t() -> None:
+    """`micro.cache.ttl(serializer=User)` yields a `TTLCache[User]`."""
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    cache = micro.cache.ttl(ttl=60, serializer=_User)
+    assert_type(cache, TTLCache[_User])
+    async with micro:
+        await cache.set("k", _User(id=1, name="alice"))
+        assert_type(await cache.get("k"), _User | None)

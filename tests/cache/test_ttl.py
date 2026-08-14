@@ -7,7 +7,7 @@ from time import monotonic
 from unittest.mock import patch
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, TTLCacheConfig
@@ -26,6 +26,11 @@ pytestmark = [pytest.mark.timeout(10)]
 EXPECTED_HITS_2 = 2
 EXPECTED_OVERWRITE_VALUE = 10
 EXPECTED_UNLIMITED_COUNT = 1000
+
+
+class _User(BaseModel):
+    id: int
+    name: str
 
 
 @pytest.fixture
@@ -1009,3 +1014,130 @@ class TestStaleReserve:
             pytest.raises(RuntimeError, match="down"),
         ):
             await cache.get_or_set("k", boom, stale_ttl=100)
+
+
+class TestSerializerInference:
+    """Test the serializer inferred from the type parameter."""
+
+    async def test_type_parameter_infers_pydantic_serializer(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `TTLCache[Model]` roundtrips the model without a serializer."""
+        # Arrange
+        cache = TTLCache[_User](ttl=60, backend=backend)
+
+        # Act
+        await cache.set("user", _User(id=1, name="Alice"))
+
+        # Assert
+        assert await cache.get("user") == _User(id=1, name="Alice")
+
+    async def test_subclass_parameter_infers_pydantic_serializer(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `class Sub(TTLCache[Model])` infers the same serializer."""
+
+        # Arrange
+        class UserCache(TTLCache[_User]):
+            pass
+
+        cache = UserCache(ttl=60, backend=backend)
+
+        # Act
+        await cache.set("user", _User(id=1, name="Alice"))
+
+        # Assert
+        assert await cache.get("user") == _User(id=1, name="Alice")
+
+    async def test_explicit_serializer_wins_over_type_parameter(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that an explicit serializer is kept for a parameterized cache."""
+        # Arrange
+        cache = TTLCache[_User](
+            ttl=60, backend=backend, serializer=PickleSerializer()
+        )
+
+        # Act
+        await cache.set("user", _User(id=1, name="Alice"))
+
+        # Assert: pickle writes its own framing, not JSON
+        stored = await backend.get(key=f"{_CACHE_PREFIX}:user")
+        assert stored is not None
+        assert not stored.startswith(b"{")
+
+    async def test_model_as_serializer(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a type passed as `serializer` builds the serializer."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend, serializer=_User)
+
+        # Act
+        await cache.set("user", _User(id=1, name="Alice"))
+
+        # Assert
+        assert await cache.get("user") == _User(id=1, name="Alice")
+
+    async def test_bytes_parameter_stays_raw(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `TTLCache[bytes]` still stores raw bytes."""
+        # Arrange
+        cache = TTLCache[bytes](ttl=60, backend=backend)
+
+        # Act
+        await cache.set("raw", b"value")
+
+        # Assert
+        assert await cache.get("raw") == b"value"
+
+    async def test_unparameterized_cache_stays_raw(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `TTLCache()` still refuses a non-bytes value."""
+        # Arrange
+        cache = TTLCache(ttl=60, backend=backend)
+
+        # Act / Assert
+        with pytest.raises(TypeError, match="without a serializer"):
+            await cache.set("user", _User(id=1, name="Alice"))
+
+    async def test_unsupported_parameter_stays_raw(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a type Pydantic cannot adapt keeps raw bytes."""
+
+        # Arrange
+        class _Opaque:
+            def __init__(self, value: object) -> None:
+                self.value = value
+
+        cache = TTLCache[_Opaque](ttl=60, backend=backend)
+
+        # Act / Assert
+        with pytest.raises(TypeError, match="without a serializer"):
+            await cache.set("opaque", _Opaque(1))
+
+    async def test_read_before_write_infers_the_serializer(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a `get` on a fresh cache resolves the type parameter."""
+        # Arrange
+        writer = TTLCache[_User](ttl=60, backend=backend)
+        await writer.set("user", _User(id=1, name="Alice"))
+        reader = TTLCache[_User](ttl=60, backend=backend)
+
+        # Act
+        user = await reader.get("user")
+
+        # Assert
+        assert user == _User(id=1, name="Alice")
+
+    async def test_serializer_class_names_the_fix(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a serializer class raises and asks for an instance."""
+        # Act / Assert
+        with pytest.raises(TypeError, match=r"pass an instance"):
+            TTLCache(ttl=60, backend=backend, serializer=PickleSerializer)

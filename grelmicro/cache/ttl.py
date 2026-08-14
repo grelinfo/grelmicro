@@ -16,6 +16,11 @@ from grelmicro.cache._stampede import (
     AsyncStampedeGuard,
     compute_with_stampede,
 )
+from grelmicro.cache.serializers import (
+    _infer_serializer_from_class,
+    _infer_serializer_from_instance,
+    _resolve_serializer,
+)
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
@@ -103,8 +108,11 @@ class TTLCache(Generic[T]):
 
     The type parameter ``T`` represents the cached value type.
     Defaults to ``Any`` when unspecified (``TTLCache()``).
-    Use ``TTLCache[User](serializer=PydanticSerializer(User))``
-    for typed caching.
+
+    ``TTLCache[User]()`` serializes with ``PydanticSerializer(User)``
+    unless a ``serializer`` is given. ``TTLCache()`` and
+    ``TTLCache[bytes]()`` store raw bytes, and so does any type
+    parameter Pydantic cannot build a schema for.
 
     Raises:
         pydantic.ValidationError: If `maxsize` is negative or `ttl` is not
@@ -143,7 +151,7 @@ class TTLCache(Generic[T]):
             ),
         ] = None,
         serializer: Annotated[
-            CacheSerializer[T] | None,
+            CacheSerializer[T] | type[T] | None,
             Doc(
                 """
                 Serialization strategy for cached values.
@@ -153,11 +161,12 @@ class TTLCache(Generic[T]):
 
                 Built-in options:
 
-                - ``PydanticSerializer(Model)``: Type-safe Pydantic roundtrips.
+                - ``Model``: A type, wrapped in ``PydanticSerializer``.
                 - ``JsonSerializer()``: JSON-native types (dict, list, etc.).
                 - ``PickleSerializer()``: Any picklable object. Trusted
                   backends only: deserialization can execute arbitrary code.
-                - ``None``: Raw bytes only (no serialization).
+                - ``None``: The type parameter of ``TTLCache[T]`` when it
+                  is one Pydantic can adapt, raw bytes otherwise.
                 """,
             ),
         ] = None,
@@ -170,7 +179,17 @@ class TTLCache(Generic[T]):
         self._maxsize = self._config.maxsize
         self._ttl = self._config.ttl
         self._backend = backend
-        self._serializer = serializer
+        if serializer is not None:
+            self._serializer: CacheSerializer[T] | None = _resolve_serializer(
+                serializer
+            )
+            self._serializer_bound = True
+        else:
+            self._serializer = cast(
+                "CacheSerializer[T] | None",
+                _infer_serializer_from_class(type(self), TTLCache),
+            )
+            self._serializer_bound = self._serializer is not None
         self._hits = 0
         self._misses = 0
         self._evictions = 0
@@ -219,10 +238,27 @@ class TTLCache(Generic[T]):
             raise OutOfContextError(msg) from None
         return cache.backend
 
+    def _bind_serializer(self) -> CacheSerializer[T] | None:
+        """Resolve the serializer from the type parameter, once.
+
+        Python sets ``__orig_class__`` after ``__init__`` returns, so the
+        parameter of ``TTLCache[User](...)`` is first readable here.
+        """
+        self._serializer_bound = True
+        self._serializer = cast(
+            "CacheSerializer[T] | None", _infer_serializer_from_instance(self)
+        )
+        return self._serializer
+
     def _serialize(self, value: T) -> bytes:
         """Serialize a value to bytes for storage."""
-        if self._serializer is not None:
-            return self._serializer.dumps(value)
+        serializer = self._serializer
+        if serializer is not None:
+            return serializer.dumps(value)
+        if not self._serializer_bound:
+            serializer = self._bind_serializer()
+            if serializer is not None:
+                return serializer.dumps(value)
         if isinstance(value, bytes):
             return value
         msg = (
@@ -233,8 +269,13 @@ class TTLCache(Generic[T]):
 
     def _deserialize(self, raw: bytes) -> T:
         """Deserialize bytes from storage."""
-        if self._serializer is not None:
-            return self._serializer.loads(raw)
+        serializer = self._serializer
+        if serializer is not None:
+            return serializer.loads(raw)
+        if not self._serializer_bound:
+            serializer = self._bind_serializer()
+            if serializer is not None:
+                return serializer.loads(raw)
         return cast("T", raw)
 
     async def get(
