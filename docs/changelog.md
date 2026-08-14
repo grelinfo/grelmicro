@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.37.4 - 2026-08-14
+
+### Fixed
+
+* 🐛 Drop the generic parameter from the `asyncpg.Connection` annotations in the Postgres outbox adapter. `asyncpg.Connection` is not generic, so `typing.get_type_hints` on `PostgresOutboxAdapter` raised `TypeError: type 'Connection' is not subscriptable`. Only deferred annotation evaluation kept it from raising at import. ([#731](https://github.com/grelinfo/grelmicro/pull/731))
 
 ### Docs
 
