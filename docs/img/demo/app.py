@@ -16,8 +16,8 @@ limiter = RateLimiter.token_bucket(
 
 
 @app.get("/quote")
-async def quote() -> dict[str, str]:
+async def quote() -> str:
     """Serve a quote, rate limited to a 5-burst then 1 per second."""
     if not await limiter.allow():
-        return {"status": "slow down"}
-    return {"quote": "one toolkit, many patterns"}
+        return "slow down"
+    return "one toolkit, many patterns"

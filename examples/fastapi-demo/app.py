@@ -10,11 +10,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 from grelmicro import Grelmicro
 from grelmicro.cache import TTLCache
 from grelmicro.cache.cached import cached
-from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.coordination import LeaderElection, Lock
 from grelmicro.health import HealthChecks
 from grelmicro.integrations.fastapi import GrelmicroMiddleware, health_router
@@ -79,14 +79,21 @@ app.include_router(health_router(health))  # GET /livez, /readyz, /healthz
 
 
 # --- Cache: @cached over the Cache backend, with stampede protection ---
-catalog = TTLCache(ttl=30, serializer=JsonSerializer())
+class Product(BaseModel):
+    """A catalog product."""
+
+    id: int
+    name: str
+
+
+catalog = TTLCache[Product](ttl=30)
 
 
 @app.get("/product/{product_id}")
 @cached(catalog, lock=True)
-async def get_product(product_id: int) -> dict:
+async def get_product(product_id: int) -> Product:
     # Cache Pattern: the second call within the TTL skips this body.
-    return {"id": product_id, "name": f"Product {product_id}"}
+    return Product(id=product_id, name=f"Product {product_id}")
 
 
 # --- Rate limiter: token bucket per client ---
@@ -94,12 +101,12 @@ api_limiter = RateLimiter.token_bucket("api", capacity=5, refill_rate=1)
 
 
 @app.get("/quote")
-async def quote(client: str = "anon") -> dict:
+async def quote(client: str = "anon") -> str:
     # Rate-limiter Pattern: 5 burst, then 1 per second per client.
     result = await api_limiter.acquire(key=client)
     if not result.allowed:
         raise HTTPException(status_code=429, detail="slow down")
-    return {"quote": "the cost of a thing is the life you exchange for it"}
+    return "the cost of a thing is the life you exchange for it"
 
 
 # --- Circuit breaker: trips after repeated failures to a flaky service ---
@@ -107,14 +114,14 @@ breaker = CircuitBreaker("flaky-service")
 
 
 @app.get("/flaky")
-async def flaky(fail: bool = False) -> dict:
+async def flaky(fail: bool = False) -> str:
     # Circuit-breaker Pattern: opens after the failure threshold.
     try:
         async with breaker:
             if fail:
                 msg = "upstream failed"
                 raise RuntimeError(msg)
-            return {"status": "ok"}
+            return "ok"
     except CircuitBreakerError as exc:
         raise HTTPException(status_code=503, detail="circuit open") from exc
 
@@ -124,10 +131,10 @@ ledger_lock = Lock("ledger")
 
 
 @app.post("/ledger")
-async def update_ledger(amount: int) -> dict:
+async def update_ledger(amount: int) -> int:
     # Distributed-lock Pattern: only one replica updates at a time.
     async with ledger_lock:
-        return {"applied": amount}
+        return amount
 
 
 # --- Leader-gated task: only the elected leader runs the sweep ---

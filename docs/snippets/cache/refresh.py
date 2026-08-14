@@ -1,16 +1,23 @@
+from pydantic import BaseModel
+
 from grelmicro import Grelmicro
-from grelmicro.cache import JsonSerializer, TTLCache, cached
+from grelmicro.cache import TTLCache, cached
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider("redis://localhost:6379/0")
 micro = Grelmicro(uses=[redis])
 
-cache = TTLCache(ttl=300, serializer=JsonSerializer())
+
+class Report(BaseModel):
+    user_id: int
+
+
+cache = TTLCache[Report](ttl=300)
 
 
 @cached(cache, key="report:{user_id}")
-async def get_report(user_id: int) -> dict:
-    return {"user_id": user_id}
+async def get_report(user_id: int) -> Report:
+    return Report(user_id=user_id)
 
 
 async def main() -> None:

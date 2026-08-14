@@ -152,20 +152,20 @@ Name what identifies the entry and leave `self` out:
 # Before
 class Repo:
     @cached(cache)
-    async def load(self, user_id: int) -> dict: ...
+    async def load(self, user_id: int) -> User: ...
 
 
 # After
 class Repo:
     @cached(cache, key="repo:{user_id}")
-    async def load(self, user_id: int) -> dict: ...
+    async def load(self, user_id: int) -> User: ...
 ```
 
 When the result does depend on instance state, fold that state into the key:
 
 ```python
 @cached(cache, key="repo:{self.region}:{user_id}")
-async def load(self, user_id: int) -> dict: ...
+async def load(self, user_id: int) -> User: ...
 ```
 
 A `staticmethod` and a `classmethod` are untouched. Neither receives an

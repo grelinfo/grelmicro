@@ -477,12 +477,20 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         """Wire the validated config and runtime deps onto the instance."""
         import asyncio  # noqa: PLC0415
 
+        from grelmicro.cache.serializers import (  # noqa: PLC0415
+            _resolve_serializer,
+        )
+
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._fingerprint = fingerprint
         self._guard = AsyncStampedeGuard()
-        self._serializer = serializer
+        # Resolved here rather than with the cache below so a serializer
+        # class passed instead of an instance raises at construction.
+        self._serializer: CacheSerializer[T] | None = (
+            _resolve_serializer(serializer) if serializer is not None else None
+        )
         self._cache: TTLCache[T] | None = cache
 
     def _get_cache(self) -> TTLCache[T]:
@@ -498,13 +506,10 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             JsonSerializer,
             _infer_serializer_from_class,
             _infer_serializer_from_instance,
-            _resolve_serializer,
         )
 
-        serializer: CacheSerializer[Any] | None
-        if self._serializer is not None:
-            serializer = _resolve_serializer(self._serializer)
-        else:
+        serializer: CacheSerializer[Any] | None = self._serializer
+        if serializer is None:
             serializer = _infer_serializer_from_instance(
                 self
             ) or _infer_serializer_from_class(type(self), Idempotency)

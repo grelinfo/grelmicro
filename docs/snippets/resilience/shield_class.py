@@ -1,4 +1,5 @@
 import httpx
+from pydantic import BaseModel
 
 from grelmicro.resilience import Shield
 
@@ -8,11 +9,15 @@ github = Shield.api(
 )
 
 
+class Repo(BaseModel):
+    name: str
+
+
 @github
-async def list_repos() -> list[dict]:
+async def list_repos() -> list[Repo]:
     return []
 
 
 @github
-async def get_repo() -> dict:
-    return {}
+async def get_repo() -> Repo:
+    return Repo(name="grelmicro")

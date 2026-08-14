@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from faststream import ContextRepo, FastStream
 from faststream.redis import RedisBroker
+from pydantic import BaseModel
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Lock
@@ -19,6 +20,10 @@ redis = RedisProvider("redis://localhost:6379/0")
 micro = Grelmicro(uses=[redis])
 
 per_user_limiter = RateLimiter.sliding_window("messages", limit=10, window=60)
+
+
+class UserEvent(BaseModel):
+    user_id: int
 
 
 @asynccontextmanager
@@ -32,9 +37,9 @@ app = FastStream(broker, lifespan=lifespan)
 
 
 @broker.subscriber("user-events")
-async def handle_user_event(message: dict) -> None:
+async def handle_user_event(message: UserEvent) -> None:
     """Process a user event under a per-user lock and a fleet rate limit."""
-    user_id = message["user_id"]
+    user_id = message.user_id
 
     try:
         await per_user_limiter.acquire_or_raise(key=str(user_id))
@@ -49,5 +54,5 @@ async def handle_user_event(message: dict) -> None:
         await _process(message)
 
 
-async def _process(message: dict) -> None:
+async def _process(message: UserEvent) -> None:
     print("processing:", message)

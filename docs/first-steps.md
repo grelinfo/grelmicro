@@ -73,7 +73,7 @@ Decorators take the same keyword arguments:
 from grelmicro.cache import cached
 
 @cached(ttl=30)
-async def get_user(user_id: int) -> dict:
+async def get_user(user_id: int) -> User:
     ...
 ```
 

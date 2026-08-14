@@ -1,3 +1,5 @@
+from pydantic import BaseModel
+
 from grelmicro import Grelmicro
 from grelmicro.idempotency import Idempotency
 from grelmicro.providers.redis import RedisProvider
@@ -5,11 +7,16 @@ from grelmicro.providers.redis import RedisProvider
 redis = RedisProvider("redis://localhost:6379/0")
 micro = Grelmicro(uses=[redis])
 
-idem = Idempotency("charge", ttl=3600)
+
+class Charge(BaseModel):
+    amount: int
 
 
-async def do_charge(amount: int) -> dict:
-    return {"amount": amount}
+idem = Idempotency[Charge]("charge", ttl=3600)
+
+
+async def do_charge(amount: int) -> Charge:
+    return Charge(amount=amount)
 
 
 async def main() -> None:
