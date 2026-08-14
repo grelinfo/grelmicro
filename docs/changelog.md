@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+
+* 📝 Let the demo publish a port other than 8000 with `DEMO_PORT`. `just demo-smoke` now picks a free port on its own, and `just demo` refuses to start when the port is taken. A local port-forward on 8000 used to answer the probes in the demo's place, because it binds the loopback address while the container runtime binds the wildcard, so both start and neither reports a conflict.
+
 ## 0.37.3 - 2026-08-14
 
 ### Added

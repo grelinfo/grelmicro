@@ -10,7 +10,13 @@ docker compose up --wait
 open http://localhost:8000/docs
 ```
 
-`up --wait` blocks until Redis, Postgres, and the app are all healthy. From the repo root you can also run `just demo`.
+`up --wait` blocks until Redis, Postgres, and the app are all healthy. From the repo root you can also run `just demo`, which refuses to start when something already holds the port.
+
+Set `DEMO_PORT` to publish somewhere other than 8000, then use that port in the calls below:
+
+```bash
+DEMO_PORT=8001 docker compose up --wait
+```
 
 ## Hit the endpoints
 
