@@ -6,10 +6,17 @@ docs-build:
 docs-serve:
     uv run mkdocs serve
 
-# Run the FastAPI demo (Redis + Postgres + app) via Docker Compose
+# Run the FastAPI demo (Redis + Postgres + app) via Docker Compose.
+# Refuses to start when the port is taken, because the demo would come up
+# healthy while another service answers on the URL this prints.
 demo:
-    docker compose -f examples/fastapi-demo/compose.yml up --build --wait
-    @echo "Demo running: open http://localhost:8000/docs"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    port="${DEMO_PORT:-8000}"
+    uv run --no-project -- python tools/demo_port.py --check "$port"
+    DEMO_PORT="$port" docker compose -f examples/fastapi-demo/compose.yml \
+        up --build --wait
+    echo "Demo running: open http://127.0.0.1:${port}/docs"
 
 # Stop and clean up the demo stack
 demo-down:
@@ -43,17 +50,23 @@ test-full:
     uv run coverage report --fail-under=100
 
 # Bring the demo stack up, probe it the way CI does, and tear it down.
+# Publishes a free port rather than 8000, so a port-forward or another
+# local service never answers the probes in the demo's place.
 [doc("Bring the demo stack up, probe it the way CI does, tear it down")]
 demo-smoke:
     #!/usr/bin/env bash
     set -euo pipefail
     compose="examples/fastapi-demo/compose.yml"
+    export DEMO_PORT="${DEMO_PORT:-$(uv run --no-project -- python tools/demo_port.py)}"
     trap 'docker compose -f "$compose" down -v >/dev/null 2>&1 || true' EXIT
     docker compose -f "$compose" up --build --wait --wait-timeout 240
-    curl -fsS http://localhost:8000/livez > /dev/null
-    curl -fsS http://localhost:8000/readyz > /dev/null
-    curl -fsS http://localhost:8000/healthz > /dev/null
-    echo "demo smoke passed"
+    for path in livez readyz healthz; do
+        curl -fsS "http://127.0.0.1:${DEMO_PORT}/${path}" > /dev/null
+    done
+    # The demo is the only service serving this path, so a probe that
+    # reached something else fails here instead of reporting a pass.
+    curl -fsS "http://127.0.0.1:${DEMO_PORT}/product/42" | grep -q '"Product 42"'
+    echo "demo smoke passed on port ${DEMO_PORT}"
 
 # Run the unit and integration tiers on every Python the release matrix uses.
 # The version list comes from the workflow, so this cannot drift away from
