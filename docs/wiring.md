@@ -174,7 +174,7 @@ micro.install(app)
 
 
 @broker.subscriber("orders")
-async def handle(order: dict) -> None:
+async def handle(order: Order) -> None:
     async with Lock("orders"):
         ...
 ```

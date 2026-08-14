@@ -111,12 +111,12 @@ api_limiter = RateLimiter.sliding_window(
 
 
 @app.get("/ping")
-async def ping() -> dict[str, str]:
+async def ping() -> str:
     try:
         await api_limiter.acquire_or_raise()
     except RateLimitExceededError:
-        return {"status": "throttled"}
-    return {"status": "ok"}
+        return "throttled"
+    return "ok"
 ```
 
 That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory backend says per-process on purpose. [Make it fleet-wide](#fastapi-with-one-provider) when you need to.
@@ -142,12 +142,12 @@ micro.install(app)
 
 
 @app.get("/ping")
-async def ping() -> dict[str, str]:
+async def ping() -> str:
     try:
         await api_limiter.acquire_or_raise()
     except RateLimitExceededError:
-        return {"status": "throttled"}
-    return {"status": "ok"}
+        return "throttled"
+    return "ok"
 ```
 
 Adding more primitives is the same shape: they resolve through the same provider. `micro.install(app)` opens the app on startup, closes it on shutdown, and lets request handlers resolve backends without passing `backend=`.
@@ -161,9 +161,10 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
 
 from grelmicro import Grelmicro
-from grelmicro.cache import JsonSerializer, TTLCache, cached
+from grelmicro.cache import TTLCache, cached
 from grelmicro.clientip import TrustedProxies, resolve_client_address
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
@@ -190,8 +191,13 @@ tasks.add_task(leader)
 
 micro = Grelmicro(uses=[redis, tasks, health])
 
+class User(BaseModel):
+    id: int
+    name: str
+
+
 # === Patterns declared once at module load, no backend wiring ===
-ttl_cache = TTLCache(ttl=300, serializer=JsonSerializer())
+ttl_cache = TTLCache[User](ttl=300)
 lock = Lock("shared-resource")
 cb = CircuitBreaker("my-service")
 api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
@@ -210,20 +216,20 @@ micro.install(app)
 
 # --- Cache: avoid redundant database queries ---
 @cached(ttl_cache)
-async def get_user(user_id: int) -> dict:
-    return {"id": user_id, "name": "Alice"}
+async def get_user(user_id: int) -> User:
+    return User(id=user_id, name="Alice")
 
 
 @app.get("/users/{user_id}")
-async def read_user(user_id: int):
+async def read_user(user_id: int) -> User:
     return await get_user(user_id)
 
 
 # --- Circuit Breaker: protect calls to an unreliable service ---
 @app.get("/")
-async def read_root():
+async def read_root() -> str:
     async with cb:
-        return {"Hello": "World"}
+        return "Hello World"
 
 
 # --- Rate Limiter: protect endpoints from overload ---
@@ -239,7 +245,7 @@ def client_key(request: Request) -> str:
 
 
 @app.get("/api")
-async def api_endpoint(request: Request):
+async def api_endpoint(request: Request) -> str:
     try:
         await api_limiter.acquire_or_raise(key=client_key(request))
     except RateLimitExceededError as exc:
@@ -248,14 +254,14 @@ async def api_endpoint(request: Request):
             detail="Too many requests",
             headers={"Retry-After": str(int(exc.retry_after))},
         )
-    return {"status": "ok"}
+    return "ok"
 
 
 # --- Distributed Lock: synchronize access to a shared resource ---
 @app.get("/protected")
-async def protected():
+async def protected() -> str:
     async with lock:
-        return {"status": "ok"}
+        return "ok"
 
 
 # --- Interval Task: run locally on every worker ---

@@ -8,19 +8,19 @@ For the plain "memoize this function for N seconds" case, pass `ttl=` and nothin
 from grelmicro.cache import cached
 
 @cached(ttl=30)
-async def get_rates() -> dict:
+async def get_rates() -> Rates:
     return await fetch_rates()
 ```
 
 That private cache lives only in this process and is never shared across replicas. To share results across replicas, invalidate by tag, or reuse one store across functions, pass a [`TTLCache`](index.md#ttlcache) instead:
 
 ```python
-from grelmicro.cache import JsonSerializer, TTLCache, cached
+from grelmicro.cache import TTLCache, cached
 
-cache = TTLCache(ttl=300, serializer=JsonSerializer())
+cache = TTLCache[User](ttl=300)
 
 @cached(cache)
-async def get_user(user_id: int) -> dict:
+async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 ```
 
@@ -32,7 +32,7 @@ By default `@cached` derives the key from the `repr()` of the arguments. Pass `k
 
 ```python
 @cached(cache, key="user:{user_id}")
-async def get_user(user_id: int) -> dict:
+async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 ```
 
@@ -51,7 +51,7 @@ Each tag is a template filled in from the call's arguments, so one decorator tag
 
 ```python
 @cached(cache, tags=["users", "user:{user_id}"])
-async def get_user(user_id: int) -> dict:
+async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 
 
@@ -69,7 +69,7 @@ A method must name its key. Decorating one without `key=` or `key_maker=` raises
 ```python
 class Repo:
     @cached(cache, key="repo:{user_id}")
-    async def load(self, user_id: int) -> dict:
+    async def load(self, user_id: int) -> User:
         return await self.db.fetch_user(user_id)
 ```
 
@@ -80,7 +80,7 @@ Only you know what identifies the entry, so the decorator asks rather than guess
 ```python
 class Repo:
     @cached(cache, key="repo:{self.region}:{user_id}")
-    async def load(self, user_id: int) -> dict: ...
+    async def load(self, user_id: int) -> User: ...
 ```
 
 A `staticmethod` and a `classmethod` are untouched. Neither receives an instance, and a class `repr()` is stable, so their default key is sound.
@@ -103,7 +103,7 @@ Use it where a caller asks for fresh data, such as an endpoint honouring `Cache-
 
 ```python
 @app.post("/reports/{user_id}")
-async def report(user_id: int, cache_control: Annotated[str, Header()] = "") -> dict:
+async def report(user_id: int, cache_control: Annotated[str, Header()] = "") -> Report:
     if "no-cache" in cache_control:
         return await get_report.refresh(user_id)
     return await get_report(user_id)
@@ -174,17 +174,17 @@ A cache stampede (or "dog-pile") happens when many callers miss the same key at 
 
 ```python
 @cached(cache)                  # default: in-process stampede folding
-async def get_user(user_id: int) -> dict:
+async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 
 
 @cached(cache, lock=True)       # fold misses, across replicas if a lock backend is set
-async def get_billing(user_id: int) -> dict:
+async def get_billing(user_id: int) -> Billing:
     return await billing.fetch(user_id)
 
 
 @cached(cache, early=0.1)       # refresh hot keys before they expire
-async def get_homepage_feed() -> dict:
+async def get_homepage_feed() -> Feed:
     return await build_feed()
 ```
 
@@ -201,10 +201,10 @@ async def get_homepage_feed() -> dict:
 Set `stale_ttl` to keep serving the last good value when a recompute fails. Each result is also kept as a fallback copy for `ttl + stale_ttl` seconds. After the TTL, the next miss recomputes as usual, but if that recompute raises, the most recent value is served instead of propagating the error, for up to `stale_ttl` seconds past the TTL.
 
 ```python
-cache = TTLCache(ttl=60)
+cache = TTLCache[Rates](ttl=60)
 
 @cached(cache, stale_ttl=600)
-async def get_exchange_rates() -> dict:
+async def get_exchange_rates() -> Rates:
     return await rates_api.fetch()   # a flaky external call
 ```
 

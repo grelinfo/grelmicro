@@ -845,3 +845,9 @@ class TestSerializerInference:
         assert replay == _Response(id=1, ok=True)
         assert stored is not None
         assert not stored.startswith(b"{")
+
+    def test_serializer_class_raises_at_construction(self) -> None:
+        """Test that a serializer class is refused where it is passed."""
+        # Act / Assert
+        with pytest.raises(TypeError, match=r"pass an instance"):
+            Idempotency("http", ttl=60, serializer=PickleSerializer)

@@ -11,17 +11,17 @@ Cache an async function's result with `@cached`. One provider line says where th
 
 ```python
 from grelmicro import Grelmicro
-from grelmicro.cache import JsonSerializer, TTLCache, cached
+from grelmicro.cache import TTLCache, cached
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider("redis://localhost:6379/0")
 micro = Grelmicro(uses=[redis])
 
-cache = TTLCache(ttl=300, serializer=JsonSerializer())
+cache = TTLCache[User](ttl=300)
 
 
 @cached(cache)
-async def get_user(user_id: int) -> dict:
+async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 ```
 

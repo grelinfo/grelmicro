@@ -13,7 +13,7 @@ call_timeout = Timeout("recs", seconds=1.0)
 @call_timeout
 async def get_recommendations(
     client: httpx.AsyncClient, user_id: str
-) -> list[dict]:
+) -> list[str]:
     response = await client.get(f"/recs/{user_id}")
     response.raise_for_status()
     return response.json()

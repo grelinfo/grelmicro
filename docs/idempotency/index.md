@@ -16,6 +16,8 @@ A FastAPI handler reads the key from the `Idempotency-Key` header and wraps the 
 from typing import Annotated
 
 from fastapi import FastAPI, Header
+from pydantic import BaseModel
+
 from grelmicro import Grelmicro
 from grelmicro.idempotency import Idempotency
 from grelmicro.providers.redis import RedisProvider
@@ -26,14 +28,20 @@ micro = Grelmicro(uses=[redis])
 app = FastAPI()
 micro.install(app)
 
-idem = Idempotency("charge", ttl=3600)
+
+class ChargeResponse(BaseModel):
+    id: str
+    amount: int
+
+
+idem = Idempotency[ChargeResponse]("charge", ttl=3600)
 
 
 @app.post("/charge")
 async def charge(
     amount: int,
     key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> dict:
+) -> ChargeResponse:
     async with idem(key) as op:
         if op.replayed:
             return op.result()
@@ -91,7 +99,7 @@ from grelmicro.idempotency import idempotent
 
 
 @idempotent(idem, key=lambda **kw: kw["idempotency_key"])
-async def charge(*, amount: int, idempotency_key: str) -> dict:
+async def charge(*, amount: int, idempotency_key: str) -> ChargeResponse:
     return await do_charge(amount)
 ```
 
@@ -108,14 +116,9 @@ from grelmicro.idempotency import Idempotency
 idem = Idempotency("charge", ttl=3600, cache=TTLCache(ttl=3600))
 ```
 
-Responses serialize through the cache serializers. Name the response type and the store roundtrips it, so a replay returns the model and not a dict:
+Responses serialize through the cache serializers. Name the response type and the store roundtrips it, so a replay returns the model itself:
 
 ```python
-class ChargeResponse(BaseModel):
-    id: str
-    amount: int
-
-
 idem = Idempotency[ChargeResponse]("charge", ttl=3600)
 ```
 

@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 from grelmicro import Grelmicro
 from grelmicro.idempotency import Idempotency
@@ -15,7 +16,11 @@ app.add_middleware(
 )
 
 
+class Charge(BaseModel):
+    amount: int
+
+
 @app.post("/charge")
-async def charge(amount: int) -> dict[str, int]:
+async def charge(amount: int) -> Charge:
     # A retry carrying the same Idempotency-Key replays this response.
-    return {"amount": amount}
+    return Charge(amount=amount)

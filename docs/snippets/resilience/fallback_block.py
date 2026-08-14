@@ -5,7 +5,7 @@ from grelmicro.resilience import falling_back
 
 async def get_recommendations(
     client: httpx.AsyncClient, user_id: str
-) -> list[dict]:
+) -> list[str]:
     async with falling_back(when=httpx.HTTPError, default=[]) as result:
         response = await client.get(f"/recs/{user_id}")
         response.raise_for_status()

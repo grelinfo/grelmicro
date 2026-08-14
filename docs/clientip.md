@@ -44,7 +44,7 @@ Keying on a spoofable value means a caller sends a different
 attacker can spoof *your* address and get you throttled.
 
 ```python
-async def api(request: Request) -> dict:
+async def api(request: Request) -> str:
     client = resolve_client_address(request.scope, trusted)
     await limiter.acquire_or_raise(key=client.key if client else "unknown")
     ...

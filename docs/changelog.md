@@ -11,6 +11,10 @@
 
 * ✨ `Idempotency[Response]` stores responses with `PydanticSerializer(Response)` and replays the model itself. It used to store JSON, which cannot even encode a Pydantic model, so the typed form raised on the first response it was given. `Idempotency("http")` without a type parameter still stores JSON. ([#684](https://github.com/grelinfo/grelmicro/issues/684))
 
+### Docs
+
+* 📝 Return a typed value in every example. The README, the guides, the snippets, and the demo app returned `dict`, which read as untyped scripting rather than a type-safe library. Each one now returns a Pydantic model, a plain `str`, or an `int`, whichever is shortest for the point it makes. ([#679](https://github.com/grelinfo/grelmicro/issues/679))
+
 ## 0.37.2 - 2026-08-13
 
 ### Changed
