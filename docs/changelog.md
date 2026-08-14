@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* ✨ Build the cache serializer from the type parameter. `TTLCache[User](ttl=300)` serializes with `PydanticSerializer(User)`, so the model is named once instead of twice. `TTLCache()` and `TTLCache[bytes]()` still store raw bytes, and so does a type parameter Pydantic cannot adapt. ([#684](https://github.com/grelinfo/grelmicro/issues/684))
+* ✨ Accept a type wherever a serializer is accepted. `micro.cache.ttl(ttl=300, serializer=User)` and `Idempotency("http", serializer=Response)` build the `PydanticSerializer`, which is the way in for a factory that has no type parameter to read. ([#684](https://github.com/grelinfo/grelmicro/issues/684))
+
+### Changed
+
+* ✨ `Idempotency[Response]` stores responses with `PydanticSerializer(Response)` and replays the model itself. It used to store JSON, which cannot even encode a Pydantic model, so the typed form raised on the first response it was given. `Idempotency("http")` without a type parameter still stores JSON. ([#684](https://github.com/grelinfo/grelmicro/issues/684))
+
 ## 0.37.2 - 2026-08-13
 
 ### Changed

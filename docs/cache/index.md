@@ -131,7 +131,7 @@ await cache.clear()
 
 ### Serialization
 
-Backends store raw bytes. To cache Python objects, pass a serializer:
+Backends store raw bytes. To cache Python objects, name the type:
 
 === "Pydantic Model (recommended)"
 
@@ -140,16 +140,26 @@ Backends store raw bytes. To cache Python objects, pass a serializer:
     ```python
     from pydantic import BaseModel
 
-    from grelmicro.cache import PydanticSerializer, TTLCache
+    from grelmicro.cache import TTLCache
 
     class User(BaseModel):
         id: int
         name: str
 
-    cache = TTLCache[User](ttl=300, serializer=PydanticSerializer(User))
+    cache = TTLCache[User](ttl=300)
 
     await cache.set("user", User(id=1, name="Alice"))
     user = await cache.get("user")  # returns User instance
+    ```
+
+    The type parameter picks the serializer. Anything Pydantic can adapt
+    works, including a dataclass, a `TypedDict`, and `list[User]`.
+
+    Where there is no type parameter to read, such as the `Cache.ttl`
+    factory, pass the type itself:
+
+    ```python
+    cache = micro.cache.ttl(ttl=300, serializer=User)
     ```
 
 === "JSON"
@@ -182,7 +192,7 @@ Backends store raw bytes. To cache Python objects, pass a serializer:
     data = await cache.get("data")
     ```
 
-Without a serializer, only `bytes` values are accepted.
+With no type parameter and no serializer, only `bytes` values are accepted. `TTLCache[bytes]` also stores raw bytes.
 
 ### Per-Entry TTL
 

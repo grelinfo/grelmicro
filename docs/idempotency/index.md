@@ -108,7 +108,18 @@ from grelmicro.idempotency import Idempotency
 idem = Idempotency("charge", ttl=3600, cache=TTLCache(ttl=3600))
 ```
 
-Responses serialize through the cache serializers. The default is `JsonSerializer`. Pass `serializer=PydanticSerializer(Model)` or `serializer=PickleSerializer()` to store richer types.
+Responses serialize through the cache serializers. Name the response type and the store roundtrips it, so a replay returns the model and not a dict:
+
+```python
+class ChargeResponse(BaseModel):
+    id: str
+    amount: int
+
+
+idem = Idempotency[ChargeResponse]("charge", ttl=3600)
+```
+
+Without a type parameter, responses store as JSON. Pass `serializer=ChargeResponse` where there is no parameter to read, or `serializer=PickleSerializer()` for a type Pydantic cannot adapt.
 
 ## Single-flight duplicates
 

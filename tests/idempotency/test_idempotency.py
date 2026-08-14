@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -17,8 +18,8 @@ from grelmicro import Grelmicro
 from grelmicro._config import reconfigurable_instances, reconfigure_all
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.cache.serializers import JsonSerializer
-from grelmicro.cache.ttl import TTLCache
+from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
+from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import OutOfContextError, SettingsValidationError
@@ -35,6 +36,11 @@ from grelmicro.idempotency import (
 pytestmark = [pytest.mark.timeout(10)]
 
 EXPECTED_CALLS_2 = 2
+
+
+class _Response(BaseModel):
+    id: int
+    ok: bool
 
 
 @pytest.fixture
@@ -745,3 +751,97 @@ async def test_idempotency_run_waits_out_the_timeout() -> None:
 
     # Assert
     assert result == {"ok": True}
+
+
+class TestSerializerInference:
+    """Test the serializer the internal store is composed with."""
+
+    async def test_type_parameter_infers_pydantic_serializer(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `Idempotency[Model]` replays the model itself."""
+        # Arrange
+        micro = Grelmicro(uses=[Cache(backend)])
+        idem = Idempotency[_Response]("http", ttl=60)
+
+        # Act
+        async with micro:
+            first = await idem.run("k", lambda: _Response(id=1, ok=True))
+            replay = await idem.run("k", lambda: _Response(id=2, ok=False))
+
+        # Assert
+        assert first == replay == _Response(id=1, ok=True)
+
+    async def test_model_as_serializer(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that a type passed as `serializer` builds the serializer."""
+        # Arrange
+        micro = Grelmicro(uses=[Cache(backend)])
+        idem = Idempotency("http", ttl=60, serializer=_Response)
+
+        # Act
+        async with micro:
+            await idem.run("k", lambda: _Response(id=1, ok=True))
+            replay = await idem.run("k", lambda: _Response(id=2, ok=False))
+
+        # Assert
+        assert replay == _Response(id=1, ok=True)
+
+    async def test_subclass_parameter_infers_pydantic_serializer(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `class Sub(Idempotency[Model])` infers the same serializer."""
+
+        # Arrange
+        class ResponseIdempotency(Idempotency[_Response]):
+            pass
+
+        micro = Grelmicro(uses=[Cache(backend)])
+        idem = ResponseIdempotency("http", ttl=60)
+
+        # Act
+        async with micro:
+            replay = await idem.run("k", lambda: _Response(id=1, ok=True))
+
+        # Assert
+        assert replay == _Response(id=1, ok=True)
+
+    async def test_unparameterized_stores_json(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that `Idempotency(...)` keeps storing JSON."""
+        # Arrange
+        micro = Grelmicro(uses=[Cache(backend)])
+        idem: Idempotency = Idempotency("http", ttl=60)
+
+        # Act
+        async with micro:
+            await idem.run("k", lambda: {"ok": True})
+            replay = await idem.run("k", lambda: {"ok": False})
+
+        # Assert
+        assert replay == {"ok": True}
+
+    async def test_explicit_cache_wins_over_type_parameter(
+        self, backend: MemoryCacheAdapter
+    ) -> None:
+        """Test that an explicit cache is used as given."""
+        # Arrange
+        micro = Grelmicro(uses=[Cache(backend)])
+        store = TTLCache[_Response](
+            ttl=60, backend=backend, serializer=PickleSerializer()
+        )
+        idem = Idempotency[_Response]("http", ttl=60, cache=store)
+
+        # Act
+        async with micro:
+            replay = await idem.run("k", lambda: _Response(id=1, ok=True))
+            stored = await backend.get(
+                key=f"{_CACHE_PREFIX}:idempotency:http:k"
+            )
+
+        # Assert: the given cache pickled the response, JSON was never used
+        assert replay == _Response(id=1, ok=True)
+        assert stored is not None
+        assert not stored.startswith(b"{")

@@ -306,6 +306,10 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
 
     The type parameter `T` represents the stored response type. Defaults
     to `Any` when unspecified.
+
+    `Idempotency[Response]` stores responses with
+    `PydanticSerializer(Response)` unless a `cache` or a `serializer` is
+    given. Without a type parameter, responses store as JSON.
     """
 
     _IDEMPOTENCY_PREFIX = "idempotency"
@@ -364,14 +368,16 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             ),
         ] = None,
         serializer: Annotated[
-            CacheSerializer[T] | None,
+            CacheSerializer[T] | type[T] | None,
             Doc(
                 """
-                Serialization strategy for stored responses.
+                Serialization strategy for stored responses, or a type to
+                serialize with `PydanticSerializer`.
 
                 Ignored when an explicit `cache` is given. Otherwise
                 passed to the internally composed `TTLCache`. Defaults to
-                `JsonSerializer`.
+                the type parameter of `Idempotency[T]` when it is one
+                Pydantic can adapt, and to `JsonSerializer` otherwise.
                 """,
             ),
         ] = None,
@@ -448,8 +454,11 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             Doc("The `TTLCache` used to store responses."),
         ] = None,
         serializer: Annotated[
-            CacheSerializer[T] | None,
-            Doc("Serialization strategy for stored responses."),
+            CacheSerializer[T] | type[T] | None,
+            Doc(
+                "Serialization strategy for stored responses, or a type to"
+                " serialize with `PydanticSerializer`."
+            ),
         ] = None,
     ) -> Self:
         """Construct an `Idempotency` from a name and a pre-built config."""
@@ -463,28 +472,50 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         config: IdempotencyConfig,
         fingerprint: str | None,
         cache: TTLCache[T] | None,
-        serializer: CacheSerializer[T] | None,
+        serializer: CacheSerializer[T] | type[T] | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         import asyncio  # noqa: PLC0415
-
-        from grelmicro.cache.serializers import JsonSerializer  # noqa: PLC0415
 
         self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._fingerprint = fingerprint
         self._guard = AsyncStampedeGuard()
+        self._serializer = serializer
+        self._cache: TTLCache[T] | None = cache
+
+    def _get_cache(self) -> TTLCache[T]:
+        """Return the response store, composing it on first use.
+
+        Python sets `__orig_class__` after `__init__` returns, so the
+        type parameter of `Idempotency[Model]` is first readable here.
+        """
+        cache = self._cache
         if cache is not None:
-            self._cache: TTLCache[T] = cache
+            return cache
+        from grelmicro.cache.serializers import (  # noqa: PLC0415
+            JsonSerializer,
+            _infer_serializer_from_class,
+            _infer_serializer_from_instance,
+            _resolve_serializer,
+        )
+
+        serializer: CacheSerializer[Any] | None
+        if self._serializer is not None:
+            serializer = _resolve_serializer(self._serializer)
         else:
-            resolved_serializer: CacheSerializer[Any] = (
-                serializer if serializer is not None else JsonSerializer()
-            )
-            self._cache = cast(
-                "TTLCache[T]",
-                TTLCache(ttl=config.ttl, serializer=resolved_serializer),
-            )
+            serializer = _infer_serializer_from_instance(
+                self
+            ) or _infer_serializer_from_class(type(self), Idempotency)
+        if serializer is None:
+            serializer = JsonSerializer()
+        cache = cast(
+            "TTLCache[T]",
+            TTLCache(ttl=self._config.ttl, serializer=serializer),
+        )
+        self._cache = cache
+        return cache
 
     @property
     def name(self) -> str:
@@ -607,11 +638,12 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         the stored fingerprint differs.
         """
         scoped = self._scoped(key)
-        stored = await self._cache.get(scoped, cast("T", _SENTINEL))
+        cache = self._get_cache()
+        stored = await cache.get(scoped, cast("T", _SENTINEL))
         if stored is _SENTINEL:
             return _SENTINEL
         if fingerprint is not None:
-            saved = await self._cache._get_backend().get(  # noqa: SLF001
+            saved = await cache._get_backend().get(  # noqa: SLF001
                 key=f"{_CACHE_PREFIX}:{scoped}{_FINGERPRINT_SUFFIX}"
             )
             if saved is not None and saved.decode() != fingerprint:
@@ -624,11 +656,12 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         """Store the response and the optional fingerprint under `ttl`."""
         scoped = self._scoped(key)
         ttl = self._config.ttl
+        cache = self._get_cache()
         if fingerprint is not None:
             # Store the guard first so a response never outlives its check.
-            await self._cache._get_backend().set(  # noqa: SLF001
+            await cache._get_backend().set(  # noqa: SLF001
                 key=f"{_CACHE_PREFIX}:{scoped}{_FINGERPRINT_SUFFIX}",
                 value=fingerprint.encode(),
                 ttl=ttl + 1,
             )
-        await self._cache.set(scoped, response, ttl)
+        await cache.set(scoped, response, ttl)
