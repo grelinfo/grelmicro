@@ -190,7 +190,7 @@ class PostgresOutboxAdapter(OutboxBackend):
         self._dead_sql = self._SQL_DEAD.format(table=table)
         self._redrive_sql = self._SQL_REDRIVE.format(table=table)
         self._purge_sql = self._SQL_PURGE.format(table=table)
-        self._listen_conn: asyncpg.Connection[Any] | None = None
+        self._listen_conn: asyncpg.Connection | None = None
         self._listener_up = False
         self._wake = asyncio.Event()
 
@@ -355,7 +355,7 @@ class PostgresOutboxAdapter(OutboxBackend):
 
     async def _enqueue_asyncpg(
         self,
-        conn: asyncpg.Connection[Any],
+        conn: asyncpg.Connection,
         record: OutboxRecord,
         payload: str,
         headers: str,
