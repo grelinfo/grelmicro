@@ -53,8 +53,32 @@ BACKENDS = [
 ]
 
 
+class HostileProvider:
+    """A provider that fails on any attribute the adapter reaches for.
+
+    `bind` must decide on the config kind before it touches the client, so
+    rejecting an unknown kind never needs a live connection.
+    """
+
+    def __getattr__(self, name: str) -> object:
+        """Fail loudly naming the attribute `bind` reached for."""
+        msg = f"bind touched provider.{name} before checking the kind"
+        raise AssertionError(msg)
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_bind_rejects_unknown_kind(backend: RateLimiterBackend) -> None:
     """`bind` raises `NotImplementedError` naming the unsupported kind."""
+    with pytest.raises(NotImplementedError, match="failure_rate"):
+        backend.bind(Fake())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_bind_checks_the_kind_before_touching_the_client(
+    backend: RateLimiterBackend,
+) -> None:
+    """`bind` rejects an unknown kind without reading the provider."""
+    if hasattr(backend, "_provider"):
+        backend._provider = HostileProvider()  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     with pytest.raises(NotImplementedError, match="failure_rate"):
         backend.bind(Fake())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]

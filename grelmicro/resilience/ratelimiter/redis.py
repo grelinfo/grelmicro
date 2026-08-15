@@ -132,12 +132,13 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
         Each strategy has its own Lua scripts. It registers them
         with the Redis client when the strategy is created.
         """
-        client = self._provider.client
         match config:
             case TokenBucketConfig():
-                return _RedisTokenBucket(client, self._prefix, config)
+                return _RedisTokenBucket(
+                    self._provider.client, self._prefix, config
+                )
             case SlidingWindowConfig():
-                return _RedisGCRA(client, self._prefix, config)
+                return _RedisGCRA(self._provider.client, self._prefix, config)
         raise unsupported_algorithm(config)
 
 

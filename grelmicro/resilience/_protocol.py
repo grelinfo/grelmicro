@@ -14,6 +14,7 @@ from typing import (
     Annotated,
     ClassVar,
     NamedTuple,
+    Never,
     Protocol,
     Self,
     runtime_checkable,
@@ -24,7 +25,6 @@ from typing_extensions import Doc
 if TYPE_CHECKING:
     import asyncio
     from types import TracebackType
-    from typing import Never
 
     from grelmicro.resilience.circuitbreaker import (
         CircuitBreakerConfig,
