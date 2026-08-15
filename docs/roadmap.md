@@ -6,7 +6,11 @@ Each heading names a few concrete things. They illustrate the direction, they ar
 
 ## The HTTP edge
 
-A pattern you already use should reach the wire without hand-written glue. Today the rate limiter hands you a `RateLimitResult` and you build the 429 yourself. Next: rate limit response headers, problem-detail error responses, admission per route instead of per handler, dependency helpers, and a first-class Litestar integration.
+A pattern you already use should reach the wire without hand-written glue. Today the rate limiter hands you a `RateLimitResult` and you build the 429 yourself. Next: rate limit response headers, problem-detail error responses, admission per route instead of per handler, and dependency helpers.
+
+## Checks on the request you were handed
+
+A microservice validates what arrives. It does not run the login. [Client IP](security/clientip.md) is the first check that lives by that line, and token validation is the next one: an OpenID Connect discovery document, a JWKS endpoint whose keys rotate under you, and signature, expiry, issuer, and audience checked before the handler runs. Issuing tokens, storing users, and running a login flow stay out.
 
 ## Resilience that composes and coordinates
 

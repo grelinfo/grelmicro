@@ -65,6 +65,7 @@ nav:
 - User Guide:
     - first-steps.md
     - wiring.md
+    - frameworks.md
     - diagnostics.md
     - Cache:
         - cache/index.md
@@ -96,7 +97,9 @@ nav:
         - resilience/timeout.md
         - resilience/composition.md
     - health.md
-    - clientip.md
+    - Security:
+        - security/index.md
+        - security/clientip.md
     - Logging:
         - logging/index.md
         - logging/integrations.md
@@ -118,16 +121,17 @@ nav:
     - benchmarks.md
 - API Reference:
     - reference/cache.md
-    - reference/clientip.md
     - reference/clock.md
     - reference/config.md
     - reference/fastapi.md
     - reference/faststream.md
+    - reference/litestar.md
     - reference/health.md
     - reference/idempotency.md
     - reference/logging.md
     - reference/metrics.md
     - reference/resilience.md
+    - reference/security.md
     - reference/coordination.md
     - reference/outbox.md
     - reference/task.md

@@ -1,7 +1,7 @@
 from fastapi import Depends, Request
 
-from grelmicro.clientip import TrustedProxies, resolve_client_address
 from grelmicro.integrations.fastapi import health_router
+from grelmicro.security import TrustedProxies, resolve_client_address
 
 # Your own proxies. Required: without it a caller's own header is believed.
 trusted = TrustedProxies(["10.0.0.0/8"])

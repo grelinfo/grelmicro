@@ -9,7 +9,7 @@ original caller wrote, so an attacker sets it to anything. Only the
 entries your own proxies appended can be believed.
 
 ```python title="clientip.py"
---8<-- "clientip/clientip.py"
+--8<-- "security/clientip.py"
 ```
 
 !!! danger "Turn off your server's own proxy handling first"
@@ -114,7 +114,7 @@ deployments, so pick the check that matches yours.
 A proxy left out of the set has no symptom of its own. Every request
 resolves as `UNTRUSTED_PEER` carrying the proxy's own address, which
 looks like a real answer. So an untrusted peer that sends a non-empty
-`X-Forwarded-For` gets a line on the `grelmicro.clientip` logger:
+`X-Forwarded-For` gets a line on the `grelmicro.security.clientip` logger:
 
 ```text
 Ignored X-Forwarded-For from 192.168.1.10, which is not a trusted proxy.
@@ -133,7 +133,7 @@ end up recording the proxy. `ClientAddressMiddleware` resolves once and
 caches the result on the request:
 
 ```python
-from grelmicro.clientip import ClientAddressMiddleware, TrustedProxies
+from grelmicro.security import ClientAddressMiddleware, TrustedProxies
 
 app.add_middleware(
     ClientAddressMiddleware, trusted=TrustedProxies(["10.0.0.0/8"])

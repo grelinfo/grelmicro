@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+* 💥 `grelmicro.clientip` moved to `grelmicro.security`. Import `TrustedProxies`, `ClientAddress`, `ClientAddressReason`, `ClientAddressMiddleware`, and `resolve_client_address` from there. The logger is renamed to `grelmicro.security.clientip`, so a filter or a level set on the old name stops matching.
+
+### Added
+
+* ✨ `grelmicro.security` holds the checks a service runs on an inbound request. Client IP resolution is the first one, and the module states the line grelmicro keeps: it validates what arrives, it never issues credentials.
+* ✨ `micro.install(app)` wires a Litestar app. It opens the components on startup, closes them after shutdown, and binds the app around each request so patterns resolve with no `backend=`. Call it after `Litestar(...)`, which builds its middleware stack at construction.
+* ✨ New `fastapi`, `starlette`, and `litestar` extras, so `pip install "grelmicro[litestar]"` brings the framework along.
+* 📝 A [Frameworks](frameworks.md) page lists every framework `micro.install(app)` supports and what it wires for each.
+
 ## 0.38.1 - 2026-08-15
 
 ### Added
@@ -304,7 +317,7 @@ One combination newly raises instead of passing silently: a URL that already car
 
 ### Security
 
-* 🔒 Point client address identity checks at `forwarded` instead of `degraded`. `degraded` is False for `UNTRUSTED_PEER`, so one mistyped CIDR in `TrustedProxies` left every request carrying the proxy's own address, and the guard the docs recommended admitted it. The private network gate in the health docs then showed details to everyone, which is the bypass `degraded` was added to close. `forwarded` is True for `RESOLVED` alone, so it refuses that request. The docstrings and the reason table now say which outcomes mean the peer is the caller and which mean the address is one of your own proxies. If nothing fronts your app, `forwarded` is never True and there is nothing to gate on, so read [which check to use](clientip.md#which-check-to-use) before copying the new guard into a direct deployment. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
+* 🔒 Point client address identity checks at `forwarded` instead of `degraded`. `degraded` is False for `UNTRUSTED_PEER`, so one mistyped CIDR in `TrustedProxies` left every request carrying the proxy's own address, and the guard the docs recommended admitted it. The private network gate in the health docs then showed details to everyone, which is the bypass `degraded` was added to close. `forwarded` is True for `RESOLVED` alone, so it refuses that request. The docstrings and the reason table now say which outcomes mean the peer is the caller and which mean the address is one of your own proxies. If nothing fronts your app, `forwarded` is never True and there is nothing to gate on, so read [which check to use](security/clientip.md#which-check-to-use) before copying the new guard into a direct deployment. ([#636](https://github.com/grelinfo/grelmicro/issues/636))
 
 ### Features
 

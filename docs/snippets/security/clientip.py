@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
-from grelmicro.clientip import TrustedProxies, resolve_client_address
+from grelmicro.security import TrustedProxies, resolve_client_address
 
 app = FastAPI()
 

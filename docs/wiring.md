@@ -1,7 +1,8 @@
 # Wiring an App
 
 A real app runs its patterns behind a web framework. This page wires one
-provider, then installs the app into FastAPI and FastStream with one call.
+provider, then installs the app into FastAPI, FastStream, and Litestar with one
+call.
 
 ## One provider, one line
 
@@ -182,6 +183,33 @@ async def handle(order: Order) -> None:
 `install` opens `micro` on startup, closes it after shutdown, and binds the app
 around each consumed message so patterns resolve inside subscribers. Pass
 `ambient=False` to skip the per-message binding.
+
+## Litestar
+
+The same call wires a Litestar app. Litestar builds its middleware stack when
+you construct the app, so call `install` after it:
+
+```python
+from litestar import Litestar, get
+
+from grelmicro import Grelmicro
+from grelmicro.coordination import Lock
+
+micro = Grelmicro(uses=[...])
+
+
+@get("/carts")
+async def carts() -> dict[str, str]:
+    async with Lock("cart"):
+        return {"status": "ok"}
+
+
+app = Litestar(route_handlers=[carts])
+micro.install(app)
+```
+
+Hooks and lifespan managers already passed to `Litestar(...)` keep running.
+The [Frameworks](frameworks.md) page lists every framework `install` supports.
 
 ## See what got wired
 

@@ -43,6 +43,9 @@ grelmicro is modular. Install only the extras you need.
 | `postgres` | `asyncpg` for the PostgreSQL backends. | All platforms. |
 | `sqlite` | `aiosqlite` for the SQLite backends. | All platforms. |
 | `kubernetes` | `lightkube` for the Kubernetes Lease backend. | All platforms. |
+| `fastapi` | `fastapi` for the FastAPI integration. | All platforms. |
+| `starlette` | `starlette` for the Starlette integration. | All platforms. |
+| `litestar` | `litestar` for the Litestar integration. | All platforms. |
 | `faststream` | `faststream` for the FastStream integration. | All platforms. |
 | `opentelemetry` | OpenTelemetry API and SDK for the `Trace` and `Metrics` components. | All platforms. |
 | `instrumentation` | OpenTelemetry instrumentation packages (FastAPI, Redis, asyncpg) for `Trace(instrument=...)`. | All platforms. |
@@ -57,6 +60,9 @@ grelmicro is modular. Install only the extras you need.
     pip install "grelmicro[postgres]"
     pip install "grelmicro[sqlite]"
     pip install "grelmicro[kubernetes]"
+    pip install "grelmicro[fastapi]"
+    pip install "grelmicro[starlette]"
+    pip install "grelmicro[litestar]"
     pip install "grelmicro[faststream]"
     pip install "grelmicro[opentelemetry]"
     pip install "grelmicro[instrumentation]"
@@ -72,6 +78,9 @@ grelmicro is modular. Install only the extras you need.
     uv add "grelmicro[postgres]"
     uv add "grelmicro[sqlite]"
     uv add "grelmicro[kubernetes]"
+    uv add "grelmicro[fastapi]"
+    uv add "grelmicro[starlette]"
+    uv add "grelmicro[litestar]"
     uv add "grelmicro[faststream]"
     uv add "grelmicro[opentelemetry]"
     uv add "grelmicro[instrumentation]"
@@ -87,6 +96,9 @@ grelmicro is modular. Install only the extras you need.
     poetry add "grelmicro[postgres]"
     poetry add "grelmicro[sqlite]"
     poetry add "grelmicro[kubernetes]"
+    poetry add "grelmicro[fastapi]"
+    poetry add "grelmicro[starlette]"
+    poetry add "grelmicro[litestar]"
     poetry add "grelmicro[faststream]"
     poetry add "grelmicro[opentelemetry]"
     poetry add "grelmicro[instrumentation]"
@@ -95,3 +107,5 @@ grelmicro is modular. Install only the extras you need.
     ```
 
 Combine multiple extras in one call, for example `pip install "grelmicro[redis,valkey,opentelemetry,structlog]"`.
+
+A framework extra installs the framework itself. Skip it when your app already depends on one. The [Frameworks](frameworks.md) page lists what `micro.install(app)` wires for each.
