@@ -38,8 +38,9 @@ from weakref import WeakSet
 from pydantic import AliasChoices, BaseModel, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from grelmicro._diagnostics import ENV_LOAD_OFF, diagnostic
 from grelmicro._json import json_loads
-from grelmicro.errors import GrelmicroConfigWarning
+from grelmicro.errors import EnvLoadOffWarning
 
 if TYPE_CHECKING:
     import asyncio
@@ -130,6 +131,36 @@ def default_env_prefix(component: str, name: str) -> str:
     return f"GREL_{component}_{env_segment(name)}_"
 
 
+def kind_env_prefix(component: str) -> str:
+    """Build the kind-wide env prefix, `GREL_{COMPONENT}_`.
+
+    Every instance of the component falls back to these variables when its
+    own are unset, so one variable retunes a whole kind. A service with
+    twelve named locks sets `GREL_LOCK_LEASE_DURATION` once instead of
+    twelve times.
+    """
+    return f"GREL_{component}_"
+
+
+def env_prefixes(
+    component: str,
+    name: str,
+    override: str | None = None,
+) -> tuple[str, str | None]:
+    """Return the instance prefix and the kind prefix it falls back to.
+
+    The kind prefix is `None` when there is nothing to fall back to: either
+    the caller supplied an explicit `override`, which means "read exactly
+    these variables", or the instance is the default one, which already owns
+    the bare prefix.
+    """
+    if override:
+        return override, None
+    instance = default_env_prefix(component, name)
+    kind = kind_env_prefix(component)
+    return instance, (None if instance == kind else kind)
+
+
 _ENV_LOAD_VAR = "GREL_ENV_LOAD"
 _ENV_LOAD_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
@@ -151,6 +182,7 @@ def resolve_config[C: BaseModel](
     env_prefix: str,
     env_load: bool | None = None,
     shared_env: Mapping[str, str] | None = None,
+    kind_env_prefix: str | None = None,
     error_type: type[SettingsValidationError] | None = None,
 ) -> C:
     """Build a validated ``config_cls`` from an explicit instance or kwargs and env.
@@ -177,6 +209,12 @@ def resolve_config[C: BaseModel](
     ``{"timezone": "GREL_TIMEZONE"}`` does. The component variable
     always wins, and a keyword argument still wins over both. See
     `docs/architecture/config.md` for what qualifies as app-wide.
+
+    ``kind_env_prefix`` names the kind-wide prefix a named instance falls
+    back to, so ``GREL_LOCK_LEASE_DURATION`` retunes every ``Lock`` that
+    does not set its own ``GREL_LOCK_{NAME}_LEASE_DURATION``. Build it with
+    ``env_prefixes``, which returns ``None`` for the default instance and
+    for a caller-supplied prefix.
 
     Pass ``error_type`` to wrap a ``pydantic.ValidationError`` into a
     component-specific ``SettingsValidationError``. Without it, the
@@ -211,6 +249,7 @@ def resolve_config[C: BaseModel](
             config_cls,
             env_prefix,
             tuple(sorted(shared_env.items())) if shared_env else (),
+            kind_env_prefix,
         )
         # The dynamic subclass is built at runtime via `type(...)` below, so
         # ty cannot prove that `settings_cls` accepts the kwargs declared on
@@ -289,8 +328,10 @@ def _warn_ignored_env(
                 continue
             _warned_ignored_env.add(name)
             warnings.warn(
-                _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR),
-                GrelmicroConfigWarning,
+                diagnostic(
+                    ENV_LOAD_OFF, _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR)
+                ),
+                EnvLoadOffWarning,
                 stacklevel=4,
             )
             if _logging_configured:
@@ -300,12 +341,16 @@ def _warn_ignored_env(
 
 
 def _log_ignored_env(name: str) -> None:
-    """Emit one ignored-variable report on the `grelmicro` logger."""
+    """Emit one ignored-variable report on the `grelmicro` logger.
+
+    Rendered before it reaches `logging`, so this channel carries the same
+    sentence and the same diagnostic code as the `warnings` one, and the
+    record holds no positional arguments a formatter could read as something
+    else. The code also travels as a structured field.
+    """
     logger.warning(
-        _IGNORED_ENV_MESSAGE,
-        name,
-        _ENV_LOAD_VAR,
-        extra={"variable": name},
+        diagnostic(ENV_LOAD_OFF, _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR)),
+        extra={"variable": name, "diagnostic": ENV_LOAD_OFF},
     )
 
 
@@ -358,6 +403,7 @@ def _build_settings_cls[C: BaseModel](
     config_cls: type[C],
     env_prefix: str,
     shared_env: tuple[tuple[str, str], ...] = (),
+    kind_env_prefix: str | None = None,
 ) -> type[BaseSettings]:
     """Create a one-off BaseSettings subclass that reads env vars.
 
@@ -385,7 +431,8 @@ def _build_settings_cls[C: BaseModel](
     merged_config: dict[str, object] = {**(config_cls.model_config or {})}
     merged_config["env_prefix"] = env_prefix
     namespace: dict[str, Any] = {}
-    if shared_env:
+    shared_map = dict(shared_env)
+    if shared_map or kind_env_prefix:
         # A redeclared field is populated by its alias only, so the field
         # name itself would read as an extra input and the keyword path
         # would stop working under `extra="forbid"`. `populate_by_name`
@@ -393,17 +440,25 @@ def _build_settings_cls[C: BaseModel](
         # range; `validate_by_name` needs 2.11.
         merged_config["populate_by_name"] = True
         annotations: dict[str, Any] = {}
-        for field, shared_var in shared_env:
-            info = config_cls.model_fields[field]
+        for field, info in config_cls.model_fields.items():
+            # Most specific first: this instance's own variable, then the
+            # kind-wide one every instance shares, then the app-wide one.
+            # pydantic-settings takes the first that is set.
+            choices = [f"{env_prefix}{field.upper()}"]
+            if kind_env_prefix:
+                choices.append(f"{kind_env_prefix}{field.upper()}")
+            shared_var = shared_map.get(field)
+            if shared_var:
+                choices.append(shared_var)
+            if len(choices) == 1:
+                continue
             # Copy the original `FieldInfo` rather than building a new one,
             # so a default factory, a description, or any other attribute
             # carries over. The annotation is taken bare, because the
             # copied `FieldInfo` already holds the metadata and passing
             # both would embed it twice.
             aliased = copy(info)
-            aliased.validation_alias = AliasChoices(
-                f"{env_prefix}{field.upper()}", shared_var
-            )
+            aliased.validation_alias = AliasChoices(*choices)
             annotations[field] = info.annotation
             namespace[field] = aliased
         namespace["__annotations__"] = annotations

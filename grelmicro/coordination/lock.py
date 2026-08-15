@@ -15,7 +15,7 @@ from grelmicro._app import Grelmicro
 from grelmicro._async import raise_backend_not_open
 from grelmicro._config import (
     Reconfigurable,
-    default_env_prefix,
+    env_prefixes,
     resolve_config,
 )
 from grelmicro.coordination._base import (
@@ -243,7 +243,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         ] = None,
     ) -> None:
         """Initialize the lock."""
-        resolved_env_prefix = env_prefix or default_env_prefix("LOCK", name)
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "LOCK", name, env_prefix
+        )
         config = resolve_config(
             LockConfig,
             explicit=None,
@@ -254,6 +256,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 "retry_jitter": retry_jitter,
             },
             env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
             env_load=env_load,
         )
         self._setup(name, config, backend)

@@ -54,6 +54,7 @@ __all__ = [
     "document_idempotency",
     "health_router",
     "install",
+    "is_bound",
 ]
 
 _logger = logging.getLogger(__name__)
@@ -1292,3 +1293,22 @@ def _parse_exclude(raw: str | None) -> frozenset[str]:
     if not raw:
         return frozenset()
     return frozenset(name.strip() for name in raw.split(",") if name.strip())
+
+
+def is_bound(
+    app: Annotated[
+        "Starlette",
+        Doc("The Starlette or FastAPI application to inspect."),
+    ],
+) -> bool:
+    """Return whether `install` added the per-request binding middleware.
+
+    Called by `Grelmicro.check_ambient_binding` and `Grelmicro.describe` to
+    catch an app that never had `micro.install(app)` called on it, including
+    a mounted sub-application, which otherwise resolves against the host's
+    components with nothing reporting it.
+    """
+    return any(
+        getattr(middleware, "cls", None) is GrelmicroMiddleware
+        for middleware in getattr(app, "user_middleware", ())
+    )

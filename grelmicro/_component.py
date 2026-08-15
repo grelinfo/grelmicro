@@ -2,11 +2,36 @@
 
 from __future__ import annotations
 
+import inspect
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, ClassVar, Protocol, Self, runtime_checkable
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+
+def _needs_constructor_arguments(source: type) -> bool:
+    """Return True if `source` cannot be constructed with no arguments.
+
+    Reads the signature rather than calling and catching, so a `TypeError`
+    raised from inside a zero-argument `__init__` is never mistaken for the
+    class needing arguments. A signature that cannot be read (some
+    C-implemented types) reads as constructible, leaving the call itself to
+    decide.
+    """
+    try:
+        parameters = inspect.signature(source).parameters
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.default is inspect.Parameter.empty
+        and parameter.kind
+        not in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        )
+        for parameter in parameters.values()
+    )
 
 
 def instantiate_if_class[T](source: T | type[T]) -> T:
@@ -16,18 +41,25 @@ def instantiate_if_class[T](source: T | type[T]) -> T:
     instance or a zero-arg class, in the spirit of FastAPI's `Depends(dep)`:
     pass the reference, the framework calls it. A class that needs
     constructor arguments raises a clear error pointing at the fix.
+
+    A `TypeError` raised from inside the constructor propagates untouched. The
+    arity check happens before the call, so the two failures never blur
+    together.
+
+    Raises:
+        TypeError: If `source` is a class whose constructor requires
+            arguments, so it cannot be passed bare.
     """
     if not isinstance(source, type):
         return source
-    try:
-        return source()
-    except TypeError as exc:
+    if _needs_constructor_arguments(source):
         msg = (
             f"{source.__name__} needs constructor arguments, so it cannot be "
             f"passed as a bare class. Instantiate it first, for example "
             f"{source.__name__}(...)."
         )
-        raise TypeError(msg) from exc
+        raise TypeError(msg)
+    return source()
 
 
 @runtime_checkable
@@ -83,6 +115,7 @@ class Component(
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         tb: TracebackType | None,
+        /,
     ) -> bool | None: ...
 
 

@@ -16,7 +16,7 @@ from grelmicro._app import Grelmicro
 from grelmicro._async import sleep_or_stop
 from grelmicro._config import (
     Reconfigurable,
-    default_env_prefix,
+    env_prefixes,
     resolve_config,
 )
 from grelmicro.coordination._base import (
@@ -291,8 +291,8 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         ] = None,
     ) -> None:
         """Initialize the leader election."""
-        resolved_env_prefix = env_prefix or default_env_prefix(
-            "LEADERELECTION", name
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "LEADERELECTION", name, env_prefix
         )
         config = resolve_config(
             LeaderElectionConfig,
@@ -307,6 +307,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                 "error_interval": error_interval,
             },
             env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
             env_load=env_load,
         )
         self._setup(name, config, backend, metadata)

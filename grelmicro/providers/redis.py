@@ -15,9 +15,10 @@ from redis.asyncio.cluster import RedisCluster
 from redis.asyncio.sentinel import Sentinel
 from typing_extensions import Doc
 
+from grelmicro._diagnostics import SENTINEL_PASSWORD, diagnostic
 from grelmicro._redact import redact_url
 from grelmicro.errors import (
-    GrelmicroConfigWarning,
+    SentinelPasswordWarning,
     SettingsValidationError,
 )
 from grelmicro.providers._base import Provider
@@ -693,7 +694,11 @@ def _sentinel_kwargs(
             f"Set it with `sentinel_password=` or "
             f"{env_prefix}SENTINEL_PASSWORD."
         )
-        warnings.warn(msg, GrelmicroConfigWarning, stacklevel=4)
+        warnings.warn(
+            diagnostic(SENTINEL_PASSWORD, msg),
+            SentinelPasswordWarning,
+            stacklevel=4,
+        )
         return None
     return {"password": sentinel_password}
 

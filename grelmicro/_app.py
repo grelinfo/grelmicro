@@ -8,12 +8,29 @@ from contextlib import (
     asynccontextmanager,
 )
 from contextvars import ContextVar
+from dataclasses import replace
+from functools import partial
 from threading import Lock as ThreadLock
-from typing import TYPE_CHECKING, Annotated, Any, Protocol, Self, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Protocol,
+    Self,
+    cast,
+    overload,
+)
 
 from typing_extensions import Doc
 
 from grelmicro._component import Component, Usable, instantiate_if_class
+from grelmicro._diagnostics import (
+    AMBIENT_BINDING,
+    PROVIDER_ORDER,
+    diagnostic,
+)
+from grelmicro._discovery import integration_names, load_integration
 from grelmicro._environment import (
     report_unmet_requirements,
     resolve_environment,
@@ -21,6 +38,7 @@ from grelmicro._environment import (
     unmet_requirements,
 )
 from grelmicro.errors import (
+    AmbientBindingWarning,
     BackendScopeError,
     GrelmicroError,
     MultipleActiveAppsError,
@@ -29,9 +47,10 @@ from grelmicro.errors import (
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterable, Mapping
+    from collections.abc import AsyncIterator, Callable, Iterable, Mapping
     from types import TracebackType
 
+    from grelmicro._describe import AppReport, CheckReport
     from grelmicro.cache._component import Cache
     from grelmicro.coordination._component import Coordination
     from grelmicro.log._component import Log
@@ -42,7 +61,9 @@ else:
     # `coordination` / `cache` property annotations without forcing first-party
     # submodules to load at `import grelmicro`. Real types are visible to
     # static type checkers via the `TYPE_CHECKING` branch above.
+    AppReport = Any
     Cache = Any
+    CheckReport = Any
     Coordination = Any
     Environment = Any
     Log = Any
@@ -502,15 +523,28 @@ class Grelmicro:
                 continue
             self._register_component(component)
 
+    @overload
+    def get[ComponentT: Component](
+        self,
+        kind: type[ComponentT],
+        name: str = "default",
+    ) -> ComponentT: ...
+
+    @overload
+    def get(self, kind: str, name: str = "default") -> Any: ...  # noqa: ANN401
+
     def get(
         self,
         kind: Annotated[
-            str,
+            str | type[Component],
             Doc(
                 """
-                Component category, matching the `kind` class attribute on
-                the registered component (`"coordination"`, `"cache"`, `"ratelimiter"`,
-                `"circuitbreaker"`, `"log"`, `"trace"`, `"metrics"`, `"health"`).
+                The component class to resolve, such as `Cache` or
+                `RateLimiterComponent`, which keeps the return type. Or the
+                `kind` string on the registered component (`"coordination"`,
+                `"cache"`, `"ratelimiter"`, `"circuitbreaker"`, `"log"`,
+                `"trace"`, `"metrics"`, `"health"`), which returns `Any` and
+                also resolves third-party kinds.
                 """,
             ),
         ],
@@ -525,16 +559,30 @@ class Grelmicro:
                 """,
             ),
         ] = "default",
-    ) -> Any:  # noqa: ANN401
+    ) -> Any:
         """Resolve a registered component by `(kind, name)`.
 
-        Returns `Any` for the same reason `micro.<kind>` does: the dynamic
-        registration can't be statically typed without a global registry.
-        Callers know the concrete type they registered.
+        Pass the class to keep the type through resolution:
+
+        ```python
+        cache = micro.get(Cache)                          # -> Cache
+        limiter = micro.get(RateLimiterComponent, "api")  # -> RateLimiterComponent
+        ```
+
+        Pass the kind string for a component grelmicro does not define, such
+        as one a third-party package registers. That form returns `Any`,
+        because the registration is dynamic and cannot be typed without a
+        global registry:
+
+        ```python
+        mailer = micro.get("mailer")                      # -> Any
+        ```
 
         Raises:
             ComponentNotRegisteredError: If no component matches.
         """
+        if isinstance(kind, type):
+            kind = kind.kind
         overrides = _active_bulkhead.get(None)
         if overrides is not None:
             override = overrides.get((kind, name))
@@ -550,6 +598,40 @@ class Grelmicro:
                 hint = "no components are registered"
             msg = f"no component registered for {(kind, name)!r}. {hint}."
             raise ComponentNotRegisteredError(msg) from exc
+
+    @asynccontextmanager
+    async def fake(self) -> AsyncIterator[None]:
+        """Swap every backed component onto an in-process store for a block.
+
+        Each registered `Coordination`, `Cache`, `RateLimiterComponent`, and
+        `CircuitBreakerComponent` is replaced by one wired to a fresh
+        `MemoryProvider`, under the same name. Everything is restored on exit.
+        A test then runs the real code paths against real primitives, with no
+        Redis and no Postgres:
+
+        ```python
+        async with micro:
+            async with micro.fake():
+                await checkout("cart-1")
+        ```
+
+        Components with no backend to fake (`Log`, `Trace`, `Metrics`,
+        `HealthChecks`) are left alone, and so is `Outbox`, which carries
+        handlers and a relay that a swap would drop. Override those by hand
+        with `micro.override(...)` when a test needs them.
+
+        Raises:
+            OutOfContextError: If called outside an open `async with micro:`
+                block, which is what `override` scopes to.
+        """
+        if self._exit_stack is None:
+            raise OutOfContextError(self, "fake")
+        from grelmicro.providers.memory import MemoryProvider  # noqa: PLC0415
+
+        provider = MemoryProvider()
+        replacements = _fake_components(self.components, provider)
+        async with provider, self.override(*replacements):
+            yield
 
     @asynccontextmanager
     async def override(
@@ -615,6 +697,74 @@ class Grelmicro:
                 self._by_key = snapshot_by_key
                 self._items = snapshot_items
                 self._by_kind = snapshot_by_kind
+
+    def describe(
+        self,
+        app: Annotated[  # noqa: ANN401
+            Any,
+            Doc(
+                """
+                The Starlette, FastAPI, or FastStream application this app is
+                installed on. Pass it to include the ambient binding check,
+                which catches a forgotten `micro.install(app)`. Omit it for a
+                service with no web framework.
+                """,
+            ),
+        ] = None,
+    ) -> AppReport:
+        """Return a structured report of what this app is wired with.
+
+        Answers what got wired, from what, reachable how far, and configured
+        with what. Credential-like values are masked.
+
+        ```python
+        report = micro.describe()
+
+        assert report.ok
+        assert [c.kind for c in report.components] == ["cache", "coordination"]
+        ```
+
+        `python -m grelmicro check` renders the same report and turns its
+        checks into an exit code. Read more in the [wiring](wiring.md) docs.
+        """
+        from grelmicro._describe import build_report  # noqa: PLC0415
+
+        report = build_report(self)
+        if app is None:
+            return report
+        return replace(
+            report, checks=(*report.checks, self._ambient_check(app))
+        )
+
+    def _ambient_check(self, app: object) -> CheckReport:
+        """Return the ambient binding check for `app`.
+
+        A framework this app does not recognize is reported rather than
+        raised, because `describe` answers questions and never blocks.
+        """
+        from grelmicro._describe import CheckReport  # noqa: PLC0415
+
+        try:
+            bound = self.check_ambient_binding(app)
+        except TypeError as exc:
+            return CheckReport(
+                name="ambient-binding", status="warn", detail=str(exc)
+            )
+        if bound:
+            return CheckReport(
+                name="ambient-binding",
+                status="ok",
+                detail="patterns resolve their backend inside request handlers",
+            )
+        return CheckReport(
+            name="ambient-binding",
+            status="fail",
+            detail=(
+                "ambient components are registered but the binding middleware "
+                "is missing, so a pattern that omits backend= raises "
+                "OutOfContextError on every request. Call micro.install(app)"
+            ),
+        )
 
     @property
     def components(self) -> tuple[Component, ...]:
@@ -757,25 +907,12 @@ class Grelmicro:
             TypeError: If `app` is not a recognized Starlette, FastAPI, or
                 FastStream application.
         """
-        if hasattr(app, "add_middleware") and hasattr(
-            getattr(app, "router", None), "lifespan_context"
-        ):
-            from grelmicro.integrations import fastapi  # noqa: PLC0415
-
-            fastapi.install(app, self, ambient=ambient)
-            return
-        if hasattr(app, "broker") and hasattr(app, "after_shutdown"):
-            from grelmicro.integrations import faststream  # noqa: PLC0415
-
-            faststream.install(app, self, ambient=ambient)
-            return
-        msg = (
-            f"micro.install does not support {type(app).__name__!r}. "
-            f"Supported frameworks are Starlette, FastAPI, and FastStream. "
-            f"For an unsupported framework, open the app in a lifespan with "
-            f"`async with micro:` and add `GrelmicroMiddleware` yourself."
-        )
-        raise TypeError(msg)
+        integration = load_integration(app)
+        if integration is None:
+            raise TypeError(
+                _unsupported_framework_message("micro.install", app)
+            )
+        integration.install(app, self, ambient=ambient)
 
     def _ambient_component_labels(self) -> list[str]:
         """Return sorted `kind:name` labels of registered ambient components."""
@@ -807,9 +944,10 @@ class Grelmicro:
             f"OutOfContextError on every request. Keep ambient=True (the "
             f"default) or pass backend= explicitly at each call site."
         )
+        msg = diagnostic(AMBIENT_BINDING, msg)
         if self._strict:
             raise AmbientBindingError(msg)
-        warnings.warn(msg, UserWarning, stacklevel=3)
+        warnings.warn(msg, AmbientBindingWarning, stacklevel=3)
 
     def check_ambient_binding(
         self,
@@ -842,32 +980,12 @@ class Grelmicro:
         """
         if not self._ambient_component_labels():
             return True
-        if hasattr(app, "add_middleware") and hasattr(
-            getattr(app, "router", None), "lifespan_context"
-        ):
-            from grelmicro.integrations.fastapi import (  # noqa: PLC0415
-                GrelmicroMiddleware,
+        integration = load_integration(app)
+        if integration is None:
+            raise TypeError(
+                _unsupported_framework_message("check_ambient_binding", app)
             )
-
-            return any(
-                getattr(mw, "cls", None) is GrelmicroMiddleware
-                for mw in getattr(app, "user_middleware", ())
-            )
-        if hasattr(app, "broker") and hasattr(app, "after_shutdown"):
-            from grelmicro.integrations.faststream import (  # noqa: PLC0415
-                _GrelmicroBrokerMiddleware,
-            )
-
-            return any(
-                isinstance(mw, type)
-                and issubclass(mw, _GrelmicroBrokerMiddleware)
-                for mw in getattr(app.broker, "middlewares", ())
-            )
-        msg = (
-            f"check_ambient_binding does not support {type(app).__name__!r}. "
-            f"Supported frameworks are Starlette, FastAPI, and FastStream."
-        )
-        raise TypeError(msg)
+        return bool(integration.is_bound(app))
 
     def _bind_current(self) -> Any:  # noqa: ANN401
         """Set this app as `current()` for the running task, return a reset token.
@@ -1121,11 +1239,12 @@ class Grelmicro:
         if position <= index:
             return
         if self._strict:
-            msg = (
+            msg = diagnostic(
+                PROVIDER_ORDER,
                 f"{type(provider).__name__} is listed after "
                 f"{type(target).__name__} in Grelmicro(uses=[...]). "
                 f"Providers must be listed before the components that "
-                f"depend on them so they open first."
+                f"depend on them so they open first.",
             )
             raise LifecycleOrderError(msg)
         self._items.insert(index, self._items.pop(position))
@@ -1174,12 +1293,73 @@ def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
     return sys.exc_info()
 
 
+def _protocol_members(protocol: type) -> frozenset[str]:
+    """Return the member names a runtime-checkable Protocol matches on.
+
+    `isinstance` against a `runtime_checkable` Protocol tests exactly these
+    names and never checks signatures, so they are also what decides which of
+    two matching protocols is the more specific.
+    """
+    return frozenset(getattr(protocol, "__protocol_attrs__", ()))
+
+
+type _BackendCandidate = tuple[type, str, Callable[[Any], Component]]
+"""One backend protocol, the component to name in an error, and its factory.
+
+The factory takes `Any` because the protocol match is what proves the item
+fits, and that proof is a runtime `isinstance` a type checker cannot follow.
+"""
+
+
+def _most_specific_backend(
+    matches: list[_BackendCandidate],
+    item: object,
+) -> _BackendCandidate:
+    """Return the match whose protocol subsumes every other match.
+
+    A backend can satisfy more than one protocol, because `runtime_checkable`
+    compares member names only. `CircuitBreakerBackend` declares everything
+    `RateLimiterBackend` does plus `_loop` and `is_shared`, so every circuit
+    breaker backend also matches `RateLimiterBackend`. The more specific
+    protocol wins, which keeps the answer independent of the order the
+    protocols are tested in.
+
+    Raises:
+        AmbiguousBackendError: If no single protocol subsumes the others, so
+            the backend names two unrelated kinds and only the caller knows
+            which was meant.
+    """
+    for candidate in matches:
+        members = _protocol_members(candidate[0])
+        if all(
+            members >= _protocol_members(other[0])
+            for other in matches
+            if other[0] is not candidate[0]
+        ):
+            return candidate
+    names = ", ".join(sorted(protocol.__name__ for protocol, _, _ in matches))
+    kinds = ", ".join(sorted(label for _, label, _ in matches))
+    msg = (
+        f"{type(item).__name__} matches more than one backend protocol "
+        f"({names}), so grelmicro cannot tell which kind it is. Wrap it in "
+        f"the component you mean, one of: {kinds}."
+    )
+    raise AmbiguousBackendError(msg)
+
+
 def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     """Wrap a first-party backend in the matching Component, or return None.
+
+    Every protocol is tested, not just the first that matches, so a backend
+    satisfying two of them resolves by specificity rather than by the order
+    the checks happen to be written in. See `_most_specific_backend`.
 
     Imports are lazy so unused submodules stay out of `import grelmicro`.
     The user importing `RedisCacheAdapter` already loads `grelmicro.cache`,
     so the lazy import here is a cache hit.
+
+    Raises:
+        AmbiguousBackendError: If the backend matches two unrelated protocols.
     """
     from grelmicro.cache._component import Cache  # noqa: PLC0415
     from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
@@ -1196,16 +1376,91 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
         RateLimiterBackend,
     )
 
-    if isinstance(item, CacheBackend):
-        return Cache(item)
-    if isinstance(item, CircuitBreakerBackend):
-        return CircuitBreakerComponent(item)
-    if isinstance(item, RateLimiterBackend):
-        return RateLimiterComponent(item)
-    for slot in COORDINATION_BACKENDS:
-        if isinstance(item, slot.protocol):
-            return Coordination._holding(slot.keyword, item)  # noqa: SLF001
-    return None
+    candidates: list[_BackendCandidate] = [
+        (CacheBackend, "Cache", Cache),
+        (
+            CircuitBreakerBackend,
+            "CircuitBreakerComponent",
+            CircuitBreakerComponent,
+        ),
+        (RateLimiterBackend, "RateLimiterComponent", RateLimiterComponent),
+        *[
+            (
+                slot.protocol,
+                f"Coordination({slot.keyword}=...)",
+                partial(Coordination._holding, slot.keyword),  # noqa: SLF001
+            )
+            for slot in COORDINATION_BACKENDS
+        ],
+    ]
+    matches = [
+        candidate for candidate in candidates if isinstance(item, candidate[0])
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0][2](item)
+    return _most_specific_backend(matches, item)[2](item)
+
+
+def _unsupported_framework_message(caller: str, app: object) -> str:
+    """Return the error for an app no registered integration claims.
+
+    Names the frameworks that are actually installed, rather than a hard-coded
+    list, so a missing extra reads as a missing extra.
+    """
+    known = integration_names()
+    frameworks = ", ".join(known) if known else "none are installed"
+    return (
+        f"{caller} does not support {type(app).__name__!r}. "
+        f"Registered integrations: {frameworks}. For an unsupported "
+        f"framework, open the app in a lifespan with `async with micro:` and "
+        f"add `GrelmicroMiddleware` yourself."
+    )
+
+
+_FAKEABLE_KINDS = frozenset(
+    {"coordination", "cache", "ratelimiter", "circuitbreaker"}
+)
+"""Kinds `micro.fake()` swaps onto an in-process store.
+
+Every one of these is a thin component over a backend, so replacing the
+backend replaces the whole thing. `Outbox` is excluded even though memory
+serves it, because it carries registered handlers and a running relay that a
+swap would silently drop. `Log`, `Trace`, `Metrics`, and `HealthChecks` have
+no backend to fake.
+"""
+
+
+def _fake_components(
+    components: Iterable[Component],
+    provider: Provider,
+) -> list[Component]:
+    """Build an in-process replacement for every fakeable component.
+
+    Each replacement keeps the original's name, so a pattern that resolves
+    `(kind, name)` finds the fake in the same slot.
+    """
+    from grelmicro.cache._component import Cache  # noqa: PLC0415
+    from grelmicro.coordination._component import Coordination  # noqa: PLC0415
+    from grelmicro.resilience._components import (  # noqa: PLC0415
+        CircuitBreakerComponent,
+        RateLimiterComponent,
+    )
+
+    builders: dict[str, Callable[[str], Component]] = {
+        "coordination": lambda name: Coordination(provider, name=name),
+        "cache": lambda name: Cache(provider, name=name),
+        "ratelimiter": lambda name: RateLimiterComponent(provider, name=name),
+        "circuitbreaker": lambda name: CircuitBreakerComponent(
+            provider, name=name
+        ),
+    }
+    return [
+        builders[component.kind](component.name)
+        for component in components
+        if component.kind in _FAKEABLE_KINDS
+    ]
 
 
 def _default_components_for_provider(provider: Provider) -> list[Component]:
@@ -1276,6 +1531,8 @@ class NoActiveAppError(GrelmicroError, LookupError):
 class LifecycleOrderError(GrelmicroError, ValueError):
     """Raised when `Grelmicro(strict=True)` detects misordered provider/component lifecycles."""
 
+    code: ClassVar[str] = PROVIDER_ORDER
+
 
 class AmbientBindingError(GrelmicroError, RuntimeError):
     """Raised when ambient pattern resolution is not wired for an app.
@@ -1283,8 +1540,24 @@ class AmbientBindingError(GrelmicroError, RuntimeError):
     Covers `strict=True` with `install(ambient=False)`, which leaves ambient
     patterns unbound, and a `GrelmicroMiddleware` that another middleware
     wraps, which leaves it unable to bind before that middleware runs.
+
+    Carries the `ambient-binding` code, the same one `AmbientBindingWarning`
+    carries outside strict mode.
     """
+
+    code: ClassVar[str] = AMBIENT_BINDING
 
 
 class AmbiguousProviderError(GrelmicroError, ValueError):
     """Raised when two bare Providers in `uses=` make the default component ambiguous."""
+
+
+class AmbiguousBackendError(GrelmicroError, ValueError):
+    """Raised when a bare backend matches two unrelated backend protocols.
+
+    `isinstance` against a `runtime_checkable` Protocol compares member names
+    and never signatures, so one object can satisfy several. When one protocol
+    subsumes the others the most specific one wins silently. When none does,
+    only the caller knows which kind was meant, so wrap the backend in the
+    component explicitly.
+    """

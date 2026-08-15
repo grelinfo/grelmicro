@@ -2,6 +2,7 @@
 
 from grelmicro._app import (
     AmbientBindingError,
+    AmbiguousBackendError,
     AmbiguousProviderError,
     ComponentAlreadyRegisteredError,
     ComponentNotRegisteredError,
@@ -14,26 +15,35 @@ from grelmicro.config import ExternalConfig
 from grelmicro.errors import (
     AdapterNotRegisteredError,
     AdmissionError,
+    AmbientBindingWarning,
     BackendScopeError,
+    BackendScopeWarning,
     DependencyNotFoundError,
+    EnvLoadOffWarning,
     GrelmicroConfigWarning,
     GrelmicroError,
     MultipleActiveAppsError,
     OutOfContextError,
     ProviderNotRegisteredError,
+    SentinelPasswordWarning,
     SettingsValidationError,
+    UnknownEnvironmentWarning,
 )
 
 __all__ = [
     "AdapterNotRegisteredError",
     "AdmissionError",
     "AmbientBindingError",
+    "AmbientBindingWarning",
+    "AmbiguousBackendError",
     "AmbiguousProviderError",
     "BackendScopeError",
+    "BackendScopeWarning",
     "Component",
     "ComponentAlreadyRegisteredError",
     "ComponentNotRegisteredError",
     "DependencyNotFoundError",
+    "EnvLoadOffWarning",
     "ExternalConfig",
     "Grelmicro",
     "GrelmicroConfigWarning",
@@ -43,6 +53,8 @@ __all__ = [
     "NoActiveAppError",
     "OutOfContextError",
     "ProviderNotRegisteredError",
+    "SentinelPasswordWarning",
     "SettingsValidationError",
+    "UnknownEnvironmentWarning",
     "Usable",
 ]

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.38.0 - 2026-08-15
+
+### Breaking
+
+* 💥 The bare `GREL_{PATTERN}_` prefix is now the default for every instance of a pattern, not just the default instance. `GREL_LOCK_LEASE_DURATION=60` used to configure `Lock("default")` alone. It now sets the lease for every `Lock` that does not declare its own `GREL_LOCK_{NAME}_LEASE_DURATION`. A twelve-lock service tunes one variable instead of twelve. An app that relied on the bare variable reaching only the default instance must move that value to `GREL_LOCK_DEFAULT_...`, or accept the wider reach.
+
+### Added
+
+* ✨ `micro.describe()` returns a report of what the app is wired with: every component, its backend, the provider it borrows, and the checks that passed. Credential-like values are masked. `python -m grelmicro check app:micro` renders it and exits non-zero on a failing check, so CI can gate on the wiring.
+* ✨ A provider report names the kinds it **declines**, not only the ones it serves. `uses=[redis]` leaving the outbox unwired was silently swallowed as a `NotImplementedError`, and is now the first thing the report shows.
+* ✨ `micro.install(app)` resolves the framework through a new `grelmicro.integrations` entry-point group instead of sniffing attributes. A third-party package can now ship an integration, and a `FastAPI` subclass declared in your own package resolves correctly because the lookup walks the class's MRO.
+* ✨ `micro.fake()` swaps every backed component onto an in-process store for a block, so a test runs the real code paths against real primitives with no Redis and no Postgres. A fixture can now open the app you actually ship and fake only its backends.
+* ✨ `micro.get(Cache)` keeps the component type. Pass the class to resolve typed, the kind string to resolve a third-party component as `Any`. `micro.get("cache")` and `micro.<kind>` are unchanged.
+* ✨ Every startup diagnostic carries a stable code, such as `backend-scope`. The code trails the message, travels as a `diagnostic` field on the log record, and links to a section in the new [Diagnostics](diagnostics.md) reference. Each warning also gets its own category (`BackendScopeWarning`, `EnvLoadOffWarning`, ...) under `GrelmicroConfigWarning`, so one diagnostic is silenced by category without matching message text and without silencing the rest.
+
+### Fixed
+
+* 🐛 A bare backend matching two protocols resolved by the order of two `if` statements. `runtime_checkable` compares member names only, so every `CircuitBreakerBackend` also matched `RateLimiterBackend`, and swapping the checks would have silently registered every breaker as a rate limiter. The most specific protocol now wins, and a backend matching two unrelated protocols raises `AmbiguousBackendError`.
+* 🐛 A `TypeError` raised inside a zero-argument `__init__` was reported as "needs constructor arguments", suggesting a fix that could not work. The arity check now reads the signature before calling, so the real error propagates untouched.
+
 ## 0.37.4 - 2026-08-14
 
 ### Fixed

@@ -183,6 +183,55 @@ async def handle(order: Order) -> None:
 around each consumed message so patterns resolve inside subscribers. Pass
 `ambient=False` to skip the per-message binding.
 
+## See what got wired
+
+`micro.describe()` answers what the app is wired with: every component, the
+backend behind it, the provider it borrows, and the checks that passed or
+failed. Credential-like values are masked.
+
+```python
+report = micro.describe()
+
+assert report.ok
+assert [component.kind for component in report.components] == ["cache"]
+```
+
+The same report runs from the command line, which exits non-zero when a check
+fails so CI can gate on it:
+
+```bash
+python -m grelmicro check app:micro
+```
+
+```
+Environment: production
+
+Components
+  coordination/default    RedisLockAdapter, RedisScheduleAdapter <- redis
+  cache/default           RedisCacheAdapter <- redis
+
+Providers
+  redis  (RedisProvider)  redis://user:***@localhost:6379/0
+    env:      REDIS_*
+    serves:   lock, readwritelock, leaderelection, schedule, cache, ratelimiter, circuitbreaker
+    declines: outbox
+
+Checks
+  ok    backend-scope: every bound backend reaches as far as its component requires
+```
+
+The `declines` line is the one to read when a pattern is not wired the way you
+expected. A provider fills a default component only for the kinds it serves, so
+`uses=[redis]` leaves the outbox unwired and this is where that shows up.
+
+Pass the web application to include the ambient binding check, which catches
+the forgotten `install` described above, mounted sub-applications included:
+
+```python
+def test_every_app_is_wired() -> None:
+    assert micro.describe(app).ok
+```
+
 ## Next
 
 Read the per-pattern pages for [cache](cache/index.md), [coordination](coordination/index.md),

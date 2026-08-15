@@ -1,8 +1,9 @@
 """Type assertions for the `Grelmicro` app container."""
 
-from typing import assert_type
+from typing import Any, assert_type
 
 from grelmicro import Grelmicro, Usable
+from grelmicro.cache import Cache
 from grelmicro.health import HealthChecks
 from grelmicro.providers.memory import MemoryProvider
 
@@ -42,3 +43,12 @@ async def lifecycle() -> None:
     """`async with` yields the app itself."""
     async with Grelmicro() as micro:
         assert_type(micro, Grelmicro)
+
+
+def get_by_class() -> None:
+    """`get(Component)` keeps the component type, `get(str)` stays `Any`."""
+    micro = Grelmicro(uses=[HealthChecks()])
+    assert_type(micro.get(HealthChecks), HealthChecks)
+    assert_type(micro.get(HealthChecks, "default"), HealthChecks)
+    assert_type(micro.get(Cache), Cache)
+    assert_type(micro.get("mailer"), Any)

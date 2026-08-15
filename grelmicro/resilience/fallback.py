@@ -27,6 +27,7 @@ from grelmicro._config import (
     _build_settings_cls,
     default_env_prefix,
     env_load_default,
+    env_prefixes,
     parse_csv_or_json,
 )
 from grelmicro._json import json_loads
@@ -229,9 +230,11 @@ def _resolve_config(
     if not env_load:
         return FallbackConfig.model_validate(kwargs)
 
-    env_prefix = default_env_prefix("FALLBACK", name)
+    env_prefix, kind_prefix = env_prefixes("FALLBACK", name)
     _load_default_from_env(kwargs, env_prefix)
-    settings_cls = _build_settings_cls(FallbackConfig, env_prefix)
+    settings_cls = _build_settings_cls(
+        FallbackConfig, env_prefix, kind_env_prefix=kind_prefix
+    )
     return settings_cls(**kwargs)  # ty: ignore[invalid-return-type]
 
 

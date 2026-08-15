@@ -51,16 +51,31 @@ Instance names are normalised before they enter an env prefix so that natural id
 
 A name that produces an empty segment or one starting with a digit is rejected at construction with an actionable error.
 
-## The default instance owns the bare prefix
+## The bare prefix is the kind default
 
 `grelmicro._config.default_env_prefix` builds the prefix from the component and the name. The default instance drops the name segment, so a `Lock("default")` reads `GREL_LOCK_LEASE_DURATION`, not `GREL_LOCK_DEFAULT_LEASE_DURATION`. A named instance keeps it: `Lock("cart")` reads `GREL_LOCK_CART_LEASE_DURATION`.
 
-| Instance | Prefix |
-|---|---|
-| `Lock("default")` | `GREL_LOCK_` |
-| `Lock("cart")` | `GREL_LOCK_CART_` |
+| Instance | Prefix | Falls back to |
+|---|---|---|
+| `Lock("default")` | `GREL_LOCK_` | nothing, it is already the bare prefix |
+| `Lock("cart")` | `GREL_LOCK_CART_` | `GREL_LOCK_` |
 
-The trade-off: the default instance owns the bare `GREL_{COMPONENT}_` namespace, so a named instance whose name collides with a field prefix can alias a default field. A `Lock("lease")` reads `GREL_LOCK_LEASE_DURATION`, the same key the default instance uses for its `lease_duration` field. This is rare in practice. The rule: the default instance owns the bare prefix, so name your other instances to avoid field-name collisions.
+The bare `GREL_{COMPONENT}_` namespace is the **kind default**. Every instance falls back to it, so one variable retunes a whole kind:
+
+```bash
+GREL_LOCK_LEASE_DURATION=60   # every Lock, named or not
+```
+
+A named instance still wins for itself:
+
+```bash
+GREL_LOCK_LEASE_DURATION=60        # every Lock
+GREL_LOCK_CHECKOUT_LEASE_DURATION=300   # except this one
+```
+
+Build both prefixes with `grelmicro._config.env_prefixes`, which returns the instance prefix and the kind prefix to fall back to. It returns `None` for the kind prefix when there is nothing to fall back to: the default instance already owns the bare prefix, and a caller-supplied `env_prefix=` means "read exactly these variables", so grelmicro does not add its own namespace underneath it.
+
+The trade-off: a named instance whose name collides with a field prefix can alias a kind field. A `Lock("lease")` reads `GREL_LOCK_LEASE_DURATION` for a field named `duration`, the same key the kind default uses for `lease_duration`. Under the kind-default rule this reaches **every** lock rather than only the default one, so the blast radius is wider than it looks. The rule: name instances so their segment cannot start a field name of the same component.
 
 ## App-wide variables
 
@@ -88,10 +103,15 @@ A variable qualifies as app-wide only when it meets all four rules.
    a mounted ConfigMap matches nothing and is ignored. A component that needs a
    live value keeps its own field.
 
-The precedence slot sits between the component variable and the field default:
+The precedence slot sits between the kind default and the field default, so the
+full order for a named instance reads:
 
 ```
-keyword argument > GREL_{COMPONENT}_{FIELD} > GREL_{NAME} > field default
+keyword argument
+  > GREL_{COMPONENT}_{NAME}_{FIELD}   the instance
+  > GREL_{COMPONENT}_{FIELD}          the kind default
+  > GREL_{NAME}                       the app-wide value
+  > field default
 ```
 
 `GREL_ENV_LOAD` gates the app-wide layer too. A `GREL_TIMEZONE` set without it

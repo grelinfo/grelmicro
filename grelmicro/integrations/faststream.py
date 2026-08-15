@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     AsyncFuncAny = Callable[[Any], Awaitable[Any]]
 
-__all__ = ["install"]
+__all__ = ["install", "is_bound"]
 
 _logger = logging.getLogger(__name__)
 
@@ -174,3 +174,20 @@ def install(
     else:
         micro._on_ambient_disabled()  # noqa: SLF001
     _instrument_broker(app, micro)
+
+
+def is_bound(
+    app: Annotated[
+        FastStream,
+        Doc("The FastStream application to inspect."),
+    ],
+) -> bool:
+    """Return whether `install` added the per-message binding middleware.
+
+    Called by `Grelmicro.check_ambient_binding` and `Grelmicro.describe`.
+    """
+    return any(
+        isinstance(middleware, type)
+        and issubclass(middleware, _GrelmicroBrokerMiddleware)
+        for middleware in getattr(app.broker, "middlewares", ())
+    )

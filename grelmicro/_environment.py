@@ -22,7 +22,16 @@ from functools import partial
 from typing import TYPE_CHECKING, Final, get_args
 
 from grelmicro._config import defer_report
-from grelmicro.errors import BackendScopeError, GrelmicroConfigWarning
+from grelmicro._diagnostics import (
+    BACKEND_SCOPE,
+    UNKNOWN_ENVIRONMENT,
+    diagnostic,
+)
+from grelmicro.errors import (
+    BackendScopeError,
+    BackendScopeWarning,
+    UnknownEnvironmentWarning,
+)
 from grelmicro.types import BackendScope, Environment
 
 if TYPE_CHECKING:
@@ -148,10 +157,20 @@ def _report_unknown_environment(value: str) -> None:
         return
     _reported_unknown.add(value)
     known = ", ".join(ENVIRONMENTS)
-    message = _UNKNOWN_ENVIRONMENT_MESSAGE % (ENVIRONMENT_VAR, value, known)
-    warnings.warn(message, GrelmicroConfigWarning, stacklevel=4)
+    message = diagnostic(
+        UNKNOWN_ENVIRONMENT,
+        _UNKNOWN_ENVIRONMENT_MESSAGE % (ENVIRONMENT_VAR, value, known),
+    )
+    warnings.warn(message, UnknownEnvironmentWarning, stacklevel=4)
     defer_report(
-        partial(logger.warning, message, extra={"variable": ENVIRONMENT_VAR})
+        partial(
+            logger.warning,
+            message,
+            extra={
+                "variable": ENVIRONMENT_VAR,
+                "diagnostic": UNKNOWN_ENVIRONMENT,
+            },
+        )
     )
 
 
@@ -218,17 +237,21 @@ def report_unmet_requirements(
     if environment in STRICT_ENVIRONMENTS:
         raise BackendScopeError(strict_message(unmet, environment))
     entry = unmet[0]
-    message = _UNDECLARED_MESSAGE % (
-        entry.component,
-        entry.backend,
-        entry.provides,
-        entry.scope,
-        entry.requires,
-        _others(len(unmet)),
-        ENVIRONMENT_VAR,
-        entry.scope,
+    message = diagnostic(
+        BACKEND_SCOPE,
+        _UNDECLARED_MESSAGE
+        % (
+            entry.component,
+            entry.backend,
+            entry.provides,
+            entry.scope,
+            entry.requires,
+            _others(len(unmet)),
+            ENVIRONMENT_VAR,
+            entry.scope,
+        ),
     )
-    warnings.warn(message, GrelmicroConfigWarning, stacklevel=4)
+    warnings.warn(message, BackendScopeWarning, stacklevel=4)
     # Rendered before it reaches `logging`, so both channels carry the same
     # sentence and the record holds no positional arguments a formatter
     # could read as something else.
@@ -240,6 +263,7 @@ def report_unmet_requirements(
                 "component": entry.component,
                 "backend_scope": entry.scope,
                 "requires": entry.requires,
+                "diagnostic": BACKEND_SCOPE,
             },
         )
     )

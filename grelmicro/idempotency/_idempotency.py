@@ -8,7 +8,7 @@ from typing_extensions import Doc, TypeVar
 
 from grelmicro._config import (
     Reconfigurable,
-    default_env_prefix,
+    env_prefixes,
     resolve_config,
 )
 from grelmicro.cache._stampede import (
@@ -411,14 +411,15 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         ] = None,
     ) -> None:
         """Initialize the idempotency namespace."""
-        resolved_env_prefix = env_prefix or default_env_prefix(
-            "IDEMPOTENCY", name
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "IDEMPOTENCY", name, env_prefix
         )
         config = resolve_config(
             IdempotencyConfig,
             explicit=None,
             kwargs={"ttl": ttl},
             env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
             env_load=env_load,
             error_type=IdempotencySettingsValidationError,
         )
