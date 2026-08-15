@@ -150,6 +150,9 @@
       "()": "(*args, **kwargs)"
     },
     "LockBackendError": null,
+    "LockConfig": {
+      "()": "(*, worker=..., lease_duration=..., retry_interval=..., retry_jitter=...)"
+    },
     "LockHandle": {
       "()": "(name, token, fencing_token)"
     },
@@ -197,12 +200,32 @@
       "()": "(name=..., *, backend=..., worker=..., min_hold_duration=..., lease_duration=..., env_prefix=..., env_load=...)",
       ".from_config": "(name, config, *, backend=...)"
     },
+    "TaskLockConfig": {
+      "()": "(*, worker=..., min_hold_duration=..., lease_duration=...)"
+    },
     "WouldBlockError": null,
     "WriteGrant": {
       "()": "(fencing_token, poisoned)"
     },
     "WriteGuard": {
       "()": "(*, owner, name, token, fencing_token, poisoned, expires_at)"
+    }
+  },
+  "grelmicro.describe": {
+    "AppReport": {
+      "()": "(environment=..., components=..., providers=..., checks=...)"
+    },
+    "CheckReport": {
+      "()": "(name, status, detail)"
+    },
+    "CheckStatus": {
+      "()": "(*args, **kwargs)"
+    },
+    "ComponentReport": {
+      "()": "(kind, name, component, backends=..., provider=..., config=...)"
+    },
+    "ProviderReport": {
+      "()": "(short_name, provider, url=..., env_prefix=..., serves=..., declines=...)"
     }
   },
   "grelmicro.health": {
@@ -304,10 +327,22 @@
       "()": "(*, name=..., config=..., backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)",
       ".from_config": "(config, *, name=...)"
     },
+    "LogBackendType": {
+      "()": "(*values)"
+    },
     "LogConfig": {
       "()": "(*, backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., uvicorn_enabled=...)"
     },
     "LogError": null,
+    "LogFormatType": {
+      "()": "(*values)"
+    },
+    "LogLevelType": {
+      "()": "(*values)"
+    },
+    "LogSerializerType": {
+      "()": "(*values)"
+    },
     "LogSettingsValidationError": {
       "()": "(error)"
     },
@@ -667,6 +702,9 @@
     },
     "FunctionTypeError": {
       "()": "(reference)"
+    },
+    "Task": {
+      "()": "(*args, **kwargs)"
     },
     "TaskAddOperationError": {
       "()": "()"

@@ -53,7 +53,14 @@ if TYPE_CHECKING:
     from grelmicro._describe import AppReport, CheckReport
     from grelmicro.cache._component import Cache
     from grelmicro.coordination._component import Coordination
+    from grelmicro.health._checks import HealthChecks
     from grelmicro.log._component import Log
+    from grelmicro.metrics._component import Metrics
+    from grelmicro.outbox._component import Outbox
+    from grelmicro.resilience._components import (
+        CircuitBreakerComponent,
+        RateLimiterComponent,
+    )
     from grelmicro.trace._component import Trace
     from grelmicro.types import Environment
 else:
@@ -64,9 +71,14 @@ else:
     AppReport = Any
     Cache = Any
     CheckReport = Any
+    CircuitBreakerComponent = Any
     Coordination = Any
     Environment = Any
+    HealthChecks = Any
     Log = Any
+    Metrics = Any
+    Outbox = Any
+    RateLimiterComponent = Any
     Trace = Any
 
 _current_micro: ContextVar[Grelmicro] = ContextVar("grelmicro_current_app")
@@ -447,16 +459,25 @@ class Grelmicro:
                 f"Construct a new Grelmicro or pick a different name."
             )
             raise ComponentAlreadyRegisteredError(msg)
-        if getattr(component, "singleton", False):
-            for other in self._by_key.values():
-                if other.kind == component.kind:
-                    msg = (
-                        f"component kind {component.kind!r} is a singleton "
-                        f"and is already registered as {other.name!r}. It "
-                        f"configures process-global state, so only one may "
-                        f"exist per Grelmicro app."
-                    )
-                    raise ComponentAlreadyRegisteredError(msg)
+        # Either side declaring the kind a singleton is enough. Checking only
+        # the incoming component let a plain component of the same kind
+        # register after a singleton, which is the case the guard exists for.
+        # Read with `getattr` rather than as a protocol member: `Component` is
+        # runtime-checkable, so a declared attribute would make every
+        # third-party component that omits it fail `isinstance` and silently
+        # fall through to the plain context-manager path.
+        for other in self._by_key.values():
+            if other.kind == component.kind and (
+                getattr(component, "singleton", False)
+                or getattr(other, "singleton", False)
+            ):
+                msg = (
+                    f"component kind {component.kind!r} is a singleton "
+                    f"and is already registered as {other.name!r}. It "
+                    f"configures process-global state, so only one may "
+                    f"exist per Grelmicro app."
+                )
+                raise ComponentAlreadyRegisteredError(msg)
         self._by_key[key] = component
         # `micro.<kind>` prefers the entry named `"default"`. Only update the
         # kind-default index when this registration is the default one.
@@ -815,6 +836,42 @@ class Grelmicro:
     def trace(self) -> Trace:
         """The registered `Trace` component (default-named, or sole entry of kind `trace`)."""
         return self._resolve_kind("trace")
+
+    @property
+    def metrics(self) -> Metrics:
+        """The registered `Metrics` component (default-named, or sole entry of kind `metrics`)."""
+        return self._resolve_kind("metrics")
+
+    @property
+    def health(self) -> HealthChecks:
+        """The registered `HealthChecks` component.
+
+        Resolves the default-named entry, or the sole entry of kind `health`.
+        """
+        return self._resolve_kind("health")
+
+    @property
+    def outbox(self) -> Outbox:
+        """The registered `Outbox` component (default-named, or sole entry of kind `outbox`)."""
+        return self._resolve_kind("outbox")
+
+    @property
+    def ratelimiter(self) -> RateLimiterComponent:
+        """The registered `RateLimiterComponent`.
+
+        Resolves the default-named entry, or the sole entry of kind
+        `ratelimiter`.
+        """
+        return self._resolve_kind("ratelimiter")
+
+    @property
+    def circuitbreaker(self) -> CircuitBreakerComponent:
+        """The registered `CircuitBreakerComponent`.
+
+        Resolves the default-named entry, or the sole entry of kind
+        `circuitbreaker`.
+        """
+        return self._resolve_kind("circuitbreaker")
 
     def _resolve_kind(self, name: str) -> Any:  # noqa: ANN401
         """Shared resolution logic for typed properties and `__getattr__`."""

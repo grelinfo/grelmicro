@@ -34,6 +34,8 @@ if TYPE_CHECKING:
     from opentelemetry.metrics import (
         _Gauge as Gauge,
     )
+    from opentelemetry.sdk.metrics import MeterProvider
+    from prometheus_client import CollectorRegistry
 
 
 _logger = logging.getLogger(__name__)
@@ -216,7 +218,7 @@ class Metrics:
         return self._resolved
 
     @property
-    def provider(self) -> Any:  # noqa: ANN401
+    def provider(self) -> MeterProvider:
         """Return the installed OTel `MeterProvider`.
 
         Raises:
@@ -272,7 +274,7 @@ class Metrics:
         return self._resolved
 
     @property
-    def prometheus_registry(self) -> Any:  # noqa: ANN401
+    def prometheus_registry(self) -> CollectorRegistry | None:
         """Return the Prometheus `CollectorRegistry` feeding `/metrics`.
 
         Only the `prometheus` exporter sets this. For every other exporter

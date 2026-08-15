@@ -21,6 +21,7 @@ from grelmicro.config._external import (
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import AdapterNotRegisteredError
+from grelmicro.health import HealthChecks
 from grelmicro.resilience import (
     Bulkhead,
     CircuitBreaker,
@@ -41,6 +42,12 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 pytestmark = [pytest.mark.timeout(5)]
+
+_RELOADED_TIMEOUT = 9.5
+"""Value patched into `GREL_HEALTH_TIMEOUT` by the reload test."""
+
+_RELOADED_CACHE_TTL = 2.0
+"""Value patched into `GREL_HEALTH_CACHE_TTL` by the reload test."""
 
 
 def _prefixes() -> set[str]:
@@ -596,3 +603,31 @@ def test_resolve_config_from_mapping_ignores_unprefixed_keys() -> None:
         mapping={"OTHER_PREFIX_CAPACITY": "9"},
     )
     assert out is cfg
+
+
+@pytest.mark.parametrize("interval", [0.0, -1.0])
+def test_reload_interval_must_be_positive(
+    interval: float, tmp_path: Path
+) -> None:
+    """A zero or negative interval would poll without pause."""
+    source = tmp_path / "config.env"
+    source.write_text("GREL_LOCK_LEASE_DURATION=60\n")
+
+    with pytest.raises(ValueError, match=r"reload_interval must be > 0"):
+        ExternalConfig(config=source, reload_interval=interval)
+
+
+async def test_health_checks_registers_for_external_reload() -> None:
+    """`HealthChecks` is reconfigurable, so `ExternalConfig` must reach it.
+
+    It inherits `Reconfigurable` like every other component but was never
+    tracked, so a mounted ConfigMap could never retune it.
+    """
+    health = HealthChecks()
+
+    await reconfigure_all(
+        {"GREL_HEALTH_TIMEOUT": "9.5", "GREL_HEALTH_CACHE_TTL": "2"}
+    )
+
+    assert health.config.timeout == _RELOADED_TIMEOUT
+    assert health.config.cache_ttl == _RELOADED_CACHE_TTL

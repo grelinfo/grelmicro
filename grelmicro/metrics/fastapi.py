@@ -84,8 +84,19 @@ def metrics_router(
                 "Set exporter='prometheus' to expose /metrics."
             )
             raise MetricsError(msg)
+        registry = active.prometheus_registry
+        if registry is None:  # pragma: no cover
+            # Unreachable while the exporter is `prometheus`, which the check
+            # above already enforces. Stated rather than assumed, so a future
+            # exporter that forgets to build a registry fails here with a
+            # sentence instead of inside `generate_latest`.
+            msg = (
+                "the prometheus exporter is active but no CollectorRegistry "
+                "was built, so /metrics has nothing to render."
+            )
+            raise MetricsError(msg)
         return Response(
-            content=generate_latest(active.prometheus_registry),
+            content=generate_latest(registry),
             media_type=_PROMETHEUS_CONTENT_TYPE,
         )
 

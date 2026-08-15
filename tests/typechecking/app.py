@@ -5,7 +5,13 @@ from typing import Any, assert_type
 from grelmicro import Grelmicro, Usable
 from grelmicro.cache import Cache
 from grelmicro.health import HealthChecks
+from grelmicro.metrics import Metrics
+from grelmicro.outbox import Outbox
 from grelmicro.providers.memory import MemoryProvider
+from grelmicro.resilience import (
+    CircuitBreakerComponent,
+    RateLimiterComponent,
+)
 
 
 def build() -> None:
@@ -52,3 +58,15 @@ def get_by_class() -> None:
     assert_type(micro.get(HealthChecks, "default"), HealthChecks)
     assert_type(micro.get(Cache), Cache)
     assert_type(micro.get("mailer"), Any)
+
+
+def typed_component_properties() -> None:
+    """Every first-party kind resolves to its own type, not `Any`."""
+    micro = Grelmicro(uses=[HealthChecks()])
+    assert_type(micro.health, HealthChecks)
+    assert_type(micro.metrics, Metrics)
+    assert_type(micro.outbox, Outbox)
+    assert_type(micro.ratelimiter, RateLimiterComponent)
+    assert_type(micro.circuitbreaker, CircuitBreakerComponent)
+    # A third-party kind still resolves dynamically.
+    assert_type(micro.mailer, Any)

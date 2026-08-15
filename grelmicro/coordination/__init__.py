@@ -31,12 +31,12 @@ from grelmicro.coordination.leaderelection import (
     LeaderElection,
     LeaderElectionConfig,
 )
-from grelmicro.coordination.lock import Lock
+from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.readwritelock import (
     ReadWriteLock,
     ReadWriteLockConfig,
 )
-from grelmicro.coordination.tasklock import TaskLock
+from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 
 __all__ = [
     "Coordination",
@@ -51,6 +51,7 @@ __all__ = [
     "LockAcquireError",
     "LockBackend",
     "LockBackendError",
+    "LockConfig",
     "LockHandle",
     "LockLockedCheckError",
     "LockNotOwnedError",
@@ -66,6 +67,7 @@ __all__ = [
     "ReadWriteLockState",
     "ScheduleBackend",
     "TaskLock",
+    "TaskLockConfig",
     "WouldBlockError",
     "WriteGrant",
     "WriteGuard",

@@ -32,8 +32,22 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.errors import OutOfContextError
 from grelmicro.health import HealthChecks
+from grelmicro.metrics import Metrics
+from grelmicro.outbox import Outbox
+from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.providers import Provider
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience._components import (
+    CircuitBreakerComponent,
+    RateLimiterComponent,
+)
+from grelmicro.resilience.circuitbreaker.memory import (
+    MemoryCircuitBreakerAdapter,
+)
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+
+_TWO_COMPONENTS = 2
+"""Both non-singleton components of one kind stay registered."""
 
 _BOOM = "boom"
 _RAISED = "raised"
@@ -1249,3 +1263,53 @@ async def test_fake_outside_context_raises() -> None:
     with pytest.raises(OutOfContextError):
         async with micro.fake():
             pass  # pragma: no cover
+
+
+async def test_typed_properties_resolve_every_first_party_kind() -> None:
+    """Each first-party kind has a property, so lookup keeps its type."""
+    health = HealthChecks()
+    metrics = Metrics()
+    outbox = Outbox(MemoryOutboxAdapter())
+    limiter = RateLimiterComponent(MemoryRateLimiterAdapter())
+    breaker = CircuitBreakerComponent(MemoryCircuitBreakerAdapter())
+    micro = Grelmicro(uses=[health, metrics, outbox, limiter, breaker])
+
+    assert micro.health is health
+    assert micro.metrics is metrics
+    assert micro.outbox is outbox
+    assert micro.ratelimiter is limiter
+    assert micro.circuitbreaker is breaker
+
+
+async def test_singleton_blocks_a_later_non_singleton_of_the_same_kind() -> (
+    None
+):
+    """Either side declaring the kind a singleton is enough to refuse.
+
+    Checking only the incoming component let a plain component register
+    after a singleton, which is the case the guard exists for.
+    """
+
+    class _Singleton(_RecordingComponent):
+        kind: ClassVar[str] = "global-state"
+        singleton: ClassVar[bool] = True
+
+    class _Plain(_RecordingComponent):
+        kind: ClassVar[str] = "global-state"
+
+    with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
+        Grelmicro(uses=[_Singleton(name="a"), _Plain(name="b")])
+
+    with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
+        Grelmicro(uses=[_Plain(name="a"), _Singleton(name="b")])
+
+
+async def test_two_non_singletons_of_one_kind_still_coexist() -> None:
+    """The guard must not catch ordinary multi-instance components."""
+
+    class _Plain(_RecordingComponent):
+        kind: ClassVar[str] = "multi"
+
+    micro = Grelmicro(uses=[_Plain(name="a"), _Plain(name="b")])
+
+    assert len(micro.components) == _TWO_COMPONENTS

@@ -246,7 +246,19 @@ class TrustedProxies:
             Doc("Most header bytes to parse before giving up."),
         ] = 8192,
     ) -> None:
-        """Compile the trusted set, rejecting anything unparsable."""
+        """Compile the trusted set, rejecting anything unparsable.
+
+        Raises:
+            ValueError: If a bound is outside its usable range. `max_entries`
+                and `max_header_bytes` cap work, so zero or less caps nothing.
+                `max_hops` counts proxies to walk past, so it may be zero but
+                never negative.
+        """
+        _validate_positive("max_entries", max_entries)
+        _validate_positive("max_header_bytes", max_header_bytes)
+        if max_hops is not None and max_hops < 0:
+            msg = f"max_hops must be >= 0, got {max_hops}."
+            raise ValueError(msg)
         self._networks = tuple(_compile_entry(entry) for entry in networks)
         self._max_hops = max_hops
         self._max_entries = max_entries
@@ -259,6 +271,21 @@ class TrustedProxies:
         """Whether `address` belongs to a trusted proxy."""
         canonical = _canonical(address)
         return any(canonical in network for network in self._networks)
+
+
+def _validate_positive(name: str, value: int) -> None:
+    """Reject a bound that caps nothing.
+
+    A cap of zero reads as "allow nothing" but slices as `entries[-0:]`,
+    which is the whole list, so it silently disables the truncation it was
+    meant to enforce.
+
+    Raises:
+        ValueError: If `value` is not greater than zero.
+    """
+    if value <= 0:
+        msg = f"{name} must be > 0, got {value}."
+        raise ValueError(msg)
 
 
 def _compile_entry(entry: str | IPAddress | IPNetwork) -> IPNetwork:

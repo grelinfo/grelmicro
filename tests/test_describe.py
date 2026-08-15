@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from typing import TYPE_CHECKING, Any, Self
 
@@ -18,6 +19,7 @@ from grelmicro._describe import (
 from grelmicro._discovery import load_integration
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.describe import AppReport as PublicAppReport
 from grelmicro.health import HealthChecks
 from grelmicro.providers._base import Provider
 from grelmicro.providers.memory import MemoryProvider
@@ -374,3 +376,27 @@ def test_main_does_not_duplicate_the_working_directory(
 
     assert code == 0
     assert sys.path == ["/somewhere", "", "/else"]
+
+
+def test_report_types_are_publicly_importable() -> None:
+    """A public method must not hand back a type only a private module names.
+
+    `micro.describe()` returns `AppReport`, so a caller has to be able to
+    annotate it without reaching into `grelmicro._describe`.
+    """
+    micro = Grelmicro(environment="development")
+
+    assert type(micro.describe()) is PublicAppReport
+
+
+def test_report_types_stay_out_of_the_import_path() -> None:
+    """Exposing the models must not make `import grelmicro` pay for them."""
+    code = "import sys, grelmicro; print('grelmicro._describe' in sys.modules)"
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == "False"

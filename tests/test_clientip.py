@@ -681,3 +681,30 @@ class TestConfigTypes:
         # Act / Assert
         with pytest.raises(TypeError, match="Pass a string"):
             TrustedProxies([entry])  # ty: ignore[invalid-argument-type]
+
+
+class TestBoundValidation:
+    """A bound that caps nothing is refused at construction."""
+
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_max_entries_must_be_positive(self, value: int) -> None:
+        """`max_entries=0` slices as `entries[-0:]`, which is the whole list.
+
+        The cap reads as "allow nothing" and silently allows everything, so
+        it is rejected rather than accepted and ignored.
+        """
+        with pytest.raises(ValueError, match=r"max_entries must be > 0"):
+            TrustedProxies(["10.0.0.0/8"], max_entries=value)
+
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_max_header_bytes_must_be_positive(self, value: int) -> None:
+        """Same reasoning as `max_entries`: a zero cap caps nothing."""
+        with pytest.raises(ValueError, match=r"max_header_bytes must be > 0"):
+            TrustedProxies(["10.0.0.0/8"], max_header_bytes=value)
+
+    def test_max_hops_may_be_zero_but_not_negative(self) -> None:
+        """`max_hops` counts proxies to walk past, so zero is meaningful."""
+        assert TrustedProxies(["10.0.0.0/8"], max_hops=0) is not None
+
+        with pytest.raises(ValueError, match=r"max_hops must be >= 0"):
+            TrustedProxies(["10.0.0.0/8"], max_hops=-1)

@@ -27,6 +27,8 @@ from grelmicro.trace.errors import (
 if TYPE_CHECKING:
     from types import TracebackType
 
+    from opentelemetry.sdk.trace import TracerProvider
+
     from grelmicro.trace._autoinstrument import InstrumentDirective
     from grelmicro.types import Environment
 
@@ -234,7 +236,7 @@ class Trace:
         return self._resolved
 
     @property
-    def provider(self) -> Any:  # noqa: ANN401
+    def provider(self) -> TracerProvider:
         """Return the installed OTel `TracerProvider`.
 
         Raises:

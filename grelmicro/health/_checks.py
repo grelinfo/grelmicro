@@ -206,15 +206,20 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         ] = False,
     ) -> None:
         """Initialize the health checks."""
+        resolved_env_prefix = env_prefix or default_env_prefix("HEALTH", name)
         config = resolve_config(
             HealthChecksConfig,
             explicit=None,
             kwargs={"timeout": timeout, "cache_ttl": cache_ttl},
-            env_prefix=env_prefix or default_env_prefix("HEALTH", name),
+            env_prefix=resolved_env_prefix,
             env_load=env_load,
             error_type=HealthSettingsValidationError,
         )
         self._setup(config, name=name, auto_health=auto_health)
+        # Registers for external reload under `GREL_HEALTH_`. Only this path
+        # tracks: `from_config` takes a pre-built config and stays static,
+        # matching every other reconfigurable component.
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(
