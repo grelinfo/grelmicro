@@ -5,7 +5,7 @@ original caller claimed. Reading it is the flaw behind a long line of
 spoofing advisories. This module resolves the address a trusted proxy
 actually vouched for, and never returns anything else.
 
-Read more in the [Client IP](../clientip.md) docs.
+Read more in the [Client IP](../security/clientip.md) docs.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ __all__ = [
     "resolve_client_address",
 ]
 
-logger = logging.getLogger("grelmicro.clientip")
+logger = logging.getLogger("grelmicro.security.clientip")
 
 _FORWARDED_FOR = b"x-forwarded-for"
 
@@ -419,7 +419,7 @@ def resolve_client_address(  # noqa: C901, PLR0911
     `TOO_MANY_ENTRIES`, since the entries beyond the cap were never read.
 
     An untrusted peer that sends a non-empty `X-Forwarded-For` is logged
-    on the `grelmicro.clientip` logger, once per peer and for at most
+    on the `grelmicro.security.clientip` logger, once per peer and for at most
     eight peers. A caller probing the header therefore cannot flood the
     log, nor take the report a misconfigured proxy of yours needs.
     Nothing is logged when the trusted set is empty, which is the
@@ -495,7 +495,7 @@ class ClientAddressMiddleware:
     each resolving its own and drifting apart.
 
     ```python
-    from grelmicro.clientip import ClientAddressMiddleware, TrustedProxies
+    from grelmicro.security import ClientAddressMiddleware, TrustedProxies
 
     app.add_middleware(
         ClientAddressMiddleware, trusted=TrustedProxies(["10.0.0.0/8"])

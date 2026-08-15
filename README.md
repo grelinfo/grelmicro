@@ -69,7 +69,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | [**Tracing**](https://grelmicro.grel.info/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
 | [**Metrics**](https://grelmicro.grel.info/metrics/) | OpenTelemetry metrics with a `@measure` decorator, a Prometheus `/metrics` router, and built-in instrumentation across components. |
 | [**Health**](https://grelmicro.grel.info/health/) | Health checks with concurrent runners and FastAPI liveness / readiness integration. |
-| [**Client IP**](https://grelmicro.grel.info/clientip/) | Resolve the real caller behind a reverse proxy, trusting only the `X-Forwarded-For` entries your own proxies appended. |
+| [**Client IP**](https://grelmicro.grel.info/security/clientip/) | Resolve the real caller behind a reverse proxy, trusting only the `X-Forwarded-For` entries your own proxies appended. |
 | [**Configuration**](https://grelmicro.grel.info/config/) | `ExternalConfig` reconfigures live components from a mounted ConfigMap, Secret, or `.env` / JSON / YAML / TOML file. |
 
 ## Installation
@@ -165,7 +165,7 @@ from pydantic import BaseModel
 
 from grelmicro import Grelmicro
 from grelmicro.cache import TTLCache, cached
-from grelmicro.clientip import TrustedProxies, resolve_client_address
+from grelmicro.security import TrustedProxies, resolve_client_address
 from grelmicro.health import HealthChecks
 from grelmicro.log import configure as configure_logging
 from grelmicro.providers.redis import RedisProvider

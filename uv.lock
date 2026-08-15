@@ -595,6 +595,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+fastapi = [
+    { name = "fastapi" },
+]
 faststream = [
     { name = "faststream" },
 ]
@@ -605,6 +608,9 @@ instrumentation = [
 ]
 kubernetes = [
     { name = "lightkube" },
+]
+litestar = [
+    { name = "litestar" },
 ]
 opentelemetry = [
     { name = "opentelemetry-api" },
@@ -626,6 +632,9 @@ sqlite = [
 standard = [
     { name = "orjson" },
     { name = "uvloop", marker = "platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'" },
+]
+starlette = [
+    { name = "starlette" },
 ]
 structlog = [
     { name = "orjson" },
@@ -699,8 +708,10 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'sqlite'", specifier = ">=0.20.0" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30.0" },
     { name = "fast-depends", specifier = ">=2.0.0" },
+    { name = "fastapi", marker = "extra == 'fastapi'", specifier = ">=0.115.5" },
     { name = "faststream", marker = "extra == 'faststream'", specifier = ">=0.7.0" },
     { name = "lightkube", marker = "extra == 'kubernetes'", specifier = ">=0.15.0" },
+    { name = "litestar", marker = "extra == 'litestar'", specifier = ">=2.24.0" },
     { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
@@ -716,11 +727,12 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.5.0" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0.0" },
+    { name = "starlette", marker = "extra == 'starlette'", specifier = ">=0.41.0" },
     { name = "structlog", marker = "extra == 'structlog'", specifier = ">=24.1.0" },
     { name = "uvloop", marker = "platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32' and extra == 'standard'", specifier = ">=0.21.0" },
     { name = "valkey", marker = "extra == 'valkey'", specifier = ">=6" },
 ]
-provides-extras = ["standard", "faststream", "postgres", "redis", "sqlite", "kubernetes", "opentelemetry", "instrumentation", "structlog", "valkey", "yaml"]
+provides-extras = ["standard", "fastapi", "starlette", "litestar", "faststream", "postgres", "redis", "sqlite", "kubernetes", "opentelemetry", "instrumentation", "structlog", "valkey", "yaml"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -313,6 +313,17 @@
       "()": "(app)"
     }
   },
+  "grelmicro.integrations.litestar": {
+    "GrelmicroMiddleware": {
+      "()": "(app, *, micro)"
+    },
+    "install": {
+      "()": "(app, micro, *, ambient=...)"
+    },
+    "is_bound": {
+      "()": "(app)"
+    }
+  },
   "grelmicro.log": {
     "DuplicateFilter": {
       "()": "(*, allowed_repetitions=..., cache_size=..., key_mode=..., ttl=..., key=..., env_name=..., env_prefix=..., env_load=...)",
@@ -688,6 +699,23 @@
     },
     "shield": {
       "()": "(fn)"
+    }
+  },
+  "grelmicro.security": {
+    "ClientAddress": {
+      "()": "(ip, port, reason, hops)"
+    },
+    "ClientAddressMiddleware": {
+      "()": "(app, *, trusted, overwrite_scope_client=...)"
+    },
+    "ClientAddressReason": {
+      "()": "(*values)"
+    },
+    "TrustedProxies": {
+      "()": "(networks, /, *, max_hops=..., max_entries=..., max_header_bytes=...)"
+    },
+    "resolve_client_address": {
+      "()": "(scope, trusted)"
     }
   },
   "grelmicro.task": {

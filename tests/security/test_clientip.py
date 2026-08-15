@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     Receive = Callable[[], Awaitable[Message]]
     Send = Callable[[Message], Awaitable[None]]
 
-from grelmicro.clientip import (
+from grelmicro.security import (
     ClientAddressMiddleware,
     ClientAddressReason,
     TrustedProxies,
@@ -581,7 +581,9 @@ class TestUntrustedPeerWarning:
         trusted = TrustedProxies(TRUSTED)
         request = scope(peer="9.9.9.9", forwarded="1.2.3.4")
         # Act
-        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+        with caplog.at_level(
+            logging.WARNING, logger="grelmicro.security.clientip"
+        ):
             result = resolve_client_address(request, trusted)
             resolve_client_address(request, trusted)
         # Assert
@@ -597,7 +599,9 @@ class TestUntrustedPeerWarning:
         # Arrange
         trusted = TrustedProxies(TRUSTED)
         # Act
-        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+        with caplog.at_level(
+            logging.WARNING, logger="grelmicro.security.clientip"
+        ):
             for last in range(1, 5):
                 probe = scope(peer=f"203.0.113.{last}", forwarded="1.2.3.4")
                 resolve_client_address(probe, trusted)
@@ -613,7 +617,9 @@ class TestUntrustedPeerWarning:
         # Arrange
         trusted = TrustedProxies(TRUSTED)
         # Act
-        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+        with caplog.at_level(
+            logging.WARNING, logger="grelmicro.security.clientip"
+        ):
             for last in range(1, 40):
                 probe = scope(peer=f"203.0.113.{last}", forwarded="1.2.3.4")
                 resolve_client_address(probe, trusted)
@@ -631,7 +637,9 @@ class TestUntrustedPeerWarning:
         # Arrange
         trusted = TrustedProxies(TRUSTED)
         # Act
-        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+        with caplog.at_level(
+            logging.WARNING, logger="grelmicro.security.clientip"
+        ):
             resolve_client_address(
                 scope(peer="9.9.9.9", forwarded=forwarded), trusted
             )
@@ -650,7 +658,9 @@ class TestUntrustedPeerWarning:
         # Arrange
         trusted = TrustedProxies([])
         # Act
-        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+        with caplog.at_level(
+            logging.WARNING, logger="grelmicro.security.clientip"
+        ):
             resolve_client_address(
                 scope(peer="9.9.9.9", forwarded="1.2.3.4"), trusted
             )
@@ -664,7 +674,9 @@ class TestUntrustedPeerWarning:
         # Arrange
         trusted = TrustedProxies(TRUSTED)
         # Act
-        with caplog.at_level(logging.WARNING, logger="grelmicro.clientip"):
+        with caplog.at_level(
+            logging.WARNING, logger="grelmicro.security.clientip"
+        ):
             resolve_client_address(
                 scope(peer=PEER, forwarded="1.2.3.4"), trusted
             )

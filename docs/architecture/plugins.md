@@ -44,7 +44,7 @@ Declare it the same way as a Provider:
 
 ```toml
 [project.entry-points."grelmicro.integrations"]
-litestar = "grelmicro_litestar:integration"
+sanic = "grelmicro_sanic:integration"
 ```
 
 ## Publish a third-party adapter

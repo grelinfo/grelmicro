@@ -31,6 +31,29 @@ that a client library used to accept.
 | `ImportError: cannot import name 'RateLimiterRegistry'` or `ImportError: cannot import name 'CircuitBreakerRegistry'` | 0.37 | [Rename to `Component`](#0-37-registry-renamed) |
 | `TypeError: health_router() got an unexpected keyword argument 'registry'` | 0.37 | [Pass `component=`](#0-37-registry-renamed) |
 | `RedisProviderConfigError` or `PostgresProviderConfigError` on a URL that used to connect | 0.37.1 | [Fix the URL](#0-37-1-url-validation) |
+| `ModuleNotFoundError: No module named 'grelmicro.clientip'` | 0.39 | [Import from `grelmicro.security`](#0-39-clientip-moved) |
+| A logging filter or level set on `grelmicro.clientip` stopped matching | 0.39 | [Rename the logger](#0-39-clientip-moved) |
+
+## 0.39
+
+### `grelmicro.clientip` moved to `grelmicro.security` {#0-39-clientip-moved}
+
+Client IP resolution is one of the checks a service runs on an inbound
+request, so it now lives with them. The names and their behaviour are
+unchanged. Rename the import:
+
+```python
+# Before
+from grelmicro.clientip import TrustedProxies, resolve_client_address
+
+# After
+from grelmicro.security import TrustedProxies, resolve_client_address
+```
+
+The logger moved with it, from `grelmicro.clientip` to
+`grelmicro.security.clientip`. A filter, a level, or a handler attached to the
+old name stops matching, and silently, because nothing logs on that name any
+more. Rename it wherever your logging config names it.
 
 ## 0.37.1
 
