@@ -52,19 +52,6 @@ class _Sample(BaseModel):
     retries: int = DEFAULT_RETRIES
 
 
-_KIND_DEFAULT = 42.0
-"""Value of `GREL_LOCK_LEASE_DURATION`, the kind-wide fallback."""
-
-_INSTANCE_OVERRIDE = 7.0
-"""Value of `GREL_LOCK_CART_LEASE_DURATION`, the instance variable."""
-
-_KEYWORD = 99.0
-"""Value passed as a keyword argument, which beats both."""
-
-_CONFIG_DEFAULT = 60.0
-"""`LockConfig.lease_duration` default, reached when no variable matches."""
-
-
 def test_kwargs_only_uses_kwargs_and_defaults() -> None:
     """Without env, kwargs fill provided fields and defaults fill the rest."""
     cfg = resolve_config(

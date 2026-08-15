@@ -38,7 +38,7 @@ resolves. Only the matching integration is imported, which keeps `install`
 from loading every framework grelmicro knows about.
 
 An integration module exposes `install(app, micro, *, ambient)` and
-`is_bound(app, micro)`.
+`is_bound(app)`.
 """
 
 

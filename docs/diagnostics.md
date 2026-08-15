@@ -17,8 +17,7 @@ The code trails the sentence, followed by the page that explains it:
 
 ```
 Coordination('default') is bound to MemoryLockAdapter, which provides scope
-'process', but requires scope 'cluster'. [backend-scope]
-https://grelmicro.grel.info/diag/backend-scope
+'process', but requires scope 'cluster'. [backend-scope] https://grelmicro.grel.info/diagnostics/#backend-scope
 ```
 
 The same code travels as a structured field on the log record, so a JSON log
