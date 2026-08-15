@@ -5,12 +5,13 @@ third-party package registers under these groups and resolves by short name,
 so grelmicro never has to depend on the vendor. First-party Providers and
 Adapters use the very same path: there is no special case.
 
-## The two groups
+## The three groups
 
 | Group | Maps | Example |
 |---|---|---|
 | `grelmicro.providers` | a vendor short name to a `Provider` class | `redis = "grelmicro.providers.redis:RedisProvider"` |
 | `grelmicro.{kind}.adapters` | a short name to an Adapter class for one component kind | `redis = "grelmicro.coordination.redis:RedisLockAdapter"` |
+| `grelmicro.integrations` | a web framework's top-level module name to its integration module | `fastapi = "grelmicro.integrations.fastapi"` |
 
 A Provider covers the vendor axis: one Provider per vendor. An Adapter covers
 the algorithm axis within a kind, so several adapters can share one Provider
@@ -18,6 +19,33 @@ the algorithm axis within a kind, so several adapters can share one Provider
 
 The component kinds are `coordination`, `coordination.election`, `coordination.schedule`, `cache`,
 `ratelimiter`, and `circuitbreaker`.
+
+## Publish a third-party integration
+
+`micro.install(app)` resolves the framework through `grelmicro.integrations`.
+The key is the framework's top-level module name, and the lookup walks the app
+class's MRO, so a `FastAPI` subclass declared in your own package still
+matches on `fastapi`. Only the matching module is imported, so `install` never
+loads a framework the app does not use.
+
+An integration module exposes two functions:
+
+```python
+def install(app, micro, *, ambient: bool = True) -> None: ...
+def is_bound(app) -> bool: ...
+```
+
+`install` opens `micro` alongside the framework's own lifecycle and adds the
+per-handler binding. `is_bound` reports whether that binding is present, which
+is what `micro.check_ambient_binding(app)` and `micro.describe(app)` read to
+catch a forgotten `install`.
+
+Declare it the same way as a Provider:
+
+```toml
+[project.entry-points."grelmicro.integrations"]
+litestar = "grelmicro_litestar:integration"
+```
 
 ## Publish a third-party adapter
 

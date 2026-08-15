@@ -15,7 +15,7 @@ from typing import Annotated, Self
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro._config import default_env_prefix, resolve_config
+from grelmicro._config import env_prefixes, resolve_config
 from grelmicro.log._shared import KeyMode
 from grelmicro.log.errors import LogSettingsValidationError
 
@@ -227,6 +227,9 @@ class DuplicateFilter(Filter):
         ] = None,
     ) -> None:
         """Initialize the filter."""
+        instance_prefix, kind_prefix = env_prefixes(
+            "DUPLICATEFILTER", env_name, env_prefix
+        )
         config = resolve_config(
             DuplicateFilterConfig,
             explicit=None,
@@ -236,8 +239,8 @@ class DuplicateFilter(Filter):
                 "key_mode": key_mode,
                 "ttl": ttl,
             },
-            env_prefix=env_prefix
-            or default_env_prefix("DUPLICATEFILTER", env_name),
+            env_prefix=instance_prefix,
+            kind_env_prefix=kind_prefix,
             env_load=env_load,
             error_type=LogSettingsValidationError,
         )

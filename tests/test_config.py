@@ -8,12 +8,26 @@ from pydantic import BaseModel, ConfigDict, PositiveFloat, ValidationError
 from grelmicro._config import (
     _build_settings_cls,
     default_env_prefix,
+    env_prefixes,
     env_segment,
     parse_csv_or_json,
     resolve_config,
     resolve_config_from_mapping,
 )
+from grelmicro.coordination import Lock
 from grelmicro.errors import SettingsValidationError
+
+_KIND_DEFAULT = 42.0
+"""Value of `GREL_LOCK_LEASE_DURATION`, the kind-wide fallback."""
+
+_INSTANCE_OVERRIDE = 7.0
+"""Value of `GREL_LOCK_CART_LEASE_DURATION`, the instance variable."""
+
+_KEYWORD = 99.0
+"""Value passed as a keyword argument, which beats both env layers."""
+
+_CONFIG_DEFAULT = 60.0
+"""`LockConfig.lease_duration` default, reached when no variable matches."""
 
 
 class _SampleSettingsError(SettingsValidationError):
@@ -356,3 +370,64 @@ def test_build_settings_cls_distinct_prefixes_get_distinct_classes() -> None:
     assert a is not b
     assert a.model_config["env_prefix"] == "GREL_SAMPLE_A_"
     assert b.model_config["env_prefix"] == "GREL_SAMPLE_B_"
+
+
+def test_named_instance_falls_back_to_the_kind_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One variable retunes every instance of a kind.
+
+    A service with twelve named locks sets `GREL_LOCK_LEASE_DURATION` once
+    instead of naming each instance.
+    """
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "42")
+
+    assert Lock("cart").config.lease_duration == _KIND_DEFAULT
+    assert Lock("checkout").config.lease_duration == _KIND_DEFAULT
+
+
+def test_instance_variable_beats_the_kind_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The more specific variable wins, and only for its own instance."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "42")
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", "7")
+
+    assert Lock("cart").config.lease_duration == _INSTANCE_OVERRIDE
+    assert Lock("checkout").config.lease_duration == _KIND_DEFAULT
+
+
+def test_keyword_beats_every_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keyword argument still wins over both env layers."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "42")
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", "7")
+
+    assert Lock("cart", lease_duration=99).config.lease_duration == _KEYWORD
+
+
+def test_custom_env_prefix_does_not_fall_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit `env_prefix=` means read exactly these variables.
+
+    The caller took control of the namespace, so grelmicro does not quietly
+    add its own kind-wide variables underneath it.
+    """
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "42")
+
+    lock = Lock("cart", env_prefix="MYAPP_LOCK_")
+
+    assert lock.config.lease_duration == _CONFIG_DEFAULT
+
+
+def test_env_prefixes_helper() -> None:
+    """The helper reports no fallback for the default instance or an override."""
+    assert env_prefixes("LOCK", "cart") == ("GREL_LOCK_CART_", "GREL_LOCK_")
+    assert env_prefixes("LOCK", "default") == ("GREL_LOCK_", None)
+    assert env_prefixes("LOCK", "cart", "MYAPP_") == ("MYAPP_", None)

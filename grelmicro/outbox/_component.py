@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 from typing_extensions import Doc
 
 from grelmicro._component import instantiate_if_class
-from grelmicro._config import default_env_prefix, resolve_config
+from grelmicro._config import env_prefixes, resolve_config
 from grelmicro.metrics import _emit
 from grelmicro.outbox._codec import encode_payload
 from grelmicro.outbox._config import OutboxConfig
@@ -148,6 +148,7 @@ class Outbox:
         """Initialize the component and resolve its config and backend."""
         self._name = name
         self._requires: BackendScope = requires or self.default_requires
+        instance_prefix, kind_prefix = env_prefixes("OUTBOX", name)
         self._config = resolve_config(
             OutboxConfig,
             explicit=config,
@@ -167,7 +168,8 @@ class Outbox:
                 "auto_migrate": auto_migrate,
                 "notify": notify,
             },
-            env_prefix=default_env_prefix("OUTBOX", name),
+            env_prefix=instance_prefix,
+            kind_env_prefix=kind_prefix,
             env_load=env_load,
             error_type=OutboxSettingsValidationError,
         )

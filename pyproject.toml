@@ -71,6 +71,11 @@ Documentation = "https://grelmicro.grel.info"
 Repository = "https://github.com/grelinfo/grelmicro.git"
 Issues = "https://github.com/grelinfo/grelmicro/issues"
 
+[project.entry-points."grelmicro.integrations"]
+fastapi = "grelmicro.integrations.fastapi"
+starlette = "grelmicro.integrations.fastapi"
+faststream = "grelmicro.integrations.faststream"
+
 [project.entry-points."grelmicro.providers"]
 redis = "grelmicro.providers.redis:RedisProvider"
 valkey = "grelmicro.providers.valkey:ValkeyProvider"

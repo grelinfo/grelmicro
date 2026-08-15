@@ -14,7 +14,12 @@ import pytest
 if TYPE_CHECKING:
     from types import TracebackType
 
-from grelmicro import AmbiguousProviderError, Grelmicro
+from grelmicro import (
+    AmbiguousBackendError,
+    AmbiguousProviderError,
+    Grelmicro,
+)
+from grelmicro._app import _maybe_wrap_first_party_backend
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination
@@ -414,3 +419,63 @@ def test_use_none_raises_pointing_at_the_alternative() -> None:
 
     with pytest.raises(TypeError, match=r"use\(None\) registers nothing"):
         micro.use(None)  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize(
+    ("adapter", "expected_kind"),
+    [
+        (MemoryCacheAdapter, "cache"),
+        (MemoryCircuitBreakerAdapter, "circuitbreaker"),
+        (MemoryRateLimiterAdapter, "ratelimiter"),
+        (MemoryLockAdapter, "coordination"),
+        (MemoryReadWriteLockAdapter, "coordination"),
+        (MemoryLeaderElectionAdapter, "coordination"),
+        (MemoryScheduleAdapter, "coordination"),
+    ],
+)
+def test_bare_backend_resolves_to_one_kind(
+    adapter: type,
+    expected_kind: str,
+) -> None:
+    """Every first-party backend wraps into exactly the component it belongs to.
+
+    `isinstance` against a `runtime_checkable` Protocol compares member names
+    only, so a backend can satisfy more than one. `CircuitBreakerBackend`
+    declares everything `RateLimiterBackend` does plus `_loop` and
+    `is_shared`, so a breaker backend matches both. Pinning the resolved kind
+    here keeps that from regressing into a silent misclassification.
+    """
+    component = _maybe_wrap_first_party_backend(adapter())
+
+    assert component is not None
+    assert component.kind == expected_kind
+
+
+def test_backend_matching_unrelated_protocols_raises() -> None:
+    """A backend naming two unrelated kinds is refused rather than guessed at."""
+
+    class LockAndElection:
+        """Satisfies `LockBackend` and `LeaderElectionBackend`, neither subsuming."""
+
+        _loop = None
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def acquire(self, *args: object, **kwargs: object) -> None: ...
+        async def locked(self, *args: object, **kwargs: object) -> None: ...
+        async def owned(self, *args: object, **kwargs: object) -> None: ...
+        async def release(self, *args: object, **kwargs: object) -> None: ...
+        async def get(self, *args: object, **kwargs: object) -> None: ...
+        async def acquire_or_renew(
+            self, *args: object, **kwargs: object
+        ) -> None: ...
+
+    with pytest.raises(
+        AmbiguousBackendError,
+        match=r"matches more than one backend protocol",
+    ):
+        _maybe_wrap_first_party_backend(LockAndElection())

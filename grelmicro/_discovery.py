@@ -17,7 +17,7 @@ when `load_provider` or `load_adapter` resolves a name, via `ep.load()`.
 from __future__ import annotations
 
 from importlib.metadata import entry_points
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from grelmicro.errors import (
     AdapterNotRegisteredError,
@@ -29,10 +29,64 @@ if TYPE_CHECKING:
 
 PROVIDER_GROUP = "grelmicro.providers"
 
+INTEGRATION_GROUP = "grelmicro.integrations"
+"""Maps a web framework's top-level module name to its integration module.
+
+`micro.install(app)` walks the app class's MRO and looks up each class's root
+module here, so a `FastAPI` subclass defined in the user's own package still
+resolves. Only the matching integration is imported, which keeps `install`
+from loading every framework grelmicro knows about.
+
+An integration module exposes `install(app, micro, *, ambient)` and
+`is_bound(app)`.
+"""
+
 
 def adapter_group(kind: str) -> str:
     """Return the entry-point group name for a component kind."""
     return f"grelmicro.{kind}.adapters"
+
+
+class Integration(Protocol):
+    """What an integration module exposes to `Grelmicro`.
+
+    A third-party package ships one of these and registers it under
+    `INTEGRATION_GROUP`, keyed by the framework's top-level module name.
+    """
+
+    def install(
+        self,
+        app: Any,  # noqa: ANN401
+        micro: Any,  # noqa: ANN401
+        *,
+        ambient: bool = True,
+    ) -> None:
+        """Wire the framework lifecycle and the per-handler binding."""
+        ...
+
+    def is_bound(self, app: Any) -> bool:  # noqa: ANN401
+        """Return whether `install` added the binding middleware to `app`."""
+        ...
+
+
+def load_integration(app: object) -> Integration | None:
+    """Return the integration module for `app`, or `None` when none matches.
+
+    Walks the app class's MRO so a subclass resolves through the framework it
+    inherits from. The first root module registered under
+    `INTEGRATION_GROUP` wins, and only that module is imported.
+    """
+    eps = {ep.name: ep for ep in entry_points(group=INTEGRATION_GROUP)}
+    for klass in type(app).__mro__:
+        ep = eps.get(klass.__module__.partition(".")[0])
+        if ep is not None:
+            return cast("Integration", ep.load())
+    return None
+
+
+def integration_names() -> list[str]:
+    """Return the framework names an integration is registered for."""
+    return sorted(ep.name for ep in entry_points(group=INTEGRATION_GROUP))
 
 
 def load_provider(short_name: str) -> type[Provider]:

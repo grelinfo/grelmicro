@@ -16,7 +16,7 @@ from grelmicro._app import Grelmicro, _active_bulkhead
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
     Reconfigurable,
-    default_env_prefix,
+    env_prefixes,
     resolve_config,
 )
 from grelmicro._environment import (
@@ -172,7 +172,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
     ) -> None:
         """Initialize the bulkhead."""
         self._name = name
-        env_prefix = default_env_prefix("BULKHEAD", name)
+        env_prefix, kind_prefix = env_prefixes("BULKHEAD", name)
         resolved = resolve_config(
             BulkheadConfig,
             explicit=config,
@@ -182,6 +182,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 "max_workers": max_workers,
             },
             env_prefix=env_prefix,
+            kind_env_prefix=kind_prefix,
             env_load=env_load,
         )
         self._config = resolved

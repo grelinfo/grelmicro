@@ -19,6 +19,7 @@ from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
     env_load_default,
+    env_prefixes,
 )
 from grelmicro.clock import monotonic, sleep
 from grelmicro.metrics import _emit
@@ -86,18 +87,26 @@ def _resolve_config_from_env(
     """Build a `_BaseShieldConfig` reading defaults from environment variables."""
     profile = _load_profile_from_env(name)
     cls = _PROFILE_BY_NAME[profile]
-    env_prefix = default_env_prefix("SHIELD", name)
+    env_prefix, kind_prefix = env_prefixes("SHIELD", name)
+
+    def _env(field: str) -> str | None:
+        """Read the instance variable, falling back to the kind-wide one."""
+        value = os.environ.get(f"{env_prefix}{field}")
+        if value is None and kind_prefix:
+            value = os.environ.get(f"{kind_prefix}{field}")
+        return value
+
     kwargs: dict[str, Any] = {"kind": profile}
     if timeout_errors is not None:
         kwargs["timeout_errors"] = timeout_errors
     else:
-        env_value = os.environ.get(f"{env_prefix}TIMEOUT_ERRORS")
+        env_value = _env("TIMEOUT_ERRORS")
         if env_value is not None:
             kwargs["timeout_errors"] = env_value
     if max_rate is not None:
         kwargs["max_rate"] = max_rate
     else:
-        env_value = os.environ.get(f"{env_prefix}MAX_RATE")
+        env_value = _env("MAX_RATE")
         if env_value is not None and env_value.strip() != "":
             kwargs["max_rate"] = float(env_value)
     if cache is not None:

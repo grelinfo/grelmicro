@@ -19,7 +19,7 @@ from grelmicro._app import Grelmicro
 from grelmicro._async import raise_backend_not_open
 from grelmicro._config import (
     Reconfigurable,
-    default_env_prefix,
+    env_prefixes,
     resolve_config,
 )
 from grelmicro.coordination._base import (
@@ -204,7 +204,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         ] = None,
     ) -> None:
         """Initialize the task lock."""
-        resolved_env_prefix = env_prefix or default_env_prefix("TASKLOCK", name)
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "TASKLOCK", name, env_prefix
+        )
         config = resolve_config(
             TaskLockConfig,
             explicit=None,
@@ -214,6 +216,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 "lease_duration": lease_duration,
             },
             env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
             env_load=env_load,
         )
         self._setup(name, config, backend)

@@ -246,7 +246,7 @@ def test_install_raises_at_startup_when_the_placement_did_not_hold() -> None:
 def test_install_rejects_unknown_app() -> None:
     """`micro.install` raises TypeError for an unsupported object."""
     micro = Grelmicro()
-    with pytest.raises(TypeError, match="Starlette, FastAPI, and FastStream"):
+    with pytest.raises(TypeError, match=r"Registered integrations: .*fastapi"):
         micro.install(object())
 
 
@@ -321,5 +321,5 @@ def test_check_ambient_binding_true_without_ambient_components() -> None:
 def test_check_ambient_binding_rejects_unknown_app() -> None:
     """`check_ambient_binding` raises for an unsupported app with ambient components."""
     micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
-    with pytest.raises(TypeError, match="Starlette, FastAPI, and FastStream"):
+    with pytest.raises(TypeError, match=r"Registered integrations: .*fastapi"):
         micro.check_ambient_binding(object())

@@ -126,35 +126,52 @@ export GREL_LOCK_CART_LEASE_DURATION=120
 export GREL_LOCK_CART_RETRY_INTERVAL=0.2
 ```
 
-The instance name becomes the namespace. Names with hyphens, dots, slashes, or
-colons normalise into uppercase segments (`payments-eu` becomes `PAYMENTS_EU`,
-`cart.v2` becomes `CART_V2`).
+Names with hyphens, dots, slashes, or colons normalise into uppercase segments
+(`payments-eu` becomes `PAYMENTS_EU`, `cart.v2` becomes `CART_V2`).
 
-The default instance drops the name segment, so a `Lock("default")` reads the
-bare `GREL_LOCK_LEASE_DURATION`. Because the default instance owns the bare
-`GREL_{PATTERN}_` namespace, name your other instances to avoid clashing with a
-field name (a `Lock("lease")` would share `GREL_LOCK_LEASE_DURATION` with the
-default instance). This is rare in practice.
+The instance name becomes the namespace, and the bare `GREL_{PATTERN}_` prefix
+is the default for the whole pattern. Every instance falls back to it, so one
+variable retunes them all:
 
-A value passed in code wins over the environment. So a hard-coded
-`Lock("cart", lease_duration=60)` ignores `GREL_LOCK_CART_LEASE_DURATION`. Leave
-a field out of the constructor to let the deployment set it.
+```bash
+export GREL_LOCK_LEASE_DURATION=60   # every Lock in the service
+```
+
+Name an instance to carve out an exception:
+
+```bash
+export GREL_LOCK_LEASE_DURATION=60          # every Lock
+export GREL_LOCK_CHECKOUT_LEASE_DURATION=300   # except this one
+```
+
+That is the whole rule. A twelve-lock service changes one variable, not twelve.
+
+Because the bare prefix is shared, name your instances so their segment cannot
+start a field name of the same pattern. A `Lock("lease")` reads
+`GREL_LOCK_LEASE_DURATION` for a field named `duration`, which is the key every
+lock already reads for `lease_duration`. This is rare, and renaming the
+instance is the fix.
+
+A value passed in code wins over both variables. So a hard-coded
+`Lock("cart", lease_duration=60)` ignores `GREL_LOCK_CART_LEASE_DURATION` and
+`GREL_LOCK_LEASE_DURATION`. Leave a field out of the constructor to let the
+deployment set it.
 
 ### Prefix reference
 
-| Pattern | Prefix |
-|---|---|
-| `Lock("default")` | `GREL_LOCK_` |
-| `Lock("cart")` | `GREL_LOCK_CART_` |
-| `TaskLock("etl")` | `GREL_TASKLOCK_ETL_` |
-| `LeaderElection("svc")` | `GREL_LEADERELECTION_SVC_` |
-| `RateLimitFilter()` | `GREL_RATELIMITFILTER_` |
-| `RateLimitFilter(env_name="audit")` | `GREL_RATELIMITFILTER_AUDIT_` |
-| `DuplicateFilter()` | `GREL_DUPLICATEFILTER_` |
-| `DuplicateFilter(env_name="audit")` | `GREL_DUPLICATEFILTER_AUDIT_` |
-| `HealthChecks()` | `GREL_HEALTH_` |
-| `log.configure()` | `GREL_LOG_` |
-| `Tasks()` | `GREL_TASK_` |
+| Pattern | Prefix | Falls back to |
+|---|---|---|
+| `Lock("default")` | `GREL_LOCK_` | it is the pattern default |
+| `Lock("cart")` | `GREL_LOCK_CART_` | `GREL_LOCK_` |
+| `TaskLock("etl")` | `GREL_TASKLOCK_ETL_` | `GREL_TASKLOCK_` |
+| `LeaderElection("svc")` | `GREL_LEADERELECTION_SVC_` | `GREL_LEADERELECTION_` |
+| `RateLimitFilter()` | `GREL_RATELIMITFILTER_` | it is the pattern default |
+| `RateLimitFilter(env_name="audit")` | `GREL_RATELIMITFILTER_AUDIT_` | `GREL_RATELIMITFILTER_` |
+| `DuplicateFilter()` | `GREL_DUPLICATEFILTER_` | it is the pattern default |
+| `DuplicateFilter(env_name="audit")` | `GREL_DUPLICATEFILTER_AUDIT_` | `GREL_DUPLICATEFILTER_` |
+| `HealthChecks()` | `GREL_HEALTH_` | it is the pattern default |
+| `log.configure()` | `GREL_LOG_` | it is the pattern default |
+| `Tasks()` | `GREL_TASK_` | it is the pattern default |
 
 Each pattern page lists its own fields and the exact variable names.
 

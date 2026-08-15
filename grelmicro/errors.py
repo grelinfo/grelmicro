@@ -1,5 +1,7 @@
 """Errors."""
 
+from typing import ClassVar
+
 from pydantic import ValidationError
 
 
@@ -16,7 +18,52 @@ class GrelmicroConfigWarning(UserWarning):
     ```toml
     filterwarnings = ["error", "ignore::grelmicro.GrelmicroConfigWarning"]
     ```
+
+    Each diagnostic also has its own subclass, so one can be silenced without
+    silencing the rest. The `code` attribute is the diagnostic's stable
+    identifier, matching the section at `/diagnostics/#{code}`.
     """
+
+    code: ClassVar[str] = ""
+    """Stable diagnostic code, empty on the base category."""
+
+
+class EnvLoadOffWarning(GrelmicroConfigWarning):
+    """A `GREL_*` variable is set but `GREL_ENV_LOAD` is off."""
+
+    code: ClassVar[str] = "env-load-off"
+
+
+class UnknownEnvironmentWarning(GrelmicroConfigWarning):
+    """`GREL_ENVIRONMENT` names no tier grelmicro knows."""
+
+    code: ClassVar[str] = "unknown-environment"
+
+
+class BackendScopeWarning(GrelmicroConfigWarning):
+    """A bound backend reaches less far than its component requires.
+
+    The same problem raises `BackendScopeError` in `staging` and
+    `production`. Both carry the `backend-scope` code.
+    """
+
+    code: ClassVar[str] = "backend-scope"
+
+
+class AmbientBindingWarning(GrelmicroConfigWarning):
+    """Ambient components are registered but the binding middleware is missing.
+
+    The same problem raises `AmbientBindingError` under
+    `Grelmicro(strict=True)`. Both carry the `ambient-binding` code.
+    """
+
+    code: ClassVar[str] = "ambient-binding"
+
+
+class SentinelPasswordWarning(GrelmicroConfigWarning):
+    """A Sentinel password is set but the URL scheme cannot apply it."""
+
+    code: ClassVar[str] = "sentinel-password"
 
 
 class BackendScopeError(GrelmicroError, RuntimeError):
@@ -30,7 +77,12 @@ class BackendScopeError(GrelmicroError, RuntimeError):
 
     `micro.check_backends()` raises the same error from a test, so the wiring
     is answered for before a pod answers for it.
+
+    Carries the `backend-scope` code, the same one `BackendScopeWarning`
+    carries when no tier is declared.
     """
+
+    code: ClassVar[str] = "backend-scope"
 
 
 class AdmissionError(GrelmicroError):

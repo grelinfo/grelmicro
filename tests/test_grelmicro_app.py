@@ -26,9 +26,14 @@ from grelmicro import (
     MultipleActiveAppsError,
     NoActiveAppError,
 )
-from grelmicro.coordination import Coordination
+from grelmicro._component import _needs_constructor_arguments
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.coordination import Coordination, Lock
 from grelmicro.errors import OutOfContextError
+from grelmicro.health import HealthChecks
 from grelmicro.providers import Provider
+from grelmicro.providers.redis import RedisProvider
 
 _BOOM = "boom"
 _RAISED = "raised"
@@ -1143,6 +1148,23 @@ async def test_use_bare_class_needing_args_raises_clear_error() -> None:
         Grelmicro(uses=[_NeedsArgs])  # ty: ignore[invalid-argument-type]
 
 
+async def test_use_bare_class_propagates_constructor_type_error() -> None:
+    """A `TypeError` from inside a zero-arg `__init__` keeps its own message.
+
+    The arity check reads the signature before calling, so a constructor that
+    raises `TypeError` for its own reasons is not misreported as a class that
+    needs arguments. The suggested fix for that error does not work here.
+    """
+
+    class _Boom:
+        def __init__(self) -> None:
+            msg = "bad config value"
+            raise TypeError(msg)
+
+    with pytest.raises(TypeError, match=r"^bad config value$"):
+        Grelmicro(uses=[_Boom])  # ty: ignore[invalid-argument-type]
+
+
 async def test_use_bare_plain_context_manager_class() -> None:
     """A zero-arg plain async context manager class is instantiated and lifecycled."""
     entered: list[str] = []
@@ -1158,3 +1180,72 @@ async def test_use_bare_plain_context_manager_class() -> None:
     async with Grelmicro(uses=[_PlainCM]):
         assert entered == ["in"]
     assert entered == ["in", "out"]
+
+
+async def test_get_by_component_class() -> None:
+    """`micro.get(Cls)` resolves the same component the kind string does."""
+    cache = Cache(MemoryCacheAdapter())
+    micro = Grelmicro(uses=[cache])
+
+    assert micro.get(Cache) is cache
+    assert micro.get(Cache, "default") is cache
+    assert micro.get("cache") is cache
+
+
+async def test_instantiate_if_class_handles_unreadable_signature() -> None:
+    """A type whose signature cannot be read falls back to calling it.
+
+    Some C-implemented types raise from `inspect.signature`. Those are
+    constructed and left to fail on their own terms rather than being
+    reported as needing arguments.
+    """
+    assert _needs_constructor_arguments(type(None)) is False
+
+
+async def test_fake_swaps_backed_components_onto_memory() -> None:
+    """`micro.fake()` replaces every backed component with an in-process one."""
+    micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0")])
+
+    async with micro:
+        assert type(micro.get(Cache).backend).__name__ == "RedisCacheAdapter"
+        async with micro.fake():
+            assert (
+                type(micro.get(Cache).backend).__name__ == "MemoryCacheAdapter"
+            )
+        assert type(micro.get(Cache).backend).__name__ == "RedisCacheAdapter"
+
+
+async def test_fake_keeps_component_names() -> None:
+    """A named component is faked in its own slot, not the default one."""
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter(), name="sessions")])
+
+    async with micro, micro.fake():
+        assert micro.get(Cache, "sessions").name == "sessions"
+
+
+async def test_fake_leaves_unbacked_components_alone() -> None:
+    """`Log`, `Trace`, `Metrics`, and `HealthChecks` have no backend to fake."""
+    health = HealthChecks()
+    micro = Grelmicro(uses=[health, Cache(MemoryCacheAdapter())])
+
+    async with micro, micro.fake():
+        assert micro.get(HealthChecks) is health
+
+
+async def test_fake_supports_a_real_lock() -> None:
+    """The faked components are real primitives, not stubs."""
+    micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0")])
+
+    async with micro, micro.fake():
+        lock = Lock("cart")
+        async with lock:
+            assert await lock.locked()
+
+
+async def test_fake_outside_context_raises() -> None:
+    """`fake()` scopes to an open app, like `override()` does."""
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+
+    with pytest.raises(OutOfContextError):
+        async with micro.fake():
+            pass  # pragma: no cover

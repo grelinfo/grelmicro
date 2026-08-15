@@ -5,8 +5,11 @@
     },
     "AdmissionError": null,
     "AmbientBindingError": null,
+    "AmbientBindingWarning": null,
+    "AmbiguousBackendError": null,
     "AmbiguousProviderError": null,
     "BackendScopeError": null,
+    "BackendScopeWarning": null,
     "Component": {
       "()": "(*args, **kwargs)"
     },
@@ -15,6 +18,7 @@
     "DependencyNotFoundError": {
       "()": "(*, module)"
     },
+    "EnvLoadOffWarning": null,
     "ExternalConfig": {
       "()": "(config=..., *, secrets=..., reload_interval=...)"
     },
@@ -35,9 +39,11 @@
     "ProviderNotRegisteredError": {
       "()": "(short_name, available)"
     },
+    "SentinelPasswordWarning": null,
     "SettingsValidationError": {
       "()": "(error)"
     },
+    "UnknownEnvironmentWarning": null,
     "Usable": null
   },
   "grelmicro.cache": {
@@ -271,11 +277,17 @@
     },
     "install": {
       "()": "(app, micro, *, ambient=...)"
+    },
+    "is_bound": {
+      "()": "(app)"
     }
   },
   "grelmicro.integrations.faststream": {
     "install": {
       "()": "(app, micro, *, ambient=...)"
+    },
+    "is_bound": {
+      "()": "(app)"
     }
   },
   "grelmicro.log": {
