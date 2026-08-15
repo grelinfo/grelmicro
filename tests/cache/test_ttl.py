@@ -86,6 +86,17 @@ class TestInit:
         with pytest.raises(ValidationError, match="ttl"):
             TTLCache(maxsize=10, ttl=-1, backend=backend)
 
+    def test_from_config(self, backend: MemoryCacheAdapter) -> None:
+        """Test that `from_config` builds a cache from a pre-built config."""
+        # Arrange
+        config = TTLCacheConfig(maxsize=50, ttl=30)
+
+        # Act
+        cache = TTLCache.from_config(config, backend=backend)
+
+        # Assert
+        assert cache.config == config
+
     def test_config_property(self, backend: MemoryCacheAdapter) -> None:
         """Test that `config` exposes the frozen `TTLCacheConfig`."""
         # Arrange / Act

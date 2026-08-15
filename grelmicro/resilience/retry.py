@@ -584,7 +584,7 @@ class Retry(Reconfigurable[RetryConfig]):
                 "Outcome filter that engages the retry. Pass a "
                 "[`Match`][grelmicro.resilience.Match] or one of the "
                 "shorthand forms (exception class, tuple, callable). "
-                "Required unless ``config=`` is given."
+                "Required unless the value comes from env."
             ),
         ] = None,
         attempts: Annotated[
@@ -599,13 +599,6 @@ class Retry(Reconfigurable[RetryConfig]):
                 "whichever comes first. Default no time limit."
             ),
         ] = None,
-        config: Annotated[
-            RetryConfig | None,
-            Doc(
-                "A pre-built [`RetryConfig`][grelmicro.resilience.RetryConfig]. "
-                "Mutually exclusive with the per-field kwargs."
-            ),
-        ] = None,
         env_load: Annotated[
             bool | None,
             Doc(
@@ -617,7 +610,6 @@ class Retry(Reconfigurable[RetryConfig]):
         ] = None,
     ) -> None:
         """Initialize the retry policy."""
-        self._name = name
         env_prefix, kind_prefix = env_prefixes("RETRY", name)
         kwargs: dict[str, object | None] = {
             "attempts": attempts,
@@ -625,19 +617,25 @@ class Retry(Reconfigurable[RetryConfig]):
             "when": when,
             "backoff": backoff,
         }
-        resolved = resolve_config(
-            RetryConfig,
-            explicit=config,
-            kwargs=kwargs,
-            env_prefix=env_prefix,
-            kind_env_prefix=kind_prefix,
-            env_load=env_load,
+        self._setup(
+            name,
+            resolve_config(
+                RetryConfig,
+                explicit=None,
+                kwargs=kwargs,
+                env_prefix=env_prefix,
+                kind_env_prefix=kind_prefix,
+                env_load=env_load,
+            ),
         )
-        self._config = resolved
-        self._state = _State(config=resolved, matcher=resolved.when)
+        self._track_reconfigure(env_prefix)
+
+    def _setup(self, name: str, config: RetryConfig) -> None:
+        """Wire the validated config and runtime state onto the instance."""
+        self._name = name
+        self._config = config
+        self._state = _State(config=config, matcher=config.when)
         self._reconfigure_lock = asyncio.Lock()
-        if config is None:
-            self._track_reconfigure(env_prefix)
 
     @property
     def name(self) -> str:
@@ -664,8 +662,14 @@ class Retry(Reconfigurable[RetryConfig]):
             ),
         ],
     ) -> Self:
-        """Construct a `Retry` from a name and a pre-built `RetryConfig`."""
-        return cls(name, config=config)
+        """Construct a `Retry` from a name and a pre-built `RetryConfig`.
+
+        The config is taken as-is: no environment variable is read, and
+        the instance is not registered for live reconfiguration.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(name, config)  # noqa: SLF001
+        return instance
 
     @classmethod
     def exponential(

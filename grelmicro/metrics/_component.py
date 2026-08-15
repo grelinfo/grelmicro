@@ -90,15 +90,6 @@ class Metrics:
                 """
             ),
         ] = "default",
-        config: Annotated[
-            MetricsConfig | None,
-            Doc(
-                """
-                Pre-built configuration. When provided, individual kwargs
-                must be `None`. The env path is bypassed.
-                """
-            ),
-        ] = None,
         service_name: Annotated[
             str | None, Doc("Service name resource attribute.")
         ] = None,
@@ -153,20 +144,36 @@ class Metrics:
         if basic_auth is not None and len(basic_auth) != 2:  # noqa: PLR2004
             msg = "basic_auth must be a (username, password) tuple."
             raise TypeError(msg)
+        self._setup(
+            name=name,
+            config=None,
+            kwargs={
+                "service_name": service_name,
+                "exporter": exporter,
+                "endpoint": endpoint,
+                "headers": headers,
+                "basic_auth_username": basic_auth[0] if basic_auth else None,
+                "basic_auth_password": basic_auth[1] if basic_auth else None,
+                "export_interval": export_interval,
+                "export_timeout": export_timeout,
+                "resource_attributes": resource_attributes,
+                "shutdown_timeout": shutdown_timeout,
+            },
+            env_load=env_load,
+        )
+
+    def _setup(
+        self,
+        *,
+        name: str,
+        config: MetricsConfig | None,
+        kwargs: dict[str, Any],
+        env_load: bool | None,
+    ) -> None:
+        """Wire the deferred configuration onto the instance."""
         self._name = name
         self._explicit_config = config
-        self._kwargs = {
-            "service_name": service_name,
-            "exporter": exporter,
-            "endpoint": endpoint,
-            "headers": headers,
-            "basic_auth_username": basic_auth[0] if basic_auth else None,
-            "basic_auth_password": basic_auth[1] if basic_auth else None,
-            "export_interval": export_interval,
-            "export_timeout": export_timeout,
-            "resource_attributes": resource_attributes,
-            "shutdown_timeout": shutdown_timeout,
-        }
+        self._kwargs = kwargs
         self._env_load = env_load
         self._resolved: MetricsConfig | None = None
         self._entered: bool = False
@@ -198,7 +205,11 @@ class Metrics:
         ] = "default",
     ) -> Self:
         """Construct a `Metrics` from a pre-built `MetricsConfig`."""
-        return cls(name=name, config=config)
+        instance = cls.__new__(cls)
+        instance._setup(  # noqa: SLF001
+            name=name, config=config, kwargs={}, env_load=None
+        )
+        return instance
 
     @property
     def name(self) -> str:

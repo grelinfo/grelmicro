@@ -63,16 +63,6 @@ def test_constructs_from_config() -> None:
     assert policy.config is cfg
 
 
-def test_rejects_seconds_and_config_together() -> None:
-    """Mixing kwargs with a pre-built config is rejected."""
-    with pytest.raises(TypeError):
-        Timeout(
-            "db",
-            seconds=1.0,
-            config=TimeoutConfig(seconds=2.0),
-        )
-
-
 def test_requires_seconds_when_env_off() -> None:
     """No kwargs and no env path means construction fails."""
     with pytest.raises(ValidationError):

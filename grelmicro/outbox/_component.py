@@ -90,10 +90,6 @@ class Outbox:
             ),
         ] = None,
         name: Annotated[str, Doc("Registration name.")] = "default",
-        config: Annotated[
-            OutboxConfig | None,
-            Doc("A pre-built `OutboxConfig`. Mutually exclusive with kwargs."),
-        ] = None,
         relay: Annotated[
             bool | None, Doc("Run the relay on this replica.")
         ] = None,
@@ -146,33 +142,51 @@ class Outbox:
         ] = 30.0,
     ) -> None:
         """Initialize the component and resolve its config and backend."""
+        instance_prefix, kind_prefix = env_prefixes("OUTBOX", name)
+        self._setup(
+            source,
+            resolve_config(
+                OutboxConfig,
+                explicit=None,
+                kwargs={
+                    "relay": relay,
+                    "table": table,
+                    "poll_interval": poll_interval,
+                    "batch_size": batch_size,
+                    "lease_duration": lease_duration,
+                    "max_attempts": max_attempts,
+                    "retry_base": retry_base,
+                    "retry_max": retry_max,
+                    "retry_jitter": retry_jitter,
+                    "concurrency": concurrency,
+                    "dead_letter": dead_letter,
+                    "keep_delivered": keep_delivered,
+                    "auto_migrate": auto_migrate,
+                    "notify": notify,
+                },
+                env_prefix=instance_prefix,
+                kind_env_prefix=kind_prefix,
+                env_load=env_load,
+                error_type=OutboxSettingsValidationError,
+            ),
+            requires=requires,
+            name=name,
+            shutdown_timeout=shutdown_timeout,
+        )
+
+    def _setup(
+        self,
+        source: Provider | OutboxBackend | type[Provider | OutboxBackend],
+        config: OutboxConfig,
+        *,
+        requires: BackendScope | None,
+        name: str,
+        shutdown_timeout: float,
+    ) -> None:
+        """Wire the resolved config, backend, and registry onto the instance."""
         self._name = name
         self._requires: BackendScope = requires or self.default_requires
-        instance_prefix, kind_prefix = env_prefixes("OUTBOX", name)
-        self._config = resolve_config(
-            OutboxConfig,
-            explicit=config,
-            kwargs={
-                "relay": relay,
-                "table": table,
-                "poll_interval": poll_interval,
-                "batch_size": batch_size,
-                "lease_duration": lease_duration,
-                "max_attempts": max_attempts,
-                "retry_base": retry_base,
-                "retry_max": retry_max,
-                "retry_jitter": retry_jitter,
-                "concurrency": concurrency,
-                "dead_letter": dead_letter,
-                "keep_delivered": keep_delivered,
-                "auto_migrate": auto_migrate,
-                "notify": notify,
-            },
-            env_prefix=instance_prefix,
-            kind_env_prefix=kind_prefix,
-            env_load=env_load,
-            error_type=OutboxSettingsValidationError,
-        )
+        self._config = config
         resolved = cast(
             "Provider | OutboxBackend",
             instantiate_if_class(source),
@@ -188,6 +202,43 @@ class Outbox:
         self._registry = OutboxRegistry()
         self._relay: Relay | None = None
         self._shutdown_timeout = shutdown_timeout
+
+    @classmethod
+    def from_config(
+        cls,
+        source: Annotated[
+            Provider | OutboxBackend | type[Provider | OutboxBackend],
+            Doc(
+                "A `Provider` (e.g. `PostgresProvider`) or an `OutboxBackend`."
+            ),
+        ],
+        config: Annotated[
+            OutboxConfig,
+            Doc("The pre-built outbox configuration."),
+        ],
+        *,
+        requires: Annotated[
+            BackendScope | None,
+            Doc("The smallest backend scope this component accepts."),
+        ] = None,
+        name: Annotated[str, Doc("Registration name.")] = "default",
+        shutdown_timeout: Annotated[
+            float, Doc("Seconds to let in-flight handlers drain on shutdown.")
+        ] = 30.0,
+    ) -> Self:
+        """Construct an `Outbox` from a source and a pre-built `OutboxConfig`.
+
+        The config is taken as-is, so no environment variable is read.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(  # noqa: SLF001
+            source,
+            config,
+            requires=requires,
+            name=name,
+            shutdown_timeout=shutdown_timeout,
+        )
+        return instance
 
     @property
     def name(self) -> str:

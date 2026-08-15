@@ -123,17 +123,17 @@ async def test_metrics_installs_provider_on_enter() -> None:
 
 
 async def test_metrics_accepts_prebuilt_config() -> None:
-    """`Metrics(config=...)` uses the pre-built `MetricsConfig` as-is."""
+    """`Metrics.from_config(...)` uses the pre-built `MetricsConfig` as-is."""
     config = MetricsConfig(
         exporter=MetricsExporterType.NONE, service_name="payments"
     )
-    micro = Grelmicro(uses=[Metrics(config=config)])
+    micro = Grelmicro(uses=[Metrics.from_config(config)])
     async with micro:
         assert micro.metrics.config is config
 
 
-def test_metrics_from_config_matches_config_kwarg() -> None:
-    """`Metrics.from_config(cfg)` matches `Metrics(config=cfg)`."""
+def test_metrics_from_config_keeps_config_and_default_name() -> None:
+    """`Metrics.from_config(cfg)` keeps the config and defaults the name."""
     config = MetricsConfig(
         exporter=MetricsExporterType.NONE, service_name="payments"
     )

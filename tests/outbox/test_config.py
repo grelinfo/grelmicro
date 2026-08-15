@@ -63,21 +63,23 @@ def test_kwargs_win_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_explicit_config() -> None:
     """A pre-built config is used as-is."""
-    outbox = Outbox(
+    outbox = Outbox.from_config(
         MemoryOutboxAdapter(),
-        config=OutboxConfig(max_attempts=CONFIG_ATTEMPTS),
+        OutboxConfig(max_attempts=CONFIG_ATTEMPTS),
     )
     assert outbox.config.max_attempts == CONFIG_ATTEMPTS
 
 
-def test_explicit_config_and_kwargs_conflict() -> None:
-    """Passing both a config and kwargs raises."""
-    with pytest.raises(TypeError):
-        Outbox(
-            MemoryOutboxAdapter(),
-            config=OutboxConfig(),
-            max_attempts=KWARG_ATTEMPTS,
-        )
+def test_from_config_ignores_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`from_config` takes the config as-is, so env never fills a field."""
+    monkeypatch.setenv("GREL_OUTBOX_MAX_ATTEMPTS", str(ENV_ATTEMPTS))
+    outbox = Outbox.from_config(
+        MemoryOutboxAdapter(),
+        OutboxConfig(max_attempts=CONFIG_ATTEMPTS),
+    )
+    assert outbox.config.max_attempts == CONFIG_ATTEMPTS
 
 
 def test_invalid_value_raises() -> None:

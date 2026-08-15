@@ -16,13 +16,6 @@ from grelmicro.resilience import (
 )
 
 
-def test_config_and_default_only_kwarg_conflict() -> None:
-    """Passing `config=` together with only `default=` is rejected."""
-    cfg = FallbackConfig(when=Match.exception(ValueError), default=1)
-    with pytest.raises(TypeError, match="not both"):
-        Fallback("conflict", default=2, config=cfg)
-
-
 def test_from_config_keeps_the_name() -> None:
     """`Fallback.from_config` keeps the given name, not None."""
     cfg = FallbackConfig(when=Match.exception(ValueError), default=1)

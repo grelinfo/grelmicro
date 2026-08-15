@@ -6,4 +6,4 @@ config = ApiShieldConfig(
     timeout_errors=(httpx.TimeoutException, httpx.ConnectError),
     max_rate=20.0,
 )
-github = Shield("github", config=config)
+github = Shield.from_config("github", config)

@@ -109,21 +109,12 @@ def test_constructor_with_max_rate_no_env() -> None:
     assert s.config.max_rate == 3.0  # noqa: PLR2004
 
 
-def test_constructor_rejects_config_and_kwargs_together() -> None:
-    """Passing `config=` with kwargs raises."""
-    from grelmicro.resilience import ApiShieldConfig  # noqa: PLC0415
-
-    cfg = ApiShieldConfig(max_rate=2.0)
-    with pytest.raises(TypeError, match="pre-built"):
-        Shield("dup", config=cfg, max_rate=3.0)
-
-
-def test_constructor_accepts_config() -> None:
+def test_from_config_accepts_config() -> None:
     """The pre-built config path works."""
     from grelmicro.resilience import ApiShieldConfig  # noqa: PLC0415
 
     cfg = ApiShieldConfig(max_rate=2.0)
-    s = Shield("dup", config=cfg)
+    s = Shield.from_config("dup", cfg)
     assert s.config is cfg
 
 

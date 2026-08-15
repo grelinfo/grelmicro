@@ -153,13 +153,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 """
             ),
         ] = (),
-        config: Annotated[
-            BulkheadConfig | None,
-            Doc(
-                "A pre-built [`BulkheadConfig`][grelmicro.resilience.BulkheadConfig]. "
-                "Mutually exclusive with the per-field kwargs."
-            ),
-        ] = None,
         env_load: Annotated[
             bool | None,
             Doc(
@@ -171,24 +164,35 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         ] = None,
     ) -> None:
         """Initialize the bulkhead."""
-        self._name = name
         env_prefix, kind_prefix = env_prefixes("BULKHEAD", name)
-        resolved = resolve_config(
-            BulkheadConfig,
-            explicit=config,
-            kwargs={
-                "max_concurrent": max_concurrent,
-                "max_wait": max_wait,
-                "max_workers": max_workers,
-            },
-            env_prefix=env_prefix,
-            kind_env_prefix=kind_prefix,
-            env_load=env_load,
+        self._setup(
+            name,
+            resolve_config(
+                BulkheadConfig,
+                explicit=None,
+                kwargs={
+                    "max_concurrent": max_concurrent,
+                    "max_wait": max_wait,
+                    "max_workers": max_workers,
+                },
+                env_prefix=env_prefix,
+                kind_env_prefix=kind_prefix,
+                env_load=env_load,
+            ),
+            uses,
         )
-        self._config = resolved
-        self._state = _State(
-            config=resolved, semaphore=_build_semaphore(resolved)
-        )
+        self._track_reconfigure(env_prefix)
+
+    def _setup(
+        self,
+        name: str,
+        config: BulkheadConfig,
+        uses: Iterable[Usable | None],
+    ) -> None:
+        """Wire the validated config and runtime state onto the instance."""
+        self._name = name
+        self._config = config
+        self._state = _State(config=config, semaphore=_build_semaphore(config))
         self._reconfigure_lock = asyncio.Lock()
         self._executor: ThreadPoolExecutor | None = None
         self._uses = tuple(
@@ -205,8 +209,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             asyncio.Task[Any],
             list[tuple[asyncio.Semaphore | None, Token[Any] | None]],
         ] = {}
-        if config is None:
-            self._track_reconfigure(env_prefix)
 
     @property
     def name(self) -> str:
@@ -221,9 +223,23 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             BulkheadConfig,
             Doc("The pre-built bulkhead configuration."),
         ],
+        *,
+        uses: Annotated[
+            Iterable[Usable | None],
+            Doc(
+                "Providers and Components scoped to this bulkhead, in "
+                "the same shape as on the constructor."
+            ),
+        ] = (),
     ) -> Self:
-        """Construct a `Bulkhead` from a name and a pre-built `BulkheadConfig`."""
-        return cls(name, config=config)
+        """Construct a `Bulkhead` from a name and a pre-built `BulkheadConfig`.
+
+        The config is taken as-is: no environment variable is read, and
+        the instance is not registered for live reconfiguration.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(name, config, uses)  # noqa: SLF001
+        return instance
 
     async def __aenter__(self) -> Self:
         """Admit the current task, waiting up to `max_wait` for a permit."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -78,15 +78,6 @@ class Log:
                 """
             ),
         ] = "default",
-        config: Annotated[
-            LogConfig | None,
-            Doc(
-                """
-                Pre-built configuration. When provided, individual kwargs
-                must be `None`. The env path is bypassed.
-                """
-            ),
-        ] = None,
         backend: Annotated[
             LogBackendType | None,
             Doc("Logging backend (`stdlib`, `loguru`, `structlog`)."),
@@ -120,17 +111,33 @@ class Log:
         ] = None,
     ) -> None:
         """Initialize the component (defer configuration until `__aenter__`)."""
+        self._setup(
+            name=name,
+            config=None,
+            kwargs={
+                "backend": backend,
+                "level": level,
+                "format": format,
+                "timezone": timezone,
+                "json_serializer": json_serializer,
+                "caller_enabled": caller_enabled,
+                "otel_enabled": otel_enabled,
+            },
+            env_load=env_load,
+        )
+
+    def _setup(
+        self,
+        *,
+        name: str,
+        config: LogConfig | None,
+        kwargs: dict[str, Any],
+        env_load: bool | None,
+    ) -> None:
+        """Wire the deferred configuration onto the instance."""
         self._name = name
         self._explicit_config = config
-        self._kwargs = {
-            "backend": backend,
-            "level": level,
-            "format": format,
-            "timezone": timezone,
-            "json_serializer": json_serializer,
-            "caller_enabled": caller_enabled,
-            "otel_enabled": otel_enabled,
-        }
+        self._kwargs = kwargs
         self._env_load = env_load
         self._resolved: LogConfig | None = None
         self._snapshot_handlers: list[logging.Handler] | None = None
@@ -160,7 +167,11 @@ class Log:
         ] = "default",
     ) -> Self:
         """Construct a `Log` from a pre-built `LogConfig`."""
-        return cls(name=name, config=config)
+        instance = cls.__new__(cls)
+        instance._setup(  # noqa: SLF001
+            name=name, config=config, kwargs={}, env_load=None
+        )
+        return instance
 
     @property
     def name(self) -> str:

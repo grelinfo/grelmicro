@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, Generic, cast
+from typing import TYPE_CHECKING, Annotated, Any, Generic, Self, cast
 
 from pydantic import BaseModel, NonNegativeInt, PositiveFloat
 from typing_extensions import Doc, TypeVar
@@ -197,6 +197,35 @@ class TTLCache(Generic[T]):
         self._keys: OrderedDict[str, None] = OrderedDict()
         # Per-key in-process locks for get_or_set stampede protection.
         self._stampede = AsyncStampedeGuard()
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            TTLCacheConfig,
+            Doc("The pre-built cache configuration."),
+        ],
+        *,
+        backend: Annotated[
+            CacheBackend | None,
+            Doc("The cache storage backend."),
+        ] = None,
+        serializer: Annotated[
+            CacheSerializer[T] | type[T] | None,
+            Doc("Serialization strategy for cached values."),
+        ] = None,
+    ) -> Self:
+        """Construct a `TTLCache` from a pre-built `TTLCacheConfig`.
+
+        `TTLCache` reads no environment variable, so this differs from the
+        constructor only in taking the settings as one object.
+        """
+        return cls(
+            config.maxsize,
+            config.ttl,
+            backend=backend,
+            serializer=serializer,
+        )
 
     @property
     def config(self) -> TTLCacheConfig:

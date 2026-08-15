@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 `Timeout`, `Retry`, `Fallback`, `Bulkhead`, `Log`, `Metrics`, `Trace`, `Shield`, and `Outbox` no longer take `config=`. Pass a pre-built config to `from_config`, which did exactly the same thing. One door instead of two.
 * 💥 `grelmicro.clientip` moved to `grelmicro.security`. Import `TrustedProxies`, `ClientAddress`, `ClientAddressReason`, `ClientAddressMiddleware`, and `resolve_client_address` from there. The logger is renamed to `grelmicro.security.clientip`, so a filter or a level set on the old name stops matching.
 
 ### Added
@@ -12,6 +13,9 @@
 * ✨ `micro.install(app)` wires a Litestar app. It opens the components on startup, closes them after shutdown, and binds the app around each request so patterns resolve with no `backend=`. Call it after `Litestar(...)`, which builds its middleware stack at construction.
 * ✨ New `fastapi`, `starlette`, and `litestar` extras, so `pip install "grelmicro[litestar]"` brings the framework along.
 * 📝 A [Frameworks](frameworks.md) page lists every framework `micro.install(app)` supports and what it wires for each.
+* ✨ `Outbox.from_config` and `TTLCache.from_config` complete the declarative path. Every primitive that has a config class now accepts one the same way.
+* ✨ `Bulkhead.from_config` accepts `uses=` to scope providers and components, which the declarative path could not do before.
+* 📝 Publish/subscribe is a stated non-goal. The [outbox consumer](outbox/consumer.md#publishing-to-a-broker) page shows the handler publishing through FastStream, and explains why the durable half and the transport half are separate.
 
 ## 0.38.1 - 2026-08-15
 

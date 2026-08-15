@@ -80,7 +80,8 @@
       "()": "(model)"
     },
     "TTLCache": {
-      "()": "(maxsize=..., ttl=..., *, backend=..., serializer=...)"
+      "()": "(maxsize=..., ttl=..., *, backend=..., serializer=...)",
+      ".from_config": "(config, *, backend=..., serializer=...)"
     },
     "TTLCacheConfig": {
       "()": "(*, maxsize=..., ttl=...)"
@@ -335,7 +336,7 @@
     "ErrorDict": null,
     "JSONRecordDict": null,
     "Log": {
-      "()": "(*, name=..., config=..., backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)",
+      "()": "(*, name=..., backend=..., level=..., format=..., timezone=..., json_serializer=..., caller_enabled=..., otel_enabled=..., env_load=...)",
       ".from_config": "(config, *, name=...)"
     },
     "LogBackendType": {
@@ -376,7 +377,7 @@
   },
   "grelmicro.metrics": {
     "Metrics": {
-      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., basic_auth=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=..., env_load=...)",
+      "()": "(*, name=..., service_name=..., exporter=..., endpoint=..., headers=..., basic_auth=..., export_interval=..., export_timeout=..., resource_attributes=..., shutdown_timeout=..., env_load=...)",
       ".from_config": "(config, *, name=...)"
     },
     "MetricsConfig": {
@@ -406,8 +407,8 @@
       "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
     },
     "Bulkhead": {
-      "()": "(name, *, max_concurrent=..., max_wait=..., max_workers=..., uses=..., config=..., env_load=...)",
-      ".from_config": "(name, config)"
+      "()": "(name, *, max_concurrent=..., max_wait=..., max_workers=..., uses=..., env_load=...)",
+      ".from_config": "(name, config, *, uses=...)"
     },
     "BulkheadConfig": {
       "()": "(*, max_concurrent=..., max_wait=..., max_workers=...)"
@@ -457,7 +458,7 @@
       "()": "(*, kind=..., base_delay=..., max_delay=..., jitter=...)"
     },
     "Fallback": {
-      "()": "(name, *, when=..., default=..., factory=..., config=..., env_load=...)",
+      "()": "(name, *, when=..., default=..., factory=..., env_load=...)",
       ".from_config": "(name, config)"
     },
     "FallbackConfig": {
@@ -550,7 +551,7 @@
       "()": "(error)"
     },
     "Retry": {
-      "()": "(name, backoff=..., *, when=..., attempts=..., max_seconds=..., config=..., env_load=...)",
+      "()": "(name, backoff=..., *, when=..., attempts=..., max_seconds=..., env_load=...)",
       ".constant": "(name, *, when, attempts=..., max_seconds=..., delay=..., env_load=...)",
       ".exponential": "(name, *, when, attempts=..., max_seconds=..., base_delay=..., max_delay=..., jitter=..., env_load=...)",
       ".from_config": "(name, config)"
@@ -574,7 +575,7 @@
       "()": "(*, provider=..., env_prefix=..., prefix=..., table_name=..., auto_migrate=...)"
     },
     "Shield": {
-      "()": "(name, config=..., *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., env_load=..., time_source=..., random_source=...)",
+      "()": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., env_load=..., time_source=..., random_source=...)",
       ".api": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)",
       ".from_config": "(name, config)",
       ".internal": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)",
@@ -590,7 +591,7 @@
       "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
     },
     "Timeout": {
-      "()": "(name, *, seconds=..., config=..., env_load=...)",
+      "()": "(name, *, seconds=..., env_load=...)",
       ".from_config": "(name, config)"
     },
     "TimeoutConfig": {
@@ -685,7 +686,7 @@
       "()": "(*, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., kind=...)"
     },
     "Shield": {
-      "()": "(name, config=..., *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., env_load=..., time_source=..., random_source=...)",
+      "()": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=..., env_load=..., time_source=..., random_source=...)",
       ".api": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)",
       ".from_config": "(name, config)",
       ".internal": "(name, *, timeout_errors=..., max_rate=..., cache=..., cache_key=..., fallback=...)",
@@ -771,7 +772,7 @@
   },
   "grelmicro.trace": {
     "Trace": {
-      "()": "(*, name=..., config=..., service_name=..., exporter=..., endpoint=..., headers=..., basic_auth=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., instrument=..., shutdown_timeout=..., env_load=...)",
+      "()": "(*, name=..., service_name=..., exporter=..., endpoint=..., headers=..., basic_auth=..., processor=..., sampler=..., sample_ratio=..., resource_attributes=..., instrument=..., shutdown_timeout=..., env_load=...)",
       ".from_config": "(config, *, name=...)"
     },
     "TraceConfig": {

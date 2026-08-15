@@ -57,15 +57,15 @@ async def test_log_resolves_config_on_enter(
 
 
 async def test_log_accepts_prebuilt_config(reset_stdlib: None) -> None:  # noqa: ARG001
-    """`Log(config=...)` uses the pre-built `LogConfig` as-is."""
+    """`Log.from_config(...)` uses the pre-built `LogConfig` as-is."""
     config = LogConfig(level=LogLevelType.WARNING)
-    micro = Grelmicro(uses=[Log(config=config)])
+    micro = Grelmicro(uses=[Log.from_config(config)])
     async with micro:
         assert micro.log.config is config
 
 
-def test_log_from_config_matches_config_kwarg() -> None:
-    """`Log.from_config(cfg)` matches `Log(config=cfg)`."""
+def test_log_from_config_keeps_config_and_default_name() -> None:
+    """`Log.from_config(cfg)` keeps the config and defaults the name."""
     config = LogConfig(level=LogLevelType.WARNING)
     log = Log.from_config(config)
     assert log._explicit_config is config

@@ -85,9 +85,11 @@ Build a config object, then construct via `from_config`:
 The config object is a frozen Pydantic model. Field names match the kwargs from
 the programmatic path. `from_config` skips the env layer entirely.
 
-Every primitive takes the same path. Some accept the config as a `config=`
-keyword instead of `from_config`, because their config type also selects the
-algorithm:
+Every primitive takes the same path, and `from_config` is the only door for a
+pre-built config. It reads as what it does: the config you hand over is the
+whole truth, so the env layer is skipped and the instance is not registered for
+live reload. The kwargs on the constructor are the other lane, where env fills
+whatever you left out.
 
 === "Retry"
     ```python

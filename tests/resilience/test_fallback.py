@@ -479,13 +479,3 @@ def test_class_form_decorator_reraises_unmatched_sync() -> None:
 
     with pytest.raises(KeyError, match="nope"):
         fn()
-
-
-# --- Mutual exclusion: pre-built config + kwargs --------------------------
-
-
-def test_config_and_kwargs_are_mutually_exclusive() -> None:
-    """Passing both `config=` and per-field kwargs raises `TypeError`."""
-    cfg = FallbackConfig(when=Match.exception(ValueError), default=1)
-    with pytest.raises(TypeError, match="pre-built config OR"):
-        Fallback("x", when=ValueError, config=cfg)
