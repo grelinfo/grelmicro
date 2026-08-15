@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING, Annotated, Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, ParamSpec, TypeVar, cast
 
 from typing_extensions import Doc
 
@@ -20,10 +20,20 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def idempotent(  # noqa: UP047
+def idempotent(
     idempotency: Annotated[
-        Idempotency[R],
-        Doc("The `Idempotency` instance that stores and replays responses."),
+        Idempotency[Any],
+        Doc(
+            """
+            The `Idempotency` instance that stores and replays responses.
+
+            Deliberately `Idempotency[Any]`: binding it to `R` would make
+            the common `Idempotency("charge")` form, which is what the docs
+            show, solve `R` as `Any` and erase the decorated return type.
+            The wrapper casts the stored value back to `R` instead, so the
+            function's own annotation is what survives.
+            """
+        ),
     ],
     *,
     key: Annotated[
@@ -79,10 +89,13 @@ def idempotent(  # noqa: UP047
                 if fingerprint is not None
                 else None
             )
-            return await idempotency.run(
-                call_key,
-                lambda: func(*args, **kwargs),
-                fingerprint=call_fingerprint,
+            return cast(
+                "R",
+                await idempotency.run(
+                    call_key,
+                    lambda: func(*args, **kwargs),
+                    fingerprint=call_fingerprint,
+                ),
             )
 
         return wrapper
