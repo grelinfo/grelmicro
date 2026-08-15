@@ -83,15 +83,6 @@ class Trace:
                 """
             ),
         ] = "default",
-        config: Annotated[
-            TraceConfig | None,
-            Doc(
-                """
-                Pre-built configuration. When provided, individual kwargs
-                must be `None`. The env path is bypassed.
-                """
-            ),
-        ] = None,
         service_name: Annotated[
             str | None, Doc("Service name resource attribute.")
         ] = None,
@@ -167,21 +158,39 @@ class Trace:
         if basic_auth is not None and len(basic_auth) != 2:  # noqa: PLR2004
             msg = "basic_auth must be a (username, password) tuple."
             raise TypeError(msg)
+        self._setup(
+            name=name,
+            config=None,
+            kwargs={
+                "service_name": service_name,
+                "exporter": exporter,
+                "endpoint": endpoint,
+                "headers": headers,
+                "basic_auth_username": basic_auth[0] if basic_auth else None,
+                "basic_auth_password": basic_auth[1] if basic_auth else None,
+                "processor": processor,
+                "sampler": sampler,
+                "sample_ratio": sample_ratio,
+                "resource_attributes": resource_attributes,
+                "shutdown_timeout": shutdown_timeout,
+            },
+            env_load=env_load,
+            instrument=instrument,
+        )
+
+    def _setup(
+        self,
+        *,
+        name: str,
+        config: TraceConfig | None,
+        kwargs: dict[str, Any],
+        env_load: bool | None,
+        instrument: InstrumentDirective,
+    ) -> None:
+        """Wire the deferred configuration onto the instance."""
         self._name = name
         self._explicit_config = config
-        self._kwargs = {
-            "service_name": service_name,
-            "exporter": exporter,
-            "endpoint": endpoint,
-            "headers": headers,
-            "basic_auth_username": basic_auth[0] if basic_auth else None,
-            "basic_auth_password": basic_auth[1] if basic_auth else None,
-            "processor": processor,
-            "sampler": sampler,
-            "sample_ratio": sample_ratio,
-            "resource_attributes": resource_attributes,
-            "shutdown_timeout": shutdown_timeout,
-        }
+        self._kwargs = kwargs
         self._env_load = env_load
         self._instrument = instrument
         self._resolved: TraceConfig | None = None
@@ -211,7 +220,15 @@ class Trace:
         ] = "default",
     ) -> Self:
         """Construct a `Trace` from a pre-built `TraceConfig`."""
-        return cls(name=name, config=config)
+        instance = cls.__new__(cls)
+        instance._setup(  # noqa: SLF001
+            name=name,
+            config=config,
+            kwargs={},
+            env_load=None,
+            instrument=True,
+        )
+        return instance
 
     @property
     def name(self) -> str:

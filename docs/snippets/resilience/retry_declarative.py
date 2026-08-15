@@ -12,4 +12,4 @@ config = RetryConfig(
     when=Match.exception(httpx.HTTPError),
     backoff=ExponentialBackoff(base_delay=0.2, max_delay=10.0, jitter="full"),
 )
-policy = Retry("payments", config=config)
+policy = Retry.from_config("payments", config)

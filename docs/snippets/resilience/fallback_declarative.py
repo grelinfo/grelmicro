@@ -6,4 +6,4 @@ config = FallbackConfig(
     when=Match.exception(httpx.HTTPError),
     default=[],
 )
-policy = Fallback("recs", config=config)
+policy = Fallback.from_config("recs", config)

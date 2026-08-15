@@ -85,15 +85,7 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         seconds: Annotated[
             PositiveFloat | None,
             Doc(
-                "Deadline in seconds. Required unless ``config=`` is "
-                "given or the value comes from env."
-            ),
-        ] = None,
-        config: Annotated[
-            TimeoutConfig | None,
-            Doc(
-                "A pre-built [`TimeoutConfig`][grelmicro.resilience.TimeoutConfig]. "
-                "Mutually exclusive with the per-field kwargs."
+                "Deadline in seconds. Required unless the value comes from env."
             ),
         ] = None,
         env_load: Annotated[
@@ -107,22 +99,27 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         ] = None,
     ) -> None:
         """Initialize the timeout policy."""
-        self._name = name
         env_prefix, kind_prefix = env_prefixes("TIMEOUT", name)
-        resolved = resolve_config(
-            TimeoutConfig,
-            explicit=config,
-            kwargs={"seconds": seconds},
-            env_prefix=env_prefix,
-            kind_env_prefix=kind_prefix,
-            env_load=env_load,
+        self._setup(
+            name,
+            resolve_config(
+                TimeoutConfig,
+                explicit=None,
+                kwargs={"seconds": seconds},
+                env_prefix=env_prefix,
+                kind_env_prefix=kind_prefix,
+                env_load=env_load,
+            ),
         )
-        self._config = resolved
-        self._state = _State(config=resolved)
+        self._track_reconfigure(env_prefix)
+
+    def _setup(self, name: str, config: TimeoutConfig) -> None:
+        """Wire the validated config and runtime state onto the instance."""
+        self._name = name
+        self._config = config
+        self._state = _State(config=config)
         self._reconfigure_lock = asyncio.Lock()
         self._scopes: dict[asyncio.Task[Any], list[asyncio.Timeout]] = {}
-        if config is None:
-            self._track_reconfigure(env_prefix)
 
     @property
     def name(self) -> str:
@@ -138,8 +135,14 @@ class Timeout(Reconfigurable[TimeoutConfig]):
             Doc("The pre-built timeout configuration."),
         ],
     ) -> Self:
-        """Construct a `Timeout` from a name and a pre-built `TimeoutConfig`."""
-        return cls(name, config=config)
+        """Construct a `Timeout` from a name and a pre-built `TimeoutConfig`.
+
+        The config is taken as-is: no environment variable is read, and
+        the instance is not registered for live reconfiguration.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(name, config)  # noqa: SLF001
+        return instance
 
     async def __aenter__(self) -> Self:
         """Open a fresh deadline scope for the current task."""

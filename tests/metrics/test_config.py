@@ -57,15 +57,6 @@ async def test_kwargs_win_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
         assert micro.metrics.config.service_name == "explicit"
 
 
-async def test_prebuilt_config_rejects_kwargs() -> None:
-    """Passing both a pre-built config and kwargs raises on enter."""
-    config = MetricsConfig(exporter=MetricsExporterType.NONE)
-    micro = Grelmicro(uses=[Metrics(config=config, service_name="x")])
-    with pytest.raises(TypeError, match="pre-built config OR"):
-        async with micro:
-            pass
-
-
 def test_endpoint_repr_redacts_embedded_credentials() -> None:
     """An endpoint carrying userinfo credentials is displayed redacted."""
     config = MetricsConfig(endpoint="https://usr:s3cret@otlp.example.com/v1")

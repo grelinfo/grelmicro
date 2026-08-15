@@ -23,6 +23,25 @@ async def send_welcome(message: Message[WelcomeEmail]) -> None:
 Delivery is at least once, so a handler must be idempotent. See
 [Delivery semantics](index.md#delivery-semantics).
 
+## Publishing to a broker
+
+grelmicro has no publish/subscribe primitive and talks to no broker. Reach for [FastStream](https://faststream.airt.ai/), which covers Kafka, RabbitMQ, NATS, Redis, and MQTT. The two fit together in the handler:
+
+```python
+from faststream.kafka import KafkaBroker
+
+broker = KafkaBroker("localhost:9092")
+
+
+@outbox.handler(OrderPlaced)
+async def emit_order_placed(message: Message[OrderPlaced]) -> None:
+    await broker.publish(message.data, topic="orders", key=message.key)
+```
+
+The split is the point. The outbox makes the intent to publish durable, committed in the same transaction as the business write, so a crash can neither lose the event nor emit one for a rollback. FastStream carries the message to the broker. Neither half does the other's job on its own.
+
+Both sides deliver at least once, so consumers downstream stay idempotent. `message.id` is stable across retries, which makes it the key to deduplicate on.
+
 ## Controlling retries from the handler
 
 Any exception retries the message with backoff. Raise `Retry` to reschedule on your own terms, or `Cancel` to dead-letter it now without burning the remaining attempts:

@@ -169,7 +169,7 @@ A few categories the comparison page does not cover, because grelmicro does not 
 |---|---|
 | HTTP framework | [FastAPI](https://fastapi.tiangolo.com/), [Starlette](https://www.starlette.io/), [Litestar](https://litestar.dev/) |
 | Embedded server | [Uvicorn](https://www.uvicorn.org/), [Hypercorn](https://github.com/pgjones/hypercorn), [Granian](https://github.com/emmett-framework/granian) |
-| Message broker abstraction | [FastStream](https://faststream.airt.ai/), [aio_pika](https://github.com/mosquito/aio-pika) |
+| Publish/subscribe and message brokers | [FastStream](https://faststream.airt.ai/), [aio_pika](https://github.com/mosquito/aio-pika) |
 | Background workers (queues) | [Celery](https://docs.celeryq.dev/), [dramatiq](https://github.com/Bogdanp/dramatiq), [taskiq](https://github.com/taskiq-python/taskiq) |
 | ORM | [SQLAlchemy](https://www.sqlalchemy.org/), [SQLModel](https://sqlmodel.tiangolo.com/), [tortoise-orm](https://tortoise.github.io/) |
 | Auth | [Authlib](https://authlib.org/), [authx](https://github.com/yezz123/authx), [fastapi-users](https://github.com/fastapi-users/fastapi-users) |

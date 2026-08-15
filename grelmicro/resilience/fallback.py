@@ -199,24 +199,14 @@ def _resolve_config(
     when: WhenInput | None,
     default: Any,  # noqa: ANN401
     factory: Callable[[BaseException], Any] | None,
-    config: FallbackConfig | None,
     env_load: bool | None,
 ) -> FallbackConfig:
-    """Build a `FallbackConfig` from kwargs, an explicit config, or env.
+    """Build a `FallbackConfig` from kwargs or env.
 
     Mirrors :func:`grelmicro._config.resolve_config` but treats
     ``default`` with the ``_UNSET`` sentinel so that ``default=None``
     is preserved as a valid value.
     """
-    explicit_kwargs = (
-        when is not None or factory is not None or default is not _UNSET
-    )
-    if config is not None:
-        if explicit_kwargs:
-            msg = "pass a pre-built config OR individual kwargs, not both"
-            raise TypeError(msg)
-        return config
-
     kwargs: dict[str, Any] = {}
     if when is not None:
         kwargs["when"] = when
@@ -374,7 +364,7 @@ class Fallback(Reconfigurable[FallbackConfig]):
                 "Exception filter that engages the fallback. Pass a "
                 "[`Match`][grelmicro.resilience.Match] or a shorthand "
                 "(class, tuple of classes, callable). Required unless "
-                "``config=`` is given or the value comes from env."
+                "the value comes from env."
             ),
         ] = None,
         default: Annotated[  # noqa: ANN401
@@ -391,13 +381,6 @@ class Fallback(Reconfigurable[FallbackConfig]):
                 "matched exception. Mutually exclusive with ``default``."
             ),
         ] = None,
-        config: Annotated[
-            FallbackConfig | None,
-            Doc(
-                "A pre-built [`FallbackConfig`][grelmicro.resilience.FallbackConfig]. "
-                "Mutually exclusive with the per-field kwargs."
-            ),
-        ] = None,
         env_load: Annotated[
             bool | None,
             Doc(
@@ -409,20 +392,24 @@ class Fallback(Reconfigurable[FallbackConfig]):
         ] = None,
     ) -> None:
         """Initialize the fallback policy."""
-        self._name = name
-        resolved = _resolve_config(
+        self._setup(
             name,
-            when=when,
-            default=default,
-            factory=factory,
-            config=config,
-            env_load=env_load,
+            _resolve_config(
+                name,
+                when=when,
+                default=default,
+                factory=factory,
+                env_load=env_load,
+            ),
         )
-        self._config = resolved
-        self._state = _State(config=resolved, matcher=resolved.when)
+        self._track_reconfigure(default_env_prefix("FALLBACK", name))
+
+    def _setup(self, name: str, config: FallbackConfig) -> None:
+        """Wire the validated config and runtime state onto the instance."""
+        self._name = name
+        self._config = config
+        self._state = _State(config=config, matcher=config.when)
         self._reconfigure_lock = asyncio.Lock()
-        if config is None:
-            self._track_reconfigure(default_env_prefix("FALLBACK", name))
 
     @property
     def name(self) -> str:
@@ -438,8 +425,14 @@ class Fallback(Reconfigurable[FallbackConfig]):
             Doc("The pre-built fallback configuration."),
         ],
     ) -> Self:
-        """Construct a `Fallback` from a name and a pre-built `FallbackConfig`."""
-        return cls(name, config=config)
+        """Construct a `Fallback` from a name and a pre-built `FallbackConfig`.
+
+        The config is taken as-is: no environment variable is read, and
+        the instance is not registered for live reconfiguration.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(name, config)  # noqa: SLF001
+        return instance
 
     @overload
     def __call__[**P, R](

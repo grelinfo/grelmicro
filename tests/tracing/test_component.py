@@ -105,17 +105,17 @@ async def test_trace_installs_provider_on_enter() -> None:
 
 
 async def test_trace_accepts_prebuilt_config() -> None:
-    """`Trace(config=...)` uses the pre-built `TraceConfig` as-is."""
+    """`Trace.from_config(...)` uses the pre-built `TraceConfig` as-is."""
     config = TraceConfig(
         exporter=TraceExporterType.NONE, service_name="payments"
     )
-    micro = Grelmicro(uses=[Trace(config=config)])
+    micro = Grelmicro(uses=[Trace.from_config(config)])
     async with micro:
         assert micro.trace.config is config
 
 
-def test_trace_from_config_matches_config_kwarg() -> None:
-    """`Trace.from_config(cfg)` matches `Trace(config=cfg)`."""
+def test_trace_from_config_keeps_config_and_default_name() -> None:
+    """`Trace.from_config(cfg)` keeps the config and defaults the name."""
     config = TraceConfig(
         exporter=TraceExporterType.NONE, service_name="payments"
     )

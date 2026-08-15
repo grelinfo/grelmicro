@@ -121,7 +121,6 @@ def _resolve_config_from_env(
 def _build_config(
     name: str,
     *,
-    config: _BaseShieldConfig | None,
     profile: str,
     timeout_errors: Any,  # noqa: ANN401
     max_rate: float | None,
@@ -130,22 +129,7 @@ def _build_config(
     fallback: Callable[..., Any] | None,
     env_load: bool | None,
 ) -> _BaseShieldConfig:
-    """Resolve a `_BaseShieldConfig` from kwargs, an explicit config, or env."""
-    explicit_kwargs = any(
-        value is not None
-        for value in (
-            timeout_errors,
-            max_rate,
-            cache,
-            cache_key,
-            fallback,
-        )
-    )
-    if config is not None:
-        if explicit_kwargs:
-            msg = "pass a pre-built config OR individual kwargs, not both"
-            raise TypeError(msg)
-        return config
+    """Resolve a `_BaseShieldConfig` from kwargs or env."""
     if env_load is None:
         env_load = env_load_default()
     if env_load:
@@ -261,16 +245,6 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                 "logs, metrics, and PEP 678 notes attached on give-up."
             ),
         ],
-        config: Annotated[
-            _BaseShieldConfig | None,
-            Doc(
-                "A pre-built profile config "
-                "([`InternalShieldConfig`][grelmicro.resilience.InternalShieldConfig], "
-                "[`ApiShieldConfig`][grelmicro.resilience.ApiShieldConfig], "
-                "[`SlowShieldConfig`][grelmicro.resilience.SlowShieldConfig]). "
-                "Mutually exclusive with the per-field kwargs."
-            ),
-        ] = None,
         *,
         timeout_errors: Annotated[
             tuple[type[BaseException], ...] | None,
@@ -335,7 +309,6 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             name=name,
             config=_build_config(
                 name,
-                config=config,
                 profile="api",
                 timeout_errors=timeout_errors,
                 max_rate=max_rate,
@@ -346,7 +319,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             ),
             time_source=time_source,
             random_source=random_source,
-            register=config is None,
+            register=True,
         )
 
     def _setup(
@@ -486,7 +459,6 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         """Build a Shield bypassing env reads, with a profile override."""
         config = _build_config(
             name,
-            config=None,
             profile=profile,
             timeout_errors=timeout_errors,
             max_rate=max_rate,
