@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -12,6 +12,7 @@ from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
+    unsupported_algorithm,
 )
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
@@ -412,17 +413,22 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
         on `__aenter__`. Functions read and write a single row of
         `{table_name}` per key.
         """
-        pool = self._provider.client
         match config:
             case TokenBucketConfig():
                 return _PostgresTokenBucket(
-                    pool, self._prefix, self._table_name, config
+                    self._provider.client,
+                    self._prefix,
+                    self._table_name,
+                    config,
                 )
             case SlidingWindowConfig():
                 return _PostgresGCRA(
-                    pool, self._prefix, self._table_name, config
+                    self._provider.client,
+                    self._prefix,
+                    self._table_name,
+                    config,
                 )
-        assert_never(config)
+        raise unsupported_algorithm(config)
 
 
 class _PostgresGCRA(RateLimiterStrategy):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -11,6 +11,7 @@ from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
+    unsupported_algorithm,
 )
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
@@ -137,7 +138,7 @@ class RedisRateLimiterAdapter(RateLimiterBackend):
                 return _RedisTokenBucket(client, self._prefix, config)
             case SlidingWindowConfig():
                 return _RedisGCRA(client, self._prefix, config)
-        assert_never(config)
+        raise unsupported_algorithm(config)
 
 
 class _RedisGCRA(RateLimiterStrategy):

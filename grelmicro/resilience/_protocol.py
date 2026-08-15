@@ -24,12 +24,29 @@ from typing_extensions import Doc
 if TYPE_CHECKING:
     import asyncio
     from types import TracebackType
+    from typing import Never
 
     from grelmicro.resilience.circuitbreaker import (
         CircuitBreakerConfig,
         CircuitBreakerState,
     )
     from grelmicro.resilience.ratelimiter import RateLimiterConfig
+
+
+def unsupported_algorithm(config: Never) -> NotImplementedError:
+    """Return the error for an algorithm config kind a backend rejects.
+
+    Raise the result: `raise unsupported_algorithm(config)`.
+
+    The parameter is typed `Never`, so a type checker reports every
+    backend that stops being exhaustive once a new arm joins the config
+    union. That is the guarantee `assert_never` gives. Unlike
+    `assert_never`, which produces an `AssertionError`, this yields the
+    `NotImplementedError` the backend protocols document.
+    """
+    kind = getattr(config, "kind", type(config).__name__)
+    msg = f"Unsupported algorithm: {kind!r}"
+    return NotImplementedError(msg)
 
 
 class RetryStrategy(Protocol):
@@ -68,6 +85,9 @@ class RateLimitResult(NamedTuple):
     - `remaining` -> `X-RateLimit-Remaining` / `RateLimit: ;r=`
     - `retry_after` -> `Retry-After` header
     - `reset_after` -> `X-RateLimit-Reset` / `RateLimit: ;t=`
+
+    Fields may be appended with defaults as new algorithms land. Read
+    them by name, not by unpacking the tuple.
     """
 
     allowed: bool
@@ -197,6 +217,11 @@ class RateLimiterBackend(Protocol):
         created. The returned strategy shares storage with the
         backend. Later requests call the strategy methods directly,
         with no extra algorithm lookup.
+
+        A backend that does not support the given config kind raises
+        `NotImplementedError` naming the kind. New algorithm configs
+        join the union over time, so the match must end with that
+        raise, never a silent default.
         """
         ...
 
@@ -213,6 +238,9 @@ class CircuitBreakerSnapshot(NamedTuple):
     Algorithm-specific counters (`consecutive_error_count`,
     `consecutive_success_count`) are populated by the consecutive-count
     algorithm. Future algorithms may populate additional fields.
+
+    Fields may be appended with defaults as those algorithms land. Read
+    them by name, not by unpacking the tuple.
     """
 
     state: CircuitBreakerState
@@ -358,5 +386,10 @@ class CircuitBreakerBackend(Protocol):
         [`CircuitBreaker`][grelmicro.resilience.CircuitBreaker] when
         it is created, and again whenever the breaker's config changes
         through live reconfiguration.
+
+        A backend that does not support the given config kind raises
+        `NotImplementedError` naming the kind. New algorithm configs
+        join the union over time, so the match must end with that
+        raise, never a silent default.
         """
         ...
