@@ -91,7 +91,8 @@ class CallLog:
             if (method is None or call.method == method)
             and (args is None or call.args == args)
             and all(
-                call.kwargs.get(key) == value for key, value in kwargs.items()
+                key in call.kwargs and call.kwargs[key] == value
+                for key, value in kwargs.items()
             )
         )
 

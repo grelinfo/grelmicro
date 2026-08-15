@@ -156,10 +156,15 @@ class ExternalConfig:
         """Initialize the external config reloader.
 
         Raises:
-            ValueError: If neither `config` nor `secrets` is given.
+            ValueError: If neither `config` nor `secrets` is given, or if
+                `reload_interval` is not positive. A zero or negative
+                interval would poll without pause.
         """
         if config is None and secrets is None:
             msg = "ExternalConfig requires a config source, a secrets source, or both"
+            raise ValueError(msg)
+        if reload_interval <= 0:
+            msg = f"reload_interval must be > 0, got {reload_interval}."
             raise ValueError(msg)
         self._config_src = (
             _coerce_source(config) if config is not None else None

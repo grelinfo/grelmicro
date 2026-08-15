@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Generic, cast
@@ -446,7 +446,10 @@ class TTLCache(Generic[T]):
 
         async def compute() -> T:
             value = factory()
-            if asyncio.iscoroutine(value):
+            # `isawaitable`, not `iscoroutine`: the annotation promises any
+            # `Awaitable[T]`, and a Future or custom awaitable would
+            # otherwise be stored unawaited.
+            if inspect.isawaitable(value):
                 value = await value
             await self.set(
                 key, cast("T", value), ttl, tags=tags, stale_ttl=stale_ttl

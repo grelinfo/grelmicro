@@ -365,8 +365,11 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         """Construct a `CircuitBreaker` running the consecutive-count algorithm.
 
         Sibling of [`from_config`][grelmicro.resilience.CircuitBreaker.from_config]
-        and the bare constructor: the bare constructor reads env vars
-        for unset fields, this factory does not.
+        and the bare constructor. No path reads the environment at
+        construction: the bare constructor builds a default
+        `ConsecutiveCountConfig`, and this factory builds one from the fields
+        given here. Both register for live reload, so `ExternalConfig` still
+        retunes them from `GREL_CIRCUITBREAKER_{NAME}_` at runtime.
         """
         from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
             ConsecutiveCountConfig,

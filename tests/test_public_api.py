@@ -38,6 +38,7 @@ PUBLIC_MODULES = [
     "grelmicro.clock",
     "grelmicro.config",
     "grelmicro.coordination",
+    "grelmicro.describe",
     "grelmicro.health",
     "grelmicro.idempotency",
     "grelmicro.integrations",

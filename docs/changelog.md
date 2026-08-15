@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* ✨ `grelmicro.describe` exposes the report models `Grelmicro.describe()` returns, so a caller can annotate a report without reaching into a private module. `import grelmicro` still does not pay for them.
+* ✨ `micro.health`, `micro.metrics`, `micro.outbox`, `micro.ratelimiter`, and `micro.circuitbreaker` are typed properties. Every first-party kind now keeps its type through lookup instead of resolving as `Any`.
+* ✨ Export the names public signatures already required: `LockConfig` and `TaskLockConfig` (needed by `from_config`), `Task` (accepted by `Tasks(tasks=...)` and `TaskRouter.add_task`), and the four `Log*Type` enums (accepted by `configure`).
+* ✨ `Metrics.provider`, `Metrics.prometheus_registry`, and `Trace.provider` return their OpenTelemetry and Prometheus types instead of `Any`.
+
+### Fixed
+
+* 🐛 `HealthChecks` never registered for live reload, so `ExternalConfig` could not retune it from a mounted ConfigMap. It inherited the reconfiguration machinery like every other component but was the only one that did not track itself.
+* 🐛 `TTLCache.get_or_set` and `Idempotency.run` awaited only coroutines, so a factory returning any other awaitable, such as a `Future`, had that awaitable stored as the cached value or the idempotent response.
+* 🐛 `TrustedProxies` accepted `max_entries=0`, which slices as `entries[-0:]` and returns the whole list, so the cap silently allowed everything it was meant to bound. Zero and negative values now raise, and `max_hops=0` stays valid.
+* 🐛 The singleton guard only inspected the incoming component, so a plain component of a singleton kind could register after the singleton. Either side declaring the kind is now enough.
+* 🐛 `CallLog.count(name=None)` matched calls that never passed `name`, because an absent key read as `None`.
+* 🐛 `ExternalConfig(reload_interval=0)` polled without pause. The interval must now be positive.
+* 🐛 `@idempotent` accepted a synchronous function that then failed at runtime, and erased the decorated return type. It now requires a coroutine function and preserves the type.
+* 🐛 The `CircuitBreaker.consecutive_count` docstring claimed the bare constructor reads environment variables. No circuit breaker path does.
+
 ## 0.38.0 - 2026-08-15
 
 ### Breaking

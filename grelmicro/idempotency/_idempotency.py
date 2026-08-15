@@ -620,7 +620,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         again. A failing `factory` stores nothing, so a later retry runs
         fresh.
         """
-        import asyncio  # noqa: PLC0415
+        import inspect  # noqa: PLC0415
 
         async with self(
             key, fingerprint=fingerprint, wait_timeout=wait_timeout
@@ -628,7 +628,10 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             if operation.replayed:
                 return operation.result()
             response = factory()
-            if asyncio.iscoroutine(response):
+            # `isawaitable`, not `iscoroutine`: the annotation promises any
+            # `Awaitable[T]`, and a Future would otherwise be stored
+            # unawaited as the idempotent response.
+            if inspect.isawaitable(response):
                 response = await response
             operation.store(cast("T", response))
             return cast("T", response)

@@ -5,7 +5,14 @@ from typing import Any, assert_type
 from grelmicro import Grelmicro, Usable
 from grelmicro.cache import Cache
 from grelmicro.health import HealthChecks
+from grelmicro.idempotency import Idempotency, idempotent
+from grelmicro.metrics import Metrics
+from grelmicro.outbox import Outbox
 from grelmicro.providers.memory import MemoryProvider
+from grelmicro.resilience import (
+    CircuitBreakerComponent,
+    RateLimiterComponent,
+)
 
 
 def build() -> None:
@@ -52,3 +59,34 @@ def get_by_class() -> None:
     assert_type(micro.get(HealthChecks, "default"), HealthChecks)
     assert_type(micro.get(Cache), Cache)
     assert_type(micro.get("mailer"), Any)
+
+
+def typed_component_properties() -> None:
+    """Every first-party kind resolves to its own type, not `Any`."""
+    micro = Grelmicro(uses=[HealthChecks()])
+    assert_type(micro.health, HealthChecks)
+    assert_type(micro.metrics, Metrics)
+    assert_type(micro.outbox, Outbox)
+    assert_type(micro.ratelimiter, RateLimiterComponent)
+    assert_type(micro.circuitbreaker, CircuitBreakerComponent)
+    # A third-party kind still resolves dynamically.
+    assert_type(micro.mailer, Any)
+
+
+def idempotent_preserves_return_type() -> None:
+    """Keep the decorated return type under an unparameterized `Idempotency`.
+
+    `Idempotency("charge")` is the form the docs show. Binding the decorator's
+    `idempotency` parameter to `R` made that form solve `R` as `Any` and erase
+    the return type, which is the opposite of the intent.
+    """
+    idem = Idempotency("charge")
+
+    @idempotent(idem, key=lambda **kw: kw["idempotency_key"])
+    async def charge(amount: int, *, idempotency_key: str) -> int:  # noqa: ARG001
+        return amount
+
+    async def call() -> None:
+        assert_type(await charge(1, idempotency_key="k"), int)
+
+    _ = call
