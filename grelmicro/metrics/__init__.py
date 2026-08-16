@@ -13,7 +13,6 @@ from grelmicro.metrics.config import (
 )
 from grelmicro.metrics.errors import (
     MetricsError,
-    MetricsSettingsValidationError,
 )
 from grelmicro.metrics.fastapi import metrics_router
 
@@ -22,7 +21,6 @@ __all__ = [
     "MetricsConfig",
     "MetricsError",
     "MetricsExporterType",
-    "MetricsSettingsValidationError",
     "measure",
     "metrics_router",
 ]

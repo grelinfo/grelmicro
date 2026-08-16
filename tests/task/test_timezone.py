@@ -6,11 +6,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.task import (
     TaskRouter,
     Tasks,
     TasksConfig,
-    TaskSettingsValidationError,
     TimezoneError,
 )
 from grelmicro.task._cron import CronExpression, CronTask, _delay_to_next_minute
@@ -217,14 +217,14 @@ def test_from_config_bypasses_the_environment() -> None:
 def test_invalid_timezone_reports_a_settings_error() -> None:
     """`Tasks` reports a bad timezone through the settings error type."""
     # Act / Assert
-    with pytest.raises(TaskSettingsValidationError, match="timezone"):
+    with pytest.raises(SettingsValidationError, match="timezone"):
         Tasks(timezone="Nope/Zone")
 
 
 def test_negative_shutdown_timeout_is_rejected() -> None:
     """A negative drain budget fails validation."""
     # Act / Assert
-    with pytest.raises(TaskSettingsValidationError, match="shutdown_timeout"):
+    with pytest.raises(SettingsValidationError, match="shutdown_timeout"):
         Tasks(shutdown_timeout=-1)
 
 

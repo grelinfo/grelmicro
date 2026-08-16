@@ -194,7 +194,15 @@ class AdapterNotRegisteredError(GrelmicroError, LookupError):
 
 
 class SettingsValidationError(GrelmicroError, ValueError):
-    """Settings Validation Error.
+    """Raised when a configuration value fails validation.
+
+    Every grelmicro class raises this one error, whichever pattern or
+    component it is, so one `except` covers the whole library. A config
+    class you build yourself, such as `RetryConfig(...)`, raises
+    pydantic's `ValidationError` like any pydantic model.
+
+    Subclasses `ValueError`, which `pydantic.ValidationError` also is, so
+    an `except ValueError` catches either.
 
     Pydantic ValidationError messages already describe the failure shape
     ("Input should be a valid string", "Input should be greater than 0",

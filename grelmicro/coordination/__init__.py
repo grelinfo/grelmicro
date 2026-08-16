@@ -16,7 +16,6 @@ from grelmicro.coordination._protocol import (
 from grelmicro.coordination.errors import (
     CoordinationBackendError,
     CoordinationError,
-    CoordinationSettingsValidationError,
     LockAcquireError,
     LockBackendError,
     LockLockedCheckError,
@@ -42,7 +41,6 @@ __all__ = [
     "Coordination",
     "CoordinationBackendError",
     "CoordinationError",
-    "CoordinationSettingsValidationError",
     "LeaderElection",
     "LeaderElectionBackend",
     "LeaderElectionConfig",

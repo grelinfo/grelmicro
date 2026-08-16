@@ -31,28 +31,29 @@ def _resolve_fqn(fqn: str) -> type[BaseException]:
     """Resolve a fully-qualified name to an exception class."""
     module_path, _, name = fqn.rpartition(".")
     if not module_path:
-        msg = (
-            f"timeout_errors entry must be a fully-qualified name, got {fqn!r}"
-        )
+        msg = "timeout_errors entry must be a fully-qualified name"
         raise ValueError(msg)
     try:
         module = import_module(module_path)
     except ModuleNotFoundError as exc:
         msg = (
-            f"timeout_errors entry {fqn!r}: cannot import module "
-            f"{module_path!r} ({exc})"
+            f"timeout_errors entry names module {module_path!r}, "
+            f"which cannot be imported ({exc})"
         )
         raise ValueError(msg) from exc
     try:
         cls = getattr(module, name)
     except AttributeError as exc:
         msg = (
-            f"timeout_errors entry {fqn!r}: module {module_path!r} has "
-            f"no attribute {name!r}"
+            f"timeout_errors entry names module {module_path!r}, "
+            f"which has no attribute {name!r}"
         )
         raise ValueError(msg) from exc
     if not (isinstance(cls, type) and issubclass(cls, Exception)):
-        msg = f"timeout_errors entry {fqn!r} is not an Exception subclass"
+        msg = (
+            f"timeout_errors entry names {name!r}, which is not an "
+            f"Exception subclass"
+        )
         raise TypeError(msg)
     return cls
 

@@ -15,7 +15,6 @@ from grelmicro.outbox.errors import (
     HandlerNotFoundError,
     OutboxError,
     OutboxHandleError,
-    OutboxSettingsValidationError,
     OutboxTransactionError,
 )
 
@@ -30,7 +29,6 @@ __all__ = [
     "OutboxError",
     "OutboxHandleError",
     "OutboxRecord",
-    "OutboxSettingsValidationError",
     "OutboxTransactionError",
     "Retry",
 ]

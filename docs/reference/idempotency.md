@@ -12,7 +12,6 @@
         - IdempotencyConfig
         - IdempotencyConflictError
         - IdempotencyError
-        - IdempotencySettingsValidationError
         - IdempotencyStateError
         - IdempotencyWaitTimeoutError
         - Operation

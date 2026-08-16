@@ -15,4 +15,3 @@
         - HealthChecksConfig
         - HealthReport
         - HealthStatus
-        - HealthSettingsValidationError

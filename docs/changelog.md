@@ -1,10 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+* 💥 A bad configuration value raises `SettingsValidationError`, whichever pattern or component you built. The ten per-module subclasses are removed: `CacheSettingsValidationError`, `CoordinationSettingsValidationError`, `HealthSettingsValidationError`, `IdempotencySettingsValidationError`, `LogSettingsValidationError`, `MetricsSettingsValidationError`, `OutboxSettingsValidationError`, `ResilienceSettingsValidationError`, `TaskSettingsValidationError`, and `TraceSettingsValidationError`. Catch the base error, which every one of them already subclassed. No caller ever reacted differently by module, and the message names the exact variable. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* 💥 `Fallback`, `Shield`, and `TTLCache` raise `SettingsValidationError` for a bad value instead of letting `pydantic.ValidationError` through. Both are `ValueError`, so an `except ValueError` keeps working. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+
+### Fixed
+
+* 🔒 `Fallback`, `Shield`, and `TTLCache` echoed the rejected value into the error. Pydantic attaches the input to every error it raises, so `GREL_FALLBACK_{NAME}_WHEN` reached the traceback verbatim, and `GREL_SHIELD_{NAME}_MAX_RATE` failed with a bare `ValueError` from `float()` carrying the same string. 0.39.0 said every configuration path raised `SettingsValidationError`. These three did not. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* 🔒 A validator that names the value it rejected leaked it through the wrapper, which strips only pydantic's own copy of the input. The `when=` and `timeout_errors` entries on `Retry`, `Fallback`, and `Shield` reported the module path and the attribute instead of the raw entry. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+
+### Added
+
+* 📝 An [Errors](reference/errors.md) reference page. `SettingsValidationError` is now the one configuration error, and it had no documented home.
+* ✅ The public API snapshot covers `grelmicro.outbox` and `grelmicro.types`. Both were documented in the API reference while their exports went unguarded, so a rename could have shipped unnoticed. A test now reads the reference pages, so documenting a module guards it.
+
 ## 0.39.0 - 2026-08-16
 
 ### Breaking
 
-* 💥 Every configuration path raises `SettingsValidationError` for a bad value. The patterns used to let the raw `pydantic.ValidationError` through, which carries `input_value` and so echoed a rejected environment value into the traceback. Catch `SettingsValidationError`, or `ValueError`, which both it and the pydantic error already are.
+* 💥 Every configuration path that goes through `resolve_config` raises `SettingsValidationError` for a bad value. The patterns used to let the raw `pydantic.ValidationError` through, which carries `input_value` and so echoed a rejected environment value into the traceback. Catch `SettingsValidationError`, or `ValueError`, which both it and the pydantic error already are. (`Fallback`, `Shield`, and `TTLCache` resolve their own configuration and were missed here, fixed in the next release.)
 * 💥 `CircuitBreaker`, `RateLimiter`, and the `Shield` factories read `GREL_CIRCUITBREAKER_*`, `GREL_RATELIMITER_*`, and `GREL_SHIELD_*` at construction when `GREL_ENV_LOAD` is on, like every other pattern. Variables that were silently ignored now apply, and a named instance refuses at startup a variable belonging to a different algorithm than the code runs. Before upgrading a deployment with `GREL_ENV_LOAD` set, run `env | grep -E "GREL_(RATELIMITER|CIRCUITBREAKER|SHIELD)_"` in the container and remove or fix what it prints. The environment still never picks the algorithm.
 * 💥 `CircuitBreaker` no longer takes a positional config. Pass a pre-built config to `from_config`, which did exactly the same thing. `CircuitBreaker("payments")` still works, because consecutive-count is a sensible default.
 * 💥 `RateLimiter` loses its bare constructor. Build it with `token_bucket`, `sliding_window`, or `from_config`. There is no default algorithm to fall back on, so the constructor now raises `TypeError` naming those three.

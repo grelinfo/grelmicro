@@ -52,12 +52,10 @@ def validate_directive(directive: InstrumentDirective, known: set[str]) -> None:
     silently treated as "include".
 
     Raises:
-        TraceSettingsValidationError: If the directive names an unknown target
+        SettingsValidationError: If the directive names an unknown target
             or maps a name to a non-bool value.
     """
-    from grelmicro.trace.errors import (  # noqa: PLC0415
-        TraceSettingsValidationError,
-    )
+    from grelmicro.errors import SettingsValidationError  # noqa: PLC0415
 
     if isinstance(directive, Mapping):
         # `str(key)` keeps the sort well defined: `isinstance` narrows the
@@ -72,7 +70,7 @@ def validate_directive(directive: InstrumentDirective, known: set[str]) -> None:
                 f"Trace(instrument=...) maps {bad_values} to non-bool values. "
                 f"Map a name to True or False."
             )
-            raise TraceSettingsValidationError(msg)
+            raise SettingsValidationError(msg)
     names = explicit_names(directive)
     if names is None:
         return
@@ -82,7 +80,7 @@ def validate_directive(directive: InstrumentDirective, known: set[str]) -> None:
             f"Trace(instrument=...) names unknown targets "
             f"{sorted(unknown)}. Known targets are {sorted(known)}."
         )
-        raise TraceSettingsValidationError(msg)
+        raise SettingsValidationError(msg)
 
 
 def is_selected(name: str, directive: InstrumentDirective) -> bool:

@@ -2,14 +2,12 @@
 
 from grelmicro.errors import (
     GrelmicroError,
-    SettingsValidationError,
     WouldBlockError,
 )
 
 __all__ = [
     "CoordinationBackendError",
     "CoordinationError",
-    "CoordinationSettingsValidationError",
     "LockAcquireError",
     "LockBackendError",
     "LockLockedCheckError",
@@ -132,9 +130,3 @@ class LockNotOwnedError(LockReleaseError):
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
         super().__init__(name=name, reason="lock not owned")
-
-
-class CoordinationSettingsValidationError(
-    CoordinationError, SettingsValidationError
-):
-    """Coordination Settings Validation Error."""

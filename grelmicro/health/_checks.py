@@ -30,7 +30,6 @@ from grelmicro.health._types import (
 )
 from grelmicro.health.errors import (
     HealthError,
-    HealthSettingsValidationError,
 )
 from grelmicro.metrics import _emit
 
@@ -213,7 +212,6 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             kwargs={"timeout": timeout, "cache_ttl": cache_ttl},
             env_prefix=resolved_env_prefix,
             env_load=env_load,
-            error_type=HealthSettingsValidationError,
         )
         self._setup(config, name=name, auto_health=auto_health)
         # Registers for external reload under `GREL_HEALTH_`. Only this path

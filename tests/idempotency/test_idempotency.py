@@ -27,7 +27,6 @@ from grelmicro.idempotency import (
     Idempotency,
     IdempotencyConfig,
     IdempotencyConflictError,
-    IdempotencySettingsValidationError,
     IdempotencyStateError,
     IdempotencyWaitTimeoutError,
     idempotent,
@@ -655,17 +654,15 @@ class TestCoverageGaps:
 
 
 def test_invalid_config_raises_settings_error() -> None:
-    """Invalid kwargs raise a catchable `IdempotencySettingsValidationError`."""
-    with pytest.raises(IdempotencySettingsValidationError) as exc_info:
+    """Invalid kwargs raise a catchable `SettingsValidationError`."""
+    with pytest.raises(SettingsValidationError) as exc_info:
         Idempotency("charge", ttl=-1)
     assert isinstance(exc_info.value, SettingsValidationError)
 
 
 def test_settings_error_is_settings_validation_error() -> None:
-    """`IdempotencySettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(
-        IdempotencySettingsValidationError, SettingsValidationError
-    )
+    """`SettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(SettingsValidationError, SettingsValidationError)
 
 
 async def test_idempotency_block_waits_out_the_timeout() -> None:

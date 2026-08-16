@@ -6,8 +6,8 @@ from collections.abc import Generator
 import pytest
 from pydantic import ValidationError
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.log import (
-    LogSettingsValidationError,
     RateLimitFilter,
     RateLimitFilterConfig,
 )
@@ -79,9 +79,9 @@ def test_config_property_is_frozen() -> None:
     ],
 )
 def test_invalid_config(capacity: int, refill_rate: float, cost: float) -> None:
-    """Test non-positive values raise LogSettingsValidationError."""
+    """Test non-positive values raise SettingsValidationError."""
     # Act & Assert
-    with pytest.raises(LogSettingsValidationError, match="greater than"):
+    with pytest.raises(SettingsValidationError, match="greater than"):
         RateLimitFilter(capacity=capacity, refill_rate=refill_rate, cost=cost)
 
 

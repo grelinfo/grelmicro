@@ -7,8 +7,8 @@ from datetime import timedelta
 import pytest
 from pydantic import ValidationError
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.outbox import Outbox, OutboxConfig
-from grelmicro.outbox.errors import OutboxSettingsValidationError
 from grelmicro.outbox.memory import MemoryOutboxAdapter
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -84,7 +84,7 @@ def test_from_config_ignores_the_environment(
 
 def test_invalid_value_raises() -> None:
     """An out-of-range setting raises the component error."""
-    with pytest.raises(OutboxSettingsValidationError):
+    with pytest.raises(SettingsValidationError):
         Outbox(MemoryOutboxAdapter(), poll_interval=0)
 
 

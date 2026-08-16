@@ -104,26 +104,26 @@ def _resolve_fqn(fqn: str) -> type[Exception]:
     """Resolve a fully-qualified name to an Exception class."""
     module_path, _, name = fqn.rpartition(".")
     if not module_path:
-        msg = f"when= env entry must be a fully-qualified name, got {fqn!r}"
+        msg = "when= env entry must be a fully-qualified name"
         raise ValueError(msg)
     try:
         module = import_module(module_path)
     except ModuleNotFoundError as exc:
         msg = (
-            f"when= env entry {fqn!r}: cannot import module "
-            f"{module_path!r} ({exc})"
+            f"when= env entry names module {module_path!r}, "
+            f"which cannot be imported ({exc})"
         )
         raise ValueError(msg) from exc
     try:
         cls = getattr(module, name)
     except AttributeError as exc:
         msg = (
-            f"when= env entry {fqn!r}: module {module_path!r} has no "
-            f"attribute {name!r}"
+            f"when= env entry names module {module_path!r}, "
+            f"which has no attribute {name!r}"
         )
         raise ValueError(msg) from exc
     if not (isinstance(cls, type) and issubclass(cls, Exception)):
-        msg = f"when= env entry {fqn!r} is not an Exception subclass"
+        msg = f"when= env entry names {name!r}, which is not an Exception subclass"
         raise TypeError(msg)
     return cls
 

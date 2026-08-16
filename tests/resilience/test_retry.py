@@ -801,7 +801,7 @@ async def test_env_when_rejects_unknown_module(
     """FQN that points to a missing module raises with a clear message."""
     monkeypatch.setenv("GREL_RETRY_BAD3_WHEN", "no_such_module.NoClass")
     with pytest.raises(
-        (ValidationError, ValueError), match="cannot import module"
+        (ValidationError, ValueError), match="cannot be imported"
     ):
         Retry("bad3")
 

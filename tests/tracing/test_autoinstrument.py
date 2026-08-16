@@ -22,6 +22,7 @@ from starlette.applications import Starlette
 from starlette.status import HTTP_200_OK
 
 from grelmicro import Grelmicro
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
@@ -39,7 +40,6 @@ from grelmicro.trace._autoinstrument import (
     uninstrument_providers,
     validate_directive,
 )
-from grelmicro.trace.errors import TraceSettingsValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -91,17 +91,17 @@ def test_validate_directive_allows_bool_and_known_names() -> None:
 
 def test_validate_directive_rejects_unknown_names() -> None:
     """An unknown name in a string, list, or map raises (typo guard)."""
-    with pytest.raises(TraceSettingsValidationError, match="unknown targets"):
+    with pytest.raises(SettingsValidationError, match="unknown targets"):
         validate_directive("typo", known={"redis"})
-    with pytest.raises(TraceSettingsValidationError, match="unknown targets"):
+    with pytest.raises(SettingsValidationError, match="unknown targets"):
         validate_directive(["reddis"], known={"redis"})
-    with pytest.raises(TraceSettingsValidationError, match="unknown targets"):
+    with pytest.raises(SettingsValidationError, match="unknown targets"):
         validate_directive({"typo": False}, known={"redis"})
 
 
 def test_validate_directive_rejects_non_bool_map_values() -> None:
     """A map value that is not a bool raises, so options are not swallowed."""
-    with pytest.raises(TraceSettingsValidationError, match="non-bool"):
+    with pytest.raises(SettingsValidationError, match="non-bool"):
         validate_directive({"redis": {"opt": 1}}, known={"redis"})  # ty: ignore[invalid-argument-type]
 
 
@@ -444,7 +444,7 @@ async def test_app_unknown_target_raises() -> None:
     """An unknown instrument target fails app startup."""
     redis = RedisProvider(REDIS_URL)
     micro = Grelmicro(uses=[_none_trace(instrument=["bogus"]), redis])
-    with pytest.raises(TraceSettingsValidationError, match="unknown targets"):
+    with pytest.raises(SettingsValidationError, match="unknown targets"):
         async with micro:
             pass
 

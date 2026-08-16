@@ -21,7 +21,6 @@ from grelmicro.trace.config import (
 )
 from grelmicro.trace.errors import (
     TraceError,
-    TraceSettingsValidationError,
 )
 
 if TYPE_CHECKING:
@@ -304,7 +303,6 @@ class Trace:
                 kwargs=self._kwargs,
                 env_prefix="GREL_TRACE_",
                 env_load=self._env_load,
-                error_type=TraceSettingsValidationError,
             )
         return self._resolved
 

@@ -11,7 +11,7 @@ from typing_extensions import Doc
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination._tokens import generate_worker_id
-from grelmicro.coordination.errors import CoordinationSettingsValidationError
+from grelmicro.errors import SettingsValidationError
 
 # Seam for randomness in retry jitter. Tests pin it to a fixed value.
 _random = random.random
@@ -54,7 +54,7 @@ def assert_worker_unchanged(
             f"({current.worker!r} -> {new.worker!r}). "
             f"Reuse the existing worker on the new config."
         )
-        raise CoordinationSettingsValidationError(msg)
+        raise SettingsValidationError(msg)
 
 
 class BaseLock(LockPrimitive, Protocol):

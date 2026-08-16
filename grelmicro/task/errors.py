@@ -1,18 +1,10 @@
 """Task Errors."""
 
-from grelmicro.errors import GrelmicroError, SettingsValidationError
+from grelmicro.errors import GrelmicroError
 
 
 class TaskError(GrelmicroError):
     """Base grelmicro Task error."""
-
-
-class TaskSettingsValidationError(TaskError, SettingsValidationError):
-    """Task Settings Validation Error.
-
-    Raised when `Tasks` settings fail validation, whether they came from
-    keyword arguments or from the `GREL_TASK_` environment variables.
-    """
 
 
 class FunctionTypeError(TaskError, TypeError):

@@ -86,6 +86,13 @@ in any of its algorithms, is always accounted for:
 | Live reload, field of another algorithm | Skipped for that instance and counted at debug, never a crash. Key names stay out of the logs because a mounted Secret's key can itself be sensitive. A warning naming sibling fields follows with config provenance ([#664](https://github.com/grelinfo/grelmicro/issues/664)). |
 | Value invalid | `SettingsValidationError` naming the variable and the reason, never the value |
 
+Every class raises that one error, whichever pattern or component it is. There
+is no per-module subclass to remember: a bad value is a startup crash, and the
+message already names the exact variable, which locates the problem better than
+a class name can. A config class you build yourself, such as `RetryConfig(...)`
+or `ExponentialBackoff(...)`, raises pydantic's `ValidationError` like any
+pydantic model.
+
 For the default instance the instance address is the kind address, so it
 follows the broadcast row: the bare prefix cannot tell "this instance's field"
 from "every instance's field", and an ambiguous address is not an unambiguous
@@ -94,6 +101,13 @@ mistake.
 The rejected value is never echoed. A variable name is the operator's own,
 but its value can be a credential, so an error carries the name and the reason
 and stops there.
+
+Pydantic attaches the rejected input to every error it raises, for every field,
+whether or not anyone reviewed that field for secrets. Wrapping into
+`SettingsValidationError` is what removes it. A validator may still name a
+value on purpose where the field's domain is a public closed set and the value
+is the whole diagnostic, as an unknown timezone name does. That is a per-field
+decision, never the default.
 
 A name matching no declared field of any algorithm is ignored without report.
 Kubernetes injects `{SVCNAME}_SERVICE_HOST` into every pod, so grelmicro must
@@ -121,6 +135,7 @@ not.
 | `from_config` is the one door for a pre-built config | The environment-merging lane and the config-is-truth lane must be distinguishable at the call site | The environment lane is removed |
 | `GREL_SHIELD_PROFILE` selects a preset, not an algorithm | Every profile declares the identical field names, so no variable gains or loses meaning from the choice | A profile adds or removes a field |
 | A Provider reads its vendor namespace, not `GREL_*` | Connection settings belong to the deployment, and every vendor already defines those names | grelmicro starts owning connection settings |
+| One `SettingsValidationError` for every class, no per-module subclass | No caller reacts differently to a bad value by module, and the message names the variable | A caller needs to branch on the module a config error came from |
 
 ## `resolve_config()`
 

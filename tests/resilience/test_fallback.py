@@ -5,6 +5,7 @@ import asyncio as _asyncio
 import pytest
 from pydantic import ValidationError
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience import (
     Fallback,
     FallbackConfig,
@@ -87,7 +88,7 @@ def test_fallback_accepts_tuple_filter() -> None:
 
 def test_fallback_rejects_both_default_and_factory() -> None:
     """Class form enforces mutual exclusion too."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(SettingsValidationError):
         Fallback("test", when=ValueError, default=1, factory=lambda _e: 2)
 
 
@@ -406,7 +407,7 @@ async def test_env_when_rejects_unknown_module(
     monkeypatch.setenv("GREL_FALLBACK_BAD2_WHEN", "no_such_module.NoClass")
     monkeypatch.setenv("GREL_FALLBACK_BAD2_DEFAULT", "0")
     with pytest.raises(
-        (ValidationError, ValueError), match="cannot import module"
+        (ValidationError, ValueError), match="cannot be imported"
     ):
         Fallback("bad2")
 

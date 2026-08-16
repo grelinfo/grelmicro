@@ -1,11 +1,7 @@
 """Tracing Errors."""
 
-from grelmicro.errors import GrelmicroError, SettingsValidationError
+from grelmicro.errors import GrelmicroError
 
 
 class TraceError(GrelmicroError):
     """Base trace error."""
-
-
-class TraceSettingsValidationError(TraceError, SettingsValidationError):
-    """Trace Settings Validation Error."""

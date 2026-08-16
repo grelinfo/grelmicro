@@ -14,7 +14,6 @@
         - Log
         - LogConfig
         - LogError
-        - LogSettingsValidationError
         - RateLimitFilter
         - RateLimitFilterConfig
         - configure

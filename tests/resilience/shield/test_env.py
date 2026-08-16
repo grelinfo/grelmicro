@@ -24,7 +24,7 @@ def test_resolve_fqn_rejects_bare_name() -> None:
 
 def test_resolve_fqn_rejects_missing_module() -> None:
     """A missing module surfaces a clear error."""
-    with pytest.raises(ValueError, match="cannot import module"):
+    with pytest.raises(ValueError, match="cannot be imported"):
         _resolve_fqn("not_a_real_module_anywhere.X")
 
 

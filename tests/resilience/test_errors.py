@@ -97,7 +97,6 @@ def test_resilience_module_exports() -> None:
         "RedisCircuitBreakerAdapter",
         "RedisRateLimiterAdapter",
         "ResilienceError",
-        "ResilienceSettingsValidationError",
         "Retry",
         "RetryAttempt",
         "RetryBackoffConfig",

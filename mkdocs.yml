@@ -123,6 +123,7 @@ nav:
     - reference/cache.md
     - reference/clock.md
     - reference/config.md
+    - reference/errors.md
     - reference/fastapi.md
     - reference/faststream.md
     - reference/litestar.md

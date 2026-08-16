@@ -5,7 +5,6 @@ from datetime import datetime
 from grelmicro.errors import (
     AdmissionError,
     GrelmicroError,
-    SettingsValidationError,
 )
 
 
@@ -15,12 +14,6 @@ class ResilienceError(GrelmicroError):
     This class serves as the base for all errors related to resilience mechanisms
     such as circuit breakers, retries, etc.
     """
-
-
-class ResilienceSettingsValidationError(
-    ResilienceError, SettingsValidationError
-):
-    """Resilience Settings Validation Error."""
 
 
 class BulkheadFullError(ResilienceError, AdmissionError):

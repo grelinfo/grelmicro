@@ -1,11 +1,7 @@
 """Cache Errors."""
 
-from grelmicro.errors import GrelmicroError, SettingsValidationError
+from grelmicro.errors import GrelmicroError
 
 
 class CacheError(GrelmicroError):
     """Base cache error."""
-
-
-class CacheSettingsValidationError(CacheError, SettingsValidationError):
-    """Cache Settings Validation Error."""

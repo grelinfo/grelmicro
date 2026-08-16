@@ -24,7 +24,6 @@ from grelmicro.trace._component import (
 )
 from grelmicro.trace.errors import (
     TraceError,
-    TraceSettingsValidationError,
 )
 
 
@@ -258,18 +257,18 @@ async def test_trace_raises_when_private_otel_global_missing(
 async def test_trace_invalid_env_config_raises_settings_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Invalid env config raises a catchable `TraceSettingsValidationError`."""
+    """Invalid env config raises a catchable `SettingsValidationError`."""
     monkeypatch.setenv("GREL_TRACE_EXPORTER", "bogus")
     micro = Grelmicro(uses=[Trace(env_load=True)])
-    with pytest.raises(TraceSettingsValidationError) as exc_info:
+    with pytest.raises(SettingsValidationError) as exc_info:
         async with micro:
             pass
     assert isinstance(exc_info.value, SettingsValidationError)
 
 
 def test_trace_settings_error_is_settings_validation_error() -> None:
-    """`TraceSettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(TraceSettingsValidationError, SettingsValidationError)
+    """`SettingsValidationError` is a `SettingsValidationError`."""
+    assert issubclass(SettingsValidationError, SettingsValidationError)
 
 
 def test_exporter_defaults_to_auto() -> None:

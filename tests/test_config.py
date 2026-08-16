@@ -208,31 +208,17 @@ def test_invalid_env_value_raises_validation_error(
         )
 
 
-def test_error_type_wraps_validation_error() -> None:
-    """`error_type` wraps a `ValidationError` into the typed settings error."""
-    with pytest.raises(_SampleSettingsError) as exc_info:
+def test_wraps_validation_error() -> None:
+    """A bad value raises `SettingsValidationError`, never pydantic's."""
+    with pytest.raises(SettingsValidationError) as exc_info:
         resolve_config(
             _Sample,
             explicit=None,
             kwargs={"name": "a", "timeout": -1.0},
             env_prefix="X_",
             env_load=False,
-            error_type=_SampleSettingsError,
         )
-    assert isinstance(exc_info.value, SettingsValidationError)
-
-
-def test_from_mapping_error_type_wraps_validation_error() -> None:
-    """`resolve_config_from_mapping` wraps with `error_type` too."""
-    current = _Sample(name="a")
-    with pytest.raises(_SampleSettingsError) as exc_info:
-        resolve_config_from_mapping(
-            current,
-            env_prefix="X_",
-            mapping={"X_TIMEOUT": "-1.0"},
-            error_type=_SampleSettingsError,
-        )
-    assert isinstance(exc_info.value, SettingsValidationError)
+    assert not isinstance(exc_info.value, ValidationError)
 
 
 def test_from_mapping_without_error_type_raises_validation_error() -> None:

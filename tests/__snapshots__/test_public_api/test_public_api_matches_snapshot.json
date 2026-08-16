@@ -61,9 +61,6 @@
     "CacheSerializer": {
       "()": "(*args, **kwargs)"
     },
-    "CacheSettingsValidationError": {
-      "()": "(error)"
-    },
     "CachedFunction": {
       "()": "(*args, **kwargs)"
     },
@@ -124,9 +121,6 @@
     },
     "CoordinationBackendError": null,
     "CoordinationError": null,
-    "CoordinationSettingsValidationError": {
-      "()": "(error)"
-    },
     "LeaderElection": {
       "()": "(name, *, backend=..., worker=..., lease_duration=..., renew_deadline=..., retry_interval=..., retry_jitter=..., backend_timeout=..., error_interval=..., env_prefix=..., env_load=..., metadata=...)",
       ".from_config": "(name, config, *, backend=..., metadata=...)"
@@ -244,9 +238,6 @@
       "()": "(message, *, details=...)"
     },
     "HealthReport": null,
-    "HealthSettingsValidationError": {
-      "()": "(error)"
-    },
     "HealthStatus": {
       "()": "(*values)"
     }
@@ -264,9 +255,6 @@
     },
     "IdempotencyError": null,
     "IdempotencyKeyMakerError": null,
-    "IdempotencySettingsValidationError": {
-      "()": "(error)"
-    },
     "IdempotencyStateError": null,
     "IdempotencyWaitTimeoutError": {
       "()": "(*, name, key, timeout)"
@@ -355,9 +343,6 @@
     "LogSerializerType": {
       "()": "(*values)"
     },
-    "LogSettingsValidationError": {
-      "()": "(error)"
-    },
     "ProbeFilter": {
       "()": "(paths=...)"
     },
@@ -387,14 +372,41 @@
     "MetricsExporterType": {
       "()": "(*values)"
     },
-    "MetricsSettingsValidationError": {
-      "()": "(error)"
-    },
     "measure": {
       "()": "(func=..., *, name=..., record_in_flight=...)"
     },
     "metrics_router": {
       "()": "(component=..., *, prefix=..., path=..., dependencies=...)"
+    }
+  },
+  "grelmicro.outbox": {
+    "Cancel": {
+      "()": "(reason)"
+    },
+    "HandlerAlreadyRegisteredError": null,
+    "HandlerNotFoundError": null,
+    "Message": {
+      "()": "(id, topic, key, data, payload, headers, attempts)"
+    },
+    "Outbox": {
+      "()": "(source, *, requires=..., name=..., relay=..., table=..., poll_interval=..., batch_size=..., lease_duration=..., max_attempts=..., retry_base=..., retry_max=..., retry_jitter=..., concurrency=..., dead_letter=..., keep_delivered=..., auto_migrate=..., notify=..., env_load=..., shutdown_timeout=...)",
+      ".current": "(name=...)",
+      ".from_config": "(source, config, *, requires=..., name=..., shutdown_timeout=...)"
+    },
+    "OutboxBackend": {
+      "()": "(*args, **kwargs)"
+    },
+    "OutboxConfig": {
+      "()": "(*, table=..., relay=..., poll_interval=..., batch_size=..., lease_duration=..., max_attempts=..., retry_base=..., retry_max=..., retry_jitter=..., concurrency=..., dead_letter=..., keep_delivered=..., auto_migrate=..., notify=...)"
+    },
+    "OutboxError": null,
+    "OutboxHandleError": null,
+    "OutboxRecord": {
+      "()": "(id, topic, payload, key=..., headers=..., dedup_key=..., attempts=..., available_at=...)"
+    },
+    "OutboxTransactionError": null,
+    "Retry": {
+      "()": "(*, delay=...)"
     }
   },
   "grelmicro.providers": {
@@ -547,9 +559,6 @@
       "()": "(*, provider=..., env_prefix=..., prefix=...)"
     },
     "ResilienceError": null,
-    "ResilienceSettingsValidationError": {
-      "()": "(error)"
-    },
     "Retry": {
       "()": "(name, backoff=..., *, when=..., attempts=..., max_seconds=..., env_load=...)",
       ".constant": "(name, *, when, attempts=..., max_seconds=..., delay=..., env_load=...)",
@@ -742,9 +751,6 @@
     "TaskRouter": {
       "()": "(*, tasks=..., timezone=...)"
     },
-    "TaskSettingsValidationError": {
-      "()": "(error)"
-    },
     "TaskStartOperationError": {
       "()": "()"
     },
@@ -788,9 +794,6 @@
     "TraceSamplerType": {
       "()": "(*values)"
     },
-    "TraceSettingsValidationError": {
-      "()": "(error)"
-    },
     "add_context": {
       "()": "(**fields)"
     },
@@ -803,5 +806,14 @@
     "span": {
       "()": "(name, **fields)"
     }
+  },
+  "grelmicro.types": {
+    "BackendScope": null,
+    "Environment": null,
+    "LogLevel": null,
+    "SecretUrl": {
+      "()": "(secret_value)"
+    },
+    "TimeZoneName": null
   }
 }

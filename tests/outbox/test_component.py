@@ -8,11 +8,10 @@ import pytest
 from pydantic import BaseModel
 
 from grelmicro import Grelmicro
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.outbox import Message, Outbox
 from grelmicro.outbox.errors import (
     HandlerAlreadyRegisteredError,
-    OutboxSettingsValidationError,
 )
 from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.outbox.postgres import PostgresOutboxAdapter
@@ -47,7 +46,7 @@ def test_config_from_kwargs() -> None:
 
 def test_invalid_config_raises() -> None:
     """An out-of-range setting raises the component error."""
-    with pytest.raises(OutboxSettingsValidationError):
+    with pytest.raises(SettingsValidationError):
         Outbox(MemoryOutboxAdapter(), max_attempts=0)
 
 

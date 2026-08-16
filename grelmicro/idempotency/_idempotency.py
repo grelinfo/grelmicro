@@ -21,7 +21,6 @@ from grelmicro.coordination.lock import Lock
 from grelmicro.idempotency.config import IdempotencyConfig
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
-    IdempotencySettingsValidationError,
     IdempotencyStateError,
     IdempotencyWaitTimeoutError,
 )
@@ -421,7 +420,6 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             env_prefix=resolved_env_prefix,
             kind_env_prefix=kind_prefix,
             env_load=env_load,
-            error_type=IdempotencySettingsValidationError,
         )
         self._setup(name, config, fingerprint, cache, serializer)
         self._track_reconfigure(resolved_env_prefix)
