@@ -290,11 +290,6 @@ async def test_metrics_invalid_env_config_raises_settings_error(
     assert isinstance(exc_info.value, SettingsValidationError)
 
 
-def test_metrics_settings_error_is_settings_validation_error() -> None:
-    """`SettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(SettingsValidationError, SettingsValidationError)
-
-
 def test_auto_exporter_resolves_to_none_without_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

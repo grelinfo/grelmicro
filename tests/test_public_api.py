@@ -171,7 +171,9 @@ def test_every_documented_module_is_snapshotted() -> None:
         match.group(1)
         for page in reference.glob("*.md")
         for match in re.finditer(
-            r"^::: (grelmicro[\w.]*)$", page.read_text(), re.MULTILINE
+            r"^::: (grelmicro[\w.]*)$",
+            page.read_text(encoding="utf-8"),
+            re.MULTILINE,
         )
     }
     guarded = set(PUBLIC_MODULES)

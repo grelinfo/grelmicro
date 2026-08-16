@@ -75,6 +75,62 @@ ENV_CASES: list[tuple[str, str, Callable[[], object]]] = [
 _MIN_ENV_CASES = 12
 """Floor for the sweep, so a shrunken list cannot pass silently."""
 
+DOTTED_SECRET = "acme.vault.Sk_live_abc"
+"""A value shaped like an import path, which the FQN fields try to resolve.
+
+`SECRET` has no dot, so every FQN field rejected it on the first branch
+("must be a fully-qualified name") and three later branches went untested.
+Those branches raised `TypeError`, which pydantic never converts, so they
+escaped `except SettingsValidationError` and `except ValueError` alike, and
+two of them rebuilt the rejected value out of the module path and the
+attribute name.
+"""
+
+FQN_CASES: list[tuple[str, str, Callable[[], object]]] = [
+    ("Retry.when", "GREL_RETRY_FQ_WHEN", lambda: Retry("fq")),
+    ("Fallback.when", "GREL_FALLBACK_FQ_WHEN", lambda: Fallback("fq")),
+    (
+        "Shield.timeout_errors",
+        "GREL_SHIELD_FQ_TIMEOUT_ERRORS",
+        lambda: Shield("fq"),
+    ),
+]
+"""Every field that resolves an env value as a dotted import path."""
+
+RESOLVABLE_NON_EXCEPTION = "os.getcwd"
+"""Importable, but not an Exception subclass: the branch that raised `TypeError`."""
+
+
+@pytest.mark.parametrize(
+    ("label", "variable", "build"),
+    FQN_CASES,
+    ids=[case[0] for case in FQN_CASES],
+)
+@pytest.mark.parametrize(
+    "value",
+    [DOTTED_SECRET, RESOLVABLE_NON_EXCEPTION],
+    ids=["unimportable", "not-an-exception"],
+)
+def test_fqn_field_rejects_without_escaping_or_echoing(
+    label: str,
+    variable: str,
+    build: Callable[[], object],
+    value: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every branch of the FQN resolvers wraps, and none rebuilds the value."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv(variable, value)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(SettingsValidationError) as exc_info:
+            build()
+    message = str(exc_info.value)
+    for part in value.split("."):
+        assert part not in message, (
+            f"{label} rebuilt the rejected value from {part!r}"
+        )
+
 
 def test_every_pattern_is_covered() -> None:
     """The sweep refuses to pass on a list someone quietly trimmed."""

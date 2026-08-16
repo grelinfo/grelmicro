@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience import (
     ConstantBackoff,
     ExponentialBackoff,
@@ -741,7 +742,7 @@ def test_when_accepts_match_directly(fast_constant: ConstantBackoff) -> None:
 
 def test_when_rejects_invalid_value(fast_constant: ConstantBackoff) -> None:
     """Non-Match, non-class, non-tuple, non-callable raises."""
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(SettingsValidationError):
         Retry("api", fast_constant, when=42)  # ty: ignore[invalid-argument-type]
 
 
@@ -750,7 +751,7 @@ async def test_env_when_rejects_non_dotted_name(
 ) -> None:
     """Bare-name env entry raises a clear error."""
     monkeypatch.setenv("GREL_RETRY_BAD_WHEN", "ValueError")
-    with pytest.raises((ValidationError, ValueError)):
+    with pytest.raises(SettingsValidationError):
         Retry("bad")
 
 
@@ -759,7 +760,7 @@ async def test_env_when_rejects_non_exception_class(
 ) -> None:
     """FQN that resolves to a non-Exception class raises."""
     monkeypatch.setenv("GREL_RETRY_BAD2_WHEN", "builtins.int")
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(SettingsValidationError):
         Retry("bad2")
 
 
@@ -811,7 +812,7 @@ async def test_env_when_rejects_unknown_attribute(
 ) -> None:
     """FQN that points to a missing attribute raises with a clear message."""
     monkeypatch.setenv("GREL_RETRY_BAD4_WHEN", "builtins.NoSuchClass")
-    with pytest.raises((ValidationError, ValueError), match="has no attribute"):
+    with pytest.raises(SettingsValidationError, match="does not define"):
         Retry("bad4")
 
 

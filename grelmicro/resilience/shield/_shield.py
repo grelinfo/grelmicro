@@ -106,6 +106,7 @@ def _fill_from_env(
     passed: Any,  # noqa: ANN401
     read: Callable[[str], str | None],
     *,
+    env_prefix: str,
     cast: Callable[[str], Any] | None = None,
 ) -> None:
     """Take the caller's value, else the environment's, else leave unset.
@@ -114,8 +115,8 @@ def _fill_from_env(
     `resolve_config` applies for every other pattern.
 
     A value the cast refuses raises `SettingsValidationError` naming the
-    variable. `float()` reports the rejected string in its own message,
-    so it is never allowed to escape.
+    variable, in the same shape `resolve_config` renders. `float()` reports
+    the rejected string in its own message, so it never escapes.
     """
     if passed is not None:
         kwargs[field] = passed
@@ -129,7 +130,7 @@ def _fill_from_env(
     try:
         kwargs[field] = cast(value)
     except ValueError:
-        msg = f"{field}: input is not a valid number"
+        msg = f"- {env_prefix}{field.upper()}: input is not a valid number"
         raise SettingsValidationError(msg) from None
 
 
@@ -164,8 +165,12 @@ def _resolve_config_from_env(
         return value
 
     kwargs: dict[str, Any] = {"kind": profile}
-    _fill_from_env(kwargs, "timeout_errors", timeout_errors, _env)
-    _fill_from_env(kwargs, "max_rate", max_rate, _env, cast=float)
+    _fill_from_env(
+        kwargs, "timeout_errors", timeout_errors, _env, env_prefix=env_prefix
+    )
+    _fill_from_env(
+        kwargs, "max_rate", max_rate, _env, env_prefix=env_prefix, cast=float
+    )
     if cache is not None:
         kwargs["cache"] = cache
     if cache_key is not None:

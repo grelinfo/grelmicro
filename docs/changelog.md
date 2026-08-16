@@ -10,7 +10,8 @@
 ### Fixed
 
 * 🔒 `Fallback`, `Shield`, and `TTLCache` echoed the rejected value into the error. Pydantic attaches the input to every error it raises, so `GREL_FALLBACK_{NAME}_WHEN` reached the traceback verbatim, and `GREL_SHIELD_{NAME}_MAX_RATE` failed with a bare `ValueError` from `float()` carrying the same string. 0.39.0 said every configuration path raised `SettingsValidationError`. These three did not. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
-* 🔒 A validator that names the value it rejected leaked it through the wrapper, which strips only pydantic's own copy of the input. The `when=` and `timeout_errors` entries on `Retry`, `Fallback`, and `Shield` reported the module path and the attribute instead of the raw entry. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* 🔒 A validator that names the value it rejected leaked it through the wrapper, which strips only pydantic's own copy of the input. The `when=` and `timeout_errors` entries on `Retry`, `Fallback`, and `Shield` no longer report any part of the rejected entry. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* 🐛 A `when=` or `timeout_errors` entry that resolved to something other than an exception class raised `TypeError`, which escaped `except SettingsValidationError` and `except ValueError` alike, because pydantic converts only `ValueError` and `AssertionError` into a validation error. `GREL_RETRY_{NAME}_WHEN=os.getcwd` hit it. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
 
 ### Added
 

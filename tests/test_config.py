@@ -30,10 +30,6 @@ _CONFIG_DEFAULT = 60.0
 """`LockConfig.lease_duration` default, reached when no variable matches."""
 
 
-class _SampleSettingsError(SettingsValidationError):
-    """Settings error used to test `error_type` wrapping."""
-
-
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_RETRIES = 3
 KWARG_TIMEOUT = 1.0
@@ -218,11 +214,11 @@ def test_wraps_validation_error() -> None:
             env_prefix="X_",
             env_load=False,
         )
-    assert not isinstance(exc_info.value, ValidationError)
+    assert "-1.0" not in str(exc_info.value)
 
 
-def test_from_mapping_without_error_type_raises_validation_error() -> None:
-    """Without `error_type`, the raw `ValidationError` propagates."""
+def test_from_mapping_raises_raw_validation_error() -> None:
+    """The reload path lets the raw `ValidationError` through, by design."""
     current = _Sample(name="a")
     with pytest.raises(ValidationError):
         resolve_config_from_mapping(

@@ -266,11 +266,6 @@ async def test_trace_invalid_env_config_raises_settings_error(
     assert isinstance(exc_info.value, SettingsValidationError)
 
 
-def test_trace_settings_error_is_settings_validation_error() -> None:
-    """`SettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(SettingsValidationError, SettingsValidationError)
-
-
 def test_exporter_defaults_to_auto() -> None:
     """The exporter field defaults to `auto`."""
     assert TraceConfig().exporter == TraceExporterType.AUTO

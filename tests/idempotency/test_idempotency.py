@@ -660,11 +660,6 @@ def test_invalid_config_raises_settings_error() -> None:
     assert isinstance(exc_info.value, SettingsValidationError)
 
 
-def test_settings_error_is_settings_validation_error() -> None:
-    """`SettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(SettingsValidationError, SettingsValidationError)
-
-
 async def test_idempotency_block_waits_out_the_timeout() -> None:
     """A duplicate past `wait_timeout` raises the wait error."""
     # Arrange

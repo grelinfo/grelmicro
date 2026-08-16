@@ -104,8 +104,3 @@ def test_invalid_config_raises_settings_error() -> None:
     assert isinstance(exc_info.value, SettingsValidationError)
     assert "timeout" in str(exc_info.value)
     assert "-5" not in str(exc_info.value)
-
-
-def test_settings_error_is_settings_validation_error() -> None:
-    """`SettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(SettingsValidationError, SettingsValidationError)

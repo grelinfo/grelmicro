@@ -84,11 +84,6 @@ def test_configure_invalid_level_raises_settings_error(
     assert isinstance(exc_info.value, SettingsValidationError)
 
 
-def test_logging_settings_error_is_settings_validation_error() -> None:
-    """`SettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(SettingsValidationError, SettingsValidationError)
-
-
 def test_configure_with_returns_passed_config(
     reset_backend: None,  # noqa: ARG001
 ) -> None:
