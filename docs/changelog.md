@@ -4,6 +4,7 @@
 
 ### Breaking
 
+* 💥 Every configuration path raises `SettingsValidationError` for a bad value. The patterns used to let the raw `pydantic.ValidationError` through, which carries `input_value` and so echoed a rejected environment value into the traceback. Catch `SettingsValidationError`, or `ValueError`, which both it and the pydantic error already are.
 * 💥 `CircuitBreaker`, `RateLimiter`, and the `Shield` factories read `GREL_CIRCUITBREAKER_*`, `GREL_RATELIMITER_*`, and `GREL_SHIELD_*` at construction when `GREL_ENV_LOAD` is on, like every other pattern. Variables that were silently ignored now apply, and a named instance refuses at startup a variable belonging to a different algorithm than the code runs. Before upgrading a deployment with `GREL_ENV_LOAD` set, run `env | grep -E "GREL_(RATELIMITER|CIRCUITBREAKER|SHIELD)_"` in the container and remove or fix what it prints. The environment still never picks the algorithm.
 * 💥 `CircuitBreaker` no longer takes a positional config. Pass a pre-built config to `from_config`, which did exactly the same thing. `CircuitBreaker("payments")` still works, because consecutive-count is a sensible default.
 * 💥 `RateLimiter` loses its bare constructor. Build it with `token_bucket`, `sliding_window`, or `from_config`. There is no default algorithm to fall back on, so the constructor now raises `TypeError` naming those three.
@@ -24,6 +25,8 @@
 
 ### Fixed
 
+* 🐛 `SettingsValidationError` raised `IndexError` instead of rendering when the failure came from a model-level validator, which has no field location. `Lock(retry_interval=0.0001)` hit it.
+* 🐛 The gate-off report told the operator to remove a kind-wide variable that names another algorithm's field. That variable is a legitimate broadcast tuning the instances it fits, so the advice would have deleted working configuration. Only an instance address carries that message now.
 * 🐛 `MemoryCircuitBreakerAdapter.bind` ran any algorithm as consecutive-count instead of refusing the ones it does not implement. The three other adapters already refused.
 * 🐛 The `Shield` factories ignored the environment while the bare constructor read it, and neither reported a variable set with the gate off. `Shield.slow("x")` now resolves values from the environment with the preset pinned by code.
 * 🐛 A `GREL_{KIND}_{FIELD}` variable set while `GREL_ENV_LOAD` was off went unreported on a named instance. Only the instance address was checked, so the kind-wide variable that would have applied was dropped in silence. Every component was affected.

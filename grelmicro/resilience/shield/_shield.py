@@ -64,9 +64,17 @@ _PROFILE_BY_NAME: dict[str, type[_BaseShieldConfig]] = {
 
 
 def _load_profile_from_env(name: str) -> str:
-    """Return the profile name from env, defaulting to `api`."""
-    env_key = default_env_prefix("SHIELD", name) + "PROFILE"
+    """Return the profile name from env, defaulting to `api`.
+
+    Falls back from the instance address to the kind address, which is the
+    order R5 applies to every other value.
+    """
+    instance_prefix, kind_prefix = env_prefixes("SHIELD", name)
+    env_key = f"{instance_prefix}PROFILE"
     value = os.environ.get(env_key, "").strip().lower()
+    if not value and kind_prefix:
+        env_key = f"{kind_prefix}PROFILE"
+        value = os.environ.get(env_key, "").strip().lower()
     if value and value not in _PROFILE_BY_NAME:
         msg = (
             f"{env_key}={value!r} is not a valid profile. "

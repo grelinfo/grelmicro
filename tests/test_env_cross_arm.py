@@ -13,9 +13,11 @@ The rule is address-scoped:
 """
 
 import pytest
+from pydantic import BaseModel
 
-from grelmicro._config import _union_arms
+from grelmicro._config import _running_kind, _union_arms
 from grelmicro.coordination import Lock
+from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import EnvLoadOffWarning, SettingsValidationError
 from grelmicro.resilience import (
     ApiShieldConfig,
@@ -195,3 +197,71 @@ def test_shield_profiles_stay_presets_not_algorithms() -> None:
     assert set(TokenBucketConfig.model_fields) != set(
         SlidingWindowConfig.model_fields
     )
+
+
+def test_gate_off_does_not_call_a_broadcast_variable_a_mistake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A kind-wide sibling field is legitimate, so the advice must not be removal.
+
+    `GREL_RATELIMITER_CAPACITY` tunes every token bucket in the fleet. A
+    sliding-window instance merely ignores it. Telling the operator to remove
+    it would have them delete working configuration for the other algorithm.
+    """
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_RATELIMITER_CAPACITY", "50")
+
+    with pytest.warns(EnvLoadOffWarning) as caught:
+        RateLimiter.sliding_window(
+            "broadcastadvice", limit=_LIMIT, window=_WINDOW
+        )
+
+    message = str(caught[0].message)
+    assert "opt-in" in message
+    assert "different algorithm" not in message
+
+
+def test_a_bad_value_is_never_echoed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rejected input never reaches the error text.
+
+    A variable name is chosen by the operator and a value can be a
+    credential, so the error names the variable and the reason and stops
+    there. Raw pydantic errors carry `input_value`, which is why every
+    construction path wraps.
+    """
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_LOCK_LEAKY_LEASE_DURATION", "hunter2")
+
+    with pytest.raises(SettingsValidationError) as caught:
+        Lock("leaky")
+
+    message = str(caught.value)
+    assert "GREL_LOCK_LEAKY_LEASE_DURATION" in message
+    assert "hunter2" not in message
+
+
+def test_a_model_level_validator_error_renders() -> None:
+    """An error with no field location renders instead of raising IndexError."""
+    with pytest.raises(SettingsValidationError, match="retry_interval must be"):
+        Lock("modelvalidator", backend=MemoryLockAdapter(), retry_interval=1e-9)
+
+
+def test_running_kind_falls_back_to_the_class_name() -> None:
+    """A union arm whose `kind` has no default still names itself.
+
+    The message that rejects a foreign variable names the algorithm running.
+    A third-party arm may declare `kind` as a required field rather than a
+    defaulted literal, and rendering pydantic's sentinel there would put
+    `PydanticUndefined` in front of an operator.
+    """
+
+    class NoDefaultKind(BaseModel):
+        kind: str
+
+    class NoKindAtAll(BaseModel):
+        value: int = 1
+
+    assert _running_kind(NoDefaultKind) == "NoDefaultKind"
+    assert _running_kind(NoKindAtAll) == "NoKindAtAll"

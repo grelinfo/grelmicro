@@ -208,12 +208,14 @@ def _running_kind(config_cls: type[BaseModel]) -> str:
     """Return the algorithm name a config class carries in its `kind` field."""
     field = config_cls.model_fields.get("kind")
     default = getattr(field, "default", None)
-    return str(default) if default is not None else config_cls.__name__
+    if default is None or type(default).__name__ == "PydanticUndefinedType":
+        return config_cls.__name__
+    return str(default)
 
 
 def _reject_cross_arm_env(
     config_cls: type[BaseModel],
-    union: object | None,
+    sibling: frozenset[str],
     env_prefix: str,
     kind_env_prefix: str | None,
     error_type: type[SettingsValidationError] | None,
@@ -236,7 +238,6 @@ def _reject_cross_arm_env(
     """
     if kind_env_prefix is None:
         return
-    sibling = _sibling_fields(union, config_cls)
     found = sorted(
         f"{env_prefix}{field.upper()}"
         for field in sibling
@@ -337,7 +338,7 @@ def resolve_config[C: BaseModel](
             return config_cls.model_validate(provided)
 
         _reject_cross_arm_env(
-            config_cls, union, env_prefix, kind_env_prefix, error_type
+            config_cls, sibling, env_prefix, kind_env_prefix, error_type
         )
         settings_cls = _build_settings_cls(
             config_cls,
@@ -351,9 +352,12 @@ def resolve_config[C: BaseModel](
         # enforces the contract.
         return settings_cls(**provided)  # ty: ignore[invalid-return-type, invalid-argument-type]
     except ValidationError as error:
-        if error_type is None:
-            raise
-        raise error_type(error) from None
+        # Never let the raw pydantic error escape: it carries `input_value`,
+        # and the value came from the environment, where a credential can
+        # sit behind any name. `SettingsValidationError` renders the field
+        # and the reason without the input. The reload path already
+        # redacts, so this makes both directions of the same layer agree.
+        raise (error_type or SettingsValidationError)(error) from None
 
 
 _warned_ignored_env: set[str] = set()
@@ -428,7 +432,7 @@ def warn_ignored_env(
     for field in (*config_cls.model_fields, *sorted(sibling)):
         if field in provided:
             continue
-        foreign = field in sibling
+        instance_name = f"{env_prefix}{field.upper()}"
         names = [f"{env_prefix}{field.upper()}"]
         # The kind address applies to every instance since 0.38.0, so a
         # variable set there would have been read too. Still an exact-name
@@ -441,6 +445,17 @@ def warn_ignored_env(
             if name not in os.environ or name in _warned_ignored_env:
                 continue
             _warned_ignored_env.add(name)
+            # A sibling field is a mistake only at an instance address,
+            # which names one object whose algorithm is known. At the kind
+            # address it is a broadcast that legitimately tunes the other
+            # algorithm's instances, so telling the operator to remove it
+            # would have them delete working configuration. The default
+            # instance owns the kind address, so it is a broadcast too.
+            foreign = (
+                field in sibling
+                and kind_env_prefix is not None
+                and name == instance_name
+            )
             message = (
                 _FOREIGN_ENV_MESSAGE % (name, _running_kind(config_cls))
                 if foreign

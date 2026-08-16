@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience import Retry, Timeout, TimeoutConfig
 
 _TWO = 2.0
@@ -65,7 +66,7 @@ def test_constructs_from_config() -> None:
 
 def test_requires_seconds_when_env_off() -> None:
     """No kwargs and no env path means construction fails."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(SettingsValidationError):
         Timeout("db")
 
 

@@ -84,12 +84,16 @@ in any of its algorithms, is always accounted for:
 | Instance address, field of another algorithm | Error at construction, naming the algorithm that is running |
 | Kind address, field of another algorithm | Applied where it fits, ignored where it does not, silently, because the kind address is a broadcast |
 | Live reload, field of another algorithm | Skipped for that instance and counted at debug, never a crash. Key names stay out of the logs because a mounted Secret's key can itself be sensitive. A warning naming sibling fields follows with config provenance ([#664](https://github.com/grelinfo/grelmicro/issues/664)). |
-| Value invalid | Validation error naming the variable |
+| Value invalid | `SettingsValidationError` naming the variable and the reason, never the value |
 
 For the default instance the instance address is the kind address, so it
 follows the broadcast row: the bare prefix cannot tell "this instance's field"
 from "every instance's field", and an ambiguous address is not an unambiguous
 mistake.
+
+The rejected value is never echoed. A variable name is the operator's own,
+but its value can be a credential, so an error carries the name and the reason
+and stops there.
 
 A name matching no declared field of any algorithm is ignored without report.
 Kubernetes injects `{SVCNAME}_SERVICE_HOST` into every pod, so grelmicro must

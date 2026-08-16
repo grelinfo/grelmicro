@@ -207,8 +207,13 @@ class SettingsValidationError(GrelmicroError, ValueError):
     def __init__(self, error: ValidationError | str) -> None:
         """Initialize the error."""
         if isinstance(error, ValidationError):
+            # `loc` is empty for a model-level validator, which checks the
+            # config as a whole rather than one field. Indexing it directly
+            # raised `IndexError` and hid the real error.
             details = "\n".join(
-                f"- {data['loc'][0]}: {data['msg']}" for data in error.errors()
+                f"- {'.'.join(str(part) for part in data['loc']) or '(config)'}"
+                f": {data['msg']}"
+                for data in error.errors(include_url=False)
             )
         else:
             details = error
