@@ -1,0 +1,134 @@
+"""The environment tunes an algorithm's fields and never selects the algorithm.
+
+`RateLimiter` and `CircuitBreaker` carry a discriminated config union, so a
+variable can name a field that belongs to an algorithm the code did not choose.
+The rule is address-scoped:
+
+- The instance address (`GREL_RATELIMITER_API_*`) names one object whose
+  algorithm is known, so a foreign field is an unambiguous mistake and refuses
+  to start.
+- The kind address (`GREL_RATELIMITER_*`) is a broadcast. A fleet running both
+  algorithms legitimately tunes its token buckets there while sliding-window
+  limiters ignore what does not apply, so it stays silent.
+"""
+
+import pytest
+
+from grelmicro.errors import EnvLoadOffWarning, SettingsValidationError
+from grelmicro.resilience import (
+    CircuitBreaker,
+    ConsecutiveCountConfig,
+    RateLimiter,
+    SlidingWindowConfig,
+    TimeoutConfig,
+    TokenBucketConfig,
+)
+from grelmicro.resilience.timeout import Timeout
+
+_CAPACITY = 50
+_LIMIT = 100
+_WINDOW = 60.0
+_THRESHOLD = 9
+
+
+def test_env_fills_a_field_the_caller_left_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A factory resolves missing fields from the instance address."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_RATELIMITER_API_CAPACITY", str(_CAPACITY))
+
+    limiter = RateLimiter.token_bucket("api", refill_rate=1)
+
+    assert isinstance(limiter.config, TokenBucketConfig)
+    assert limiter.config.capacity == _CAPACITY
+
+
+def test_circuit_breaker_reads_env_at_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same variable `ExternalConfig` retunes also seeds at startup."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv(
+        "GREL_CIRCUITBREAKER_PAYMENTS_ERROR_THRESHOLD", str(_THRESHOLD)
+    )
+
+    assert CircuitBreaker("payments").config.error_threshold == _THRESHOLD
+    assert (
+        CircuitBreaker.consecutive_count("payments").config.error_threshold
+        == _THRESHOLD
+    )
+
+
+def test_instance_address_refuses_another_algorithms_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A foreign field at the instance address fails at construction."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_RATELIMITER_API_CAPACITY", str(_CAPACITY))
+
+    with pytest.raises(SettingsValidationError, match="different algorithm"):
+        RateLimiter.sliding_window("api", limit=_LIMIT, window=_WINDOW)
+
+
+def test_kind_address_is_a_broadcast_and_stays_silent(
+    monkeypatch: pytest.MonkeyPatch,
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """A mixed fleet tunes one algorithm kind-wide without noise."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_RATELIMITER_CAPACITY", str(_CAPACITY))
+
+    bucket = RateLimiter.token_bucket("a", refill_rate=1)
+    window = RateLimiter.sliding_window("b", limit=_LIMIT, window=_WINDOW)
+
+    assert isinstance(bucket.config, TokenBucketConfig)
+    assert isinstance(window.config, SlidingWindowConfig)
+    assert bucket.config.capacity == _CAPACITY
+    assert window.config.limit == _LIMIT
+    assert not [w for w in recwarn.list if issubclass(w.category, Warning)]
+
+
+def test_gate_off_reports_another_algorithms_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the gate off, a foreign field is reported rather than dropped."""
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_RATELIMITER_REPORTED_CAPACITY", str(_CAPACITY))
+
+    with pytest.warns(EnvLoadOffWarning, match="CAPACITY"):
+        RateLimiter.sliding_window("reported", limit=_LIMIT, window=_WINDOW)
+
+
+def test_from_config_ignores_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`from_config` is the static door on both patterns."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv(
+        "GREL_CIRCUITBREAKER_PAYMENTS_ERROR_THRESHOLD", str(_THRESHOLD)
+    )
+
+    breaker = CircuitBreaker.from_config("payments", ConsecutiveCountConfig())
+
+    assert breaker.config.error_threshold != _THRESHOLD
+
+
+async def test_env_built_instance_accepts_a_plain_config_on_reconfigure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An env-built instance holds a settings subclass, not the plain config.
+
+    `reconfigure` compares runtime types, so before this was fixed every
+    instance constructed through the environment refused the config class
+    its own docs told the caller to build.
+    """
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_TIMEOUT_DB_SECONDS", "9")
+
+    policy = Timeout("db")
+    assert type(policy.config) is not TimeoutConfig
+
+    await policy.reconfigure(TimeoutConfig(seconds=3.0))
+
+    assert policy.config.seconds == 3.0  # noqa: PLR2004

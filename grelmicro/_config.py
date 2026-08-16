@@ -32,7 +32,7 @@ from collections import deque
 from collections.abc import Callable, Mapping  # noqa: TC003
 from copy import copy
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, TypeVar
 from weakref import WeakSet
 
 from pydantic import AliasChoices, BaseModel, ValidationError
@@ -40,19 +40,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from grelmicro._diagnostics import ENV_LOAD_OFF, diagnostic
 from grelmicro._json import json_loads
-from grelmicro.errors import EnvLoadOffWarning
+from grelmicro.errors import EnvLoadOffWarning, SettingsValidationError
 
 if TYPE_CHECKING:
     import asyncio
-
-    from grelmicro.errors import SettingsValidationError
-else:
-    # Runtime fallback so `typing.get_type_hints(resolve_config)` resolves the
-    # `error_type` annotation without importing a name used only in
-    # annotations. The real type reaches static checkers via the
-    # `TYPE_CHECKING` branch above. See the `collections.abc` import above for
-    # the other half of the same requirement.
-    SettingsValidationError = Any
 
 C = TypeVar("C", bound=BaseModel)
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
@@ -174,6 +165,96 @@ def env_load_default() -> bool:
     return os.environ.get(_ENV_LOAD_VAR, "").strip().lower() in _ENV_LOAD_TRUTHY
 
 
+def _union_arms(union: object) -> tuple[type[BaseModel], ...]:
+    """Return the config classes a discriminated union is made of.
+
+    Unwraps `Annotated[A | B, Discriminator("kind")]` down to `(A, B)`.
+    A non-union returns empty, so a caller can pass one unconditionally.
+    """
+    from typing import get_args, get_origin  # noqa: PLC0415
+
+    inner = union
+    if get_origin(inner) is Annotated:
+        inner = get_args(inner)[0]
+    arms = get_args(inner)
+    return tuple(
+        arm
+        for arm in arms
+        if isinstance(arm, type) and issubclass(arm, BaseModel)
+    )
+
+
+def _sibling_fields(
+    union: object | None, config_cls: type[BaseModel]
+) -> frozenset[str]:
+    """Return field names other arms declare and `config_cls` does not.
+
+    These are the names an operator reaches for when they believe a
+    different algorithm is running. They belong to the pattern, so a
+    variable naming one is ours to report, unlike an arbitrary name under
+    the same prefix.
+    """
+    if union is None:
+        return frozenset()
+    mine = set(config_cls.model_fields)
+    others: set[str] = set()
+    for arm in _union_arms(union):
+        if arm is not config_cls:
+            others |= set(arm.model_fields)
+    return frozenset(others - mine)
+
+
+def _running_kind(config_cls: type[BaseModel]) -> str:
+    """Return the algorithm name a config class carries in its `kind` field."""
+    field = config_cls.model_fields.get("kind")
+    default = getattr(field, "default", None)
+    return str(default) if default is not None else config_cls.__name__
+
+
+def _reject_cross_arm_env(
+    config_cls: type[BaseModel],
+    union: object | None,
+    env_prefix: str,
+    kind_env_prefix: str | None,
+    error_type: type[SettingsValidationError] | None,
+) -> None:
+    """Refuse to start when one instance is handed another algorithm's variable.
+
+    Only the instance address is checked. The bare kind prefix is a
+    broadcast: a fleet running both algorithms legitimately tunes its
+    token buckets with `GREL_RATELIMITER_CAPACITY` while sliding-window
+    limiters ignore it, so warning there would fire on every start.
+
+    An instance address names one object whose algorithm is known, so the
+    variable is an unambiguous mistake. Running on would let a deployment
+    believe a limit is enforced when it is not, which is the silent drift
+    this contract exists to prevent.
+
+    Raises:
+        SettingsValidationError: If a variable at the instance address
+            names a field belonging to another algorithm.
+    """
+    if kind_env_prefix is None:
+        return
+    sibling = _sibling_fields(union, config_cls)
+    found = sorted(
+        f"{env_prefix}{field.upper()}"
+        for field in sibling
+        if f"{env_prefix}{field.upper()}" in os.environ
+    )
+    if not found:
+        return
+    kind = _running_kind(config_cls)
+    names = ", ".join(found)
+    msg = (
+        f"{names} names a field of a different algorithm, but this "
+        f"instance runs {kind!r}. The environment tunes an algorithm's "
+        f"fields and never selects the algorithm. Remove the variable or "
+        f"build the instance with the algorithm it belongs to."
+    )
+    raise (error_type or SettingsValidationError)(msg)
+
+
 def resolve_config[C: BaseModel](
     config_cls: type[C],
     *,
@@ -184,6 +265,7 @@ def resolve_config[C: BaseModel](
     shared_env: Mapping[str, str] | None = None,
     kind_env_prefix: str | None = None,
     error_type: type[SettingsValidationError] | None = None,
+    union: object | None = None,
 ) -> C:
     """Build a validated ``config_cls`` from an explicit instance or kwargs and env.
 
@@ -239,12 +321,19 @@ def resolve_config[C: BaseModel](
     if implicit:
         env_load = env_load_default()
 
+    sibling = _sibling_fields(union, config_cls)
+
     try:
         if not env_load:
             if implicit:
-                _warn_ignored_env(config_cls, env_prefix, provided, shared_env)
+                _warn_ignored_env(
+                    config_cls, env_prefix, provided, shared_env, sibling
+                )
             return config_cls.model_validate(provided)
 
+        _reject_cross_arm_env(
+            config_cls, union, env_prefix, kind_env_prefix, error_type
+        )
         settings_cls = _build_settings_cls(
             config_cls,
             env_prefix,
@@ -298,6 +387,7 @@ def _warn_ignored_env(
     env_prefix: str,
     provided: Mapping[str, object],
     shared_env: Mapping[str, str] | None = None,
+    sibling: frozenset[str] = frozenset(),
 ) -> None:
     """Report a variable this config declares that is set but will not be read.
 
@@ -317,7 +407,7 @@ def _warn_ignored_env(
     `variable` field, so a pipeline can match the field instead of the
     message text. The log record waits until logging is configured.
     """
-    for field in config_cls.model_fields:
+    for field in (*config_cls.model_fields, *sorted(sibling)):
         if field in provided:
             continue
         names = [f"{env_prefix}{field.upper()}"]
@@ -526,7 +616,16 @@ class Reconfigurable[ConfigT: BaseModel]:
                 as the current config.
         """
         current = self._config
-        if type(new_config) is not type(current):
+        # The env path builds a `BaseSettings` subclass of the declared
+        # config, so an instance constructed from the environment holds a
+        # `_LockConfigSettings` where the caller has a `LockConfig`. They
+        # are the same configuration, so either direction of the subclass
+        # relation is accepted. Two arms of one algorithm union are
+        # siblings, neither a subclass of the other, so they are still
+        # rejected.
+        if not isinstance(new_config, type(current)) and not isinstance(
+            current, type(new_config)
+        ):
             msg = (
                 f"reconfigure requires {type(current).__name__}, "
                 f"got {type(new_config).__name__}"

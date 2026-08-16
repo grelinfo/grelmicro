@@ -417,8 +417,8 @@
       "()": "(*, name, max_concurrent)"
     },
     "CircuitBreaker": {
-      "()": "(name, *, backend=..., maxsize=...)",
-      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=..., maxsize=...)",
+      "()": "(name, *, backend=..., maxsize=..., env_load=...)",
+      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=..., maxsize=..., env_load=...)",
       ".from_config": "(name, config, *, backend=..., maxsize=...)"
     },
     "CircuitBreakerBackend": {
@@ -525,8 +525,8 @@
     "RateLimiter": {
       "()": "(*args, **kwargs)",
       ".from_config": "(name, config, *, backend=...)",
-      ".sliding_window": "(name, *, limit, window, fail_open=..., backend=...)",
-      ".token_bucket": "(name, *, capacity, refill_rate, fail_open=..., backend=...)"
+      ".sliding_window": "(name, *, limit=..., window=..., fail_open=..., backend=..., env_load=...)",
+      ".token_bucket": "(name, *, capacity=..., refill_rate=..., fail_open=..., backend=..., env_load=...)"
     },
     "RateLimiterBackend": {
       "()": "(*args, **kwargs)"
@@ -638,8 +638,8 @@
   },
   "grelmicro.resilience.circuitbreaker": {
     "CircuitBreaker": {
-      "()": "(name, *, backend=..., maxsize=...)",
-      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=..., maxsize=...)",
+      "()": "(name, *, backend=..., maxsize=..., env_load=...)",
+      ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=..., maxsize=..., env_load=...)",
       ".from_config": "(name, config, *, backend=..., maxsize=...)"
     },
     "CircuitBreakerConfig": {
@@ -665,8 +665,8 @@
     "RateLimiter": {
       "()": "(*args, **kwargs)",
       ".from_config": "(name, config, *, backend=...)",
-      ".sliding_window": "(name, *, limit, window, fail_open=..., backend=...)",
-      ".token_bucket": "(name, *, capacity, refill_rate, fail_open=..., backend=...)"
+      ".sliding_window": "(name, *, limit=..., window=..., fail_open=..., backend=..., env_load=...)",
+      ".token_bucket": "(name, *, capacity=..., refill_rate=..., fail_open=..., backend=..., env_load=...)"
     },
     "RateLimiterConfig": {
       "()": "(*args, **kwargs)"
