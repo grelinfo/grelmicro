@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 
-from grelmicro.resilience import Shield
+from grelmicro.errors import EnvLoadOffWarning
+from grelmicro.resilience import Shield, SlowShieldConfig
 from grelmicro.resilience.shield._profile import _resolve_fqn
 
 
@@ -147,3 +148,77 @@ def test_config_normalizer_passes_through_unknown_shapes() -> None:
     cls = _BaseShieldConfig._normalize_timeout_errors
     raw: Any = {"not": "valid"}
     assert cls(raw) == raw
+
+
+def test_factory_reads_values_with_the_preset_pinned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A factory resolves values from env, and env cannot move the preset."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_SHIELD_PINNED_MAX_RATE", "5")
+    monkeypatch.setenv("GREL_SHIELD_PINNED_PROFILE", "api")
+
+    shield = Shield.slow("pinned")
+
+    assert isinstance(shield.config, SlowShieldConfig)
+    assert shield.config.max_rate == 5.0  # noqa: PLR2004
+
+
+def test_factory_ignores_a_blank_numeric_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A variable set to an empty string leaves the field at its default."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_SHIELD_BLANK_MAX_RATE", "")
+
+    assert Shield.api("blank").config.max_rate is None
+
+
+def test_keyword_beats_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A value passed in code outranks the same variable in the environment."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_SHIELD_KW_MAX_RATE", "5")
+
+    assert Shield.api("kw", max_rate=9.0).config.max_rate == 9.0  # noqa: PLR2004
+
+
+def test_gate_off_reports_a_shield_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shield reports a variable set while the gate is off, like every pattern."""
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_SHIELD_GATEOFF_MAX_RATE", "5")
+
+    with pytest.warns(EnvLoadOffWarning, match="GREL_SHIELD_GATEOFF_MAX_RATE"):
+        Shield.slow("gateoff")
+
+
+def test_gate_off_keeps_every_passed_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the gate off, each field passed in code reaches the config."""
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+
+    def _key(*_args: object, **_kwargs: object) -> str:
+        return "k"
+
+    async def _fallback(*_args: object, **_kwargs: object) -> str:
+        return "fb"
+
+    cache = object()
+    shield = Shield.api(
+        "allvalues",
+        timeout_errors=(TimeoutError,),
+        max_rate=3.0,
+        cache=cache,
+        cache_key=_key,
+        fallback=_fallback,
+    )
+
+    assert shield.config.timeout_errors == (TimeoutError,)
+    assert shield.config.max_rate == 3.0  # noqa: PLR2004
+    assert shield.config.cache is cache
+    assert shield.config.cache_key is _key
+    assert shield.config.fallback is _fallback

@@ -66,6 +66,15 @@ once at construction, never on the hot path.
 backends, providers, serializers, and callables come from code. A `kind`
 variable that contradicts the code fails validation at startup.
 
+*Presets are values.* A variable may choose between config classes only when
+every class declares the identical field names and drives the same runtime
+code. Such a choice retunes constants and can never make a set variable start
+or stop applying. `GREL_SHIELD_{NAME}_PROFILE` qualifies: the three profiles
+share every field and feed one state machine, differing only in frozen
+constants. The moment two classes differ by a single field, the choice selects
+an algorithm and belongs to code. A test pins this, so preset status is earned
+by the field sets, never claimed.
+
 **R7 Never silently dropped.** A variable naming a field the pattern declares,
 in any of its algorithms, is always accounted for:
 
@@ -74,8 +83,13 @@ in any of its algorithms, is always accounted for:
 | Gate off, variable set | `EnvLoadOffWarning` naming the variable |
 | Instance address, field of another algorithm | Error at construction, naming the algorithm that is running |
 | Kind address, field of another algorithm | Applied where it fits, ignored where it does not, silently, because the kind address is a broadcast |
-| Live reload, field of another algorithm | Warning, never a crash |
-| Value invalid | Validation error naming the field |
+| Live reload, field of another algorithm | Skipped for that instance and counted at debug, never a crash. Key names stay out of the logs because a mounted Secret's key can itself be sensitive. A warning naming sibling fields follows with config provenance ([#664](https://github.com/grelinfo/grelmicro/issues/664)). |
+| Value invalid | Validation error naming the variable |
+
+For the default instance the instance address is the kind address, so it
+follows the broadcast row: the bare prefix cannot tell "this instance's field"
+from "every instance's field", and an ambiguous address is not an unambiguous
+mistake.
 
 A name matching no declared field of any algorithm is ignored without report.
 Kubernetes injects `{SVCNAME}_SERVICE_HOST` into every pod, so grelmicro must
@@ -101,6 +115,7 @@ not.
 | The merge is per field, not all-or-nothing | A mounted file already patches per key at runtime, so an all-or-nothing rule at construction would delay the surprise rather than remove it | Live reload stops patching per key |
 | The kind address is a broadcast and stays silent | A fleet legitimately runs both algorithms and tunes one of them kind-wide | Kind-wide tuning stops being a real deployment shape |
 | `from_config` is the one door for a pre-built config | The environment-merging lane and the config-is-truth lane must be distinguishable at the call site | The environment lane is removed |
+| `GREL_SHIELD_PROFILE` selects a preset, not an algorithm | Every profile declares the identical field names, so no variable gains or loses meaning from the choice | A profile adds or removes a field |
 | A Provider reads its vendor namespace, not `GREL_*` | Connection settings belong to the deployment, and every vendor already defines those names | grelmicro starts owning connection settings |
 
 ## `resolve_config()`

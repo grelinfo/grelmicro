@@ -18,10 +18,13 @@ from grelmicro._config import _union_arms
 from grelmicro.coordination import Lock
 from grelmicro.errors import EnvLoadOffWarning, SettingsValidationError
 from grelmicro.resilience import (
+    ApiShieldConfig,
     CircuitBreaker,
     ConsecutiveCountConfig,
+    InternalShieldConfig,
     RateLimiter,
     SlidingWindowConfig,
+    SlowShieldConfig,
     TimeoutConfig,
     TokenBucketConfig,
 )
@@ -170,3 +173,25 @@ def test_union_arms_accepts_both_union_shapes() -> None:
     assert set(annotated) == {TokenBucketConfig, SlidingWindowConfig}
     assert set(bare) == {TokenBucketConfig, SlidingWindowConfig}
     assert plain == ()
+
+
+def test_shield_profiles_stay_presets_not_algorithms() -> None:
+    """Pins the criterion that lets `GREL_SHIELD_{NAME}_PROFILE` exist.
+
+    R6 permits a variable to choose between config classes only while every
+    class declares the identical field names, because then the choice cannot
+    make any variable start or stop applying. Add or remove a field on one
+    profile and the choice becomes an algorithm selection, which belongs to
+    code, so this test must fail rather than be updated.
+    """
+    api = set(ApiShieldConfig.model_fields)
+    internal = set(InternalShieldConfig.model_fields)
+    slow = set(SlowShieldConfig.model_fields)
+
+    assert api == internal == slow
+
+    # Contrast: the rate limiter arms differ, which is why the environment
+    # may never choose between them.
+    assert set(TokenBucketConfig.model_fields) != set(
+        SlidingWindowConfig.model_fields
+    )

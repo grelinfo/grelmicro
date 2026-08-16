@@ -4,7 +4,7 @@
 
 ### Breaking
 
-* 💥 `CircuitBreaker` and `RateLimiter` read `GREL_CIRCUITBREAKER_*` and `GREL_RATELIMITER_*` at construction when `GREL_ENV_LOAD` is on, like every other pattern. Variables that were silently ignored now apply, and a named instance refuses at startup a variable belonging to a different algorithm than the code runs. Before upgrading a deployment with `GREL_ENV_LOAD` set, run `env | grep -E "GREL_(RATELIMITER|CIRCUITBREAKER)_"` in the container and remove or fix what it prints. The environment still never picks the algorithm.
+* 💥 `CircuitBreaker`, `RateLimiter`, and the `Shield` factories read `GREL_CIRCUITBREAKER_*`, `GREL_RATELIMITER_*`, and `GREL_SHIELD_*` at construction when `GREL_ENV_LOAD` is on, like every other pattern. Variables that were silently ignored now apply, and a named instance refuses at startup a variable belonging to a different algorithm than the code runs. Before upgrading a deployment with `GREL_ENV_LOAD` set, run `env | grep -E "GREL_(RATELIMITER|CIRCUITBREAKER|SHIELD)_"` in the container and remove or fix what it prints. The environment still never picks the algorithm.
 * 💥 `CircuitBreaker` no longer takes a positional config. Pass a pre-built config to `from_config`, which did exactly the same thing. `CircuitBreaker("payments")` still works, because consecutive-count is a sensible default.
 * 💥 `RateLimiter` loses its bare constructor. Build it with `token_bucket`, `sliding_window`, or `from_config`. There is no default algorithm to fall back on, so the constructor now raises `TypeError` naming those three.
 * 💥 `Timeout`, `Retry`, `Fallback`, `Bulkhead`, `Log`, `Metrics`, `Trace`, `Shield`, and `Outbox` no longer take `config=`. Pass a pre-built config to `from_config`, which did exactly the same thing. One door instead of two.
@@ -16,15 +16,20 @@
 * ✨ `micro.install(app)` wires a Litestar app. It opens the components on startup, closes them after shutdown, and binds the app around each request so patterns resolve with no `backend=`. Call it after `Litestar(...)`, which builds its middleware stack at construction.
 * ✨ New `fastapi`, `starlette`, and `litestar` extras, so `pip install "grelmicro[litestar]"` brings the framework along.
 * 📝 A [Frameworks](frameworks.md) page lists every framework `micro.install(app)` supports and what it wires for each.
-* 🐛 A `GREL_{KIND}_{FIELD}` variable set while `GREL_ENV_LOAD` was off went unreported on a named instance. Only the instance address was checked, so the kind-wide variable that would have applied was dropped in silence. Every component was affected.
-* 🐛 `reconfigure` refused the config class its own docs told you to build. An instance constructed through the environment holds a settings subclass, and the runtime-type check rejected the plain config. Every pattern was affected, not just the two gaining the environment path here.
-* 🐛 `docs/config.md` said `Idempotency` sets its `ttl` in code only. It reads `GREL_IDEMPOTENCY_TTL` like every other named pattern.
-* 🐛 The rate limiter backends rejected an unsupported algorithm kind with `AssertionError`, while the circuit breaker backends raised `NotImplementedError`. All of them now raise `NotImplementedError` naming the kind. Every adapter also read the provider client before checking the kind, so an unsupported kind needed a live connection to fail.
 * 📝 [Plugins](architecture/plugins.md) states what grelmicro promises a third-party adapter: how an unsupported algorithm fails, that result tuples grow by name, that integration signatures are frozen, and that `ClockBackend` is complete. Adding a member to a protocol breaks every implementer, so these are settled before 1.0.
 * ✨ `Outbox.from_config` and `TTLCache.from_config` complete the declarative path. Every primitive that has a config class now accepts one the same way.
 * ✨ `Bulkhead.from_config` accepts `uses=` to scope providers and components, which the declarative path could not do before.
 * 📝 [Configuration internals](architecture/config.md) states the environment contract as one invariant plus nine rules, with a Settled table recording the assumption behind each closed decision. Written down because this surface changed nineteen times across twelve releases, every time because the contract lived nowhere.
 * 📝 Publish/subscribe is a stated non-goal. The [outbox consumer](outbox/consumer.md#publishing-to-a-broker) page shows the handler publishing through FastStream, and explains why the durable half and the transport half are separate.
+
+### Fixed
+
+* 🐛 `MemoryCircuitBreakerAdapter.bind` ran any algorithm as consecutive-count instead of refusing the ones it does not implement. The three other adapters already refused.
+* 🐛 The `Shield` factories ignored the environment while the bare constructor read it, and neither reported a variable set with the gate off. `Shield.slow("x")` now resolves values from the environment with the preset pinned by code.
+* 🐛 A `GREL_{KIND}_{FIELD}` variable set while `GREL_ENV_LOAD` was off went unreported on a named instance. Only the instance address was checked, so the kind-wide variable that would have applied was dropped in silence. Every component was affected.
+* 🐛 `reconfigure` refused the config class its own docs told you to build. An instance constructed through the environment holds a settings subclass, and the runtime-type check rejected the plain config. Every pattern was affected, not just the two gaining the environment path here.
+* 🐛 `docs/config.md` said `Idempotency` sets its `ttl` in code only. It reads `GREL_IDEMPOTENCY_TTL` like every other named pattern.
+* 🐛 The rate limiter backends rejected an unsupported algorithm kind with `AssertionError`, while the circuit breaker backends raised `NotImplementedError`. All of them now raise `NotImplementedError` naming the kind. Every adapter also read the provider client before checking the kind, so an unsupported kind needed a live connection to fail.
 
 ## 0.38.1 - 2026-08-15
 

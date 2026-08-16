@@ -326,7 +326,7 @@ def resolve_config[C: BaseModel](
     try:
         if not env_load:
             if implicit:
-                _warn_ignored_env(
+                warn_ignored_env(
                     config_cls,
                     env_prefix,
                     provided,
@@ -357,7 +357,7 @@ def resolve_config[C: BaseModel](
 
 
 _warned_ignored_env: set[str] = set()
-"""Variable names already reported by `_warn_ignored_env`, process-wide.
+"""Variable names already reported by `warn_ignored_env`, process-wide.
 
 A component is often constructed many times, and the same misconfiguration
 would otherwise be reported on every construction.
@@ -386,8 +386,20 @@ _IGNORED_ENV_MESSAGE = (
 )
 """Report text, shared by the `warnings` and the `logging` channel."""
 
+_FOREIGN_ENV_MESSAGE = (
+    "%s is set but was not applied: it names a field of a different "
+    "algorithm than %r, which this instance runs. Remove the variable, or "
+    "build the instance with the algorithm the field belongs to."
+)
+"""Report text for a variable naming a sibling algorithm's field.
 
-def _warn_ignored_env(
+Deliberately not the shared text above. Enabling the gate is the fix for
+an ordinary ignored variable and the wrong advice here, because with the
+gate on this same variable refuses the instance at construction.
+"""
+
+
+def warn_ignored_env(
     config_cls: type[BaseModel],
     env_prefix: str,
     provided: Mapping[str, object],
@@ -416,6 +428,7 @@ def _warn_ignored_env(
     for field in (*config_cls.model_fields, *sorted(sibling)):
         if field in provided:
             continue
+        foreign = field in sibling
         names = [f"{env_prefix}{field.upper()}"]
         # The kind address applies to every instance since 0.38.0, so a
         # variable set there would have been read too. Still an exact-name
@@ -428,10 +441,13 @@ def _warn_ignored_env(
             if name not in os.environ or name in _warned_ignored_env:
                 continue
             _warned_ignored_env.add(name)
+            message = (
+                _FOREIGN_ENV_MESSAGE % (name, _running_kind(config_cls))
+                if foreign
+                else _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR)
+            )
             warnings.warn(
-                diagnostic(
-                    ENV_LOAD_OFF, _IGNORED_ENV_MESSAGE % (name, _ENV_LOAD_VAR)
-                ),
+                diagnostic(ENV_LOAD_OFF, message),
                 EnvLoadOffWarning,
                 stacklevel=4,
             )
@@ -629,13 +645,14 @@ class Reconfigurable[ConfigT: BaseModel]:
         current = self._config
         # The env path builds a `BaseSettings` subclass of the declared
         # config, so an instance constructed from the environment holds a
-        # `_LockConfigSettings` where the caller has a `LockConfig`. They
-        # are the same configuration, so either direction of the subclass
-        # relation is accepted. Two arms of one algorithm union are
-        # siblings, neither a subclass of the other, so they are still
-        # rejected.
-        if not isinstance(new_config, type(current)) and not isinstance(
-            current, type(new_config)
+        # `_LockConfigSettings` where the caller has a `LockConfig`. That
+        # one case, and only that one, may go the other way. A plain
+        # parent class stays rejected: it declares fewer fields, so
+        # accepting it would trade a clean `TypeError` here for an
+        # `AttributeError` deeper in `_apply_reconfigure`.
+        if not isinstance(new_config, type(current)) and not (
+            isinstance(current, BaseSettings)
+            and isinstance(current, type(new_config))
         ):
             msg = (
                 f"reconfigure requires {type(current).__name__}, "

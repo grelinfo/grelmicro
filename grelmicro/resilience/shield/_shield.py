@@ -20,6 +20,7 @@ from grelmicro._config import (
     default_env_prefix,
     env_load_default,
     env_prefixes,
+    warn_ignored_env,
 )
 from grelmicro.clock import monotonic, sleep
 from grelmicro.metrics import _emit
@@ -75,17 +76,48 @@ def _load_profile_from_env(name: str) -> str:
     return value or "api"
 
 
+def _fill_from_env(
+    kwargs: dict[str, Any],
+    field: str,
+    passed: Any,  # noqa: ANN401
+    read: Callable[[str], str | None],
+    *,
+    cast: Callable[[str], Any] | None = None,
+) -> None:
+    """Take the caller's value, else the environment's, else leave unset.
+
+    A keyword beats the environment, which is the same order
+    `resolve_config` applies for every other pattern.
+    """
+    if passed is not None:
+        kwargs[field] = passed
+        return
+    value = read(field.upper())
+    if value is None or (cast is not None and value.strip() == ""):
+        return
+    kwargs[field] = cast(value) if cast is not None else value
+
+
 def _resolve_config_from_env(
     name: str,
     *,
+    profile: str | None,
     timeout_errors: Any,  # noqa: ANN401
     max_rate: float | None,
     cache: Any,  # noqa: ANN401
     cache_key: Callable[..., str] | None,
     fallback: Callable[..., Any] | None,
 ) -> _BaseShieldConfig:
-    """Build a `_BaseShieldConfig` reading defaults from environment variables."""
-    profile = _load_profile_from_env(name)
+    """Build a `_BaseShieldConfig` reading defaults from environment variables.
+
+    `profile` is the preset the calling door pinned. Only the bare
+    constructor leaves it `None`, and only then is `GREL_SHIELD_{NAME}_PROFILE`
+    consulted. A factory names the preset in code, so the variable cannot
+    override it, which is the ordinary rule that a keyword beats the
+    environment.
+    """
+    if profile is None:
+        profile = _load_profile_from_env(name)
     cls = _PROFILE_BY_NAME[profile]
     env_prefix, kind_prefix = env_prefixes("SHIELD", name)
 
@@ -97,18 +129,8 @@ def _resolve_config_from_env(
         return value
 
     kwargs: dict[str, Any] = {"kind": profile}
-    if timeout_errors is not None:
-        kwargs["timeout_errors"] = timeout_errors
-    else:
-        env_value = _env("TIMEOUT_ERRORS")
-        if env_value is not None:
-            kwargs["timeout_errors"] = env_value
-    if max_rate is not None:
-        kwargs["max_rate"] = max_rate
-    else:
-        env_value = _env("MAX_RATE")
-        if env_value is not None and env_value.strip() != "":
-            kwargs["max_rate"] = float(env_value)
+    _fill_from_env(kwargs, "timeout_errors", timeout_errors, _env)
+    _fill_from_env(kwargs, "max_rate", max_rate, _env, cast=float)
     if cache is not None:
         kwargs["cache"] = cache
     if cache_key is not None:
@@ -122,6 +144,7 @@ def _build_config(
     name: str,
     *,
     profile: str,
+    pinned_profile: str | None = None,
     timeout_errors: Any,  # noqa: ANN401
     max_rate: float | None,
     cache: Any,  # noqa: ANN401
@@ -130,11 +153,13 @@ def _build_config(
     env_load: bool | None,
 ) -> _BaseShieldConfig:
     """Resolve a `_BaseShieldConfig` from kwargs or env."""
-    if env_load is None:
+    implicit = env_load is None
+    if implicit:
         env_load = env_load_default()
     if env_load:
         return _resolve_config_from_env(
             name,
+            profile=pinned_profile,
             timeout_errors=timeout_errors,
             max_rate=max_rate,
             cache=cache,
@@ -153,6 +178,18 @@ def _build_config(
         kwargs["cache_key"] = cache_key
     if fallback is not None:
         kwargs["fallback"] = fallback
+    if implicit:
+        # R7: a variable that would have applied is never dropped in
+        # silence. Shield resolves its own configuration, so it reports
+        # through the same helper every other pattern reaches via
+        # `resolve_config`.
+        instance_prefix, kind_prefix = env_prefixes("SHIELD", name)
+        warn_ignored_env(
+            cls,
+            instance_prefix,
+            kwargs,
+            kind_env_prefix=kind_prefix,
+        )
     return cls.model_validate(kwargs)
 
 
@@ -455,17 +492,24 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         cache: Any,  # noqa: ANN401
         cache_key: Callable[..., str] | None,
         fallback: Callable[..., Any] | None,
+        env_load: bool | None = None,
     ) -> Self:
-        """Build a Shield bypassing env reads, with a profile override."""
+        """Build a Shield with the preset pinned by the calling factory.
+
+        Values still resolve from the environment when the gate is on, the
+        same way every other pattern's factory behaves. The preset is code's
+        to choose, so `GREL_SHIELD_{NAME}_PROFILE` cannot override it here.
+        """
         config = _build_config(
             name,
             profile=profile,
+            pinned_profile=profile,
             timeout_errors=timeout_errors,
             max_rate=max_rate,
             cache=cache,
             cache_key=cache_key,
             fallback=fallback,
-            env_load=False,
+            env_load=env_load,
         )
         instance = cls.__new__(cls)
         instance._setup(  # noqa: SLF001

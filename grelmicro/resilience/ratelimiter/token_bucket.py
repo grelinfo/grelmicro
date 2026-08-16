@@ -25,7 +25,7 @@ class TokenBucketConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     from grelmicro.resilience import RateLimiter, TokenBucketConfig
 
     # Allow 10 in a burst, then 1/sec sustained.
-    rl = RateLimiter("api", TokenBucketConfig(capacity=10, refill_rate=1))
+    rl = RateLimiter.from_config("api", TokenBucketConfig(capacity=10, refill_rate=1))
     ```
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
