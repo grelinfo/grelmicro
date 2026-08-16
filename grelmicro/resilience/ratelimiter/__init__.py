@@ -91,64 +91,21 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
-    def __init__(
-        self,
-        name: Annotated[
-            str,
-            Doc(
-                """
-                The name of the rate limiter instance.
+    def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: ARG002
+        """Refuse construction: a rate limiter has no default algorithm.
 
-                Acts as the instance identity. Used as the key
-                prefix on the backend and exposed via the `name`
-                property.
-                """
-            ),
-        ],
-        config: Annotated[
-            RateLimiterConfig,
-            Doc(
-                """
-                The algorithm configuration.
-
-                Most callers should prefer the
-                [`RateLimiter.token_bucket`][grelmicro.resilience.RateLimiter.token_bucket]
-                or [`RateLimiter.sliding_window`][grelmicro.resilience.RateLimiter.sliding_window]
-                factory classmethods. Pass a config directly when it
-                is already assembled elsewhere, for example from YAML
-                or a `pydantic-settings` tree.
-
-                Pass a
-                [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
-                or a
-                [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig].
-                Both carry algorithm parameters plus the shared
-                `fail_open` setting. The classes share a
-                discriminated `kind` field so serialization
-                round-trips and pydantic-settings composition both
-                work.
-                """
-            ),
-        ],
-        *,
-        backend: Annotated[
-            RateLimiterBackend | str | None,
-            Doc(
-                """
-                An explicit backend instance. When `None` (the
-                default), the backend of the app's `ratelimiter`
-                component is used.
-
-                Set this to bypass the app, for example in tests
-                or when running several backends at the same time.
-                Pass a name to select a component registered under
-                that name.
-                """
-            ),
-        ] = None,
-    ) -> None:
-        """Initialize the rate limiter."""
-        self._setup(name, config, backend, register=False)
+        Unlike `CircuitBreaker`, there is no sensible default here. Both
+        algorithms need parameters the library cannot guess, so naming one
+        is part of building the object.
+        """
+        msg = (
+            "RateLimiter has no default algorithm, so it cannot be built "
+            "from a bare constructor. Use RateLimiter.token_bucket(name, "
+            "capacity=..., refill_rate=...), "
+            "RateLimiter.sliding_window(name, limit=..., window=...), or "
+            "RateLimiter.from_config(name, config)."
+        )
+        raise TypeError(msg)
 
     def _setup(
         self,
@@ -163,9 +120,8 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         Registers the instance for external reload under
         `GREL_RATELIMITER_` for the default instance
         (`GREL_RATELIMITER_{NAME}_` for a named one) when `register` is
-        true. The factory
-        classmethods register. The declarative paths (a pre-built config
-        passed to the constructor, or `from_config`) stay static.
+        true. The factory classmethods register. `from_config` stays
+        static.
         """
         self._name = name
         self._backend: RateLimiterBackend | None = (

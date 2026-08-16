@@ -26,7 +26,7 @@ def _rate_limiter_backend() -> MemoryRateLimiterAdapter:
 @pytest.mark.usefixtures("_rate_limiter_backend")
 def test_token_bucket_config() -> None:
     """`RateLimiter` accepts a `TokenBucketConfig` positional config."""
-    rl = RateLimiter(
+    rl = RateLimiter.from_config(
         "api", TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
     )
     assert rl.name == "api"
@@ -38,7 +38,9 @@ def test_token_bucket_config() -> None:
 @pytest.mark.usefixtures("_rate_limiter_backend")
 def test_sliding_window_config() -> None:
     """`RateLimiter` accepts a `SlidingWindowConfig` positional config."""
-    rl = RateLimiter("auth", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter.from_config(
+        "auth", SlidingWindowConfig(limit=LIMIT, window=WINDOW)
+    )
     assert rl.name == "auth"
     assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
@@ -51,7 +53,7 @@ def test_fail_open_in_config() -> None:
     cfg = TokenBucketConfig(
         capacity=CAPACITY, refill_rate=REFILL_RATE, fail_open=True
     )
-    rl = RateLimiter("api", cfg)
+    rl = RateLimiter.from_config("api", cfg)
     assert rl.config.fail_open is True
 
 
@@ -123,3 +125,13 @@ def test_rate_limiter_config_union_round_trips() -> None:
     )
     assert isinstance(sliding, SlidingWindowConfig)
     assert isinstance(bucket, TokenBucketConfig)
+
+
+def test_bare_constructor_names_the_three_doors() -> None:
+    """`RateLimiter(...)` refuses and points at the doors that work."""
+    with pytest.raises(TypeError, match="no default algorithm") as excinfo:
+        RateLimiter("api", TokenBucketConfig(capacity=1, refill_rate=1))
+    message = str(excinfo.value)
+    assert "token_bucket" in message
+    assert "sliding_window" in message
+    assert "from_config" in message

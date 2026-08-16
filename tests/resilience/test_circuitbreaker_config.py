@@ -31,15 +31,6 @@ def test_bare_constructor_uses_consecutive_count_defaults() -> None:
     assert cb.config.log_level == DEFAULT_LOG_LEVEL
 
 
-def test_positional_config_uses_given_config() -> None:
-    """`CircuitBreaker(name, config)` uses the passed config as-is."""
-    cfg = ConsecutiveCountConfig(
-        error_threshold=ERROR_KWARG, reset_timeout=10.0
-    )
-    cb = CircuitBreaker("payments", cfg)
-    assert cb.config is cfg
-
-
 def test_from_config_uses_given_config() -> None:
     """`CircuitBreaker.from_config()` constructs from a name and a config."""
     cfg = ConsecutiveCountConfig(

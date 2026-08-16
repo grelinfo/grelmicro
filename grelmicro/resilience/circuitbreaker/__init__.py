@@ -218,27 +218,6 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                 """
             ),
         ],
-        config: Annotated[
-            CircuitBreakerConfig | None,
-            Doc(
-                """
-                The algorithm configuration.
-
-                Defaults to `ConsecutiveCountConfig()` with library
-                defaults when omitted. Most callers should prefer the
-                [`CircuitBreaker.consecutive_count`][grelmicro.resilience.CircuitBreaker.consecutive_count]
-                factory classmethod to tweak the defaults. Pass a
-                config directly when it is already assembled
-                elsewhere, for example from YAML or a
-                `pydantic-settings` tree.
-
-                Today the discriminated union has a single arm:
-                [`ConsecutiveCountConfig`][grelmicro.resilience.ConsecutiveCountConfig].
-                Future algorithms (`failure_rate`, `slow_call`) join
-                the union via the same `kind` discriminator.
-                """
-            ),
-        ] = None,
         *,
         backend: Annotated[
             CircuitBreakerBackend | str | None,
@@ -267,14 +246,17 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         ] = _KEYED_MAXSIZE,
     ) -> None:
         """Initialize the circuit breaker, defaulting the algorithm to consecutive-count."""
-        register = config is None
-        if config is None:
-            from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
-                ConsecutiveCountConfig,
-            )
+        from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
+            ConsecutiveCountConfig,
+        )
 
-            config = ConsecutiveCountConfig()
-        self._setup(name, config, backend, register=register, maxsize=maxsize)
+        self._setup(
+            name,
+            ConsecutiveCountConfig(),
+            backend,
+            register=True,
+            maxsize=maxsize,
+        )
 
     @classmethod
     def from_config(

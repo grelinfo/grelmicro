@@ -55,6 +55,11 @@ RateLimiter.token_bucket("api", rate=10, capacity=20)
 CircuitBreaker.consecutive_count("payments", error_threshold=5)
 ```
 
-The bare constructor stays available for a pre-assembled config object (from
-YAML or a `pydantic-settings` tree), but the factory is the path most callers
-take.
+`from_config` is the one door for a pre-assembled config object (from YAML or a
+`pydantic-settings` tree). The factory is the path most callers take.
+
+The bare constructor is not a third door. `CircuitBreaker("payments")` works
+because the consecutive-count algorithm is a sensible default. `RateLimiter`
+has no default algorithm, so it has no bare constructor: both algorithms need
+parameters the library cannot guess, which makes naming one part of building
+the object.

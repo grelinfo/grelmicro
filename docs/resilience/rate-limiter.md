@@ -181,7 +181,7 @@ Use **Redis** in production when you already run Redis and want the lowest-laten
     micro.install(app)  # opens the components AND binds them per request
     ```
 
-    `install` is the important part. A module-level `RateLimiter("auth")` resolves its backend from the active app per request, which only works when `install` adds its middleware. Open `async with micro:` in a hand-written lifespan without `install` and the app starts up healthy, then raises `OutOfContextError` on the first rate-limited request. See [Wiring an App](../wiring.md) for the guard and the `micro.check_ambient_binding(app)` test helper.
+    `install` is the important part. A module-level `RateLimiter.sliding_window("auth", ...)` resolves its backend from the active app per request, which only works when `install` adds its middleware. Open `async with micro:` in a hand-written lifespan without `install` and the app starts up healthy, then raises `OutOfContextError` on the first rate-limited request. See [Wiring an App](../wiring.md) for the guard and the `micro.check_ambient_binding(app)` test helper.
 
 ## Result fields
 
