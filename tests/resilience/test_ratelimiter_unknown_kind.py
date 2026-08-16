@@ -15,6 +15,7 @@ import pytest
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from grelmicro.resilience import MemoryCircuitBreakerAdapter
 from grelmicro.resilience._protocol import RateLimiterBackend
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.resilience.ratelimiter.postgres import (
@@ -82,3 +83,21 @@ def test_bind_checks_the_kind_before_touching_the_client(
         backend._provider = HostileProvider()  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     with pytest.raises(NotImplementedError, match="failure_rate"):
         backend.bind(Fake())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_memory_circuit_breaker_rejects_unknown_kind() -> None:
+    """The memory circuit breaker refuses an algorithm it does not implement.
+
+    It used to run any config as consecutive-count, reading fields the config
+    may not declare, so an unsupported kind became a different algorithm in
+    production rather than a refusal.
+    """
+
+    class FakeBreaker:
+        kind = "failure_rate"
+
+    with pytest.raises(NotImplementedError, match="failure_rate"):
+        MemoryCircuitBreakerAdapter().bind(
+            name="x",
+            config=FakeBreaker(),  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        )

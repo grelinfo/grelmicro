@@ -106,7 +106,14 @@ class MemoryCircuitBreakerAdapter(CircuitBreakerBackend):
         Two breakers constructed with the same ``name`` against the same
         adapter share the same `_BreakerState` entry, mirroring the
         Redis adapter's per-name keying.
+
+        Dispatches on the `config.kind` discriminator before reading any
+        field, so an algorithm this adapter does not implement is refused
+        rather than silently run as consecutive-count.
         """
+        if config.kind != "consecutive_count":
+            msg = f"Unsupported circuit breaker algorithm: {config.kind!r}"
+            raise NotImplementedError(msg)
         return _MemoryConsecutiveCountStrategy(
             states=self._states,
             name=name,

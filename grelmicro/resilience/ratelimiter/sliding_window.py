@@ -25,7 +25,7 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     from grelmicro.resilience import RateLimiter, SlidingWindowConfig
 
     # 5 requests per 60-second sliding window.
-    rl = RateLimiter("auth", SlidingWindowConfig(limit=5, window=60))
+    rl = RateLimiter.from_config("auth", SlidingWindowConfig(limit=5, window=60))
     ```
 
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.

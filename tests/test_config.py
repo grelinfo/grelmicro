@@ -170,7 +170,7 @@ def test_env_prefix_scopes_reads(
 
 def test_invalid_kwarg_raises_validation_error() -> None:
     """``extra="forbid"`` on the Config rejects unknown kwargs."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(SettingsValidationError):
         resolve_config(
             _Sample,
             explicit=None,
@@ -183,7 +183,7 @@ def test_invalid_kwarg_raises_validation_error() -> None:
 def test_invalid_value_raises_validation_error() -> None:
     """Field validators (e.g. ``PositiveFloat``) still apply."""
     invalid_timeout = -1.0
-    with pytest.raises(ValidationError):
+    with pytest.raises(SettingsValidationError):
         resolve_config(
             _Sample,
             explicit=None,
@@ -198,7 +198,7 @@ def test_invalid_env_value_raises_validation_error(
 ) -> None:
     """Env-supplied values are validated like kwargs."""
     monkeypatch.setenv("X_TIMEOUT", "-1.0")
-    with pytest.raises(ValidationError):
+    with pytest.raises(SettingsValidationError):
         resolve_config(
             _Sample,
             explicit=None,

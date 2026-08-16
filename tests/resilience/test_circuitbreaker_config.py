@@ -1,8 +1,8 @@
 """Tests for CircuitBreaker construction paths."""
 
 import pytest
-from pydantic import ValidationError
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     ConsecutiveCountConfig,
@@ -120,5 +120,5 @@ def test_ignore_exceptions_accepts_tuple_of_fqn_strings() -> None:
 
 def test_invalid_threshold_raises() -> None:
     """Non-positive threshold values raise `ValidationError`."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(SettingsValidationError):
         CircuitBreaker.consecutive_count("payments", error_threshold=0)
