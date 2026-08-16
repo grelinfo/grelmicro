@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.39.0 - 2026-08-16
 
 ### Breaking
 
