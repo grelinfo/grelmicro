@@ -219,8 +219,23 @@ def _resolve_algorithm(
         env_prefix=instance_prefix,
         kind_env_prefix=kind_prefix,
         env_load=env_load,
-        union=ConsecutiveCountConfig,
+        union=_union_for_env(),
     )
+
+
+def _union_for_env() -> object:
+    """Return the algorithm union, for cross-arm environment reporting.
+
+    Built from the alias rather than from one arm, so a new algorithm
+    joining the union is covered without touching this call.
+    """
+    from pydantic import Discriminator  # noqa: PLC0415
+
+    from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
+        ConsecutiveCountConfig,
+    )
+
+    return Annotated[ConsecutiveCountConfig, Discriminator("kind")]
 
 
 class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):

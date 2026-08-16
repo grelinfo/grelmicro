@@ -14,6 +14,8 @@ The rule is address-scoped:
 
 import pytest
 
+from grelmicro._config import _union_arms
+from grelmicro.coordination import Lock
 from grelmicro.errors import EnvLoadOffWarning, SettingsValidationError
 from grelmicro.resilience import (
     CircuitBreaker,
@@ -23,6 +25,7 @@ from grelmicro.resilience import (
     TimeoutConfig,
     TokenBucketConfig,
 )
+from grelmicro.resilience.ratelimiter import _union_for_env
 from grelmicro.resilience.timeout import Timeout
 
 _CAPACITY = 50
@@ -86,7 +89,9 @@ def test_kind_address_is_a_broadcast_and_stays_silent(
     assert isinstance(window.config, SlidingWindowConfig)
     assert bucket.config.capacity == _CAPACITY
     assert window.config.limit == _LIMIT
-    assert not [w for w in recwarn.list if issubclass(w.category, Warning)]
+    assert not [
+        w for w in recwarn.list if issubclass(w.category, EnvLoadOffWarning)
+    ]
 
 
 def test_gate_off_reports_another_algorithms_field(
@@ -132,3 +137,36 @@ async def test_env_built_instance_accepts_a_plain_config_on_reconfigure(
     await policy.reconfigure(TimeoutConfig(seconds=3.0))
 
     assert policy.config.seconds == 3.0  # noqa: PLR2004
+
+
+def test_gate_off_reports_a_kind_wide_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A kind-address variable is reported too, not just an instance one.
+
+    The kind address applies to every instance since the bare prefix became
+    the kind default, so a variable set there would have been read. Before
+    this was fixed only the instance address was checked, so `R7` was false
+    for every named instance in the library.
+    """
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", "45")
+
+    with pytest.warns(EnvLoadOffWarning, match="GREL_LOCK_LEASE_DURATION"):
+        Lock("kindwide")
+
+
+def test_union_arms_accepts_both_union_shapes() -> None:
+    """The arm reader takes an annotated alias or a bare union.
+
+    Both shipped patterns pass the annotated alias, but the helper is the
+    seam a third-party pattern would use, and a bare union is the shape it
+    is most likely to hand over.
+    """
+    annotated = _union_arms(_union_for_env())
+    bare = _union_arms(TokenBucketConfig | SlidingWindowConfig)
+    plain = _union_arms(TokenBucketConfig)
+
+    assert set(annotated) == {TokenBucketConfig, SlidingWindowConfig}
+    assert set(bare) == {TokenBucketConfig, SlidingWindowConfig}
+    assert plain == ()

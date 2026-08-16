@@ -16,6 +16,7 @@
 * ✨ `micro.install(app)` wires a Litestar app. It opens the components on startup, closes them after shutdown, and binds the app around each request so patterns resolve with no `backend=`. Call it after `Litestar(...)`, which builds its middleware stack at construction.
 * ✨ New `fastapi`, `starlette`, and `litestar` extras, so `pip install "grelmicro[litestar]"` brings the framework along.
 * 📝 A [Frameworks](frameworks.md) page lists every framework `micro.install(app)` supports and what it wires for each.
+* 🐛 A `GREL_{KIND}_{FIELD}` variable set while `GREL_ENV_LOAD` was off went unreported on a named instance. Only the instance address was checked, so the kind-wide variable that would have applied was dropped in silence. Every component was affected.
 * 🐛 `reconfigure` refused the config class its own docs told you to build. An instance constructed through the environment holds a settings subclass, and the runtime-type check rejected the plain config. Every pattern was affected, not just the two gaining the environment path here.
 * 🐛 `docs/config.md` said `Idempotency` sets its `ttl` in code only. It reads `GREL_IDEMPOTENCY_TTL` like every other named pattern.
 * 🐛 The rate limiter backends rejected an unsupported algorithm kind with `AssertionError`, while the circuit breaker backends raised `NotImplementedError`. All of them now raise `NotImplementedError` naming the kind. Every adapter also read the provider client before checking the kind, so an unsupported kind needed a live connection to fail.

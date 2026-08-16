@@ -327,7 +327,12 @@ def resolve_config[C: BaseModel](
         if not env_load:
             if implicit:
                 _warn_ignored_env(
-                    config_cls, env_prefix, provided, shared_env, sibling
+                    config_cls,
+                    env_prefix,
+                    provided,
+                    shared_env,
+                    sibling,
+                    kind_env_prefix,
                 )
             return config_cls.model_validate(provided)
 
@@ -388,6 +393,7 @@ def _warn_ignored_env(
     provided: Mapping[str, object],
     shared_env: Mapping[str, str] | None = None,
     sibling: frozenset[str] = frozenset(),
+    kind_env_prefix: str | None = None,
 ) -> None:
     """Report a variable this config declares that is set but will not be read.
 
@@ -411,6 +417,11 @@ def _warn_ignored_env(
         if field in provided:
             continue
         names = [f"{env_prefix}{field.upper()}"]
+        # The kind address applies to every instance since 0.38.0, so a
+        # variable set there would have been read too. Still an exact-name
+        # lookup of a declared field, never a prefix sweep.
+        if kind_env_prefix:
+            names.append(f"{kind_env_prefix}{field.upper()}")
         if shared_env and field in shared_env:
             names.append(shared_env[field])
         for name in names:
