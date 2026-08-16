@@ -69,26 +69,29 @@ class _State:
 class RateLimiter(Reconfigurable["RateLimiterConfig"]):
     """Rate limiter with a pluggable algorithm.
 
-    Most Python call sites should use the factory classmethods:
-    [`RateLimiter.token_bucket`][grelmicro.resilience.RateLimiter.token_bucket]
-    for burst-friendly semantics or
-    [`RateLimiter.sliding_window`][grelmicro.resilience.RateLimiter.sliding_window] for
-    precise sliding-window semantics.
+        Most Python call sites should use the factory classmethods:
+        [`RateLimiter.token_bucket`][grelmicro.resilience.RateLimiter.token_bucket]
+        for burst-friendly semantics or
+        [`RateLimiter.sliding_window`][grelmicro.resilience.RateLimiter.sliding_window] for
+        precise sliding-window semantics.
 
-    Construct it directly with the instance name and a discriminated
-    algorithm configuration when a config object already exists:
-    [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
-    for burst-friendly semantics, or
-    [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig] for
-    precise sliding-window semantics.
+    When a config object already exists, pass it to
+        [`RateLimiter.from_config`][grelmicro.resilience.RateLimiter.from_config]:
+        a [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
+        for burst-friendly semantics, or a
+        [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig] for
+        precise sliding-window semantics.
 
-    The algorithm is bound to the backend once at construction via
-    [`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind].
-    Each call to `acquire`, `peek`, or `reset` then runs the bound
-    strategy directly. There is no extra algorithm lookup on each
-    call.
+        There is no bare constructor. Both algorithms need parameters the
+        library cannot guess, so naming one is part of building the object.
 
-    Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
+        The algorithm is bound to the backend once at construction via
+        [`RateLimiterBackend.bind`][grelmicro.resilience.RateLimiterBackend.bind].
+        Each call to `acquire`, `peek`, or `reset` then runs the bound
+        strategy directly. There is no extra algorithm lookup on each
+        call.
+
+        Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
     def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: ARG002

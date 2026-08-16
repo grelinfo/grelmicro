@@ -51,7 +51,7 @@ and takes only the fields that algorithm needs:
 
 ```python
 RateLimiter.sliding_window("api", limit=100, window=60)
-RateLimiter.token_bucket("api", rate=10, capacity=20)
+RateLimiter.token_bucket("api", capacity=20, refill_rate=10)
 CircuitBreaker.consecutive_count("payments", error_threshold=5)
 ```
 
