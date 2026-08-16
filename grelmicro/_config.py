@@ -218,7 +218,6 @@ def _reject_cross_arm_env(
     sibling: frozenset[str],
     env_prefix: str,
     kind_env_prefix: str | None,
-    error_type: type[SettingsValidationError] | None,
 ) -> None:
     """Refuse to start when one instance is handed another algorithm's variable.
 
@@ -253,7 +252,7 @@ def _reject_cross_arm_env(
         f"fields and never selects the algorithm. Remove the variable or "
         f"build the instance with the algorithm it belongs to."
     )
-    raise (error_type or SettingsValidationError)(msg)
+    raise SettingsValidationError(msg)
 
 
 def resolve_config[C: BaseModel](
@@ -265,7 +264,6 @@ def resolve_config[C: BaseModel](
     env_load: bool | None = None,
     shared_env: Mapping[str, str] | None = None,
     kind_env_prefix: str | None = None,
-    error_type: type[SettingsValidationError] | None = None,
     union: object | None = None,
 ) -> C:
     """Build a validated ``config_cls`` from an explicit instance or kwargs and env.
@@ -299,9 +297,8 @@ def resolve_config[C: BaseModel](
     ``env_prefixes``, which returns ``None`` for the default instance and
     for a caller-supplied prefix.
 
-    Pass ``error_type`` to wrap a ``pydantic.ValidationError`` into a
-    component-specific ``SettingsValidationError``. Without it, the
-    raw ``pydantic.ValidationError`` propagates.
+    A value the model rejects raises ``SettingsValidationError``, never
+    the raw ``pydantic.ValidationError``, which carries the input.
 
     See `docs/architecture/config.md` for the full contract,
     including the name-as-namespace convention used to derive
@@ -337,9 +334,7 @@ def resolve_config[C: BaseModel](
                 )
             return config_cls.model_validate(provided)
 
-        _reject_cross_arm_env(
-            config_cls, sibling, env_prefix, kind_env_prefix, error_type
-        )
+        _reject_cross_arm_env(config_cls, sibling, env_prefix, kind_env_prefix)
         settings_cls = _build_settings_cls(
             config_cls,
             env_prefix,
@@ -357,7 +352,7 @@ def resolve_config[C: BaseModel](
         # sit behind any name. `SettingsValidationError` renders the field
         # and the reason without the input. The reload path already
         # redacts, so this makes both directions of the same layer agree.
-        raise (error_type or SettingsValidationError)(error) from None
+        raise SettingsValidationError(error) from None
 
 
 _warned_ignored_env: set[str] = set()
@@ -715,7 +710,6 @@ def resolve_config_from_mapping[C: BaseModel](
     env_prefix: str,
     mapping: Mapping[str, str],
     immutable_fields: frozenset[str] = frozenset(),
-    error_type: type[SettingsValidationError] | None = None,
 ) -> C:
     """Patch `current` with values from a flat env-style `mapping`.
 
@@ -732,13 +726,12 @@ def resolve_config_from_mapping[C: BaseModel](
     from the environment. Returns `current` unchanged when the mapping
     carries nothing for this prefix.
 
-    Pass `error_type` to wrap a `pydantic.ValidationError` into a
-    component-specific `SettingsValidationError`. Without it, the raw
-    `pydantic.ValidationError` propagates.
+    The raw `pydantic.ValidationError` propagates. This is the reload
+    path, whose caller `reconfigure_all` logs a redacted summary and
+    keeps the running config, so the error is never raised at a caller.
 
     Raises:
-        pydantic.ValidationError: If a present value fails validation
-            and no `error_type` is given.
+        pydantic.ValidationError: If a present value fails validation.
     """
     cls = type(current)
     fields = cls.model_fields
@@ -769,12 +762,7 @@ def resolve_config_from_mapping[C: BaseModel](
         )
     if not overrides:
         return current
-    try:
-        return cls.model_validate({**current.model_dump(), **overrides})
-    except ValidationError as error:
-        if error_type is None:
-            raise
-        raise error_type(error) from None
+    return cls.model_validate({**current.model_dump(), **overrides})
 
 
 _warned_immutable_skipped: set[str] = set()

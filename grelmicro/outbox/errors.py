@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-from grelmicro.errors import GrelmicroError, SettingsValidationError
+from grelmicro.errors import GrelmicroError
 
 
 class OutboxError(GrelmicroError):
     """Base outbox error."""
-
-
-class OutboxSettingsValidationError(OutboxError, SettingsValidationError):
-    """Outbox Settings Validation Error."""
 
 
 class OutboxTransactionError(OutboxError, RuntimeError):

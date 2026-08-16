@@ -17,7 +17,6 @@ from typing_extensions import Doc
 
 from grelmicro._config import env_prefixes, resolve_config
 from grelmicro.log._shared import KeyMode
-from grelmicro.log.errors import LogSettingsValidationError
 
 
 class DuplicateFilterConfig(BaseModel, frozen=True, extra="forbid"):
@@ -242,7 +241,6 @@ class DuplicateFilter(Filter):
             env_prefix=instance_prefix,
             kind_env_prefix=kind_prefix,
             env_load=env_load,
-            error_type=LogSettingsValidationError,
         )
         Filter.__init__(self)
         self._setup(config, key)

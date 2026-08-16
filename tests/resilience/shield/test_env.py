@@ -24,19 +24,19 @@ def test_resolve_fqn_rejects_bare_name() -> None:
 
 def test_resolve_fqn_rejects_missing_module() -> None:
     """A missing module surfaces a clear error."""
-    with pytest.raises(ValueError, match="cannot import module"):
+    with pytest.raises(ValueError, match="cannot be imported"):
         _resolve_fqn("not_a_real_module_anywhere.X")
 
 
 def test_resolve_fqn_rejects_missing_attribute() -> None:
     """A missing attribute on the module surfaces a clear error."""
-    with pytest.raises(ValueError, match="no attribute"):
+    with pytest.raises(ValueError, match="does not define"):
         _resolve_fqn("builtins.NotAClass")
 
 
 def test_resolve_fqn_rejects_non_exception() -> None:
     """A name that resolves to a non-exception object is rejected."""
-    with pytest.raises(TypeError, match="not an Exception subclass"):
+    with pytest.raises(ValueError, match="Exception subclass"):
         _resolve_fqn("builtins.int")
 
 

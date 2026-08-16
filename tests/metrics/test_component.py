@@ -23,7 +23,6 @@ from grelmicro.metrics._component import (
 )
 from grelmicro.metrics.errors import (
     MetricsError,
-    MetricsSettingsValidationError,
 )
 
 
@@ -282,18 +281,13 @@ def test_metrics_singleton_skips_other_kinds() -> None:
 async def test_metrics_invalid_env_config_raises_settings_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Invalid env config raises a catchable `MetricsSettingsValidationError`."""
+    """Invalid env config raises a catchable `SettingsValidationError`."""
     monkeypatch.setenv("GREL_METRICS_EXPORTER", "bogus")
     micro = Grelmicro(uses=[Metrics(env_load=True)])
-    with pytest.raises(MetricsSettingsValidationError) as exc_info:
+    with pytest.raises(SettingsValidationError) as exc_info:
         async with micro:
             pass
     assert isinstance(exc_info.value, SettingsValidationError)
-
-
-def test_metrics_settings_error_is_settings_validation_error() -> None:
-    """`MetricsSettingsValidationError` is a `SettingsValidationError`."""
-    assert issubclass(MetricsSettingsValidationError, SettingsValidationError)
 
 
 def test_auto_exporter_resolves_to_none_without_endpoint(

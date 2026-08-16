@@ -26,8 +26,7 @@ from grelmicro.coordination._protocol import (
     ReadWriteLockState,
     WriteGrant,
 )
-from grelmicro.coordination.errors import CoordinationSettingsValidationError
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.types import BackendScope
 
 _LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
@@ -48,7 +47,7 @@ def _get_kube_namespace() -> str:
     """Get the Kubernetes namespace from the environment variables.
 
     Raises:
-        CoordinationSettingsValidationError: If KUBE_NAMESPACE is not set.
+        SettingsValidationError: If KUBE_NAMESPACE is not set.
     """
     settings = _KubernetesSettings()
 
@@ -56,7 +55,7 @@ def _get_kube_namespace() -> str:
         return settings.KUBE_NAMESPACE
 
     msg = "KUBE_NAMESPACE must be set"
-    raise CoordinationSettingsValidationError(msg)
+    raise SettingsValidationError(msg)
 
 
 def _sanitize_lease_name(name: str) -> str:

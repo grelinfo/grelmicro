@@ -10,14 +10,13 @@ from lightkube.models.coordination_v1 import LeaseSpec
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.coordination_v1 import Lease
 
-from grelmicro.coordination.errors import CoordinationSettingsValidationError
 from grelmicro.coordination.kubernetes import (
     _MAX_NAME_LENGTH,
     KubernetesLockAdapter,
     _get_expire_at,
     _sanitize_lease_name,
 )
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import OutOfContextError, SettingsValidationError
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -121,7 +120,7 @@ def test_kubernetes_env_var_settings_validation_error() -> None:
     """Test Kubernetes Settings Validation Error."""
     # Assert / Act
     with pytest.raises(
-        CoordinationSettingsValidationError,
+        SettingsValidationError,
         match=(r"Could not validate settings:\n"),
     ):
         KubernetesLockAdapter()

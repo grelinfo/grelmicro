@@ -7,9 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from freezegun import freeze_time
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.log import (
     DuplicateFilter,
-    LogSettingsValidationError,
     configure,
 )
 from grelmicro.log._dedup import _key_by_rendered
@@ -371,8 +371,8 @@ def test_explicit_key_callable_overrides_mode() -> None:
 
 
 def test_invalid_key_mode_rejected() -> None:
-    """Unknown ``key_mode`` values raise a LogSettingsValidationError."""
-    with pytest.raises(LogSettingsValidationError, match="key_mode"):
+    """Unknown ``key_mode`` values raise a SettingsValidationError."""
+    with pytest.raises(SettingsValidationError, match="key_mode"):
         DuplicateFilter(key_mode="bogus")  # ty: ignore[invalid-argument-type]
 
 
@@ -450,8 +450,8 @@ def test_ttl_none_disables_time_expiry() -> None:
 
 @pytest.mark.parametrize("bad_ttl", [0, -0.5, -1])
 def test_non_positive_ttl_rejected(bad_ttl: float) -> None:
-    """Non-positive ``ttl`` values raise a LogSettingsValidationError."""
-    with pytest.raises(LogSettingsValidationError, match="greater than 0"):
+    """Non-positive ``ttl`` values raise a SettingsValidationError."""
+    with pytest.raises(SettingsValidationError, match="greater than 0"):
         DuplicateFilter(ttl=bad_ttl)
 
 
@@ -460,8 +460,8 @@ def test_non_positive_ttl_rejected(bad_ttl: float) -> None:
     [(0, 10), (-1, 10), (10, 0), (10, -5)],
 )
 def test_invalid_config_rejected(allowed: int, cache: int) -> None:
-    """Non-positive config values raise a LogSettingsValidationError."""
-    with pytest.raises(LogSettingsValidationError, match="greater than 0"):
+    """Non-positive config values raise a SettingsValidationError."""
+    with pytest.raises(SettingsValidationError, match="greater than 0"):
         DuplicateFilter(allowed_repetitions=allowed, cache_size=cache)
 
 

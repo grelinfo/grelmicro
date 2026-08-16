@@ -5,6 +5,7 @@ import asyncio as _asyncio
 import pytest
 from pydantic import ValidationError
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience import (
     Fallback,
     FallbackConfig,
@@ -87,7 +88,7 @@ def test_fallback_accepts_tuple_filter() -> None:
 
 def test_fallback_rejects_both_default_and_factory() -> None:
     """Class form enforces mutual exclusion too."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(SettingsValidationError):
         Fallback("test", when=ValueError, default=1, factory=lambda _e: 2)
 
 
@@ -335,7 +336,7 @@ async def test_env_when_rejects_non_dotted_name(
     """Bare-name env entry raises a clear error."""
     monkeypatch.setenv("GREL_FALLBACK_BAD_WHEN", "ValueError")
     monkeypatch.setenv("GREL_FALLBACK_BAD_DEFAULT", "0")
-    with pytest.raises((ValidationError, ValueError)):
+    with pytest.raises(SettingsValidationError):
         Fallback("bad")
 
 
@@ -392,7 +393,7 @@ def test_config_string_default_is_not_json_parsed() -> None:
 
 def test_when_rejects_invalid_value() -> None:
     """Non-Match, non-class, non-tuple, non-callable raises."""
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(SettingsValidationError):
         Fallback("api", when=42, default=0)  # ty: ignore[invalid-argument-type]
 
 
@@ -406,7 +407,7 @@ async def test_env_when_rejects_unknown_module(
     monkeypatch.setenv("GREL_FALLBACK_BAD2_WHEN", "no_such_module.NoClass")
     monkeypatch.setenv("GREL_FALLBACK_BAD2_DEFAULT", "0")
     with pytest.raises(
-        (ValidationError, ValueError), match="cannot import module"
+        (ValidationError, ValueError), match="cannot be imported"
     ):
         Fallback("bad2")
 
@@ -417,7 +418,7 @@ async def test_env_when_rejects_unknown_attribute(
     """FQN that points to a missing attribute raises with a clear message."""
     monkeypatch.setenv("GREL_FALLBACK_BAD3_WHEN", "builtins.NoSuchClass")
     monkeypatch.setenv("GREL_FALLBACK_BAD3_DEFAULT", "0")
-    with pytest.raises((ValidationError, ValueError), match="has no attribute"):
+    with pytest.raises(SettingsValidationError, match="does not define"):
         Fallback("bad3")
 
 
@@ -427,7 +428,7 @@ async def test_env_when_rejects_non_exception_class(
     """FQN that resolves to a non-Exception class raises."""
     monkeypatch.setenv("GREL_FALLBACK_BAD4_WHEN", "builtins.int")
     monkeypatch.setenv("GREL_FALLBACK_BAD4_DEFAULT", "0")
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(SettingsValidationError):
         Fallback("bad4")
 
 

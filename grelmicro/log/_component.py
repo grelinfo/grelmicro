@@ -22,7 +22,6 @@ from grelmicro.log.config import (
     LogLevelType,
     LogSerializerType,
 )
-from grelmicro.log.errors import LogSettingsValidationError
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -204,7 +203,6 @@ class Log:
                 env_prefix="GREL_LOG_",
                 shared_env=SHARED_TIMEZONE_ENV,
                 env_load=self._env_load,
-                error_type=LogSettingsValidationError,
             )
             _apply(self._resolved)
         return self

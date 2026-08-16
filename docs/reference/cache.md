@@ -12,7 +12,6 @@
         - CacheError
         - CacheInfo
         - CacheSerializer
-        - CacheSettingsValidationError
         - CachedFunction
         - CachedStream
         - JsonSerializer

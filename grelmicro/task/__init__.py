@@ -8,7 +8,6 @@ from grelmicro.task.errors import (
     FunctionTypeError,
     TaskAddOperationError,
     TaskError,
-    TaskSettingsValidationError,
     TaskStartOperationError,
     TimezoneError,
 )
@@ -23,7 +22,6 @@ __all__ = [
     "TaskAddOperationError",
     "TaskError",
     "TaskRouter",
-    "TaskSettingsValidationError",
     "TaskStartOperationError",
     "Tasks",
     "TasksConfig",

@@ -7,7 +7,12 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Generic, Self, cast
 
-from pydantic import BaseModel, NonNegativeInt, PositiveFloat
+from pydantic import (
+    BaseModel,
+    NonNegativeInt,
+    PositiveFloat,
+    ValidationError,
+)
 from typing_extensions import Doc, TypeVar
 
 from grelmicro._app import Grelmicro
@@ -21,6 +26,7 @@ from grelmicro.cache.serializers import (
     _infer_serializer_from_instance,
     _resolve_serializer,
 )
+from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
@@ -115,9 +121,9 @@ class TTLCache(Generic[T]):
     parameter Pydantic cannot build a schema for.
 
     Raises:
-        pydantic.ValidationError: If `maxsize` is negative or `ttl` is not
-            positive. `ValidationError` is a subclass of `ValueError`, so
-            existing `except ValueError:` blocks still catch it.
+        SettingsValidationError: If `maxsize` is negative or `ttl` is not
+            positive. It subclasses `ValueError`, so an existing
+            `except ValueError:` block still catches it.
     """
 
     def __init__(
@@ -172,7 +178,10 @@ class TTLCache(Generic[T]):
         ] = None,
     ) -> None:
         """Initialize the cache."""
-        self._config = TTLCacheConfig(maxsize=maxsize, ttl=ttl)
+        try:
+            self._config = TTLCacheConfig(maxsize=maxsize, ttl=ttl)
+        except ValidationError as error:
+            raise SettingsValidationError(error) from None
         # Snapshot the validated config to instance attributes so the
         # hot path (`get`, `set`) reads a single attribute instead of
         # walking through `self._config.<field>`.

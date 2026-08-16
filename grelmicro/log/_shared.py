@@ -16,7 +16,6 @@ from grelmicro.log.config import (
     LogFormatType,
     LogSerializerType,
 )
-from grelmicro.log.errors import LogSettingsValidationError
 
 try:
     from opentelemetry import trace
@@ -385,7 +384,7 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
-        LogSettingsValidationError: If environment variables are invalid.
+        SettingsValidationError: If environment variables are invalid.
     """
     if settings is None:
         settings = resolve_config(
@@ -394,7 +393,6 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
             kwargs={},
             env_prefix="GREL_LOG_",
             shared_env=SHARED_TIMEZONE_ENV,
-            error_type=LogSettingsValidationError,
         )
 
     json_dumps: Callable[[Mapping[str, Any]], str]

@@ -95,36 +95,38 @@ def _coerce_to_match(value: Any) -> Match:  # noqa: ANN401
         return Match.exception(value)
     msg = (
         "when= must be a Match, an Exception class, a tuple of "
-        f"Exception classes, or a callable. Got {value!r}"
+        f"Exception classes, or a callable. Got {type(value).__name__}"
     )
-    raise TypeError(msg)
+    # `ValueError`, not `TypeError`: pydantic converts only `ValueError` and
+    # `AssertionError`, so a `TypeError` escaped every documented `except`.
+    raise ValueError(msg)
 
 
 def _resolve_fqn(fqn: str) -> type[Exception]:
     """Resolve a fully-qualified name to an Exception class."""
     module_path, _, name = fqn.rpartition(".")
     if not module_path:
-        msg = f"when= env entry must be a fully-qualified name, got {fqn!r}"
+        msg = (
+            "when= env entry must be a fully-qualified name, "
+            "such as 'httpx.HTTPError'"
+        )
         raise ValueError(msg)
     try:
         module = import_module(module_path)
     except ModuleNotFoundError as exc:
-        msg = (
-            f"when= env entry {fqn!r}: cannot import module "
-            f"{module_path!r} ({exc})"
-        )
+        msg = "when= env entry names a module that cannot be imported"
         raise ValueError(msg) from exc
     try:
         cls = getattr(module, name)
     except AttributeError as exc:
-        msg = (
-            f"when= env entry {fqn!r}: module {module_path!r} has no "
-            f"attribute {name!r}"
-        )
+        msg = "when= env entry names an attribute its module does not define"
         raise ValueError(msg) from exc
     if not (isinstance(cls, type) and issubclass(cls, Exception)):
-        msg = f"when= env entry {fqn!r} is not an Exception subclass"
-        raise TypeError(msg)
+        # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
+        # and `AssertionError` into a `ValidationError`, so a `TypeError` here
+        # escaped `except SettingsValidationError` and `except ValueError` both.
+        msg = "when= env entry does not name an Exception subclass"
+        raise ValueError(msg)  # noqa: TRY004
     return cls
 
 

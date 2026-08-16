@@ -11,6 +11,5 @@
         - MetricsConfig
         - MetricsError
         - MetricsExporterType
-        - MetricsSettingsValidationError
         - measure
         - metrics_router

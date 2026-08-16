@@ -208,7 +208,7 @@ def configure(config: LogConfig | None = None) -> None:
 
     Raises:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
-        pydantic.ValidationError: If environment variables are invalid.
+        SettingsValidationError: If environment variables are invalid.
     """
     settings, timezone, resolved_format, _, colors = load_settings(config)
     caller = settings.caller_enabled

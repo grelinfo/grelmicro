@@ -14,7 +14,7 @@ from grelmicro.trace.config import (
     TraceProcessorType,
     TraceSamplerType,
 )
-from grelmicro.trace.errors import TraceError, TraceSettingsValidationError
+from grelmicro.trace.errors import TraceError
 
 __all__ = [
     "Trace",
@@ -23,7 +23,6 @@ __all__ = [
     "TraceExporterType",
     "TraceProcessorType",
     "TraceSamplerType",
-    "TraceSettingsValidationError",
     "add_context",
     "get_context",
     "instrument",

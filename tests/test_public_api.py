@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -47,6 +49,7 @@ PUBLIC_MODULES = [
     "grelmicro.integrations.litestar",
     "grelmicro.log",
     "grelmicro.metrics",
+    "grelmicro.outbox",
     "grelmicro.providers",
     "grelmicro.resilience",
     "grelmicro.resilience.backoffs",
@@ -57,7 +60,15 @@ PUBLIC_MODULES = [
     "grelmicro.task",
     "grelmicro.testing",
     "grelmicro.trace",
+    "grelmicro.types",
 ]
+"""Every module the API reference renders, which is what public means here.
+
+A module `docs/reference/` documents is one a reader is told to import
+from, so its `__all__` is a promise and belongs in the snapshot.
+`grelmicro.outbox` and `grelmicro.types` were documented but unguarded,
+so their exports could change without the snapshot noticing.
+"""
 
 
 @pytest.fixture
@@ -146,6 +157,34 @@ def build_public_api() -> dict[str, dict[str, Any]]:
 def test_public_api_matches_snapshot(snapshot_json) -> None:  # noqa: ANN001
     """The live public surface equals the committed snapshot."""
     assert build_public_api() == snapshot_json
+
+
+def test_every_documented_module_is_snapshotted() -> None:
+    """A module the reference renders cannot slip out of the snapshot.
+
+    `grelmicro.outbox` and `grelmicro.types` were documented for
+    releases while their exports went unguarded. Reading the reference
+    pages closes that by construction, so adding a page adds the guard.
+    """
+    reference = Path(__file__).parent.parent / "docs" / "reference"
+    documented = {
+        match.group(1)
+        for page in reference.glob("*.md")
+        for match in re.finditer(
+            r"^::: (grelmicro[\w.]*)$",
+            page.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+    }
+    guarded = set(PUBLIC_MODULES)
+    missing = sorted(
+        name
+        for name in documented - guarded
+        if hasattr(importlib.import_module(name), "__all__")
+    )
+    assert not missing, (
+        f"documented in docs/reference/ but absent from PUBLIC_MODULES: {missing}"
+    )
 
 
 @pytest.mark.parametrize("module_name", PUBLIC_MODULES)

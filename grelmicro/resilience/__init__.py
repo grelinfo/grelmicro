@@ -77,7 +77,6 @@ from grelmicro.resilience.errors import (
     CircuitBreakerError,
     RateLimitExceededError,
     ResilienceError,
-    ResilienceSettingsValidationError,
 )
 
 # Same shadow handling as `retry`/`retrying`: ``fallback`` and
@@ -212,7 +211,6 @@ __all__ = [
     "RedisCircuitBreakerAdapter",
     "RedisRateLimiterAdapter",
     "ResilienceError",
-    "ResilienceSettingsValidationError",
     "Retry",
     "RetryAttempt",
     "RetryBackoffConfig",

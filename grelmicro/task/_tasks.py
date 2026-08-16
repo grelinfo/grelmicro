@@ -18,7 +18,6 @@ from grelmicro._timezone import SHARED_TIMEZONE_ENV, UTC_NAME
 from grelmicro.errors import OutOfContextError
 from grelmicro.task._protocol import Task
 from grelmicro.task.errors import (
-    TaskSettingsValidationError,
     TaskStartOperationError,
 )
 from grelmicro.task.router import TaskRouter
@@ -147,7 +146,7 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         """Initialize Tasks.
 
         Raises:
-            TaskSettingsValidationError: If a setting fails validation.
+            SettingsValidationError: If a setting fails validation.
         """
         config = resolve_config(
             TasksConfig,
@@ -159,7 +158,6 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
             env_prefix=env_prefix or default_env_prefix("TASK", "default"),
             env_load=env_load,
             shared_env=SHARED_TIMEZONE_ENV,
-            error_type=TaskSettingsValidationError,
         )
         self._setup(config, auto_start=auto_start, tasks=tasks)
         self._track_reconfigure(

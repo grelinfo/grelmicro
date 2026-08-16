@@ -22,17 +22,62 @@ that a client library used to accept.
 | A password or URL reads back as `SecretStr(...)` or `***` | 0.31, 0.32 | [Call `.get_secret_value()`](#0-31-secret-credentials) |
 | Metrics stopped arriving after upgrading, with no error | 0.31 | [Set an endpoint](#0-31-metrics-auto-exporter) |
 | `TypeError` on a SQLite adapter, either `unexpected keyword argument 'path'` or `takes 1 positional argument` | 0.32 | [Pass `provider=`](#0-32-sqlite-provider) |
-| `SettingsValidationError` where you caught `CoordinationSettingsValidationError` | 0.32 | [Catch the base error](#0-32-sqlite-provider) |
 | An open circuit closed once, just after upgrading | 0.32.2 | [Expected, happens once](#0-32-2-circuit-breaker-state) |
 | `TypeError: @cached on ... needs an explicit key=` | 0.34 | [Name the key](#0-34-cached-method-key) |
 | Task run totals jumped after upgrading, with no new failures | 0.34 | [Filter on `outcome`](#0-34-task-run-outcomes) |
 | `ImportError: cannot import name 'LogTimeZoneType'` | 0.36 | [Use `TimeZoneName`](#0-36-timezone-type) |
-| `LogSettingsValidationError: unknown timezone name 'CEST'` | 0.36 | [Name the zone](#0-36-timezone-abbreviation) |
+| `SettingsValidationError: unknown timezone name 'CEST'` | 0.36 | [Name the zone](#0-36-timezone-abbreviation) |
 | `ImportError: cannot import name 'RateLimiterRegistry'` or `ImportError: cannot import name 'CircuitBreakerRegistry'` | 0.37 | [Rename to `Component`](#0-37-registry-renamed) |
 | `TypeError: health_router() got an unexpected keyword argument 'registry'` | 0.37 | [Pass `component=`](#0-37-registry-renamed) |
 | `RedisProviderConfigError` or `PostgresProviderConfigError` on a URL that used to connect | 0.37.1 | [Fix the URL](#0-37-1-url-validation) |
 | `ModuleNotFoundError: No module named 'grelmicro.clientip'` | 0.39 | [Import from `grelmicro.security`](#0-39-clientip-moved) |
 | A logging filter or level set on `grelmicro.clientip` stopped matching | 0.39 | [Rename the logger](#0-39-clientip-moved) |
+| `ImportError: cannot import name 'LogSettingsValidationError'`, or any other `*SettingsValidationError` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
+| `SettingsValidationError` where you caught `pydantic.ValidationError` from `Fallback`, `Shield`, or `TTLCache` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
+
+## 0.40
+
+### One error for every bad configuration value {#0-40-one-settings-error}
+
+A bad configuration value raises `SettingsValidationError`, whichever pattern
+or component you built. The ten per-module subclasses are gone:
+`CacheSettingsValidationError`, `CoordinationSettingsValidationError`,
+`HealthSettingsValidationError`, `IdempotencySettingsValidationError`,
+`LogSettingsValidationError`, `MetricsSettingsValidationError`,
+`OutboxSettingsValidationError`, `ResilienceSettingsValidationError`,
+`TaskSettingsValidationError`, and `TraceSettingsValidationError`.
+
+Catch the base error, which every one of them already subclassed:
+
+```python
+# Before
+from grelmicro.log import LogSettingsValidationError
+
+try:
+    Log(level="NOPE")
+except LogSettingsValidationError:
+    ...
+
+# After
+from grelmicro import SettingsValidationError
+
+try:
+    Log(level="NOPE")
+except SettingsValidationError:
+    ...
+```
+
+`except ValueError` and `except GrelmicroError` keep working unchanged.
+
+`Fallback`, `Shield`, and `TTLCache` used to let pydantic's `ValidationError`
+through instead, so they now raise `SettingsValidationError` too. If you catch
+`ValidationError` around one of those, catch `SettingsValidationError`. It
+subclasses `ValueError`, which `ValidationError` also is, so an
+`except ValueError` around either keeps working.
+
+That change closes a leak: pydantic attaches the rejected input to its error,
+so an invalid value read from the environment used to reach the traceback.
+Errors now carry the variable name and the reason, never the value.
 
 ## 0.39
 
@@ -139,7 +184,7 @@ from grelmicro.types import TimeZoneName
 ### A timezone abbreviation no longer validates {#0-36-timezone-abbreviation}
 
 `GREL_LOG_TIMEZONE=CEST` used to validate and then fail later, because
-`zoneinfo` has no such zone. It now raises `LogSettingsValidationError:
+`zoneinfo` has no such zone. It now raises `SettingsValidationError:
 unknown timezone name 'CEST'` where the value is read. Abbreviations such as
 `CEST`, `PST`, `PDT`, `EDT`, `BST`, and `JST` are daylight saving variants,
 not zones, and pinning one would freeze the offset year-round. Name the zone
@@ -222,9 +267,8 @@ micro = Grelmicro(uses=[Coordination(sqlite)])
 That also shares one connection across every component on the same file,
 where the old form opened its own.
 
-A missing path now raises `SettingsValidationError` instead of
-`CoordinationSettingsValidationError`. If you catch the latter, catch the
-base error.
+A missing path raises `SettingsValidationError`, as every configuration
+failure does since 0.40.
 
 ### URL and header fields hide their credentials {#0-32-secret-urls}
 

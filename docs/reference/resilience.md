@@ -51,7 +51,6 @@
         - ApiShieldConfig
         - InternalShieldConfig
         - ResilienceError
-        - ResilienceSettingsValidationError
         - Retry
         - RetryAttempt
         - RetryBackoffConfig

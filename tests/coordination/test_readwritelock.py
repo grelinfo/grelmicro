@@ -25,10 +25,13 @@ from grelmicro.coordination._protocol import (
 )
 from grelmicro.coordination.errors import (
     CoordinationBackendError,
-    CoordinationSettingsValidationError,
 )
 from grelmicro.coordination.memory import MemoryReadWriteLockAdapter
-from grelmicro.errors import OutOfContextError, WouldBlockError
+from grelmicro.errors import (
+    OutOfContextError,
+    SettingsValidationError,
+    WouldBlockError,
+)
 
 pytestmark = [pytest.mark.timeout(10, func_only=True)]
 
@@ -519,9 +522,7 @@ async def test_reconfigure_keeps_the_worker(
     )
     assert lock.config.lease_duration == _RECONFIGURED_LEASE_DURATION
 
-    with pytest.raises(
-        CoordinationSettingsValidationError, match="worker is immutable"
-    ):
+    with pytest.raises(SettingsValidationError, match="worker is immutable"):
         await lock.reconfigure(
             lock.config.model_copy(update={"worker": "web-2"})
         )

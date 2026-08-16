@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from logging import getLogger
 from typing import Annotated, Any, Self, TypeVar
 
-from pydantic import Discriminator, PositiveFloat
+from pydantic import Discriminator, PositiveFloat, ValidationError
 from typing_extensions import Doc
 
 from grelmicro._config import (
@@ -23,6 +23,7 @@ from grelmicro._config import (
     warn_ignored_env,
 )
 from grelmicro.clock import monotonic, sleep
+from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import ResilienceError
 from grelmicro.resilience.shield._adaptive_gate import _AdaptiveGate
@@ -77,11 +78,26 @@ def _load_profile_from_env(name: str) -> str:
         value = os.environ.get(env_key, "").strip().lower()
     if value and value not in _PROFILE_BY_NAME:
         msg = (
-            f"{env_key}={value!r} is not a valid profile. "
+            f"{env_key} is not a valid profile. "
             f"Expected one of: internal, api, slow."
         )
-        raise ValueError(msg)
+        raise SettingsValidationError(msg)
     return value or "api"
+
+
+def _validate(
+    cls: type[_BaseShieldConfig], kwargs: dict[str, Any]
+) -> _BaseShieldConfig:
+    """Build `cls`, raising `SettingsValidationError` on a bad value.
+
+    `Shield` resolves its own configuration, so it wraps the pydantic
+    error here instead of through `resolve_config`. Without this the raw
+    error escapes carrying `input_value`, which is the rejected value.
+    """
+    try:
+        return cls.model_validate(kwargs)
+    except ValidationError as error:
+        raise SettingsValidationError(error) from None
 
 
 def _fill_from_env(
@@ -90,12 +106,17 @@ def _fill_from_env(
     passed: Any,  # noqa: ANN401
     read: Callable[[str], str | None],
     *,
+    env_prefix: str,
     cast: Callable[[str], Any] | None = None,
 ) -> None:
     """Take the caller's value, else the environment's, else leave unset.
 
     A keyword beats the environment, which is the same order
     `resolve_config` applies for every other pattern.
+
+    A value the cast refuses raises `SettingsValidationError` naming the
+    variable, in the same shape `resolve_config` renders. `float()` reports
+    the rejected string in its own message, so it never escapes.
     """
     if passed is not None:
         kwargs[field] = passed
@@ -103,7 +124,14 @@ def _fill_from_env(
     value = read(field.upper())
     if value is None or (cast is not None and value.strip() == ""):
         return
-    kwargs[field] = cast(value) if cast is not None else value
+    if cast is None:
+        kwargs[field] = value
+        return
+    try:
+        kwargs[field] = cast(value)
+    except ValueError:
+        msg = f"- {env_prefix}{field.upper()}: input is not a valid number"
+        raise SettingsValidationError(msg) from None
 
 
 def _resolve_config_from_env(
@@ -137,15 +165,19 @@ def _resolve_config_from_env(
         return value
 
     kwargs: dict[str, Any] = {"kind": profile}
-    _fill_from_env(kwargs, "timeout_errors", timeout_errors, _env)
-    _fill_from_env(kwargs, "max_rate", max_rate, _env, cast=float)
+    _fill_from_env(
+        kwargs, "timeout_errors", timeout_errors, _env, env_prefix=env_prefix
+    )
+    _fill_from_env(
+        kwargs, "max_rate", max_rate, _env, env_prefix=env_prefix, cast=float
+    )
     if cache is not None:
         kwargs["cache"] = cache
     if cache_key is not None:
         kwargs["cache_key"] = cache_key
     if fallback is not None:
         kwargs["fallback"] = fallback
-    return cls.model_validate(kwargs)
+    return _validate(cls, kwargs)
 
 
 def _build_config(
@@ -198,7 +230,7 @@ def _build_config(
             kwargs,
             kind_env_prefix=kind_prefix,
         )
-    return cls.model_validate(kwargs)
+    return _validate(cls, kwargs)
 
 
 @dataclass(frozen=True, slots=True)

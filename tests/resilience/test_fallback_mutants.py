@@ -42,7 +42,5 @@ def test_env_when_rejects_non_exception_fqn(
     """An env FQN that resolves to a non-Exception type is rejected."""
     monkeypatch.setenv("GREL_FALLBACK_NOTEXC_WHEN", "builtins.int")
     monkeypatch.setenv("GREL_FALLBACK_NOTEXC_DEFAULT", "null")
-    with pytest.raises(
-        (ValueError, TypeError), match="not an Exception subclass"
-    ):
+    with pytest.raises((ValueError, TypeError), match="Exception subclass"):
         Fallback("notexc", env_load=True)

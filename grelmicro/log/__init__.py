@@ -21,7 +21,7 @@ from grelmicro.log.config import (
     LogLevelType,
     LogSerializerType,
 )
-from grelmicro.log.errors import LogError, LogSettingsValidationError
+from grelmicro.log.errors import LogError
 from grelmicro.log.types import ErrorDict, JSONRecordDict
 from grelmicro.types import TimeZoneName
 
@@ -104,7 +104,7 @@ def configure(
 
     Raises:
         DependencyNotFoundError: If the selected backend module is not installed.
-        LogSettingsValidationError: If configuration is invalid.
+        SettingsValidationError: If configuration is invalid.
     """
     config = resolve_config(
         LogConfig,
@@ -122,7 +122,6 @@ def configure(
         env_prefix="GREL_LOG_",
         shared_env=SHARED_TIMEZONE_ENV,
         env_load=env_load,
-        error_type=LogSettingsValidationError,
     )
     _apply(config)
     return config
@@ -163,7 +162,6 @@ __all__ = [
     "LogFormatType",
     "LogLevelType",
     "LogSerializerType",
-    "LogSettingsValidationError",
     "ProbeFilter",
     "RateLimitFilter",
     "RateLimitFilterConfig",

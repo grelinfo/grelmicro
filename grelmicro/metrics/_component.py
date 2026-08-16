@@ -19,7 +19,6 @@ from grelmicro.metrics.config import (
 )
 from grelmicro.metrics.errors import (
     MetricsError,
-    MetricsSettingsValidationError,
 )
 
 if TYPE_CHECKING:
@@ -280,7 +279,6 @@ class Metrics:
                 kwargs=self._kwargs,
                 env_prefix="GREL_METRICS_",
                 env_load=self._env_load,
-                error_type=MetricsSettingsValidationError,
             )
         return self._resolved
 

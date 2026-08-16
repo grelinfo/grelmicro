@@ -32,28 +32,28 @@ def _resolve_fqn(fqn: str) -> type[BaseException]:
     module_path, _, name = fqn.rpartition(".")
     if not module_path:
         msg = (
-            f"timeout_errors entry must be a fully-qualified name, got {fqn!r}"
+            "timeout_errors entry must be a fully-qualified name, "
+            "such as 'httpx.HTTPError'"
         )
         raise ValueError(msg)
     try:
         module = import_module(module_path)
     except ModuleNotFoundError as exc:
-        msg = (
-            f"timeout_errors entry {fqn!r}: cannot import module "
-            f"{module_path!r} ({exc})"
-        )
+        msg = "timeout_errors entry names a module that cannot be imported"
         raise ValueError(msg) from exc
     try:
         cls = getattr(module, name)
     except AttributeError as exc:
         msg = (
-            f"timeout_errors entry {fqn!r}: module {module_path!r} has "
-            f"no attribute {name!r}"
+            "timeout_errors entry names an attribute its module does not define"
         )
         raise ValueError(msg) from exc
     if not (isinstance(cls, type) and issubclass(cls, Exception)):
-        msg = f"timeout_errors entry {fqn!r} is not an Exception subclass"
-        raise TypeError(msg)
+        # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
+        # and `AssertionError` into a `ValidationError`, so a `TypeError` here
+        # escaped `except SettingsValidationError` and `except ValueError` both.
+        msg = "timeout_errors entry does not name an Exception subclass"
+        raise ValueError(msg)  # noqa: TRY004
     return cls
 
 

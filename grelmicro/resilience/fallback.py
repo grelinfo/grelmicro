@@ -19,7 +19,12 @@ from typing import (
     overload,
 )
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from typing_extensions import Doc
 
 from grelmicro._config import (
@@ -31,6 +36,7 @@ from grelmicro._config import (
     parse_csv_or_json,
 )
 from grelmicro._json import json_loads
+from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience.retry import WhenInput  # noqa: TC001
@@ -67,36 +73,38 @@ def _coerce_to_match(value: Any) -> Match:  # noqa: ANN401
         return Match.exception(value)
     msg = (
         "when= must be a Match, an Exception class, a tuple of "
-        f"Exception classes, or a callable. Got {value!r}"
+        f"Exception classes, or a callable. Got {type(value).__name__}"
     )
-    raise TypeError(msg)
+    # `ValueError`, not `TypeError`: pydantic converts only `ValueError` and
+    # `AssertionError`, so a `TypeError` escaped every documented `except`.
+    raise ValueError(msg)
 
 
 def _resolve_fqn(fqn: str) -> type[Exception]:
     """Resolve a fully-qualified name to an Exception class."""
     module_path, _, name = fqn.rpartition(".")
     if not module_path:
-        msg = f"when= env entry must be a fully-qualified name, got {fqn!r}"
+        msg = (
+            "when= env entry must be a fully-qualified name, "
+            "such as 'httpx.HTTPError'"
+        )
         raise ValueError(msg)
     try:
         module = import_module(module_path)
     except ModuleNotFoundError as exc:
-        msg = (
-            f"when= env entry {fqn!r}: cannot import module "
-            f"{module_path!r} ({exc})"
-        )
+        msg = "when= env entry names a module that cannot be imported"
         raise ValueError(msg) from exc
     try:
         cls = getattr(module, name)
     except AttributeError as exc:
-        msg = (
-            f"when= env entry {fqn!r}: module {module_path!r} has no "
-            f"attribute {name!r}"
-        )
+        msg = "when= env entry names an attribute its module does not define"
         raise ValueError(msg) from exc
     if not (isinstance(cls, type) and issubclass(cls, Exception)):
-        msg = f"when= env entry {fqn!r} is not an Exception subclass"
-        raise TypeError(msg)
+        # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
+        # and `AssertionError` into a `ValidationError`, so a `TypeError` here
+        # escaped `except SettingsValidationError` and `except ValueError` both.
+        msg = "when= env entry does not name an Exception subclass"
+        raise ValueError(msg)  # noqa: TRY004
     return cls
 
 
@@ -193,6 +201,19 @@ class _State:
     matcher: Matcher
 
 
+def _validate(build: Callable[[], Any]) -> FallbackConfig:
+    """Run `build`, raising `SettingsValidationError` on a bad value.
+
+    `Fallback` resolves its own configuration, so it wraps the pydantic
+    error here instead of through `resolve_config`. Without this the raw
+    error escapes carrying `input_value`, which is the rejected value.
+    """
+    try:
+        return build()
+    except ValidationError as error:
+        raise SettingsValidationError(error) from None
+
+
 def _resolve_config(
     name: str,
     *,
@@ -218,14 +239,14 @@ def _resolve_config(
     if env_load is None:
         env_load = env_load_default()
     if not env_load:
-        return FallbackConfig.model_validate(kwargs)
+        return _validate(lambda: FallbackConfig.model_validate(kwargs))
 
     env_prefix, kind_prefix = env_prefixes("FALLBACK", name)
     _load_default_from_env(kwargs, env_prefix)
     settings_cls = _build_settings_cls(
         FallbackConfig, env_prefix, kind_env_prefix=kind_prefix
     )
-    return settings_cls(**kwargs)  # ty: ignore[invalid-return-type]
+    return _validate(lambda: settings_cls(**kwargs))
 
 
 def _load_default_from_env(kwargs: dict[str, Any], env_prefix: str) -> None:
@@ -495,7 +516,7 @@ def fallback(
     kwargs: dict[str, Any] = {"when": when, "factory": factory}
     if default is not _UNSET:
         kwargs["default"] = default
-    config = FallbackConfig.model_validate(kwargs)
+    config = _validate(lambda: FallbackConfig.model_validate(kwargs))
     matcher: Matcher = config.when
 
     def wrap(fn: F) -> F:
@@ -552,5 +573,5 @@ def falling_back(
     kwargs: dict[str, Any] = {"when": when, "factory": factory}
     if default is not _UNSET:
         kwargs["default"] = default
-    config = FallbackConfig.model_validate(kwargs)
+    config = _validate(lambda: FallbackConfig.model_validate(kwargs))
     return _FallbackBlock(config, config.when)

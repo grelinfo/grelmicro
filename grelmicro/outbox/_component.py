@@ -17,7 +17,6 @@ from grelmicro.outbox._otel import inject_trace_context
 from grelmicro.outbox._registry import OutboxRegistry, derive_topic
 from grelmicro.outbox._relay import Relay
 from grelmicro.outbox._uuid import uuid7
-from grelmicro.outbox.errors import OutboxSettingsValidationError
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
@@ -167,7 +166,6 @@ class Outbox:
                 env_prefix=instance_prefix,
                 kind_env_prefix=kind_prefix,
                 env_load=env_load,
-                error_type=OutboxSettingsValidationError,
             ),
             requires=requires,
             name=name,
