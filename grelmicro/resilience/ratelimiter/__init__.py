@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING, Annotated, Self, assert_never
 from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
-from grelmicro._config import Reconfigurable, default_env_prefix
+from grelmicro._config import (
+    Reconfigurable,
+    default_env_prefix,
+    env_prefixes,
+    resolve_config,
+)
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.metrics import _emit
@@ -56,6 +61,41 @@ logger = logging.getLogger(__name__)
 _MIN_POLL_INTERVAL = 0.005
 """Floor for the `wait` poll sleep, avoiding a busy-loop on a zero or
 coarse `retry_after` from a distributed backend."""
+
+
+def _resolve_algorithm[C: TokenBucketConfig | SlidingWindowConfig](
+    config_cls: type[C],
+    name: str,
+    kwargs: dict[str, object | None],
+    *,
+    env_load: bool | None,
+) -> C:
+    """Resolve one algorithm's fields from kwargs and the environment.
+
+    The algorithm is already chosen by the factory that calls this. The
+    environment only fills the fields that algorithm declares, so a
+    variable naming another algorithm's field is reported rather than
+    applied. See `resolve_config`.
+    """
+    instance_prefix, kind_prefix = env_prefixes("RATELIMITER", name)
+    return resolve_config(
+        config_cls,
+        explicit=None,
+        kwargs=kwargs,
+        env_prefix=instance_prefix,
+        kind_env_prefix=kind_prefix,
+        env_load=env_load,
+        union=_union_for_env(),
+    )
+
+
+def _union_for_env() -> object:
+    """Return the algorithm union, for cross-arm environment reporting."""
+    from pydantic import Discriminator  # noqa: PLC0415
+
+    return Annotated[
+        TokenBucketConfig | SlidingWindowConfig, Discriminator("kind")
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,24 +270,28 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         ],
         *,
         capacity: Annotated[
-            PositiveInt,
+            PositiveInt | None,
             Doc(
-                "Maximum burst size. The bucket holds at most `capacity` tokens."
+                "Maximum burst size. The bucket holds at most `capacity` "
+                "tokens. Required unless the value comes from env."
             ),
-        ],
+        ] = None,
         refill_rate: Annotated[
-            PositiveFloat,
-            Doc("Tokens replenished per second, up to `capacity`."),
-        ],
+            PositiveFloat | None,
+            Doc(
+                "Tokens replenished per second, up to `capacity`. Required "
+                "unless the value comes from env."
+            ),
+        ] = None,
         fail_open: Annotated[
-            bool,
+            bool | None,
             Doc(
                 """
                 When `True`, the rate limiter returns an allowed
                 result if the backend raises an error.
                 """
             ),
-        ] = False,
+        ] = None,
         backend: Annotated[
             RateLimiterBackend | str | None,
             Doc(
@@ -257,20 +301,40 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
                 """
             ),
         ] = None,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                """
+                Whether to read `GREL_RATELIMITER_*` environment
+                variables. When `None` (the default), follow
+                `GREL_ENV_LOAD`. The environment tunes the fields of the
+                algorithm chosen here and never selects the algorithm.
+                """
+            ),
+        ] = None,
     ) -> Self:
         """Construct a token-bucket rate limiter.
 
-        Convenience factory for the common case. Builds a
-        [`TokenBucketConfig`][grelmicro.resilience.TokenBucketConfig]
-        internally and forwards to the constructor.
+        Fields not passed here resolve from `GREL_RATELIMITER_{NAME}_*`,
+        then `GREL_RATELIMITER_*`, then the model default, when env
+        loading is on.
         """
-        config = TokenBucketConfig(
-            capacity=capacity,
-            refill_rate=refill_rate,
-            fail_open=fail_open,
-        )
         self = cls.__new__(cls)
-        self._setup(name, config, backend, register=True)
+        self._setup(
+            name,
+            _resolve_algorithm(
+                TokenBucketConfig,
+                name,
+                {
+                    "capacity": capacity,
+                    "refill_rate": refill_rate,
+                    "fail_open": fail_open,
+                },
+                env_load=env_load,
+            ),
+            backend,
+            register=True,
+        )
         return self
 
     @classmethod
@@ -282,22 +346,28 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         ],
         *,
         limit: Annotated[
-            PositiveInt,
-            Doc("Maximum number of requests allowed per window."),
-        ],
+            PositiveInt | None,
+            Doc(
+                "Maximum number of requests allowed per window. Required "
+                "unless the value comes from env."
+            ),
+        ] = None,
         window: Annotated[
-            PositiveFloat,
-            Doc("Window duration in seconds."),
-        ],
+            PositiveFloat | None,
+            Doc(
+                "Window duration in seconds. Required unless the value "
+                "comes from env."
+            ),
+        ] = None,
         fail_open: Annotated[
-            bool,
+            bool | None,
             Doc(
                 """
                 When `True`, the rate limiter returns an allowed
                 result if the backend raises an error.
                 """
             ),
-        ] = False,
+        ] = None,
         backend: Annotated[
             RateLimiterBackend | str | None,
             Doc(
@@ -307,18 +377,36 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
                 """
             ),
         ] = None,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                """
+                Whether to read `GREL_RATELIMITER_*` environment
+                variables. When `None` (the default), follow
+                `GREL_ENV_LOAD`. The environment tunes the fields of the
+                algorithm chosen here and never selects the algorithm.
+                """
+            ),
+        ] = None,
     ) -> Self:
         """Construct a sliding-window rate limiter.
 
-        Convenience factory for the common case. Builds a
-        [`SlidingWindowConfig`][grelmicro.resilience.SlidingWindowConfig]
-        internally and forwards to the constructor.
+        Fields not passed here resolve from `GREL_RATELIMITER_{NAME}_*`,
+        then `GREL_RATELIMITER_*`, then the model default, when env
+        loading is on.
         """
-        config = SlidingWindowConfig(
-            limit=limit, window=window, fail_open=fail_open
-        )
         self = cls.__new__(cls)
-        self._setup(name, config, backend, register=True)
+        self._setup(
+            name,
+            _resolve_algorithm(
+                SlidingWindowConfig,
+                name,
+                {"limit": limit, "window": window, "fail_open": fail_open},
+                env_load=env_load,
+            ),
+            backend,
+            register=True,
+        )
         return self
 
     def _log_fail_open(

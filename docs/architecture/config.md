@@ -24,6 +24,85 @@ Components fall in two categories.
 
 The `Config` Pydantic class carries settings only. For multi-instance components the identity lives on the component, never inside the config object. This matches the `Map<name, Settings>` shape that YAML and `pydantic-settings` aggregations produce naturally.
 
+## The invariant
+
+One sentence governs every environment variable grelmicro reads:
+
+!!! quote ""
+    Every value field of a named grelmicro object resolves once at
+    construction, in the fixed order keyword argument, `GREL_{KIND}_{NAME}_{FIELD}`,
+    `GREL_{KIND}_{FIELD}`, app-wide variable, default, gated by `GREL_ENV_LOAD`.
+    The environment tunes any value. It never chooses a name, an algorithm, or a
+    backend, and it never fails silently.
+
+The rules below all follow from it. If a rule and the invariant disagree, the
+invariant wins and the rule is a bug.
+
+### The rules
+
+**R1 Namespace.** grelmicro tuning lives under `GREL_*`. A Provider reads its
+vendor's own namespace instead (`REDIS_*`, `VALKEY_*`, `POSTGRES_*`,
+`SQLITE_*`), ungated, because those names belong to the deployment rather than
+to grelmicro. A missing required connection value fails at construction.
+
+**R2 Gate.** Every `GREL_*` field read is gated by `GREL_ENV_LOAD`. A variable
+that fills no field, such as `GREL_ENV_LOAD` itself, is read ungated.
+
+**R3 Address.** The environment addresses identity: `GREL_{KIND}_{NAME}_{FIELD}`,
+with the name segment dropped for the `default` instance. No name means no
+address, which is why `TTLCache` reads nothing and has no live reload.
+
+**R4 Segment.** A component's segment is its kind string uppercased (`health`
+gives `HEALTH`). A pattern's segment is its class name uppercased, separators
+dropped, singular (`Tasks` gives `TASK`, `LeaderElection` gives
+`LEADERELECTION`). Every shipped prefix derives from this, so a prefix never
+needs renaming again.
+
+**R5 Merge.** Per field, in the invariant's order. A caller who passes some
+fields and not others gets the rest filled independently. Resolution happens
+once at construction, never on the hot path.
+
+**R6 Structure is code.** The environment fills values. Names, algorithm `kind`,
+backends, providers, serializers, and callables come from code. A `kind`
+variable that contradicts the code fails validation at startup.
+
+**R7 Never silently dropped.** A variable naming a field the pattern declares,
+in any of its algorithms, is always accounted for:
+
+| Situation | What happens |
+|---|---|
+| Gate off, variable set | `EnvLoadOffWarning` naming the variable |
+| Instance address, field of another algorithm | Error at construction, naming the algorithm that is running |
+| Kind address, field of another algorithm | Applied where it fits, ignored where it does not, silently, because the kind address is a broadcast |
+| Live reload, field of another algorithm | Warning, never a crash |
+| Value invalid | Validation error naming the field |
+
+A name matching no declared field of any algorithm is ignored without report.
+Kubernetes injects `{SVCNAME}_SERVICE_HOST` into every pod, so grelmicro must
+not warn on names it does not own.
+
+**R8 One declarative door.** `from_config` takes the config as-is: no variable
+is read and the instance is not registered for live reload. Every other
+construction door resolves the environment and registers.
+
+**R9 Sources do not self-configure.** A component that feeds the configuration
+layer cannot read from it, so `ExternalConfig` is configured in code only.
+
+### Settled
+
+Decisions that are closed, with the assumption each rests on. When an
+assumption stops holding, the decision is worth reopening. Until then it is
+not.
+
+| Decision | Assumption it rests on | Reopen when |
+|---|---|---|
+| `TTLCache` reads no environment | The environment addresses identity, and a nameless object has no address (R3) | `TTLCache` gains a name |
+| The environment tunes an algorithm's fields, never selects the algorithm | Code owns structure, the environment owns values (R6) | A config becomes genuinely selectable from outside code |
+| The merge is per field, not all-or-nothing | A mounted file already patches per key at runtime, so an all-or-nothing rule at construction would delay the surprise rather than remove it | Live reload stops patching per key |
+| The kind address is a broadcast and stays silent | A fleet legitimately runs both algorithms and tunes one of them kind-wide | Kind-wide tuning stops being a real deployment shape |
+| `from_config` is the one door for a pre-built config | The environment-merging lane and the config-is-truth lane must be distinguishable at the call site | The environment lane is removed |
+| A Provider reads its vendor namespace, not `GREL_*` | Connection settings belong to the deployment, and every vendor already defines those names | grelmicro starts owning connection settings |
+
 ## `resolve_config()`
 
 All merging happens once in `grelmicro._config.resolve_config()`:

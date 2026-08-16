@@ -19,7 +19,12 @@ from typing_extensions import Doc
 
 from grelmicro._app import Grelmicro
 from grelmicro._async import raise_backend_not_open
-from grelmicro._config import Reconfigurable, default_env_prefix
+from grelmicro._config import (
+    Reconfigurable,
+    default_env_prefix,
+    env_prefixes,
+    resolve_config,
+)
 from grelmicro.clock import monotonic
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import CircuitBreakerError
@@ -190,6 +195,49 @@ class CircuitBreakerMetrics:
     last_error: ErrorDetails | None
 
 
+def _resolve_algorithm(
+    name: str,
+    kwargs: dict[str, object | None],
+    *,
+    env_load: bool | None,
+) -> CircuitBreakerConfig:
+    """Resolve the consecutive-count fields from kwargs and the environment.
+
+    The algorithm is chosen by the caller. The environment only fills the
+    fields that algorithm declares, so a variable naming another
+    algorithm's field is reported rather than applied.
+    """
+    from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
+        ConsecutiveCountConfig,
+    )
+
+    instance_prefix, kind_prefix = env_prefixes("CIRCUITBREAKER", name)
+    return resolve_config(
+        ConsecutiveCountConfig,
+        explicit=None,
+        kwargs=kwargs,
+        env_prefix=instance_prefix,
+        kind_env_prefix=kind_prefix,
+        env_load=env_load,
+        union=_union_for_env(),
+    )
+
+
+def _union_for_env() -> object:
+    """Return the algorithm union, for cross-arm environment reporting.
+
+    Built from the alias rather than from one arm, so a new algorithm
+    joining the union is covered without touching this call.
+    """
+    from pydantic import Discriminator  # noqa: PLC0415
+
+    from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
+        ConsecutiveCountConfig,
+    )
+
+    return Annotated[ConsecutiveCountConfig, Discriminator("kind")]
+
+
 class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
     """Circuit Breaker.
 
@@ -244,15 +292,21 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                 """
             ),
         ] = _KEYED_MAXSIZE,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                """
+                Whether to read `GREL_CIRCUITBREAKER_*` environment
+                variables. When `None` (the default), follow
+                `GREL_ENV_LOAD`.
+                """
+            ),
+        ] = None,
     ) -> None:
         """Initialize the circuit breaker, defaulting the algorithm to consecutive-count."""
-        from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
-            ConsecutiveCountConfig,
-        )
-
         self._setup(
             name,
-            ConsecutiveCountConfig(),
+            _resolve_algorithm(name, {}, env_load=env_load),
             backend,
             register=True,
             maxsize=maxsize,
@@ -343,34 +397,43 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                 "Per-key circuits kept resident by `keyed`. `0` keeps every key."
             ),
         ] = _KEYED_MAXSIZE,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                """
+                Whether to read `GREL_CIRCUITBREAKER_*` environment
+                variables. When `None` (the default), follow
+                `GREL_ENV_LOAD`.
+                """
+            ),
+        ] = None,
     ) -> Self:
         """Construct a `CircuitBreaker` running the consecutive-count algorithm.
 
         Sibling of [`from_config`][grelmicro.resilience.CircuitBreaker.from_config]
-        and the bare constructor. No path reads the environment at
-        construction: the bare constructor builds a default
-        `ConsecutiveCountConfig`, and this factory builds one from the fields
-        given here. Both register for live reload, so `ExternalConfig` still
-        retunes them from `GREL_CIRCUITBREAKER_{NAME}_` at runtime.
+        and the bare constructor. Fields not passed here resolve from
+        `GREL_CIRCUITBREAKER_{NAME}_*`, then `GREL_CIRCUITBREAKER_*`, then
+        the model default, when env loading is on. `from_config` is the
+        static door and reads no variable.
         """
-        from grelmicro.resilience.circuitbreaker.consecutive_count import (  # noqa: PLC0415
-            ConsecutiveCountConfig,
-        )
-
-        provided: dict[str, Any] = {
-            "ignore_exceptions": ignore_exceptions,
-            "error_threshold": error_threshold,
-            "success_threshold": success_threshold,
-            "reset_timeout": reset_timeout,
-            "half_open_capacity": half_open_capacity,
-            "log_level": log_level,
-        }
-        config = ConsecutiveCountConfig.model_validate(
-            {k: v for k, v in provided.items() if v is not None}
-        )
         instance = cls.__new__(cls)
         instance._setup(  # noqa: SLF001
-            name, config, backend, register=True, maxsize=maxsize
+            name,
+            _resolve_algorithm(
+                name,
+                {
+                    "ignore_exceptions": ignore_exceptions,
+                    "error_threshold": error_threshold,
+                    "success_threshold": success_threshold,
+                    "reset_timeout": reset_timeout,
+                    "half_open_capacity": half_open_capacity,
+                    "log_level": log_level,
+                },
+                env_load=env_load,
+            ),
+            backend,
+            register=True,
+            maxsize=maxsize,
         )
         return instance
 
