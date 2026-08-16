@@ -76,6 +76,32 @@ micro = Grelmicro(uses=[Coordination(mongo)])
 A worked skeleton lives in
 [`examples/third-party-adapter/`](https://github.com/grelinfo/grelmicro/tree/main/examples/third-party-adapter).
 
+### What grelmicro promises your adapter
+
+These rules say how the protocols may change, so an adapter written today
+keeps working.
+
+**An unsupported algorithm raises.** `RateLimiterBackend.bind` and
+`CircuitBreakerBackend.bind` receive a config from a union that grows as new
+algorithms land. Your backend supports the kinds it knows and ends the match
+by raising `NotImplementedError` naming the kind it was handed. Never fall
+through to a default: a silent one turns a config the operator asked for into
+a different algorithm running in production. Dispatch on the kind before you
+touch the client, so an unsupported kind fails without a connection.
+
+**Result tuples grow by name.** `RateLimitResult` and `CircuitBreakerSnapshot`
+may gain fields with defaults. Read them by attribute, never by unpacking the
+whole tuple, or a new field breaks your call site.
+
+**Integration signatures are frozen.** grelmicro never adds an argument to
+`install(app, micro, *, ambient=True)` or `is_bound(app)`. A new capability
+arrives as a new optional module attribute that grelmicro feature-detects, so
+an older integration keeps loading.
+
+**`ClockBackend` is complete.** It stays at `monotonic` and `sleep`.
+Wall-clock time is out of scope, which is why a cron schedule reads the system
+clock directly rather than through a backend.
+
 ### Capture the event loop
 
 Lock, schedule, cache, and circuit-breaker backends must capture the running

@@ -6,7 +6,7 @@ import asyncio
 import math
 import re
 from time import time
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -15,6 +15,7 @@ from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
+    unsupported_algorithm,
 )
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
@@ -169,18 +170,24 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
         config: TokenBucketConfig | SlidingWindowConfig,
     ) -> RateLimiterStrategy:
         """Build a strategy for the given algorithm config."""
-        conn = self._provider.client
-        lock = self._provider.connection_lock
         match config:
             case TokenBucketConfig():
                 return _SQLiteTokenBucket(
-                    conn, lock, self._prefix, self._table_name, config
+                    self._provider.client,
+                    self._provider.connection_lock,
+                    self._prefix,
+                    self._table_name,
+                    config,
                 )
             case SlidingWindowConfig():
                 return _SQLiteGCRA(
-                    conn, lock, self._prefix, self._table_name, config
+                    self._provider.client,
+                    self._provider.connection_lock,
+                    self._prefix,
+                    self._table_name,
+                    config,
                 )
-        assert_never(config)
+        raise unsupported_algorithm(config)
 
 
 class _SQLiteTokenBucket(RateLimiterStrategy):

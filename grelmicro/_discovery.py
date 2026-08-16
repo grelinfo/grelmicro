@@ -52,6 +52,11 @@ class Integration(Protocol):
 
     A third-party package ships one of these and registers it under
     `INTEGRATION_GROUP`, keyed by the framework's top-level module name.
+
+    Both signatures are frozen. grelmicro never adds an argument to
+    `install`, so an integration written today keeps working. A new
+    capability arrives as a new optional module attribute that grelmicro
+    feature-detects with `getattr`.
     """
 
     def install(

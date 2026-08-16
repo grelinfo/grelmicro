@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from threading import Lock
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
@@ -13,6 +13,7 @@ from grelmicro.resilience._protocol import (
     RateLimiterBackend,
     RateLimiterStrategy,
     RateLimitResult,
+    unsupported_algorithm,
 )
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
@@ -234,7 +235,7 @@ class MemoryRateLimiterAdapter(RateLimiterBackend):
                 )
             case SlidingWindowConfig():
                 return _MemoryGCRA(self._gcra_state, self._lock, config)
-        assert_never(config)
+        raise unsupported_algorithm(config)
 
 
 class _MemoryTokenBucket(RateLimiterStrategy):

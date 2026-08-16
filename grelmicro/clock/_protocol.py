@@ -17,6 +17,10 @@ class ClockBackend(Protocol):
     `time.monotonic` and `asyncio.sleep`. A `VirtualClock` replaces both with
     a manually advanced virtual timeline so time-dependent code runs without
     real waiting in tests.
+
+    The protocol is complete at these two operations. Wall-clock time is out
+    of scope and stays out, so a cron schedule reads the system clock
+    directly rather than through a backend.
     """
 
     async def __aenter__(self) -> Self:
