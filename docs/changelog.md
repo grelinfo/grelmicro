@@ -4,6 +4,8 @@
 
 ### Breaking
 
+* 💥 `CircuitBreaker` no longer takes a positional config. Pass a pre-built config to `from_config`, which did exactly the same thing. `CircuitBreaker("payments")` still works, because consecutive-count is a sensible default.
+* 💥 `RateLimiter` loses its bare constructor. Build it with `token_bucket`, `sliding_window`, or `from_config`. There is no default algorithm to fall back on, so the constructor now raises `TypeError` naming those three.
 * 💥 `Timeout`, `Retry`, `Fallback`, `Bulkhead`, `Log`, `Metrics`, `Trace`, `Shield`, and `Outbox` no longer take `config=`. Pass a pre-built config to `from_config`, which did exactly the same thing. One door instead of two.
 * 💥 `grelmicro.clientip` moved to `grelmicro.security`. Import `TrustedProxies`, `ClientAddress`, `ClientAddressReason`, `ClientAddressMiddleware`, and `resolve_client_address` from there. The logger is renamed to `grelmicro.security.clientip`, so a filter or a level set on the old name stops matching.
 
@@ -13,6 +15,7 @@
 * ✨ `micro.install(app)` wires a Litestar app. It opens the components on startup, closes them after shutdown, and binds the app around each request so patterns resolve with no `backend=`. Call it after `Litestar(...)`, which builds its middleware stack at construction.
 * ✨ New `fastapi`, `starlette`, and `litestar` extras, so `pip install "grelmicro[litestar]"` brings the framework along.
 * 📝 A [Frameworks](frameworks.md) page lists every framework `micro.install(app)` supports and what it wires for each.
+* 🐛 `docs/config.md` said `Idempotency` sets its `ttl` in code only. It reads `GREL_IDEMPOTENCY_TTL` like every other named pattern.
 * 🐛 The rate limiter backends rejected an unsupported algorithm kind with `AssertionError`, while the circuit breaker backends raised `NotImplementedError`. All of them now raise `NotImplementedError` naming the kind. Every adapter also read the provider client before checking the kind, so an unsupported kind needed a live connection to fail.
 * 📝 [Plugins](architecture/plugins.md) states what grelmicro promises a third-party adapter: how an unsupported algorithm fails, that result tuples grow by name, that integration signatures are frozen, and that `ClockBackend` is complete. Adding a member to a protocol breaks every implementer, so these are settled before 1.0.
 * ✨ `Outbox.from_config` and `TTLCache.from_config` complete the declarative path. Every primitive that has a config class now accepts one the same way.

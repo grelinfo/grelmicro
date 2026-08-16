@@ -37,7 +37,7 @@ async def test_rate_limiter_throughput() -> None:
     """Thousands of sequential acquires stay consistent and bounded."""
     backend = MemoryRateLimiterAdapter()
     async with Grelmicro(uses=[RateLimiterComponent(backend)]):
-        limiter = RateLimiter(
+        limiter = RateLimiter.from_config(
             "throughput",
             TokenBucketConfig(capacity=ACQUIRES, refill_rate=ACQUIRES),
         )
@@ -57,7 +57,7 @@ async def test_rate_limiter_concurrent_tasks() -> None:
     backend = MemoryRateLimiterAdapter()
     total = CONCURRENT_TASKS * ACQUIRES_PER_TASK
     async with Grelmicro(uses=[RateLimiterComponent(backend)]):
-        limiter = RateLimiter(
+        limiter = RateLimiter.from_config(
             "concurrent",
             TokenBucketConfig(capacity=total, refill_rate=total),
         )

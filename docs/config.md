@@ -245,7 +245,9 @@ any of them with the pattern prefix above plus the field name, uppercased.
 | `Tasks` | `timezone` | `UTC` |
 | `Tasks` | `shutdown_timeout` | `30` |
 
-`TTLCache` and `Idempotency` set their `ttl` in code, not from the environment.
+`TTLCache` sets its `ttl` in code, not from the environment: it takes no name,
+so it has no environment namespace of its own. `Idempotency` does read
+`GREL_IDEMPOTENCY_TTL` like every other named pattern.
 `Timeout.seconds`, `Fallback.when`, and `Fallback.default` are required and have
 no default.
 

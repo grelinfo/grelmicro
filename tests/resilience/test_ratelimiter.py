@@ -52,7 +52,7 @@ async def _backend() -> AsyncGenerator[MemoryRateLimiterAdapter]:
 @pytest.fixture
 def sliding_window_limiter() -> RateLimiter:
     """RateLimiter with sliding window."""
-    return RateLimiter(
+    return RateLimiter.from_config(
         "test-sw", SlidingWindowConfig(limit=LIMIT, window=WINDOW)
     )
 
@@ -60,7 +60,7 @@ def sliding_window_limiter() -> RateLimiter:
 @pytest.fixture
 def token_bucket_limiter() -> RateLimiter:
     """RateLimiter with TokenBucket."""
-    return RateLimiter(
+    return RateLimiter.from_config(
         "test-tb",
         TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE),
     )
@@ -86,7 +86,9 @@ def limiter(
 def test_sliding_window_properties() -> None:
     """Test RateLimiter with SlidingWindowConfig properties."""
     # Arrange
-    rl = RateLimiter("auth", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter.from_config(
+        "auth", SlidingWindowConfig(limit=LIMIT, window=WINDOW)
+    )
 
     # Assert
     assert rl.name == "auth"
@@ -98,7 +100,7 @@ def test_sliding_window_properties() -> None:
 def test_token_bucket_properties() -> None:
     """Test RateLimiter with TokenBucket properties."""
     # Arrange
-    rl = RateLimiter(
+    rl = RateLimiter.from_config(
         "api",
         TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE),
     )
@@ -122,7 +124,7 @@ async def test_bind_called_once_on_first_use() -> None:
     backend.bind = MagicMock(return_value=strategy)
 
     # Act: construction performs no bind
-    rl = RateLimiter("test", config, backend=backend)
+    rl = RateLimiter.from_config("test", config, backend=backend)
     backend.bind.assert_not_called()
 
     # First call triggers bind exactly once
@@ -339,7 +341,9 @@ async def test_acquire_or_raise_with_cost(limiter: RateLimiter) -> None:
 
 async def test_acquire_raises_out_of_context_without_component() -> None:
     """RateLimiter refuses an ambient miss instead of degrading silently."""
-    rl = RateLimiter("test", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter.from_config(
+        "test", SlidingWindowConfig(limit=LIMIT, window=WINDOW)
+    )
 
     async with Grelmicro():
         with pytest.raises(OutOfContextError, match="resolved no backend"):
@@ -348,7 +352,7 @@ async def test_acquire_raises_out_of_context_without_component() -> None:
 
 async def test_acquire_with_explicit_memory_backend_needs_no_app() -> None:
     """An explicit memory backend keeps the zero-config standalone path."""
-    rl = RateLimiter(
+    rl = RateLimiter.from_config(
         "test",
         SlidingWindowConfig(limit=LIMIT, window=WINDOW),
         backend=MemoryRateLimiterAdapter(),
@@ -365,7 +369,9 @@ async def test_acquire_raises_out_of_context_when_component_active() -> None:
     must refuse rather than silently degrade to a per-process limiter
     where a fleet-wide one is configured.
     """
-    rl = RateLimiter("test", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter.from_config(
+        "test", SlidingWindowConfig(limit=LIMIT, window=WINDOW)
+    )
 
     async with Grelmicro(
         uses=[RateLimiterComponent(MemoryRateLimiterAdapter())]
@@ -433,7 +439,7 @@ async def test_explicit_backend_bypasses_app() -> None:
     my = MemoryRateLimiterAdapter()
 
     async with Grelmicro(uses=[RateLimiterComponent(registered)]):
-        rl = RateLimiter(
+        rl = RateLimiter.from_config(
             "explicit",
             SlidingWindowConfig(limit=LIMIT, window=WINDOW),
             backend=my,
@@ -574,7 +580,7 @@ class _FailingBackend:
 @pytest.fixture
 def failing_limiter() -> RateLimiter:
     """RateLimiter whose strategy raises on every call, fail_open=True."""
-    return RateLimiter(
+    return RateLimiter.from_config(
         "failing",
         SlidingWindowConfig(limit=LIMIT, window=WINDOW, fail_open=True),
         backend=_FailingBackend(),
@@ -584,7 +590,7 @@ def failing_limiter() -> RateLimiter:
 @pytest.fixture
 def failing_limiter_strict() -> RateLimiter:
     """RateLimiter whose strategy raises; fail_open=False."""
-    return RateLimiter(
+    return RateLimiter.from_config(
         "failing-strict",
         SlidingWindowConfig(limit=LIMIT, window=WINDOW, fail_open=False),
         backend=_FailingBackend(),
@@ -671,7 +677,7 @@ async def test_sliding_window_strategy_evicts_expired_keys(
         "grelmicro.resilience.ratelimiter.memory._EVICTION_THRESHOLD", 1
     )
     backend = MemoryRateLimiterAdapter()
-    limiter = RateLimiter(
+    limiter = RateLimiter.from_config(
         "evict",
         SlidingWindowConfig(limit=LIMIT, window=WINDOW),
         backend=backend,
@@ -697,7 +703,7 @@ async def test_token_bucket_strategy_evicts_full_keys(
         "grelmicro.resilience.ratelimiter.memory._EVICTION_THRESHOLD", 2
     )
     backend = MemoryRateLimiterAdapter()
-    limiter = RateLimiter(
+    limiter = RateLimiter.from_config(
         "evict",
         TokenBucketConfig(capacity=CAPACITY, refill_rate=1),
         backend=backend,
@@ -719,7 +725,7 @@ async def test_token_bucket_strategy_evicts_full_keys(
 async def test_fail_open_still_rejects_when_limit_exceeded() -> None:
     """Test fail_open does not bypass legitimate rate limit rejections."""
     # Arrange
-    limiter = RateLimiter(
+    limiter = RateLimiter.from_config(
         "fo_reject",
         SlidingWindowConfig(limit=LIMIT, window=WINDOW, fail_open=True),
     )
@@ -737,7 +743,7 @@ async def test_fail_open_still_rejects_when_limit_exceeded() -> None:
 async def test_fail_open_acquire_or_raise_still_raises_on_exceeded() -> None:
     """Test fail_open acquire_or_raise still raises on legitimate exceeded."""
     # Arrange
-    limiter = RateLimiter(
+    limiter = RateLimiter.from_config(
         "fo_raise",
         SlidingWindowConfig(limit=LIMIT, window=WINDOW, fail_open=True),
     )
@@ -756,7 +762,9 @@ async def test_fail_open_acquire_or_raise_still_raises_on_exceeded() -> None:
 async def test_reconfigure_swaps_config() -> None:
     """Reconfigure publishes the new config."""
     # Arrange
-    rl = RateLimiter("rc", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter.from_config(
+        "rc", SlidingWindowConfig(limit=LIMIT, window=WINDOW)
+    )
     new_config = SlidingWindowConfig(limit=LIMIT * 2, window=WINDOW)
 
     # Act
@@ -779,7 +787,7 @@ async def test_reconfigure_rebuilds_fallback_and_strategy() -> None:
     strategy_new.acquire = AsyncMock(side_effect=RuntimeError("new"))
     backend: Any = MagicMock()
     backend.bind = MagicMock(side_effect=[strategy_old, strategy_new])
-    rl = RateLimiter("rc", config, backend=backend)
+    rl = RateLimiter.from_config("rc", config, backend=backend)
     await rl.acquire(key="k")  # trigger first bind
 
     # Act
@@ -805,7 +813,7 @@ async def test_reconfigure_same_config_is_noop() -> None:
     config = SlidingWindowConfig(limit=LIMIT, window=WINDOW)
     backend: Any = MagicMock()
     backend.bind = MagicMock(return_value=AsyncMock(spec=RateLimiterStrategy))
-    rl = RateLimiter("rc", config, backend=backend)
+    rl = RateLimiter.from_config("rc", config, backend=backend)
 
     # Act
     await rl.reconfigure(SlidingWindowConfig(limit=LIMIT, window=WINDOW))
@@ -817,7 +825,9 @@ async def test_reconfigure_same_config_is_noop() -> None:
 async def test_reconfigure_rejects_different_config_type() -> None:
     """Swapping algorithm types raises TypeError."""
     # Arrange
-    rl = RateLimiter("rc", SlidingWindowConfig(limit=LIMIT, window=WINDOW))
+    rl = RateLimiter.from_config(
+        "rc", SlidingWindowConfig(limit=LIMIT, window=WINDOW)
+    )
 
     # Act & Assert
     with pytest.raises(TypeError, match="SlidingWindowConfig"):
@@ -833,7 +843,7 @@ async def test_reconfigure_bind_failure_surfaces_on_next_call() -> None:
     strategy_old: Any = AsyncMock(spec=RateLimiterStrategy)
     backend: Any = MagicMock()
     backend.bind = MagicMock(side_effect=[strategy_old, RuntimeError("nope")])
-    rl = RateLimiter("rc", config, backend=backend)
+    rl = RateLimiter.from_config("rc", config, backend=backend)
     await rl.acquire(key="k")  # bind once
 
     new_config = TokenBucketConfig(
@@ -852,7 +862,7 @@ async def test_reconfigure_bind_failure_surfaces_on_next_call() -> None:
 @pytest.mark.usefixtures("_backend")
 async def test_reconfigure_concurrent_with_acquire() -> None:
     """Concurrent acquire/reconfigure produce no exceptions."""
-    rl = RateLimiter(
+    rl = RateLimiter.from_config(
         "rc",
         TokenBucketConfig(capacity=100, refill_rate=100),
     )
@@ -881,7 +891,7 @@ async def test_reconfigure_inner_double_check_skips_rebuild() -> None:
     config = TokenBucketConfig(capacity=CAPACITY, refill_rate=REFILL_RATE)
     backend: Any = MagicMock()
     backend.bind = MagicMock(return_value=AsyncMock(spec=RateLimiterStrategy))
-    rl = RateLimiter("rc", config, backend=backend)
+    rl = RateLimiter.from_config("rc", config, backend=backend)
 
     new_config = TokenBucketConfig(
         capacity=CAPACITY * 2, refill_rate=REFILL_RATE
@@ -916,7 +926,7 @@ async def test_reconfigure_fail_open_response_is_self_consistent() -> None:
     boom.acquire = AsyncMock(side_effect=RuntimeError("backend down"))
     backend: Any = MagicMock()
     backend.bind = MagicMock(return_value=boom)
-    rl = RateLimiter("rc", old_config, backend=backend)
+    rl = RateLimiter.from_config("rc", old_config, backend=backend)
 
     await rl.reconfigure(new_config)
     result = await rl.acquire(key="k")

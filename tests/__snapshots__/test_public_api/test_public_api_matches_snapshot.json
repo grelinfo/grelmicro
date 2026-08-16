@@ -417,7 +417,7 @@
       "()": "(*, name, max_concurrent)"
     },
     "CircuitBreaker": {
-      "()": "(name, config=..., *, backend=..., maxsize=...)",
+      "()": "(name, *, backend=..., maxsize=...)",
       ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=..., maxsize=...)",
       ".from_config": "(name, config, *, backend=..., maxsize=...)"
     },
@@ -523,7 +523,7 @@
       "()": "(allowed, limit, remaining, retry_after, reset_after)"
     },
     "RateLimiter": {
-      "()": "(name, config, *, backend=...)",
+      "()": "(*args, **kwargs)",
       ".from_config": "(name, config, *, backend=...)",
       ".sliding_window": "(name, *, limit, window, fail_open=..., backend=...)",
       ".token_bucket": "(name, *, capacity, refill_rate, fail_open=..., backend=...)"
@@ -638,7 +638,7 @@
   },
   "grelmicro.resilience.circuitbreaker": {
     "CircuitBreaker": {
-      "()": "(name, config=..., *, backend=..., maxsize=...)",
+      "()": "(name, *, backend=..., maxsize=...)",
       ".consecutive_count": "(name, *, ignore_exceptions=..., error_threshold=..., success_threshold=..., reset_timeout=..., half_open_capacity=..., log_level=..., backend=..., maxsize=...)",
       ".from_config": "(name, config, *, backend=..., maxsize=...)"
     },
@@ -663,7 +663,7 @@
   },
   "grelmicro.resilience.ratelimiter": {
     "RateLimiter": {
-      "()": "(name, config, *, backend=...)",
+      "()": "(*args, **kwargs)",
       ".from_config": "(name, config, *, backend=...)",
       ".sliding_window": "(name, *, limit, window, fail_open=..., backend=...)",
       ".token_bucket": "(name, *, capacity, refill_rate, fail_open=..., backend=...)"
