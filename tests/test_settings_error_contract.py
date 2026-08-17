@@ -446,3 +446,12 @@ def test_scrub_removes_the_value_only_where_a_message_can_carry_it() -> None:
     assert SECRET not in _scrub(
         f"No module named '{SECRET}'", f"{SECRET}.Boom", "import_error"
     )
+    # Pydantic reports the input at the level that failed, so the offending
+    # string can sit one key down. `union_tag_invalid` hands back the whole
+    # mapping, and scrubbing only top-level strings missed it.
+    assert SECRET not in _scrub(
+        f"Input tag '{SECRET}' found using 'kind'",
+        {"kind": SECRET},
+        "union_tag_invalid",
+    )
+    assert SECRET not in _scrub(f"got {SECRET}", [SECRET], "value_error")

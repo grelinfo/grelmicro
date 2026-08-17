@@ -259,6 +259,33 @@ the option the operator was reaching for.
 """
 
 
+def _candidates(value: object) -> set[str]:
+    """Return every string inside `value`, whole and unsplit.
+
+    Containers are walked because pydantic reports the input at the level
+    that failed, not the level that offends: `union_tag_invalid` hands back
+    the whole mapping, with the tag one key down.
+
+    The strings are never split on separators. Splitting once seemed
+    thorough and was the bug: a piece of the rejected value matches the
+    correct value that shares it, so `Europe/Zurichh` redacted the `Europe`
+    of the `did you mean 'Europe/Zurich'` written to replace it.
+    """
+    if isinstance(value, str):
+        return {value} if len(value) >= _MIN_REDACTED_LENGTH else set()
+    if isinstance(value, dict):
+        found: set[str] = set()
+        for item in value.values():
+            found |= _candidates(item)
+        return found
+    if isinstance(value, (list, tuple, set)):
+        found = set()
+        for item in value:
+            found |= _candidates(item)
+        return found
+    return set()
+
+
 def _scrub(msg: str, value: object, error_type: str) -> str:
     """Remove the rejected input from a message built elsewhere.
 
@@ -266,18 +293,19 @@ def _scrub(msg: str, value: object, error_type: str) -> str:
     the backstop that holds rule R7 when the message came from pydantic or
     from a third-party config class.
 
-    Only a whole-token occurrence of the input is removed, in one pass. A
-    typo is usually a prefix of the value that was meant, so a substring
-    replace would take the correct spelling out of the very message that
-    offers it, and the `did you mean` hint with it.
+    Only whole-token occurrences are removed. A typo is usually a prefix of
+    the value that was meant, so a substring replace would take the correct
+    spelling out of the very message offering it.
     """
     if error_type == "import_error":
         return _IMPORT_ERROR_MESSAGE
-    if error_type not in _ECHOING_ERROR_TYPES or not isinstance(value, str):
+    if error_type not in _ECHOING_ERROR_TYPES:
         return msg
-    if len(value) < _MIN_REDACTED_LENGTH:
-        return msg
-    return re.sub(rf"(?<![\w]){re.escape(value)}(?![\w])", _REDACTED, msg)
+    for candidate in sorted(_candidates(value), key=len, reverse=True):
+        msg = re.sub(
+            rf"(?<![\w]){re.escape(candidate)}(?![\w])", _REDACTED, msg
+        )
+    return msg
 
 
 _MIN_REDACTED_LENGTH = 3
