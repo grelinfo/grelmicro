@@ -292,7 +292,7 @@ def _validate_positive(name: str, value: int) -> None:
 
 
 def _compile_entry(entry: str | IPAddress | IPNetwork) -> IPNetwork:
-    """Parse one trusted-set entry, or raise naming it."""
+    """Parse one trusted-set entry, or raise naming its position."""
     if isinstance(entry, (IPv4Network, IPv6Network)):
         return _canonical_network(entry)
     if isinstance(entry, (IPv4Address, IPv6Address)):

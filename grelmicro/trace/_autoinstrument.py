@@ -42,7 +42,12 @@ def explicit_names(directive: InstrumentDirective) -> set[str] | None:
     return set(directive)
 
 
-def validate_directive(directive: InstrumentDirective, known: set[str]) -> None:
+def validate_directive(
+    directive: InstrumentDirective,
+    known: set[str],
+    *,
+    check_names: bool = True,
+) -> None:
     """Raise if the directive names a target outside `known`.
 
     The allow-list, single-name, and map forms are strict: a name that matches
@@ -50,6 +55,13 @@ def validate_directive(directive: InstrumentDirective, known: set[str]) -> None:
     loudly instead of silently instrumenting the wrong set. A map value that is
     not a bool is rejected the same way, so a mistaken options dict cannot be
     silently treated as "include".
+
+    Pass ``check_names=False`` where `known` cannot be trusted to be
+    complete. `installed_instrumentors` reads entry points, so it answers
+    differently per image, and refusing a name on that basis would fail a
+    directive that is correct in production because a dev image lacks the
+    optional package. The map-value check still runs: it depends on nothing
+    outside the directive.
 
     Raises:
         SettingsValidationError: If the directive names an unknown target
@@ -71,6 +83,8 @@ def validate_directive(directive: InstrumentDirective, known: set[str]) -> None:
                 f"Map a name to True or False."
             )
             raise SettingsValidationError(msg)
+    if not check_names:
+        return
     names = explicit_names(directive)
     if names is None:
         return

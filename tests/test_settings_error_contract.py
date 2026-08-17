@@ -419,12 +419,30 @@ def test_reload_skips_a_validator_that_raises_outside_pydantic() -> None:
     )
 
 
-def test_scrub_walks_into_a_sequence_input() -> None:
-    """A model-level validator receives the whole config, so values nest.
+def test_scrub_removes_the_value_only_where_a_message_can_carry_it() -> None:
+    """Scrubbing is scoped to the error types that repeat the input.
 
-    The offending string can sit inside a list or a dict rather than being
-    the input itself, and it has to be scrubbed there too.
+    A blanket replace destroyed the help text: with `INF` rejected, the
+    message listing `'INFO'` as an option lost the very word the operator
+    needed. Only a whole-token match is removed, and only for the types
+    pydantic builds from the input.
     """
-    assert SECRET not in _scrub(f"got {SECRET}", [SECRET])
-    assert SECRET not in _scrub(f"got {SECRET}", (SECRET,))
-    assert SECRET not in _scrub(f"got {SECRET}", {"field": SECRET})
+    assert _scrub(
+        f"tag {SECRET!r} is unknown", SECRET, "union_tag_invalid"
+    ) == ("tag '[redacted]' is unknown")
+    assert _scrub(f"got {SECRET}", SECRET, "value_error") == "got [redacted]"
+    # A constraint message never repeats the input, so it is left alone.
+    assert (
+        _scrub("Input should be 'DEBUG', 'INFO'", "INF", "literal_error")
+        == "Input should be 'DEBUG', 'INFO'"
+    )
+    # A near miss must keep the correct spelling it is offering.
+    assert "Europe/Zurich" in _scrub(
+        "unknown timezone name, did you mean 'Europe/Zurich'",
+        "Europe/Zurichh",
+        "value_error",
+    )
+    # `import_error` quotes the module, so the message is replaced outright.
+    assert SECRET not in _scrub(
+        f"No module named '{SECRET}'", f"{SECRET}.Boom", "import_error"
+    )

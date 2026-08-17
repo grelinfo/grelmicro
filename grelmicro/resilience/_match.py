@@ -142,7 +142,7 @@ class Match:
             if not (isinstance(type_, type) and issubclass(type_, Exception)):
                 msg = (
                     f"Match.exception() arguments must all be exception "
-                    f"classes, got {type(type_).__name__}"
+                    f"classes, got {getattr(type_, '__name__', type(type_).__name__)}"
                 )
                 # `ValueError`, not `TypeError`: pydantic converts only
                 # `ValueError` and `AssertionError`, so a `TypeError` raised
@@ -277,7 +277,7 @@ class Match:
             ):
                 msg = (
                     f"Match.exception_cause() arguments must all be exception "
-                    f"classes, got {type(type_).__name__}"
+                    f"classes, got {getattr(type_, '__name__', type(type_).__name__)}"
                 )
                 # `ValueError`, not `TypeError`: pydantic converts only
                 # `ValueError` and `AssertionError`, so a `TypeError` raised

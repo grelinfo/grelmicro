@@ -137,8 +137,13 @@ class Unmet:
 def resolve_environment(explicit: Environment | None) -> Environment | None:
     """Return the declared tier, or `None` when nothing declares one.
 
-    An explicit argument wins over `GREL_ENVIRONMENT`. A value outside the
-    four tiers is reported once and read as undeclared.
+    An explicit argument wins over `GREL_ENVIRONMENT`, and a value outside
+    the four tiers raises: it is code, so it is a mistake worth stopping on.
+    The variable is an operator's, so a value outside the four tiers is
+    reported once and read as undeclared instead.
+
+    Raises:
+        SettingsValidationError: If `explicit` names no known tier.
     """
     if explicit is not None:
         if explicit not in ENVIRONMENTS:

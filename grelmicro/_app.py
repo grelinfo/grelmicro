@@ -206,9 +206,11 @@ class Grelmicro:
             Doc(
                 """
                 The deployment tier this app runs in: `"development"`,
-                `"test"`, `"staging"` or `"production"`. Falls back to
+                `"test"`, `"staging"` or `"production"`. A value outside
+                those four raises `SettingsValidationError`. Falls back to
                 `GREL_ENVIRONMENT`, which is read whatever `GREL_ENV_LOAD`
-                says, and stays `None` when neither declares one.
+                says and which reports an unknown value instead of raising,
+                and stays `None` when neither declares one.
 
                 `"staging"` and `"production"` make an unmet backend scope a
                 `BackendScopeError` at startup, `"development"` and `"test"`
@@ -1088,21 +1090,22 @@ class Grelmicro:
             # bind auto-instrumentation to. The directive is still validated:
             # otherwise a bad one opens cleanly in development, where no
             # endpoint is set, and first raises on the deploy that sets one.
-            from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
-                KNOWN_FRAMEWORKS as _KNOWN_FRAMEWORKS,
-            )
-            from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
-                installed_instrumentors as _installed_instrumentors,
-            )
+            #
+            # Only the map values are checked, never the names. The set of
+            # valid names includes `installed_instrumentors()`, which reads
+            # entry points and so answers differently per image. Checking
+            # names here would refuse a directive that is correct in
+            # production because a dev or CI image lacks the optional
+            # `opentelemetry-instrumentation-*` package, and this branch runs
+            # in exactly those images.
             from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
                 validate_directive as _validate_directive,
             )
 
             _validate_directive(
                 cast("Trace", component).instrument,
-                {provider.short_name for provider in self.providers}
-                | _KNOWN_FRAMEWORKS
-                | _installed_instrumentors(),
+                set(),
+                check_names=False,
             )
             return
         from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
