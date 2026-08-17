@@ -138,6 +138,18 @@ construction door resolves the environment and registers.
 **R9 Sources do not self-configure.** A component that feeds the configuration
 layer cannot read from it, so `ExternalConfig` is configured in code only.
 
+### What enforces this
+
+Each rule above is swept over the whole family it applies to, not checked on
+one member. `tests/test_config_contracts.py` covers R3, R4 and the reload
+rules, `tests/test_construction_contracts.py` covers R8 and the one
+declarative door, and `tests/test_settings_error_contract.py` covers the
+error a bad value raises and the promise that it never carries the value.
+
+Every sweep refuses to pass on an empty scan. The rules here were each
+written down after being broken once, and in every case the rule held for a
+family while only one member was tested.
+
 ### Settled
 
 Decisions that are closed, with the assumption each rests on. When an
