@@ -35,15 +35,27 @@ _MIN_DOORS = 20
 """Floor for the sweep, so an empty scan cannot pass silently."""
 
 
+def _module_name(path: Path) -> str:
+    """Return the importable module name for a source path.
+
+    A package is named by its directory, never by its `__init__`. Importing
+    `pkg.__init__` re-executes the module under a second name, so the sweep
+    would check a duplicate class object that nobody imports, and re-run any
+    registration the module does at import time.
+    """
+    relative = path.relative_to(PACKAGE_ROOT).with_suffix("")
+    if relative.name == "__init__":
+        relative = relative.parent
+    dotted = relative.as_posix().replace("/", ".")
+    return f"grelmicro.{dotted}" if dotted else "grelmicro"
+
+
 def _discover_from_config() -> list[tuple[str, str]]:
     """Return `(module, class)` for every class defining `from_config`."""
     found: list[tuple[str, str]] = []
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        module = (
-            "grelmicro."
-            + path.relative_to(PACKAGE_ROOT).with_suffix("").as_posix()
-        ).replace("/", ".")
+        module = _module_name(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
                 continue

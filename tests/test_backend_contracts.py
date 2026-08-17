@@ -1,4 +1,4 @@
-"""Every backend adapter honors the `bind` contract, discovered not listed.
+"""Every backend adapter honors the `bind` contract, discovered, not listed.
 
 [Plugins](../docs/architecture/plugins.md) promises a third-party adapter
 three things about `bind`. A hand-written list checks the adapters someone
@@ -70,15 +70,27 @@ def _declared_protocols(node: ast.ClassDef) -> set[str]:
     return names
 
 
+def _module_name(path: Path) -> str:
+    """Return the importable module name for a source path.
+
+    A package is named by its directory, never by its `__init__`. Importing
+    `pkg.__init__` re-executes the module under a second name, so the sweep
+    would check a duplicate class object that nobody imports, and re-run any
+    registration the module does at import time.
+    """
+    relative = path.relative_to(PACKAGE_ROOT).with_suffix("")
+    if relative.name == "__init__":
+        relative = relative.parent
+    dotted = relative.as_posix().replace("/", ".")
+    return f"grelmicro.{dotted}" if dotted else "grelmicro"
+
+
 def _discover_backends() -> list[tuple[str, str]]:
     """Return `(module, class)` for every class declaring a strategy backend."""
     found: list[tuple[str, str]] = []
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        module = (
-            "grelmicro."
-            + path.relative_to(PACKAGE_ROOT).with_suffix("").as_posix()
-        ).replace("/", ".")
+        module = _module_name(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
