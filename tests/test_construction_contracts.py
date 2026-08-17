@@ -13,8 +13,8 @@ the instance for live reload.
 import ast
 import importlib
 import inspect
-import os
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -31,8 +31,13 @@ from grelmicro.resilience import (
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
-_MIN_DOORS = 20
-"""Floor for the sweep, so an empty scan cannot pass silently."""
+_MIN_DOORS = 25
+"""Exact count today, so a door dropping out of discovery fails.
+
+Slack would hide erosion. `_discover_from_config` reads `node.body`, so
+moving `from_config` onto a shared base would remove those classes from the
+sweep, and a floor with room to spare would stay green while it happened.
+"""
 
 
 def _module_name(path: Path) -> str:
@@ -123,12 +128,15 @@ def test_from_config_takes_the_config_whole(
     assert "config" in signature.parameters, (
         f"{class_name}.from_config takes no config parameter"
     )
-    config_cls = _config_class(cls)
-    if config_cls is None:  # pragma: no cover  # every shipped door resolves
-        pytest.skip(f"{class_name} config class is not introspectable")
-    duplicated = sorted(
-        set(signature.parameters) & set(config_cls.model_fields)
+    config_classes = _config_classes(cls)
+    assert config_classes, (
+        f"{class_name}.from_config declares a config type that does not "
+        f"resolve, so the rule cannot be checked"
     )
+    fields: set[str] = set()
+    for config_cls in config_classes:
+        fields |= set(config_cls.model_fields)
+    duplicated = sorted(set(signature.parameters) & fields)
     assert not duplicated, (
         f"{class_name}.from_config takes {duplicated}, which the config "
         f"already carries, so that setting has two doors"
@@ -144,6 +152,26 @@ ENV_FREE_DOORS = [
 ]
 
 
+ENV_READERS = frozenset(
+    {
+        "environ",
+        "getenv",
+        "env_load_default",
+        "env_prefixes",
+        "default_env_prefix",
+        "resolve_config",
+        "resolve_config_from_mapping",
+        "warn_ignored_env",
+    }
+)
+"""Every name that reaches the environment, not a sample of three.
+
+Grepping for `os.environ` alone passed a `from_config` that called
+`env_load_default()`, which is an exported helper doing exactly what R8
+forbids. The check walks the call graph for any of these instead.
+"""
+
+
 @pytest.mark.parametrize(
     ("module_name", "class_name"),
     ENV_FREE_DOORS,
@@ -154,25 +182,32 @@ ENV_FREE_DOORS = [
 def test_from_config_reads_no_environment_variable(
     module_name: str,
     class_name: str,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """R8: the config is taken as-is, whatever the environment says.
 
-    Checked by source rather than by construction: building every class here
-    would need each one's backend. `from_config` must not reach the env
-    resolution path at all, so the call is what the rule is about.
+    Read from the source rather than by construction, because building
+    every class here would need each one's backend. Names are collected
+    from the whole call expression, so an attribute (`os.environ`) and a
+    bare call (`env_load_default()`) are both caught.
     """
-    monkeypatch.setenv("GREL_ENV_LOAD", "1")
     cls = _resolve(module_name, class_name)
     try:
-        source = inspect.getsource(cls.from_config)
+        source = textwrap.dedent(inspect.getsource(cls.from_config))
     except (OSError, TypeError):  # pragma: no cover  # C or builtin
         pytest.skip(f"{class_name}.from_config has no readable source")
-    for forbidden in ("os.environ", "env_load=True", "resolve_config("):
-        assert forbidden not in source, (
-            f"{class_name}.from_config reaches {forbidden}, but R8 says a "
-            f"pre-built config is taken as-is"
+    reached = {
+        name
+        for node in ast.walk(ast.parse(source))
+        for name in (
+            getattr(node, "id", None),
+            getattr(node, "attr", None),
         )
+        if name in ENV_READERS
+    }
+    assert not reached, (
+        f"{class_name}.from_config reaches {sorted(reached)}, but R8 says a "
+        f"pre-built config is taken as-is, with no variable read"
+    )
 
 
 class _LazyNamespace(dict):  # type: ignore[type-arg]
@@ -196,8 +231,8 @@ class _LazyNamespace(dict):  # type: ignore[type-arg]
             raise KeyError(key) from error
 
 
-def _config_class(cls: Any) -> Any:  # noqa: ANN401
-    """Return the pydantic config class `from_config` declares, or None.
+def _config_classes(cls: Any) -> list[Any]:  # noqa: ANN401
+    """Return every pydantic config class `from_config` declares.
 
     Only the `config` annotation is evaluated. Resolving the whole
     signature fails on the siblings, which name backends and serializers
@@ -212,7 +247,7 @@ def _config_class(cls: Any) -> Any:  # noqa: ANN401
         try:
             raw = eval(raw, namespace)  # noqa: S307
         except Exception:  # noqa: BLE001  # pragma: no cover  # exotic forms
-            return None
+            return []
     seen: list[Any] = [raw]
     found: list[Any] = []
     while seen:
@@ -223,25 +258,32 @@ def _config_class(cls: Any) -> Any:  # noqa: ANN401
         seen.extend(getattr(candidate, "__args__", ()) or ())
         metadata = getattr(candidate, "__metadata__", ())
         seen.extend(metadata)
-    return found[0] if found else None
+    # Every arm, not the first: a union's other arm carries fields too, and
+    # a parameter duplicating one of those is the same second door.
+    return found
 
 
-def test_from_config_does_not_register_for_live_reload() -> None:
+def test_from_config_does_not_register_for_live_reload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """R8: an instance built from a config is not reconfigured behind you.
 
     Registering it would let a mounted file overwrite the object the caller
     passed in code, which is the opposite of what the declarative door
     promises.
     """
-    os.environ["GREL_ENV_LOAD"] = "1"
-    try:
-        before = len(reconfigurable_instances())
-        Timeout.from_config("door-timeout", TimeoutConfig(seconds=1))
-        Retry.from_config("door-retry", RetryConfig(when=ValueError))
-        after = len(reconfigurable_instances())
-    finally:
-        os.environ.pop("GREL_ENV_LOAD", None)
-    assert after == before, (
-        "from_config registered the instance for live reload, so a mounted "
-        "file could overwrite a config passed in code"
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    # Bound to locals on purpose. `_reconfigurables` is a `WeakSet`, so an
+    # unbound instance is collected before the assertion runs and a count
+    # comparison passes whether or not `from_config` registered.
+    timeout = Timeout.from_config("door-timeout", TimeoutConfig(seconds=1))
+    retry = Retry.from_config("door-retry", RetryConfig(when=ValueError))
+    registered = reconfigurable_instances()
+    assert timeout not in registered, (
+        "Timeout.from_config registered the instance for live reload, so a "
+        "mounted file could overwrite a config passed in code"
+    )
+    assert retry not in registered, (
+        "Retry.from_config registered the instance for live reload, so a "
+        "mounted file could overwrite a config passed in code"
     )

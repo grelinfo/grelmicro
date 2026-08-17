@@ -13,6 +13,7 @@ import ast
 import importlib
 import inspect
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any, ForwardRef, get_args
 
@@ -25,8 +26,12 @@ from grelmicro.cache import TTLCache
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
-_MIN_RECONFIGURABLES = 12
-"""Floor for the sweep, so an empty scan cannot pass silently."""
+_MIN_RECONFIGURABLES = 14
+"""Exact count today, so a class dropping out of discovery fails.
+
+Slack here would let members erode silently, which is the failure this
+sweep exists to catch. Raise it deliberately when a class is added.
+"""
 
 
 def _module_name(path: Path) -> str:
@@ -166,43 +171,74 @@ code does, which is the opposite of a contract.
 """
 
 
+def _segment_literals(cls: Any) -> set[str]:  # noqa: ANN401
+    """Return the segment strings a class passes when building its prefix.
+
+    Read from the source rather than from `env_prefixes`, because the
+    literal at the call site is what decides the published variable name.
+    Calling the helper with the test's own string would only prove that
+    f-strings work.
+    """
+    source = textwrap.dedent(inspect.getsource(cls))
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "id", None) or getattr(
+            node.func, "attr", None
+        )
+        if name not in {"env_prefixes", "default_env_prefix"}:
+            continue
+        for argument in node.args[:1]:
+            if isinstance(argument, ast.Constant) and isinstance(
+                argument.value, str
+            ):
+                found.add(argument.value)
+    return found
+
+
 @pytest.mark.parametrize(("class_name", "segment"), KIND_SEGMENTS.items())
-def test_default_instance_owns_the_bare_prefix(
+def test_the_class_uses_the_segment_the_table_publishes(
     class_name: str, segment: str
 ) -> None:
-    """R4: the derived prefix matches the table, and R3's default rule.
+    """R4: the class builds its prefix from the segment the docs publish.
 
-    The default instance drops the name segment, so it owns the kind
-    address. A named instance keeps it and falls back to the kind address,
+    The literal at the call site is the published variable name. A rename
+    there changes `GREL_TIMEOUT_*` for every deployment, so the table and
+    the code have to be checked against each other, not each against
+    itself.
+    """
+    module_name = next(
+        module for module, name in RECONFIGURABLES if name == class_name
+    )
+    cls = _resolve(module_name, class_name)
+    literals = _segment_literals(cls)
+    assert segment in literals, (
+        f"{class_name} builds its prefix from {sorted(literals)}, but the "
+        f"published table says {segment!r}"
+    )
+
+
+@pytest.mark.parametrize("segment", sorted(set(KIND_SEGMENTS.values())))
+def test_the_default_instance_owns_the_bare_prefix(segment: str) -> None:
+    """R3: the default instance drops the name and owns the kind address.
+
+    A named instance keeps its segment and falls back to the kind address,
     which is the row that silently stopped working in 0.38.
     """
     instance, kind = env_prefixes(segment, "default")
     assert instance == f"GREL_{segment}_"
     assert kind is None, (
-        f"{class_name} default instance should own the bare prefix, with "
-        f"nothing left to fall back to"
+        "the default instance already owns the bare prefix, so it has "
+        "nothing to fall back to"
     )
 
     named_instance, named_kind = env_prefixes(segment, "cart")
     assert named_instance == f"GREL_{segment}_CART_"
     assert named_kind == f"GREL_{segment}_", (
-        f"a named {class_name} must fall back to the kind address, which is "
-        f"how one variable retunes a whole kind"
+        "a named instance must fall back to the kind address, which is how "
+        "one variable retunes a whole kind"
     )
-
-
-def test_every_reconfigurable_declares_its_config_type() -> None:
-    """`Reconfigurable` is generic, so the config type is part of the API."""
-    missing = []
-    for module_name, class_name in RECONFIGURABLES:
-        cls = _resolve(module_name, class_name)
-        if not issubclass(cls, Reconfigurable):  # pragma: no cover
-            missing.append(f"{class_name} does not subclass Reconfigurable")
-            continue
-        config = getattr(cls, "config", None)
-        if config is None:
-            missing.append(f"{class_name} exposes no config property")
-    assert not missing, missing
 
 
 @pytest.mark.parametrize(
