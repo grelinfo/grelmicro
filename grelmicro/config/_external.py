@@ -13,6 +13,7 @@ from typing_extensions import Doc
 from grelmicro._config import reconfigure_all
 from grelmicro._discovery import load_adapter
 from grelmicro.config.file import FileConfigAdapter
+from grelmicro.errors import SettingsValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -161,11 +162,14 @@ class ExternalConfig:
                 interval would poll without pause.
         """
         if config is None and secrets is None:
-            msg = "ExternalConfig requires a config source, a secrets source, or both"
-            raise ValueError(msg)
+            msg = (
+                "ExternalConfig requires a config source, a secrets "
+                "source, or both"
+            )
+            raise SettingsValidationError(msg)
         if reload_interval <= 0:
-            msg = f"reload_interval must be > 0, got {reload_interval}."
-            raise ValueError(msg)
+            msg = "reload_interval must be > 0"
+            raise SettingsValidationError(msg)
         self._config_src = (
             _coerce_source(config) if config is not None else None
         )

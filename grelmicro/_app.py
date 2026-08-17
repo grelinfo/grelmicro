@@ -1085,7 +1085,25 @@ class Grelmicro:
             return
         if not cast("Trace", component).active:
             # Auto-disabled Trace installs no provider, so there is nothing to
-            # bind auto-instrumentation to.
+            # bind auto-instrumentation to. The directive is still validated:
+            # otherwise a bad one opens cleanly in development, where no
+            # endpoint is set, and first raises on the deploy that sets one.
+            from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
+                KNOWN_FRAMEWORKS as _KNOWN_FRAMEWORKS,
+            )
+            from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
+                installed_instrumentors as _installed_instrumentors,
+            )
+            from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
+                validate_directive as _validate_directive,
+            )
+
+            _validate_directive(
+                cast("Trace", component).instrument,
+                {provider.short_name for provider in self.providers}
+                | _KNOWN_FRAMEWORKS
+                | _installed_instrumentors(),
+            )
             return
         from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
             KNOWN_FRAMEWORKS,

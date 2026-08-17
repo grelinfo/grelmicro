@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from grelmicro.errors import SettingsValidationError
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping
 
@@ -691,7 +693,7 @@ class TestConfigTypes:
     def test_rejects_non_string_scalars(self, entry: object) -> None:
         """`ip_network` accepts ints and bytes, which is not what we mean."""
         # Act / Assert
-        with pytest.raises(TypeError, match="Pass a string"):
+        with pytest.raises(SettingsValidationError, match="Pass a string"):
             TrustedProxies([entry])  # ty: ignore[invalid-argument-type]
 
 

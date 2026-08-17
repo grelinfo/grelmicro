@@ -213,6 +213,9 @@ class RetryConfig(
                 _resolve_fqn(item) if isinstance(item, str) else item
                 for item in value
             )
+            if not resolved:
+                msg = "when= is empty, name at least one exception class"
+                raise ValueError(msg)
             return Match.exception(*resolved)
         return _coerce_to_match(value)
 

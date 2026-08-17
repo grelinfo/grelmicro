@@ -220,10 +220,70 @@ class SettingsValidationError(GrelmicroError, ValueError):
             # raised `IndexError` and hid the real error.
             details = "\n".join(
                 f"- {'.'.join(str(part) for part in data['loc']) or '(config)'}"
-                f": {data['msg']}"
+                f": {_scrub(data['msg'], data.get('input'))}"
                 for data in error.errors(include_url=False)
             )
         else:
             details = error
 
         super().__init__(f"Could not validate settings:\n{details}")
+
+
+_REDACTED = "[redacted]"
+"""Stands in for a rejected value that a message would otherwise carry."""
+
+_MIN_REDACTED_LENGTH = 3
+"""Shortest fragment worth removing.
+
+Below this the fragment is as likely to be an article or an operator in the
+surrounding sentence as it is to be part of the rejected value, and removing
+it would garble the message without protecting anything.
+"""
+
+_FRAGMENT_SEPARATORS = ".,:;/\\@|=&? \t"
+"""Characters a message splits a value on before quoting one piece of it.
+
+Pydantic's `import_error` quotes only the module half of a dotted path, so
+removing the whole string is not enough on its own.
+"""
+
+
+def _fragments(value: object) -> set[str]:
+    """Return every string in `value`, plus the pieces each splits into.
+
+    Walks into mappings and sequences because a model-level validator
+    receives the whole config as its input, so the offending field sits
+    one level down.
+    """
+    found: set[str] = set()
+    if isinstance(value, str):
+        found.add(value)
+        piece = ""
+        for char in value:
+            if char in _FRAGMENT_SEPARATORS:
+                found.add(piece)
+                piece = ""
+            else:
+                piece += char
+        found.add(piece)
+    elif isinstance(value, dict):
+        for item in value.values():
+            found |= _fragments(item)
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            found |= _fragments(item)
+    return {item for item in found if len(item) >= _MIN_REDACTED_LENGTH}
+
+
+def _scrub(msg: str, value: object) -> str:
+    """Remove the rejected input from a message built elsewhere.
+
+    grelmicro's own validators are written not to name the value, but
+    pydantic builds some messages itself and puts the input in them:
+    `union_tag_invalid` quotes the tag, `import_error` quotes the module.
+    A third-party config class can do the same. This is the backstop that
+    holds rule R7 whoever wrote the message.
+    """
+    for fragment in sorted(_fragments(value), key=len, reverse=True):
+        msg = msg.replace(fragment, _REDACTED)
+    return msg

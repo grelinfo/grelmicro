@@ -98,16 +98,34 @@ follows the broadcast row: the bare prefix cannot tell "this instance's field"
 from "every instance's field", and an ambiguous address is not an unambiguous
 mistake.
 
-The rejected value is never echoed. A variable name is the operator's own,
-but its value can be a credential, so an error carries the name and the reason
-and stops there.
+The rejected value is never echoed, with no exceptions. A variable name is the
+operator's own, but its value can be a credential, so an error carries the name
+and the reason and stops there.
 
-Pydantic attaches the rejected input to every error it raises, for every field,
-whether or not anyone reviewed that field for secrets. Wrapping into
-`SettingsValidationError` is what removes it. A validator may still name a
-value on purpose where the field's domain is a public closed set and the value
-is the whole diagnostic, as an unknown timezone name does. That is a per-field
-decision, never the default.
+There is no closed-set exemption. It is tempting to argue that a field whose
+domain is public, such as a timezone name, can safely repeat what it rejected.
+The argument inverts on contact: the domain describes the values that are
+*accepted*, while the echoed string is by definition one that was not, which is
+arbitrary operator input. `GREL_TIMEZONE` is an app-wide variable every `Log`
+and `Tasks` reads, so a swapped variable puts a credential there.
+
+Name a *member* of the set instead. `did you mean 'Europe/Zurich'` diagnoses a
+typo better than repeating it does, and a member name can never be a secret.
+
+Three mechanisms keep this true, because one is not enough:
+
+1. Wrapping into `SettingsValidationError` drops the input pydantic attaches to
+   every error it raises, for every field, reviewed or not.
+2. grelmicro's own validators are written not to name the value.
+3. `SettingsValidationError` scrubs the input out of the message as a backstop,
+   including the fragments it splits into, because some messages are built by
+   pydantic (`union_tag_invalid` quotes the tag, `import_error` quotes the
+   module) or by a third-party config class.
+
+A validator raises `ValueError`, never `TypeError`. Pydantic converts only
+`ValueError` and `AssertionError` into a validation error, so a `TypeError`
+escapes `except SettingsValidationError` and `except ValueError` alike, and
+escapes the live-reload loop too.
 
 A name matching no declared field of any algorithm is ignored without report.
 Kubernetes injects `{SVCNAME}_SERVICE_HOST` into every pod, so grelmicro must
@@ -136,6 +154,8 @@ not.
 | `GREL_SHIELD_PROFILE` selects a preset, not an algorithm | Every profile declares the identical field names, so no variable gains or loses meaning from the choice | A profile adds or removes a field |
 | A Provider reads its vendor namespace, not `GREL_*` | Connection settings belong to the deployment, and every vendor already defines those names | grelmicro starts owning connection settings |
 | One `SettingsValidationError` for every class, no per-module subclass | No caller reacts differently to a bad value by module, and the message names the variable | A caller needs to branch on the module a config error came from |
+| The rejected value is never echoed, with no closed-set exemption | The echoed string is one the domain rejected, so it is arbitrary input whatever the field accepts | A field's input is bounded before it reaches the message |
+| A validator raises `ValueError`, never `TypeError` | Pydantic converts only `ValueError` and `AssertionError`, so a `TypeError` escapes every documented `except` | Pydantic converts `TypeError` too |
 
 ## `resolve_config()`
 

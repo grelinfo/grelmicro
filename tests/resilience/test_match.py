@@ -46,14 +46,14 @@ def test_exception_predicate() -> None:
 
 
 def test_exception_requires_arguments() -> None:
-    """Empty call raises ``TypeError``."""
-    with pytest.raises(TypeError, match="at least one"):
+    """Empty call raises ``ValueError``."""
+    with pytest.raises(ValueError, match="at least one"):
         Match.exception()
 
 
 def test_exception_rejects_non_exception_class() -> None:
-    """Non-exception class raises ``TypeError``."""
-    with pytest.raises(TypeError, match="exception classes"):
+    """Non-exception class raises ``ValueError``."""
+    with pytest.raises(ValueError, match="exception classes"):
         Match.exception(int)  # ty: ignore[invalid-argument-type]
 
 
@@ -151,7 +151,7 @@ def test_exception_cause_predicate() -> None:
 
 def test_exception_cause_requires_args() -> None:
     """Empty call raises."""
-    with pytest.raises(TypeError, match="at least one"):
+    with pytest.raises(ValueError, match="at least one"):
         Match.exception_cause()
 
 
@@ -252,7 +252,7 @@ def test_exception_cause_skips_when_returned() -> None:
 
 def test_exception_cause_rejects_non_exception_class() -> None:
     """Non-exception arg raises ``TypeError``."""
-    with pytest.raises(TypeError, match="exception classes"):
+    with pytest.raises(ValueError, match="exception classes"):
         Match.exception_cause(int)  # ty: ignore[invalid-argument-type]
 
 

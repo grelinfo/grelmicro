@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro.errors import SettingsValidationError
+
 if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
@@ -257,8 +259,8 @@ class TrustedProxies:
         _validate_positive("max_entries", max_entries)
         _validate_positive("max_header_bytes", max_header_bytes)
         if max_hops is not None and max_hops < 0:
-            msg = f"max_hops must be >= 0, got {max_hops}."
-            raise ValueError(msg)
+            msg = "max_hops must be >= 0"
+            raise SettingsValidationError(msg)
         self._networks = tuple(_compile_entry(entry) for entry in networks)
         self._max_hops = max_hops
         self._max_entries = max_entries
@@ -284,8 +286,8 @@ def _validate_positive(name: str, value: int) -> None:
         ValueError: If `value` is not greater than zero.
     """
     if value <= 0:
-        msg = f"{name} must be > 0, got {value}."
-        raise ValueError(msg)
+        msg = f"{name} must be > 0"
+        raise SettingsValidationError(msg)
 
 
 def _compile_entry(entry: str | IPAddress | IPNetwork) -> IPNetwork:
@@ -296,19 +298,19 @@ def _compile_entry(entry: str | IPAddress | IPNetwork) -> IPNetwork:
         return _canonical_network(ip_network(_canonical(entry)))
     if not isinstance(entry, str):
         msg = (
-            f"TrustedProxies got {entry!r} of type {type(entry).__name__}. "
+            f"TrustedProxies got a {type(entry).__name__} entry. "
             f"Pass a string, an ip_address, or an ip_network."
         )
-        raise TypeError(msg)
+        raise SettingsValidationError(msg)
     try:
         return _canonical_network(ip_network(entry))
-    except ValueError as error:
+    except ValueError:
         msg = (
-            f"TrustedProxies got {entry!r}, which is not an IP address or "
-            f"CIDR range: {error}. There is no wildcard, pass "
-            f'["0.0.0.0/0", "::/0"] to trust every peer.'
+            "TrustedProxies got an entry that is not an IP address or "
+            "CIDR range. There is no wildcard, pass "
+            '["0.0.0.0/0", "::/0"] to trust every peer.'
         )
-        raise ValueError(msg) from None
+        raise SettingsValidationError(msg) from None
 
 
 def _split_host_port(  # noqa: PLR0911

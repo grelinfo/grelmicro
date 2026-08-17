@@ -30,6 +30,7 @@ from grelmicro._diagnostics import (
 from grelmicro.errors import (
     BackendScopeError,
     BackendScopeWarning,
+    SettingsValidationError,
     UnknownEnvironmentWarning,
 )
 from grelmicro.types import BackendScope, Environment
@@ -79,8 +80,8 @@ _SCOPE_RANK: Final[dict[str, int]] = {
 """Scope by how far it shares, so `>=` answers whether a requirement is met."""
 
 _UNKNOWN_ENVIRONMENT_MESSAGE: Final = (
-    "%s=%r is not one of %s, so the backend check runs as if it were "
-    "undeclared."
+    "%s is set to a value that is not one of %s, so the backend check runs "
+    "as if it were undeclared."
 )
 """Report text, shared by the `warnings` and the `logging` channel."""
 
@@ -140,6 +141,10 @@ def resolve_environment(explicit: Environment | None) -> Environment | None:
     four tiers is reported once and read as undeclared.
     """
     if explicit is not None:
+        if explicit not in ENVIRONMENTS:
+            known = ", ".join(ENVIRONMENTS)
+            msg = f"environment= must be one of {known}"
+            raise SettingsValidationError(msg)
         return explicit
     value = os.environ.get(ENVIRONMENT_VAR, "").strip()
     if not value:
@@ -159,7 +164,7 @@ def _report_unknown_environment(value: str) -> None:
     known = ", ".join(ENVIRONMENTS)
     message = diagnostic(
         UNKNOWN_ENVIRONMENT,
-        _UNKNOWN_ENVIRONMENT_MESSAGE % (ENVIRONMENT_VAR, value, known),
+        _UNKNOWN_ENVIRONMENT_MESSAGE % (ENVIRONMENT_VAR, known),
     )
     warnings.warn(message, UnknownEnvironmentWarning, stacklevel=4)
     defer_report(
