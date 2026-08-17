@@ -262,7 +262,9 @@ class TrustedProxies:
         if max_hops is not None and max_hops < 0:
             msg = "max_hops must be >= 0"
             raise SettingsValidationError(msg)
-        self._networks = tuple(_compile_entry(entry) for entry in networks)
+        self._networks = tuple(
+            _compile_entry(entry, index) for index, entry in enumerate(networks)
+        )
         self._max_hops = max_hops
         self._max_entries = max_entries
         self._max_header_bytes = max_header_bytes
@@ -291,15 +293,20 @@ def _validate_positive(name: str, value: int) -> None:
         raise SettingsValidationError(msg)
 
 
-def _compile_entry(entry: str | IPAddress | IPNetwork) -> IPNetwork:
-    """Parse one trusted-set entry, or raise naming its position."""
+def _compile_entry(entry: str | IPAddress | IPNetwork, index: int) -> IPNetwork:
+    """Parse one trusted-set entry, or raise naming its position.
+
+    The position replaces the value the message used to carry. A trusted
+    set is often a long list, so an operator needs to know which entry
+    failed, and the index says that without repeating what they wrote.
+    """
     if isinstance(entry, (IPv4Network, IPv6Network)):
         return _canonical_network(entry)
     if isinstance(entry, (IPv4Address, IPv6Address)):
         return _canonical_network(ip_network(_canonical(entry)))
     if not isinstance(entry, str):
         msg = (
-            f"TrustedProxies got a {type(entry).__name__} entry. "
+            f"TrustedProxies entry #{index} is a {type(entry).__name__}. "
             f"Pass a string, an ip_address, or an ip_network."
         )
         raise SettingsValidationError(msg)
@@ -307,9 +314,9 @@ def _compile_entry(entry: str | IPAddress | IPNetwork) -> IPNetwork:
         return _canonical_network(ip_network(entry))
     except ValueError:
         msg = (
-            "TrustedProxies got an entry that is not an IP address or "
-            "CIDR range. There is no wildcard, pass "
-            '["0.0.0.0/0", "::/0"] to trust every peer.'
+            f"TrustedProxies entry #{index} is not an IP address or a "
+            f"CIDR range. There is no wildcard, pass "
+            f'["0.0.0.0/0", "::/0"] to trust every peer.'
         )
         raise SettingsValidationError(msg) from None
 
